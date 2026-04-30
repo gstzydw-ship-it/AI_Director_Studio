@@ -751,6 +751,54 @@ def _is_closeup_shot_size(value: str) -> bool:
     return bool(re.search(r"极特写|大特写|脸部特写|手部特写|眼部特写|特写镜头|^特写$", normalized))
 
 
+def _has_medium_or_relation_shot(value: str) -> bool:
+    normalized = (value or "").strip().lower()
+    keeper_tokens = [
+        "medium",
+        "medium shot",
+        "ms",
+        "mcu",
+        "medium close",
+        "medium-close",
+        "medium_close",
+        "waist",
+        "half",
+        "two shot",
+        "two-shot",
+        "two_shot",
+        "full",
+        "wide",
+        "半身",
+        "中景",
+        "中近景",
+        "双人",
+        "全景",
+        "远景",
+    ]
+    return any(token in normalized for token in keeper_tokens)
+
+
+def _is_micro_detail_subject(value: str) -> bool:
+    return bool(
+        re.search(
+            r"掌心|指尖|指节|手背|手腕|袖口|鞋尖|嘴唇|唇角|眼角|睫毛|发丝|下颌|喉结|衣角",
+            value or "",
+        )
+    )
+
+
+def _is_soft_shot_director_issue(issue: str) -> bool:
+    soft_markers = [
+        "特写使用过密",
+        "给多个微细节局部单独开镜头",
+    ]
+    return any(marker in issue for marker in soft_markers)
+
+
+def _hard_shot_director_issues(issues: list[str]) -> list[str]:
+    return [issue for issue in issues if not _is_soft_shot_director_issue(issue)]
+
+
 def _fragment_line_pattern() -> str:
     return r"^-?\s*fragment_id\s*:\s*[\"']?F[\w-]+[\"']?"
 
@@ -845,6 +893,51 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
         for field in ["shot_id", "subject", "camera", "size", "action", "intent"]:
             if not re.search(rf"^\s*-?\s*{field}\s*:", block, re.MULTILINE):
                 issues.append(f"{fragment_id} 的 shots 缺少字段 {field}。")
+
+    return issues
+
+
+def _validate_shot_director_vertical_discipline(director_output: str, aspect_ratio: str) -> list[str]:
+    """Validate 9:16 vertical framing discipline for shot director output.
+
+    Checks for:
+    - Not all close-up shots when multiple shots exist
+    - At most one facial close-up per fragment in 9:16
+    - Presence of medium/half/relation shots as primary coverage
+    - Avoiding excessive micro-detail subjects
+    """
+    if "9:16" not in (aspect_ratio or ""):
+        return []
+
+    issues: list[str] = []
+    for section in _extract_yaml_sections(director_output):
+        fragment_id = _extract_fragment_id(section) or "unknown"
+        shot_sizes = re.findall(
+            r"(?mi)^\s*shot_size\s*:\s*[\"']?([^\"\n#]+?)[\"']?\s*$",
+            section,
+        )
+        subjects = re.findall(
+            r"(?mi)^\s*subject\s*:\s*[\"']?([^\"\n#]+?)[\"']?\s*$",
+            section,
+        )
+        if not shot_sizes:
+            continue
+
+        closeup_count = sum(1 for item in shot_sizes if _is_closeup_shot_size(item))
+        medium_or_relation_count = sum(1 for item in shot_sizes if _has_medium_or_relation_shot(item))
+        micro_subject_count = sum(1 for item in subjects if _is_micro_detail_subject(item))
+
+        if len(shot_sizes) >= 2 and closeup_count == len(shot_sizes):
+            issues.append(f"{fragment_id} 在 9:16 里全部使用特写类景别，缺少半身/中景/关系镜头缓冲。")
+
+        if closeup_count > 1:
+            issues.append(f"{fragment_id} 在 9:16 里出现多次面部特写，特写使用过密。")
+
+        if len(shot_sizes) >= 2 and medium_or_relation_count == 0:
+            issues.append(f"{fragment_id} 在 9:16 里缺少半身/中景/双人关系景别作为主力镜头。")
+
+        if micro_subject_count > 1:
+            issues.append(f"{fragment_id} 给多个微细节局部单独开镜头，超出 9:16 竖屏所需的信息密度。")
 
     return issues
 
