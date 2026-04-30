@@ -1,0 +1,210 @@
+# 三段式镜头导演输出格式示例
+# 剧本片段：乔熙冲进电梯撞到商北琛
+
+---
+# ========== 一号：镜头摆位导演 (Layout) 输出 ==========
+
+segment_id: "SEG_01"
+segment_duration: "0-12s"
+source_script_events:
+  - "乔熙像风一般冲进电梯"
+  - "一个刹不住，整个人直扑到商北琛身上"
+  - "男人西装布料下的胸膛，坚实滚烫"
+
+fragment_intent: "建立乔熙的冒失主动与商北琛的沉稳掌控之间的权力反差，通过空间侵占制造肢体接触的戏剧性"
+
+continuity_anchor:
+  entry_state: "乔熙在电梯外，商北琛在电梯内，电梯门即将关闭"
+  exit_state: "乔熙扑入商北琛怀中，两人身体接触，电梯门已关闭"
+  spatial_lock: "电梯轿厢内，乔熙从外向内侵入商北琛的个人空间"
+  tailframe_role: "tailframe_action_peak"
+
+main_shots:
+  - shot_id: "F01-S01"
+    subject: "乔熙"
+    shot_size: "MS"  # 中景
+    camera_height: "eye_level"
+    angle: "3/4_front"
+    movement: "static"
+    lens: "35mm"
+    depth: "medium"
+    coverage_role: "建立乔熙的主动姿态和冲向电梯的急切"
+    cut_reason: "开场定场，交代乔熙的主体动作"
+    companion_visibility: "商北琛在电梯深处可见，但处于背景虚化"
+    tailframe_role: "none"
+    shot_intent: "乔熙冲向即将关闭的电梯门"
+    dialogue_coverage: "Wait a second!"
+    
+  - shot_id: "F01-S02"
+    subject: "双人"
+    shot_size: "MLS"  # 中全景
+    camera_height: "eye_level"
+    angle: "side_profile"
+    movement: "static"
+    lens: "28mm"
+    depth: "deep"
+    coverage_role: "交代空间关系和肢体接触的冲击力"
+    cut_reason: "动作中间态：乔熙身体前倾50%，即将接触商北琛"
+    companion_visibility: "双人同框，商北琛从背景变为主体之一"
+    tailframe_role: "tailframe_action_peak"
+    shot_intent: "乔熙扑入商北琛怀中，建立身体接触"
+    dialogue_coverage: "none"
+
+---
+# ========== 二号：动作调度导演 (Blocking) 输出 ==========
+
+reaction_coverage:
+  - trigger: "乔熙扑入商北琛怀中"
+    impact_moment: "身体接触瞬间"
+    receiver: "商北琛"
+    visible_reaction: "身体微微后仰，眼神从惊讶转为玩味"
+    landing_shot: "F01-S02主镜头内完成，不单独切镜"
+    
+  - trigger: "台词'Long time no see'"
+    impact_moment: "台词落点"
+    receiver: "乔熙"
+    visible_reaction: "从尴尬到惊讶的情绪转换"
+    landing_shot: "F01-S03子分镜"
+
+sub_shots:
+  - parent_shot_id: "F01-S02"
+    trigger: "乔熙抬头看向商北琛"
+    subject: "乔熙"
+    shot_size: "MCU"  # 中近景
+    cut_point: "乔熙视线从胸膛抬起的瞬间，动作完成约60%时"
+    action_phase: "mid_action"
+    duration_hint: "1.0-1.5s"
+    companion_visibility: "商北琛下巴和肩膀在画面上边缘可见"
+    state_delta: "乔熙从身体接触的慌乱转为认出对方的惊讶"
+    beat_purpose: "承接台词前的情绪铺垫"
+    emotion_anchor: "眼神从迷茫到聚焦"
+    
+  - parent_shot_id: "F01-S02"
+    trigger: "商北琛台词'Long time no see'"
+    subject: "商北琛"
+    shot_size: "CU"  # 近景
+    cut_point: "台词落点，'see'字出口时"
+    action_phase: "impact"
+    duration_hint: "1.5-2.0s"
+    companion_visibility: "乔熙头顶在画面下边缘，暗示身高差"
+    state_delta: "商北琛从被动承受到主动掌控，建立权力优势"
+    beat_purpose: "台词重音，建立商北琛的掌控感"
+    emotion_anchor: "嘴角微扬，眼神玩味"
+
+blocking_plan:
+  action_flow: "乔熙冲入 → 身体接触 → 抬头对视 → 台词压制"
+  rhythm_pattern: "快(冲入) → 停(接触) → 慢(对视) → 稳(台词)"
+  state_chain:
+    - "乔熙主动冲向电梯"
+    - "乔熙身体失衡扑向商北琛"
+    - "两人身体接触，空间侵占完成"
+    - "乔熙抬头，视线接触"
+    - "商北琛台词建立权力优势"
+
+event_coverage:
+  - event: "乔熙像风一般冲进电梯"
+    covered_by: "F01-S01 → F01-S02"
+    coverage_type: "动作连续"
+    
+  - event: "整个人直扑到商北琛身上"
+    covered_by: "F01-S02主镜头 + F01-S03子分镜"
+    coverage_type: "动作+反应"
+    
+  - event: "男人西装布料下的胸膛，坚实滚烫"
+    covered_by: "F01-S02双人镜头 + F01-S03乔熙视角"
+    coverage_type: "触觉暗示通过视觉呈现"
+
+---
+# ========== 三号：规则守门导演 (Guard) 输出 ==========
+
+guard_checklist:
+  structure_completeness:
+    - item: "fragment_id"
+      status: "pass"
+    - item: "fragment_intent"
+      status: "pass"
+    - item: "continuity_anchor"
+      status: "pass"
+    - item: "main_shots"
+      status: "pass"
+    - item: "reaction_coverage"
+      status: "pass"
+    - item: "sub_shots"
+      status: "pass"
+      
+  script_fidelity:
+    - check: "无剧本外台词"
+      status: "pass"
+    - check: "无剧本外人物"
+      status: "pass"
+    - check: "事件全覆盖"
+      status: "pass"
+      
+  vertical_discipline_9_16:
+    - check: "特写数量"
+      status: "pass"
+      detail: "仅F01-S04一个特写，符合限额"
+    - check: "主力镜头景别"
+      status: "pass"
+      detail: "MS/MLS为主，符合竖屏关系优先原则"
+    - check: "微细节禁令"
+      status: "pass"
+      detail: "无指尖/嘴唇/眼角等微细节独立镜头"
+      
+  sub_shots_validation:
+    - check: "parent_shot_id完整性"
+      status: "pass"
+      detail: "F01-S03→F01-S02, F01-S04→F01-S02"
+    - check: "无漂浮子分镜"
+      status: "pass"
+    - check: "子分镜数量"
+      status: "pass"
+      detail: "2个子分镜，未超限额"
+      
+  cut_timing_validation:
+    - check: "动作匹配剪辑"
+      status: "pass"
+      detail: "F01-S01→F01-S02切在乔熙身体前倾50%时，符合50%-70%规则"
+    - check: "切镜锚点"
+      status: "pass"
+      detail: "所有切镜都有动作/视线锚点"
+    - check: "隐性切镜"
+      status: "pass"
+      detail: "无'同一机位继续'伪装切镜"
+
+minimal_repairs: []  # 无需修复
+
+final_output_status: "approved"
+
+---
+# ========== 下游：Prompt Compiler 输入 ==========
+
+compiled_prompt:
+  segment: "SEG_01: 乔熙冲入电梯"
+  duration: "0-12s"
+  
+  timeline:
+    - time: "0-4s"
+      shot: "F01-S01"
+      description: "摄影机位于乔熙右前方眼平，35mm，稳定。乔熙中景，面向电梯门，右手向前伸出，喊出'Wait a second!'。商北琛在电梯深处可见，背景轻虚。"
+      
+    - time: "4-8s"
+      shot: "F01-S02"
+      description: "摄影机切至电梯侧面，28mm中全景。乔熙身体前倾约50%，即将接触商北琛。商北琛站立不动，双手自然下垂。电梯门在背景中完全关闭。"
+      
+    - time: "8-9.5s"
+      shot: "F01-S03 (sub)"
+      description: "同一机位继续，推至乔熙中近景。乔熙视线从商北琛胸膛向上抬起，动作完成约60%，眼神从慌乱转为惊讶。商北琛下巴在画面上边缘可见。"
+      
+    - time: "9.5-12s"
+      shot: "F01-S04 (sub)"
+      description: "切至商北琛近景。台词'Long time no see'落点，嘴角微扬，眼神玩味。乔熙头顶在画面下边缘，暗示身高差和权力落差。"
+
+  continuity_notes:
+    - "尾帧停在商北琛台词落点，建立权力优势状态"
+    - "下一段从商北琛继续台词或乔熙反应开始"
+    
+  seedance_constraints:
+    - "总切镜数: 3次 (符合13-15秒预算)"
+    - "无隐性切镜"
+    - "所有切镜都有明确锚点"
