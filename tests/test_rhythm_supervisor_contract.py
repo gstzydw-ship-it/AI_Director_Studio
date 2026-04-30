@@ -6,30 +6,30 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def test_rhythm_supervisor_does_not_replace_source_script(monkeypatch):
-    import agents.director_graph as dg
+    from agents.director_graph_package import legacy_impl, nodes
 
     original_script = "乔熙：Wait a second!\n商北琛扶住她。"
 
     monkeypatch.setattr(
-        dg,
+        legacy_impl,
         "build_system_prompt",
         lambda prompt, agent_name, context_hint="": (prompt, {"retrieval_mode": "test"}),
     )
     monkeypatch.setattr(
-        dg,
+        legacy_impl,
         "call_llm",
         lambda *args, **kwargs: "rhythm_diagnosis: F01 保持快速进入；construction_notes: 普通反应留在片段内部。",
     )
-    monkeypatch.setattr(dg, "_record_knowledge_metadata", lambda *args, **kwargs: {})
+    monkeypatch.setattr(legacy_impl, "_record_knowledge_metadata", lambda *args, **kwargs: {})
 
     def fake_persist(state, payload):
         merged = dict(state)
         merged.update(payload)
         return merged
 
-    monkeypatch.setattr(dg, "_persist_update", fake_persist)
+    monkeypatch.setattr(legacy_impl, "_persist_update", fake_persist)
 
-    result = dg.rhythm_rewrite_director_node(
+    result = nodes.rhythm_rewrite_director_node(
         {
             "script": original_script,
             "aspect_ratio": "9:16",

@@ -9,7 +9,8 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 
-from agents.director_graph import (  # noqa: E402
+from agents.director_graph_package import story_planner_impl as spi  # noqa: E402
+from agents.director_graph_package.story_planner_impl import (  # noqa: E402
     _extract_segments,
     _extract_yaml_sections,
     _normalise_story_planner_output,
@@ -196,8 +197,6 @@ def test_story_planner_normalises_complex_fragment_ids_to_runtime_contract():
 
 
 def test_story_planner_repairs_short_non_yaml_output(monkeypatch):
-    import agents.director_graph as dg
-
     calls = {"n": 0, "repair_prompt": ""}
 
     def fake_call_llm(system_prompt, user_prompt, **kwargs):
@@ -207,7 +206,7 @@ def test_story_planner_repairs_short_non_yaml_output(monkeypatch):
         calls["repair_prompt"] = user_prompt
         return LIGHTWEIGHT_YAML
 
-    monkeypatch.setattr(dg, "call_llm", fake_call_llm)
+    monkeypatch.setattr(spi, "call_llm", fake_call_llm)
 
     output, attempts = _run_story_planner_with_schema_repair(
         system_prompt="system",
@@ -248,9 +247,7 @@ def test_story_planner_rejects_source_events_not_in_script(monkeypatch):
     def fail_if_called(*_args, **_kwargs):
         raise AssertionError("source_script_events must be checked locally")
 
-    import agents.director_graph as dg
-
-    monkeypatch.setattr(dg, "call_llm", fail_if_called)
+    monkeypatch.setattr(spi, "call_llm", fail_if_called)
 
     issues = _validate_story_planner_output(
         _normalise_story_planner_output(planner_output),
@@ -281,9 +278,7 @@ def test_story_planner_rejects_paraphrased_source_events_without_llm(monkeypatch
     def fail_if_called(*_args, **_kwargs):
         raise AssertionError("source_script_events must be checked locally")
 
-    import agents.director_graph as dg
-
-    monkeypatch.setattr(dg, "call_llm", fail_if_called)
+    monkeypatch.setattr(spi, "call_llm", fail_if_called)
 
     issues = _validate_story_planner_output(
         _normalise_story_planner_output(planner_output),
@@ -387,8 +382,6 @@ def test_story_planner_granularity_rules_state_merge_policy():
 
 
 def test_story_planner_agent_validator_can_release_soft_density_warning(monkeypatch):
-    import agents.director_graph as dg
-
     events = [f"Event {i}." for i in range(1, 13)]
     dense_yaml = "\n".join(
         [
@@ -420,8 +413,8 @@ def test_story_planner_agent_validator_can_release_soft_density_warning(monkeypa
         calls["story"] += 1
         return dense_yaml
 
-    monkeypatch.setattr(dg, "_agent_configured", fake_agent_configured)
-    monkeypatch.setattr(dg, "call_llm", fake_call_llm)
+    monkeypatch.setattr(spi, "_agent_configured", fake_agent_configured)
+    monkeypatch.setattr(spi, "call_llm", fake_call_llm)
 
     output, attempts = _run_story_planner_with_schema_repair(
         system_prompt="system",

@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import legacy_impl as _impl
+from . import story_planner_impl as _story_planner_impl
 
 
 def rhythm_rewrite_director_node(state: Any) -> Any:
@@ -19,7 +20,7 @@ def scene_analyst_node(state: Any) -> Any:
 
 
 def story_planner_node(state: Any) -> Any:
-    return _impl.story_planner_node(state)
+    return _story_planner_impl.story_planner_node(state)
 
 
 def shot_director_node(state: Any) -> Any:

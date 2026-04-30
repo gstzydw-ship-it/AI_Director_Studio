@@ -1,4 +1,4 @@
-﻿"""
+"""
 LangGraph director workflow.
 
 This module keeps the existing specialist prompts and knowledge files, but moves
@@ -4203,12 +4203,6 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         "4. 反应归属只做高层判断：留在本段、下一段承接、无需独立反应。具体怎么拍由后续镜头导演处理。\n"
         "5. continuity 只写会影响下一段首帧/角色位置/道具状态/门电梯状态的关键信息。\n\n"
         f"{_story_planner_granularity_rules()}\n"
-        "【片段密度硬约束——细化颗粒度防臃肿】\n"
-        "A. 必须提高拆片颗粒度。一集短剧应拆分为 5-6 个片段，每个片段只负责一个小动作单元或一轮简短对话。\n"
-        "B. 单段 source_script_events 绝对不能超过 8 条，否则下游视频大模型会因为信息过载而崩塌；如果超过，必须砍断拆成两段。\n"
-        "C. 单段 source_script_events 最佳区间是 3-6 条。短小精悍的片段能让后续镜头导演和视频生成引擎更专注。\n"
-        "D. 同一片段禁止塞入多轮问答。例如：A说完核心台词，B做反应，这就已经足够作为一个独立的片段了，必须切断进入下一片段！\n"
-        "E. 如果你整集拆出来的片段少于 4 段，说明你拆得太粗糙了，必须把长对话和复杂的连续动作切碎！\n\n"
         f"{_script_fidelity_rules()}"
         f"{_story_planner_rhythm_boundary_rules()}"
         "11. source_script_events 必须逐条引用原剧本原文，不得改写、概括或补写剧本外动作。\n"

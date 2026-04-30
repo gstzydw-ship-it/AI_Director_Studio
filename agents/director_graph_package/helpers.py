@@ -1716,7 +1716,7 @@ def _run_shot_director_review_board(*args: Any, **kwargs: Any) -> tuple[str, dic
 
 def _run_story_planner_with_schema_repair(*args: Any, **kwargs: Any) -> Any:
     """Package-local compatibility entry for the migrated planner repair flow."""
-    from .legacy_impl import _run_story_planner_with_schema_repair as _impl
+    from .story_planner_impl import _run_story_planner_with_schema_repair as _impl
 
     return _impl(*args, **kwargs)
 
@@ -1726,4 +1726,5 @@ def _run_llm_quality_inspector(*args: Any, **kwargs: Any) -> Any:
     from .legacy_impl import _run_llm_quality_inspector as _impl
 
     return _impl(*args, **kwargs)
+
 
