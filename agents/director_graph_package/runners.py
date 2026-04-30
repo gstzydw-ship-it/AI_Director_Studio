@@ -1,37 +1,73 @@
-﻿"""Temporary package-local runner compatibility stubs.
-
-No reverse import to the monolith module.
-"""
+"""Package runner entry points backed by the migrated director implementation."""
 from __future__ import annotations
 
 from typing import Any
 
+from . import legacy_impl as _impl
 
-def _not_split_yet(name: str):
-    def _raise(*args: Any, **kwargs: Any) -> Any:
-        raise NotImplementedError(
-            f"{name} has not been migrated into the package yet. "
-            "This compatibility stub exists only to avoid monolith coupling."
-        )
-    return _raise
+
+def _sync_package_graph_api() -> None:
+    from .graph_api import create_director_graph
+
+    _impl.create_director_graph = create_director_graph
+
+
+def route_after_qc(state: Any) -> Any:
+    return _impl.route_after_qc(state)
+
+
+def route_after_segment(state: Any) -> Any:
+    return _impl.route_after_segment(state)
+
+
+def _config(*args: Any, **kwargs: Any) -> Any:
+    return _impl._config(*args, **kwargs)
+
+
+def _invoke_graph(*args: Any, **kwargs: Any) -> Any:
+    _sync_package_graph_api()
+    return _impl._invoke_graph(*args, **kwargs)
+
+
+def _normalise_graph_result(*args: Any, **kwargs: Any) -> Any:
+    return _impl._normalise_graph_result(*args, **kwargs)
+
+
+def _merge_state_update(*args: Any, **kwargs: Any) -> Any:
+    return _impl._merge_state_update(*args, **kwargs)
+
+
+def _prepare_phase_2_compile_state(*args: Any, **kwargs: Any) -> Any:
+    return _impl._prepare_phase_2_compile_state(*args, **kwargs)
+
+
+def _run_phase_2_compile_direct(*args: Any, **kwargs: Any) -> Any:
+    return _impl._run_phase_2_compile_direct(*args, **kwargs)
 
 
 def run_phase_1_planning(*args: Any, **kwargs: Any) -> Any:
-    return {"status": "package_stub", "phase": 1, "args": args, "kwargs": kwargs}
+    _sync_package_graph_api()
+    return _impl.run_phase_1_planning(*args, **kwargs)
 
 
 def run_phase_2_compile_segment(*args: Any, **kwargs: Any) -> Any:
-    return {"status": "package_stub", "phase": 2, "args": args, "kwargs": kwargs}
+    _sync_package_graph_api()
+    return _impl.run_phase_2_compile_segment(*args, **kwargs)
 
 
-run_full_pipeline = _not_split_yet("run_full_pipeline")
-run_shot_director_resume_from_partial = _not_split_yet("run_shot_director_resume_from_partial")
-run_shot_director_restart_from_story_plan = _not_split_yet("run_shot_director_restart_from_story_plan")
-route_after_qc = _not_split_yet("route_after_qc")
-route_after_segment = _not_split_yet("route_after_segment")
-_config = _not_split_yet("_config")
-_invoke_graph = _not_split_yet("_invoke_graph")
-_normalise_graph_result = _not_split_yet("_normalise_graph_result")
+def run_full_pipeline(*args: Any, **kwargs: Any) -> Any:
+    _sync_package_graph_api()
+    return _impl.run_full_pipeline(*args, **kwargs)
+
+
+def run_shot_director_resume_from_partial(*args: Any, **kwargs: Any) -> Any:
+    _sync_package_graph_api()
+    return _impl.run_shot_director_resume_from_partial(*args, **kwargs)
+
+
+def run_shot_director_restart_from_story_plan(*args: Any, **kwargs: Any) -> Any:
+    _sync_package_graph_api()
+    return _impl.run_shot_director_restart_from_story_plan(*args, **kwargs)
 
 
 __all__ = [
@@ -45,4 +81,7 @@ __all__ = [
     "_config",
     "_invoke_graph",
     "_normalise_graph_result",
+    "_merge_state_update",
+    "_prepare_phase_2_compile_state",
+    "_run_phase_2_compile_direct",
 ]

@@ -1715,11 +1715,15 @@ def _run_shot_director_review_board(*args: Any, **kwargs: Any) -> tuple[str, dic
 
 
 def _run_story_planner_with_schema_repair(*args: Any, **kwargs: Any) -> Any:
-    """Package-local compatibility stub for prompting imports."""
-    raise NotImplementedError("_run_story_planner_with_schema_repair has not been migrated into the package yet.")
+    """Package-local compatibility entry for the migrated planner repair flow."""
+    from .legacy_impl import _run_story_planner_with_schema_repair as _impl
+
+    return _impl(*args, **kwargs)
 
 
 def _run_llm_quality_inspector(*args: Any, **kwargs: Any) -> Any:
-    """Package-local compatibility stub for helper ownership checks."""
-    raise NotImplementedError("_run_llm_quality_inspector has not been migrated into the package yet.")
+    """Package-local compatibility entry for the migrated LLM quality inspector."""
+    from .legacy_impl import _run_llm_quality_inspector as _impl
+
+    return _impl(*args, **kwargs)
 

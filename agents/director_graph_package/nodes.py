@@ -1,31 +1,49 @@
-﻿"""Temporary package-local node compatibility stubs.
-
-No reverse import to the monolith module.
-"""
+"""Package node entry points backed by the migrated director implementation."""
 from __future__ import annotations
 
 from typing import Any
 
-
-def _not_split_yet(name: str):
-    def _raise(*args: Any, **kwargs: Any) -> Any:
-        raise NotImplementedError(
-            f"{name} has not been migrated into the package yet. "
-            "This compatibility stub exists only to avoid monolith coupling."
-        )
-    return _raise
+from . import legacy_impl as _impl
 
 
-rhythm_rewrite_director_node = _not_split_yet("rhythm_rewrite_director_node")
-director_showrunner_node = _not_split_yet("director_showrunner_node")
-scene_analyst_node = _not_split_yet("scene_analyst_node")
-story_planner_node = _not_split_yet("story_planner_node")
-shot_director_node = _not_split_yet("shot_director_node")
-wait_for_segment_request_node = _not_split_yet("wait_for_segment_request_node")
-prompt_compiler_node = _not_split_yet("prompt_compiler_node")
-quality_inspector_node = _not_split_yet("quality_inspector_node")
-qc_router_node = _not_split_yet("qc_router_node")
-segment_complete_node = _not_split_yet("segment_complete_node")
+def rhythm_rewrite_director_node(state: Any) -> Any:
+    return _impl.rhythm_rewrite_director_node(state)
+
+
+def director_showrunner_node(state: Any) -> Any:
+    return _impl.director_showrunner_node(state)
+
+
+def scene_analyst_node(state: Any) -> Any:
+    return _impl.scene_analyst_node(state)
+
+
+def story_planner_node(state: Any) -> Any:
+    return _impl.story_planner_node(state)
+
+
+def shot_director_node(state: Any) -> Any:
+    return _impl.shot_director_node(state)
+
+
+def wait_for_segment_request_node(state: Any) -> Any:
+    return _impl.wait_for_segment_request_node(state)
+
+
+def prompt_compiler_node(state: Any) -> Any:
+    return _impl.prompt_compiler_node(state)
+
+
+def quality_inspector_node(state: Any) -> Any:
+    return _impl.quality_inspector_node(state)
+
+
+def qc_router_node(state: Any) -> Any:
+    return _impl.qc_router_node(state)
+
+
+def segment_complete_node(state: Any) -> Any:
+    return _impl.segment_complete_node(state)
 
 
 __all__ = [
