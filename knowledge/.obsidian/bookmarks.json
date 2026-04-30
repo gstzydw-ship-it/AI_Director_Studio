@@ -1,0 +1,34 @@
+{
+  "items": [
+    {
+      "type": "file",
+      "ctime": 0,
+      "path": "_Dashboard_知识库首页.md",
+      "title": "知识库首页"
+    },
+    {
+      "type": "file",
+      "ctime": 0,
+      "path": "_indexes/Agent规则索引.md",
+      "title": "Agent 规则索引"
+    },
+    {
+      "type": "file",
+      "ctime": 0,
+      "path": "_indexes/冲突与废弃规则检查.md",
+      "title": "冲突与废弃检查"
+    },
+    {
+      "type": "file",
+      "ctime": 0,
+      "path": "_indexes/运行时检索范围.md",
+      "title": "运行时检索范围"
+    },
+    {
+      "type": "file",
+      "ctime": 0,
+      "path": "_indexes/按规则类型索引.md",
+      "title": "按规则类型索引"
+    }
+  ]
+}

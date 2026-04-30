@@ -1,0 +1,91 @@
+agent_models:
+  director_showrunner:
+    base_url: http://8.nat0.cn:49347/v1
+    model: claude-opus-4-6
+    temperature: 0.2
+    timeout_seconds: 180
+  prompt_compiler:
+    base_url: http://8.nat0.cn:49347/v1
+    model: claude-opus-4-6
+    temperature: 0.3
+    timeout_seconds: 180
+    max_retries: 3
+  quality_inspector:
+    base_url: http://8.nat0.cn:49347/v1
+    model: claude-opus-4-6
+    temperature: 0.1
+  rhythm_rewrite_director:
+    base_url: http://8.nat0.cn:49347/v1
+    model: claude-opus-4-6
+    temperature: 0.2
+    timeout_seconds: 180
+    max_retries: 3
+  scene_analyst:
+    base_url: http://8.nat0.cn:49347/v1
+    model: claude-opus-4-6
+    temperature: 0.1
+  script_event_validator:
+    base_url: http://8.nat0.cn:49347/v1
+    model: claude-opus-4-6
+    temperature: 0.0
+  shot_director:
+    base_url: http://8.nat0.cn:49347/v1
+    model: claude-opus-4-6
+    temperature: 0.3
+    timeout_seconds: 180
+    max_retries: 3
+  story_planner:
+    base_url: http://8.nat0.cn:49347/v1
+    model: claude-opus-4-6
+    temperature: 0.2
+    timeout_seconds: 240
+  video_analyst:
+    base_url: http://8.nat0.cn:49347/v1
+    model: claude-opus-4-6
+    temperature: 0.1
+knowledge:
+  bm25_top_k: 10
+  directory: ./knowledge
+  final_top_k: 8
+  min_chunks_fallback: 3
+  registry_top_k: 4
+  retrieval_mode: hybrid
+  vector_top_k: 10
+llm:
+  api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+  base_url: http://8.nat0.cn:49347/v1
+  max_tokens: 8192
+  max_retries: 2
+  model: claude-opus-4-6
+  provider: openai
+  temperature: 0.3
+  timeout_seconds: 120
+mcp:
+  enabled: true
+  fallback_enabled: true
+  timeout_seconds: 180
+  log_tool_details: false
+  agents:
+    story_planner:
+      enabled: true
+      server_type: sequential
+    shot_director:
+      enabled: true
+      server_type: memory
+    prompt_compiler:
+      enabled: false
+      server_type: filesystem
+  filesystem_roots:
+  - ./knowledge
+  - ./output/sessions
+output:
+  directory: ./output
+ui:
+  host: 127.0.0.1
+  port: 8686
+vectordb:
+  api_key: ${DIRECTOR_EMBEDDING_API_KEY}
+  base_url: https://ai.comfly.chat/v1
+  chunk_overlap: 100
+  chunk_size: 800
+  collection_name: director_knowledge

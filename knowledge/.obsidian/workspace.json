@@ -1,0 +1,192 @@
+{
+  "main": {
+    "id": "69f85cbded20a3a6",
+    "type": "split",
+    "children": [
+      {
+        "id": "f9e4bafe0f9d1fc1",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "30691b76d55083af",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "11_场景分析输入卡与导演意图提取.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "11_场景分析输入卡与导演意图提取"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "c016127dc5ca0e54",
+    "type": "split",
+    "children": [
+      {
+        "id": "ebca6343d40bb9ea",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "e7b43b3b7f1a8e99",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "文件列表"
+            }
+          },
+          {
+            "id": "3f5f3d5d510a9c89",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "搜索"
+            }
+          },
+          {
+            "id": "ddae04836b915913",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "书签"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "6cc4439a4089d0b0",
+    "type": "split",
+    "children": [
+      {
+        "id": "943f7a30c902069e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "bbd08c75bf8e463a",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "11_场景分析输入卡与导演意图提取.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "11_场景分析输入卡与导演意图提取 的反向链接列表"
+            }
+          },
+          {
+            "id": "54046cd558f9841a",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "11_场景分析输入卡与导演意图提取.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "11_场景分析输入卡与导演意图提取 的出链列表"
+            }
+          },
+          {
+            "id": "17a4a9334e458f4e",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "标签"
+            }
+          },
+          {
+            "id": "7585fa8418ba5c8a",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "添加笔记属性"
+            }
+          },
+          {
+            "id": "cbae0fa2b6535d40",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "11_场景分析输入卡与导演意图提取.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "11_场景分析输入卡与导演意图提取 的大纲"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:打开快速切换": false,
+      "graph:查看关系图谱": false,
+      "canvas:新建白板": false,
+      "templates:插入模板": false,
+      "command-palette:打开命令面板": false,
+      "bases:新建数据库": false,
+      "templater-obsidian:Templater": false
+    }
+  },
+  "active": "30691b76d55083af",
+  "lastOpenFiles": [
+    "07_Seedance输出词典与模型适配.md",
+    "00_知识库优先级与冲突裁决规则.md",
+    "_Dashboard_知识库首页.md"
+  ]
+}

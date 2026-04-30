@@ -1,0 +1,39 @@
+---
+rule_id: LAYOUT-SHOTID-STABILITY-001
+title: 主分镜骨架必须先锁定稳定 shot_id
+doc_type: rule_card
+rule_type: shot_layout_identity
+agent_scope:
+  - shot_director_layout
+priority: hard
+status: active
+runtime_retrieval: true
+source_files:
+  - knowledge/25_镜头摆位主分镜骨架规则.md
+  - knowledge/21_镜头调用规则与多机位模板.md
+conflicts_with: []
+supersedes: []
+applies_to:
+  - shot_id
+  - main_shots
+  - 下游交接
+---
+
+# 主分镜骨架必须先锁定稳定 shot_id
+
+## 规则
+
+镜头摆位阶段输出的每个 `main_shot` 都必须先给出稳定的 `shot_id`。
+
+这个 `shot_id` 是给后续动作调度导演和规则守门导演接力用的，所以要求：
+
+- 同一片段内按顺序递增
+- 不要随意跳号
+- 不要今天叫 `F05-S01`，下一次又改成 `F05-A`
+- 不要为了补细节临时重排全部主镜头编号
+
+## 禁止
+
+- 把还没确定的局部重音也占掉主镜头编号
+- 用模糊编号让下游无法挂接 `parent_shot_id`
+- 为了美观改名，破坏后续 agent 的稳定输入

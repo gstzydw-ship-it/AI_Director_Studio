@@ -1,0 +1,10 @@
+{
+  "alwaysUpdateLinks": true,
+  "attachmentFolderPath": "_assets",
+  "newFileLocation": "current",
+  "promptDelete": false,
+  "readableLineLength": false,
+  "showFrontmatter": true,
+  "showLineNumber": true,
+  "showUnsupportedFiles": true
+}

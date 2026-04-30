@@ -1,0 +1,587 @@
+from __future__ import annotations
+
+import os
+import re
+import time
+from datetime import datetime
+from typing import Any
+
+from agents.knowledge_base import get_agent_knowledge_files as _kb_get_agent_knowledge_files
+
+from .llm import _get_llm_settings, call_llm
+from .types import DirectorState, OUTPUT_DIR
+
+
+def get_agent_knowledge_files(agent_name: str, critical_only: bool = False):
+    return _kb_get_agent_knowledge_files(agent_name, critical_only=critical_only)
+
+
+def _validate_story_planner_output(planner_output: str, script: str = "") -> list[str]:
+    from agents.director_graph import (
+        _extract_fragment_id,
+        _extract_yaml_sections,
+        _has_planner_field_any,
+        _llm_validate_source_events,
+        _story_planner_fragment_granularity_issues,
+    )
+
+    issues: list[str] = []
+    sections = _extract_yaml_sections(planner_output)
+    if not sections:
+        return ["story_planner 未输出可解析的 fragment_id 分段。"]
+
+    required_fields = [
+        "fragment_id",
+        "duration_target",
+        "dramatic_unit",
+        "source_script_events",
+        "reaction_plan",
+        "director_brief",
+    ]
+    source_script = script or ""
+    for section in sections:
+        fragment_id = _extract_fragment_id(section) or "unknown"
+        if not re.fullmatch(r"F\d{2}", fragment_id):
+            issues.append(f"{fragment_id} 片段编号不符合 F01/F02 顺序契约。")
+        for field in required_fields:
+            if not re.search(rf"{field}\s*:", section):
+                issues.append(f"{fragment_id} 缺少字段 {field}。")
+        if not _has_planner_field_any(section, ("cast", "active_cast")):
+            issues.append(f"{fragment_id} 缺少字段 cast（或兼容字段 active_cast）。")
+        if not _has_planner_field_any(section, ("continuity", "state_contract")):
+            issues.append(f"{fragment_id} 缺少字段 continuity（或兼容字段 state_contract）。")
+
+    issues.extend(_story_planner_fragment_granularity_issues(planner_output))
+
+    if source_script:
+        event_issues = _llm_validate_source_events(sections, source_script)
+        issues.extend(event_issues)
+
+    return issues
+
+
+def _compiler_guard_report(prompt: str, script: str, planner_segment: str, director_segment: str) -> str:
+    from agents.director_graph import _compiler_guard_report as _impl
+
+    return _impl(prompt, script, planner_segment, director_segment)
+
+
+def _run_story_planner_with_schema_repair(*, system_prompt: str, user_prompt: str, original_script: str, scene_output: str):
+    from agents.director_graph import _run_story_planner_with_schema_repair as _impl
+
+    return _impl(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        original_script=original_script,
+        scene_output=scene_output,
+    )
+
+
+def _run_shot_director_single_pass(
+    *,
+    script: str,
+    planner_output: str,
+    atmosphere_strategy: str,
+    aspect_ratio: str,
+    expected_segments: list[str],
+    images_base64,
+    director_hint: str,
+    director_brief: str,
+    stage_callback,
+    resume_stage_outputs,
+    resume_stage_runtime,
+    resume_stage_meta,
+):
+    from agents.director_graph import _run_shot_director_single_pass as _impl
+
+    return _impl(
+        script=script,
+        planner_output=planner_output,
+        atmosphere_strategy=atmosphere_strategy,
+        aspect_ratio=aspect_ratio,
+        expected_segments=expected_segments,
+        images_base64=images_base64,
+        director_hint=director_hint,
+        director_brief=director_brief,
+        stage_callback=stage_callback,
+        resume_stage_outputs=resume_stage_outputs,
+        resume_stage_runtime=resume_stage_runtime,
+        resume_stage_meta=resume_stage_meta,
+    )
+
+
+def _run_llm_quality_inspector(
+    *,
+    script: str,
+    prompt: str,
+    planner_segment: str,
+    director_segment: str,
+    segment_index: int,
+    rule_based_issues: list[str],
+):
+    from agents.director_graph import _run_llm_quality_inspector as _impl
+
+    return _impl(
+        script=script,
+        prompt=prompt,
+        planner_segment=planner_segment,
+        director_segment=director_segment,
+        segment_index=segment_index,
+        rule_based_issues=rule_based_issues,
+    )
+
+
+def _run_shot_director_review_board(*, script: str, planner_output: str, director_brief: str, primary_output: str, images_base64):
+    from agents.director_graph import _run_shot_director_review_board as _impl
+
+    return _impl(
+        script=script,
+        planner_output=planner_output,
+        director_brief=director_brief,
+        primary_output=primary_output,
+        images_base64=images_base64,
+    )
+
+
+def _agent_outputs(state: DirectorState) -> dict[str, str]:
+    return dict(state.get("agent_outputs") or {})
+
+
+def _fragment_line_pattern() -> str:
+    return r"^-?\s*fragment_id\s*:\s*[\"']?F[\w-]+[\"']?"
+
+
+
+def _clean_shot_director_output(text: str) -> str:
+    """Strip thinking/prose wrappers and keep the YAML payload."""
+    if not text:
+        return ""
+
+    cleaned = re.sub(r"(?is)<thinking>.*?</thinking>", "", text).strip()
+    fence_match = re.search(r"(?is)```(?:yaml|yml)?\s*(.*?)```", cleaned)
+    if fence_match:
+        cleaned = fence_match.group(1).strip()
+    lines = cleaned.splitlines()
+    while lines and not re.match(_fragment_line_pattern(), lines[0].strip(), re.IGNORECASE):
+        lines.pop(0)
+    return "\n".join(lines).strip()
+
+
+def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
+    """Simplified validation for lean shot director schema.
+
+    Required fields per fragment: shots
+    Required fields per shot: shot_id, subject, camera, size, action, intent
+    Optional fields per shot: dialogue, type
+    """
+    issues: list[str] = []
+    for segment_name in expected_segments:
+        segment_num = re.sub(r"\D", "", segment_name)
+        fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
+        block_match = re.search(
+            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+            director_output,
+        )
+        if not block_match:
+            issues.append(f"shot_director 缺少 {fragment_id} 的镜头设计。")
+            continue
+        block = block_match.group(1)
+
+        if not re.search(r"shots\s*:", block):
+            issues.append(f"{fragment_id} 缺少 shots 字段。")
+            continue
+
+        for field in ["shot_id", "subject", "camera", "size", "action", "intent"]:
+            if not re.search(rf"^\s*-?\s*{field}\s*:", block, re.MULTILINE):
+                issues.append(f"{fragment_id} 的 shots 缺少字段 {field}。")
+
+    return issues
+
+
+def _collect_shot_director_issues(
+    output: str,
+    *,
+    expected_segments: list[str],
+    script: str,
+    planner_output: str,
+    aspect_ratio: str,
+) -> list[str]:
+    """Simplified validation for lean schema."""
+    from agents.director_graph import (
+        _validate_shot_director_dialogue_coverage,
+        _validate_shot_director_script_fidelity,
+        _validate_shot_director_source_event_coverage,
+    )
+
+    issues = _validate_shot_director_output(output, expected_segments)
+    issues.extend(_validate_shot_director_script_fidelity(output, script))
+    issues.extend(_validate_shot_director_dialogue_coverage(output))
+    issues.extend(_validate_shot_director_source_event_coverage(output, planner_output))
+    return issues
+
+
+def _is_soft_shot_director_issue(issue: str) -> bool:
+    soft_markers = [
+        "特写使用过密",
+        "给多个微细节局部单独开镜头",
+    ]
+    return any(marker in issue for marker in soft_markers)
+
+
+def _hard_shot_director_issues(issues: list[str]) -> list[str]:
+    return [issue for issue in issues if not _is_soft_shot_director_issue(issue)]
+
+
+def _speed_mode(state: DirectorState) -> bool:
+    return bool(state.get("speed_mode"))
+
+
+def _merge_state_update(state: DirectorState, update: DirectorState) -> DirectorState:
+    merged: DirectorState = dict(state)
+    merged.update(update)
+    return merged
+
+
+def _analyze_tail_frame(tail_frame_b64: str | None, segment_index: int) -> str:
+    if not tail_frame_b64:
+        return "未上传上一段尾帧，本段按文字分镜骨架与连续性规则续接。"
+
+    system_prompt = (
+        "你是尾帧连续性分析师。只提取可见事实，不扩写剧情。\n"
+        "图片可能包含：1) 上一段视频的尾帧截图；2) 当前人物位置关系的参考。\n"
+        "如果是拼合图（左右两张），左侧通常是尾帧，右侧是位置关系。\n"
+        "重点描述：\n"
+        "- 人物站位、朝向、彼此距离与空间关系\n"
+        "- 姿态、表情、服装/道具状态\n"
+        "- 视线方向、身体接触状态\n"
+        "- 空间方向（轴线）、光线\n"
+        "- 可续接的首帧硬约束（人物必须从什么位置/姿态起）"
+    )
+    user_prompt = (
+        f"请分析这张第 {segment_index - 1} 段的实际画面，用于第 {segment_index} 段首帧续接。\n"
+        "如果画面中包含人物位置关系信息，也一并分析。\n"
+        "输出不超过400字，使用要点式中文。重点是为下一段提供精确的首帧定位。"
+    )
+    return call_llm(system_prompt, user_prompt, images_base64=[tail_frame_b64], temperature=0.2, agent_name="shot_director")
+
+
+def _extract_tail_frame_from_video(video_path: str, segment_index: int = 0) -> tuple[str | None, str | None, str | None]:
+    """Extract the last readable video frame and save it as a JPEG tail-frame reference."""
+    if not video_path or not os.path.exists(video_path):
+        return None, None, "视频文件不存在，无法抽取尾帧。"
+
+    cap = None
+    try:
+        import base64
+        import cv2
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return None, None, "OpenCV 无法打开视频文件。"
+
+        frame = None
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        candidate_positions: list[int] = []
+        if frame_count > 0:
+            candidate_positions.extend(
+                sorted(
+                    {
+                        max(frame_count - 1, 0),
+                        max(frame_count - 2, 0),
+                        max(frame_count - 3, 0),
+                    },
+                    reverse=True,
+                )
+            )
+
+        for position in candidate_positions:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, position)
+            ok, candidate = cap.read()
+            if ok and candidate is not None:
+                frame = candidate
+                break
+
+        if frame is None:
+            cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+            while True:
+                ok, candidate = cap.read()
+                if not ok or candidate is None:
+                    break
+                frame = candidate
+
+        if frame is None:
+            return None, None, "未能读取到可用视频帧。"
+
+        ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 85])
+        if not ok:
+            return None, None, "尾帧 JPEG 编码失败。"
+
+        output_dir = os.path.join(OUTPUT_DIR, "auto_tail_frames")
+        os.makedirs(output_dir, exist_ok=True)
+        safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", os.path.splitext(os.path.basename(video_path))[0]).strip("._")
+        safe_stem = safe_stem or "segment"
+        frame_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_segment{segment_index}_{safe_stem}_tail.jpg"
+        output_path = os.path.join(output_dir, frame_name)
+        encoded_bytes = encoded.tobytes()
+        with open(output_path, "wb") as f:
+            f.write(encoded_bytes)
+
+        return base64.b64encode(encoded_bytes).decode("utf-8"), output_path, None
+    except Exception as exc:
+        return None, None, f"自动抽取尾帧失败：{exc}"
+    finally:
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+
+
+def _agent_runtime_trace(
+    agent_name: str,
+    mode: str,
+    started_at: float,
+    status: str,
+    output: str = "",
+    error: Exception | None = None,
+    **extra: Any,
+) -> dict[str, Any]:
+    _api_key, base_url, model, temperature = _get_llm_settings(agent_name)
+    try:
+        host = base_url.split("//", 1)[1].split("/", 1)[0] if "//" in base_url else base_url
+    except Exception:
+        host = base_url
+
+    trace: dict[str, Any] = {
+        "agent_name": agent_name,
+        "mode": mode,
+        "model": model,
+        "host": host,
+        "temperature": temperature,
+        "status": status,
+        "elapsed_seconds": round(time.perf_counter() - started_at, 3),
+        "output_chars": len(output or ""),
+    }
+    if error is not None:
+        trace["error_type"] = type(error).__name__
+        trace["error"] = str(error)[:500]
+    for key, value in extra.items():
+        if value is not None:
+            trace[key] = value
+    return trace
+
+
+
+def _analyze_video_segment(video_path: str, segment_index: int) -> str:
+    print(f"  [Video] 正在读取上一段原生视频进行完整分析... ({video_path})")
+    try:
+        import base64
+        with open(video_path, "rb") as f:
+            video_b64 = base64.b64encode(f.read()).decode("utf-8")
+    except Exception as e:
+        return f"读取视频文件失败：{e}，本段按文字分镜骨架续接。"
+
+    system_prompt = (
+        "你是视频流空间连续性分析师。以下是一段完整的AI生成视频，你必须像电影场记一样精确记录画面信息。\n\n"
+        "请按以下固定格式输出分析结果：\n\n"
+        "【运动轨迹】\n"
+        "- 人物从画面的什么位置向什么方向移动？起始点和终点分别在画面的哪个区域？\n"
+        "- 动作的完整过程（如：从画面左侧走到中央、从远处走向镜头等）\n\n"
+        "【空间锚点】\n"
+        "- 门/走廊/电梯/窗户等关键物体在画面中的具体方位（左侧/右侧/上方/背景中央等）\n"
+        "- 这些锚点与人物的相对位置关系\n\n"
+        "【最终状态（最后一帧的精确描述）】\n"
+        "- 人物在画面中的精确位置（居中/偏左/偏右、前景/中景/远景）\n"
+        "- 面朝方向（面向镜头/背对镜头/侧面朝左/侧面朝右）\n"
+        "- 具体姿态（站立/行走中/蹲下等）、手臂位置、表情\n"
+        "- 服装状态\n"
+        "- 景别（全身/半身/胸上/特写）\n\n"
+        "【下一段首帧硬约束（直接可用于Prompt编写）】\n"
+        "- 人物必须出现在画面的什么位置\n"
+        "- 人物必须面朝什么方向\n"
+        "- 人物必须保持什么姿态\n"
+        "- 背景中哪些空间锚点必须出现在什么方位\n"
+    )
+    user_prompt = (
+        f"请精确分析第 {segment_index - 1} 段的实际生成视频。\n"
+        "严格按照上述固定格式输出，重点是【最终状态】和【下一段首帧硬约束】。\n"
+        "这些信息将直接用于编写下一段视频的Prompt，必须精准到可以直接复制粘贴使用。\n"
+        "不超过500字。"
+    )
+
+    video_data_uri = f"data:video/mp4;base64,{video_b64}"
+
+    return call_llm(
+        system_prompt,
+        user_prompt,
+        images_base64=[video_data_uri],
+        temperature=0.2,
+        agent_name="video_analyst",
+        bypass_proxy=True,
+    )
+
+
+_RHYTHM_ABSTRACT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("死寂气口", "短暂停顿"),
+    ("气口", "停顿"),
+    ("心理空间落差", "前后反应差异"),
+    ("仪式感", "信息揭示顺序"),
+    ("压迫感", "站位与视线压制"),
+    ("张力", "对峙强度"),
+    ("秩序被翻面", "场上视线和站位转向"),
+)
+
+
+_PROP_STORE_TARGET_RE = re.compile(r"(?:塞回|放回|收回)([A-Za-z0-9一-鿿]{1,12})")
+_PROP_CARRY_STATE_RE = re.compile(r"(背着|背上|挎着|拿着|提着|抱着|攥着|握着|捧着)")
+
+
+def _cleanup_rhythm_abstract_language(text: str, *, preserve_heading: bool = False) -> str:
+    """Convert abstract rewrite language into concrete, filmable phrasing."""
+    if not text:
+        return ""
+
+    heading = ""
+    body = text
+    if preserve_heading and "\n" in text:
+        heading, body = text.split("\n", 1)
+    elif preserve_heading:
+        return text
+
+    for old, new in _RHYTHM_ABSTRACT_REPLACEMENTS:
+        body = body.replace(old, new)
+
+    regex_replacements: tuple[tuple[str, str], ...] = (
+        (r"空气[^。；\n]{0,24}(?:凝住|绷住|按住|冻结)[^。；\n]*", "没有人接话"),
+        (r"气氛[^。；\n]{0,24}(?:凝住|绷住|压住|冻结)[^。；\n]*", "场上没有人接话"),
+        (r"制造前后反应差异", "拉开前后反应变化"),
+        (r"制造(?:可见)?对峙强度", "拉高对峙强度"),
+        (r"强化场面状态", "强化在场角色的可见反应"),
+        (r"铺陈场面状态", "铺陈在场角色的可见反应"),
+        (r"营造场面状态", "通过可见反应建立场面状态"),
+    )
+    for pattern, replacement in regex_replacements:
+        body = re.sub(pattern, replacement, body)
+
+    body = re.sub(r"\n{3,}", "\n\n", body).strip()
+    if heading:
+        return f"{heading}\n{body}" if body else heading
+    return body
+
+
+def _clean_rhythm_rewritten_script(text: str) -> str:
+    """Remove model-added markdown wrappers while preserving actual script lines."""
+    cleaned = _cleanup_rhythm_abstract_language(text)
+    lines = cleaned.splitlines()
+    heading_markers = {
+        "【改写后剧本】",
+        "# 【改写后剧本】",
+        "## 【改写后剧本】",
+        "改写后剧本：",
+    }
+    wrapper_markers = {"---", "#", "```"}
+
+    while True:
+        while lines and not lines[0].strip():
+            lines.pop(0)
+        if lines and lines[0].strip() in heading_markers | wrapper_markers:
+            lines.pop(0)
+            continue
+        break
+
+    while True:
+        while lines and not lines[-1].strip():
+            lines.pop()
+        if lines and lines[-1].strip() in wrapper_markers:
+            lines.pop()
+            continue
+        break
+
+    return "\n".join(lines).strip()
+
+
+def _normalise_script_lines(text: str) -> list[str]:
+    return [line.strip() for line in (text or "").splitlines() if line.strip()]
+
+
+def _validate_rhythm_structure_lock(original_script: str, rewritten_script: str) -> tuple[bool, list[str]]:
+    """Ensure rhythm rewrite preserves the original script line order verbatim."""
+    original_lines = _normalise_script_lines(original_script)
+    rewritten_lines = _normalise_script_lines(rewritten_script)
+
+    cursor = 0
+    missing: list[str] = []
+    for line in original_lines:
+        found = False
+        while cursor < len(rewritten_lines):
+            if rewritten_lines[cursor] == line:
+                cursor += 1
+                found = True
+                break
+            cursor += 1
+        if not found:
+            missing.append(line)
+            if len(missing) >= 5:
+                break
+            continue
+
+    return not missing, missing
+
+
+def _rhythm_insert_continuity_rules() -> str:
+    return (
+        "【节奏插入连续性规则】\n"
+        "1. 画面逻辑优先于情绪细节：任何新增辅助行都必须先保证人物位置、道具归属和下一拍连续性成立。\n"
+        "2. 新增辅助行不得制造道具归属或位置跳变；同一件道具不能在相邻动作中同时被两个人持有、背着、收起或取用。\n"
+        "3. 如果原文刚写某人拿起、捡起、塞回、攥住、交给某道具，新增行必须顺着这个状态承接，不能暗示道具已经离开该人。\n"
+        "4. 低歧义画面优先：优先写\"放到桌上、站到门口、停住动作、看向某处\"等稳定可见动作，避免\"攥进掌心、指尖摩挲、掌心收紧\"等模型容易误画的细微手部状态。\n"
+        "5. 插入儿童或人群小动作时，优先写身体姿态、站位、视线或停顿；只有原文明确道具已在该人物身上时，才写道具状态。\n"
+    )
+
+
+def _extract_line_subject(line: str) -> str:
+    match = re.match(r"^[▲△#>*\-\s]*([A-Za-z0-9一-鿿]{1,12})", (line or "").strip())
+    return match.group(1) if match else ""
+
+
+def _detect_inserted_prop_ownership_jump(previous_line: str, inserted_line: str) -> str | None:
+    previous_subject = _extract_line_subject(previous_line)
+    inserted_subject = _extract_line_subject(inserted_line)
+    if not previous_subject or not inserted_subject or previous_subject == inserted_subject:
+        return None
+
+    target_match = _PROP_STORE_TARGET_RE.search(previous_line or "")
+    if not target_match:
+        return None
+    target_prop = target_match.group(1)
+    if target_prop not in inserted_line or not _PROP_CARRY_STATE_RE.search(inserted_line):
+        return None
+
+    return (
+        "新增辅助行制造道具归属跳变：上一原文刚写"
+        f"{previous_subject}把物件收回到{target_prop}，下一插入行又写{inserted_subject}持有{target_prop}：{inserted_line}"
+    )
+
+
+def _validate_rhythm_insert_continuity(original_script: str, rewritten_script: str) -> list[str]:
+    """Catch inserted helper beats that contradict nearby prop ownership."""
+    original_lines = _normalise_script_lines(original_script)
+    rewritten_lines = _normalise_script_lines(rewritten_script)
+    issues: list[str] = []
+
+    cursor = 0
+    last_original = ""
+    for original_line in original_lines:
+        while cursor < len(rewritten_lines) and rewritten_lines[cursor] != original_line:
+            inserted_line = rewritten_lines[cursor]
+            continuity_issue = _detect_inserted_prop_ownership_jump(last_original, inserted_line)
+            if continuity_issue:
+                issues.append(continuity_issue)
+                return issues
+            cursor += 1
+        if cursor < len(rewritten_lines):
+            last_original = rewritten_lines[cursor]
+            cursor += 1
+
+    return issues

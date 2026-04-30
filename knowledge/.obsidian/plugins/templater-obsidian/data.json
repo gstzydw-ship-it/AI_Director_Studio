@@ -1,0 +1,8 @@
+{
+  "command_timeout": 5,
+  "enable_system_commands": false,
+  "folder_templates": [],
+  "startup_templates": [],
+  "template_folder": "_templates",
+  "trigger_on_file_creation": false
+}

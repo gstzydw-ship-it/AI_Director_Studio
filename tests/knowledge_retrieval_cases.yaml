@@ -1,0 +1,147 @@
+cases:
+  - id: multicam_single_camera
+    agent: shot_director
+    query: "AI 多机位分镜，同一动作需要多个角度覆盖，但每个生成片段只能一个机位连续拍摄，单段只保留一两个连贯动作。"
+    top_k: 10
+    must_match_rules:
+      - MULTICAM-ONECAMERA-002
+      - MULTICAM-ACTIONLIMIT-003
+    must_match_sources:
+      - 22_多机位分镜与镜头多样性规则.md
+    must_not_match_rules:
+      - PROMPT-ACTION-006
+
+  - id: match_on_action_anchor
+    agent: shot_director
+    query: "角色开门转身，手触碰门把作为动作锚点，上一镜在动作 50%-70% 切出，下一镜从 30%-50% 接续，避免跳跃。"
+    top_k: 10
+    must_match_rules:
+      - ACT-MATCH-001
+      - ACT-ANCHOR-002
+    must_match_sources:
+      - 21_镜头调用规则与多机位模板.md
+    must_not_match_rules:
+      - TEXT-DAILY-001
+
+  - id: segment_boundary_complete_utterance
+    agent: story_planner
+    query: "15 秒片段不是单分镜层，不能按时间均分；角色完整发言不能在句中被片段边界截断。"
+    top_k: 8
+    must_match_rules:
+      - SEG-LAYER-001
+      - SEG-NOT-EQUAL-002
+      - SEG-UTTERANCE-003
+    must_match_sources:
+      - 05_剧本拆分与15秒片段规划规则.md
+    must_not_match_rules:
+      - MULTICAM-ONECAMERA-002
+
+  - id: reaction_minimum_duration
+    agent: rhythm_rewrite_director
+    query: "信息揭示后人物被击中，需要反应镜头停留至少 1.5 秒，并留下回味，不要马上解释完。"
+    top_k: 8
+    must_match_rules:
+      - RHYTHM-REACTION-MIN-001
+      - RHYTHM-WEIGHT-003
+    must_match_sources:
+      - 15_故事节奏控制规则.md
+    must_not_match_rules:
+      - PROMPT-ACTION-006
+
+  - id: vertical_closeup_limit
+    agent: shot_director
+    query: "9:16 竖屏短剧中，情绪受击要用特写但不能连续大特写，需要控制特写频率，必要时改用半身和局部动作。"
+    top_k: 8
+    must_match_rules:
+      - FRAME-CU-LIMIT-003
+    must_match_sources:
+      - 02_焦段景深与景别画幅策略.md
+      - 18_情绪锚点与逐段交互与仰拍限制补丁.md
+    must_not_match_rules:
+      - TEXT-DAILY-001
+
+  - id: intimacy_safety
+    agent: quality_inspector
+    query: "私密场景不能凝视身体部位，镜头必须看情绪和关系，有叙事动机才允许身体部位镜头。"
+    top_k: 8
+    must_match_rules:
+      - SAFETY-INTIMACY-001
+    must_match_sources:
+      - 06_连续性与安全规则.md
+    must_not_match_rules:
+      - POWER-HEIGHT-001
+
+  - id: low_angle_limit
+    agent: shot_director
+    query: "权力压制想用仰拍表现强势方，但一个 15 秒片段最多一次仰拍，默认机位高度应该平视，儿童和脆弱姿态禁用。"
+    top_k: 8
+    must_match_rules:
+      - POWER-HEIGHT-001
+      - CONTINUITY-LOWANGLE-001
+    must_match_sources:
+      - 18_情绪锚点与逐段交互与仰拍限制补丁.md
+      - 21_镜头调用规则与多机位模板.md
+    must_not_match_rules:
+      - PROMPT-STRUCT-001
+
+  - id: prop_continuity
+    agent: quality_inspector
+    query: "同一场景里角色手上的杯子、门把和道具状态不能切镜后重置，单手持物变双手做事必须写过渡和时间线。"
+    top_k: 8
+    must_match_rules:
+      - CONT-PROP-005
+      - CONT-PROP-TIMELINE-001
+    must_match_sources:
+      - 06_连续性与安全规则.md
+      - 18_情绪锚点与逐段交互与仰拍限制补丁.md
+    must_not_match_rules:
+      - FRAME-ASPECT-001
+
+  - id: prompt_one_main_action
+    agent: prompt_compiler
+    query: "把分镜编译成 Seedance 提示词时，一镜一主动作，关键动作后补表情锚点，多人同句不要用歧义代词。"
+    top_k: 8
+    must_match_rules:
+      - PROMPT-ACTION-006
+      - PROMPT-STRUCT-001
+    must_match_sources:
+      - 07_Seedance输出词典与模型适配.md
+    must_not_match_rules:
+      - POWER-HEIGHT-001
+
+  - id: no_three_fast_stack
+    agent: prompt_compiler
+    query: "提示词里动作已经很快，就不要再快速运镜和复杂环境一起叠加，禁止主体动作快、摄影机快、环境复杂三快叠加。"
+    top_k: 8
+    must_match_rules:
+      - PROMPT-FAST-008
+    must_match_sources:
+      - 07_Seedance输出词典与模型适配.md
+      - 00_知识库优先级与冲突裁决规则.md
+    must_not_match_rules:
+      - TRANS-CAUSE-004
+
+  - id: exit_entry_time_compression
+    agent: story_planner
+    query: "角色从 A 点移动到 B 点，中间走路没有叙事价值，可以上一镜出画下一镜入画，保持方向一致，省略位移时间。"
+    top_k: 8
+    must_match_rules:
+      - TIME-EXIT-001
+      - TIME-JUMP-002
+    must_match_sources:
+      - 05_剧本拆分与15秒片段规划规则.md
+    must_not_match_rules:
+      - AXIS-BREAK-001
+
+  - id: first_frame_not_resplit
+    agent: story_planner
+    query: "上一段尾帧和视频分析只服务下一段续接，不能反向修改已经锁定的拆片骨架、主分镜边界和完整发言单元。"
+    top_k: 15
+    must_match_rules:
+      - SEG-TAILFRAME-005
+      - WORKFLOW-TAILFRAME-002
+    must_match_sources:
+      - 05_剧本拆分与15秒片段规划规则.md
+      - 18_情绪锚点与逐段交互与仰拍限制补丁.md
+    must_not_match_rules:
+      - REVERSE-OTS-001

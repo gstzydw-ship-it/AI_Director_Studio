@@ -1,0 +1,1444 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>智能导演多Agent团队</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Noto+Sans+SC:wght@300;400;500;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="sidebar-header">
+                <div class="logo">🎬</div>
+                <h1>智能导演</h1>
+                <span class="version">LANGGRAPH V0.3</span>
+            </div>
+            <nav class="sidebar-nav">
+                <button class="nav-item active" data-tab="workspace">
+                    <span class="nav-icon">🎯</span><span>工作台</span>
+                </button>
+                <button class="nav-item" data-tab="config">
+                    <span class="nav-icon">⚙️</span><span>系统配置</span>
+                </button>
+                <button class="nav-item" data-tab="knowledge">
+                    <span class="nav-icon">📚</span><span>知识库</span>
+                </button>
+            </nav>
+            <div class="sidebar-footer">
+                <div class="agent-status" id="agentStatus">
+                    <div class="status-dot idle"></div>
+                    <span>Agent 就绪</span>
+                </div>
+            </div>
+        </aside>
+
+        <main class="main-content">
+            <!-- 工作台 -->
+            <div class="tab-panel active" id="tab-workspace">
+                <div class="panel-header">
+                    <h2>🎯 导演工作台</h2>
+                    <p>输入剧本，多Agent团队将自动完成全流程</p>
+                </div>
+                <div class="workspace-grid">
+                    <div class="input-section">
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>📝 剧本输入</h3>
+                            </div>
+                            <div class="card-body">
+                                <textarea id="scriptInput" placeholder="粘贴你的剧本片段..."></textarea>
+                            </div>
+                        </div>
+                        <div class="card">
+                            <div class="card-header">
+                                <h3>🎛️ 参数设置</h3>
+                            </div>
+                            <div class="card-body settings-stack">
+                                <div class="settings-row">
+                                    <div class="setting-group">
+                                        <label>画幅</label>
+                                        <select id="aspectRatio">
+                                            <option value="16:9">16:9 横屏</option>
+                                            <option value="9:16">9:16 竖屏</option>
+                                        </select>
+                                    </div>
+                                    <div class="setting-group">
+                                        <label>运行模式</label>
+                                        <label class="toggle-option">
+                                            <input type="checkbox" id="speedMode">
+                                            <span>快速模式</span>
+                                        </label>
+                                        <small>跳过场景分析LLM和质检LLM，保留拆片与Prompt编译。</small>
+                                    </div>
+                                </div>
+                                <div class="setting-group">
+                                    <label>添加参考图（必传，可多次添加）</label>
+                                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
+                                        <select id="refLibrarySelect" style="flex: 1;" onchange="addReferenceFromLibrary(this.value); this.value='';">
+                                            <option value="">-- 正在加载本地库... --</option>
+                                        </select>
+                                        <span style="font-size: 12px; color: var(--text-muted);">或</span>
+                                        <input type="file" id="refImageFiles" accept="image/png, image/jpeg, image/webp" multiple style="flex: 1; padding: 6px;">
+                                    </div>
+                                    <small>已添加的图片会保留并生成 @图片 编号；建议至少包含主角人物、对手人物、场景空间，可继续添加位置关系图、服装道具图。单次最多 12 张，后端会自动压缩后再发给模型。</small>
+                                    <div class="reference-toolbar">
+                                        <span id="refImageCount">已添加 0 张</span>
+                                        <button type="button" class="btn-small" onclick="clearReferenceImages()">清空参考图</button>
+                                    </div>
+                                    <div id="refPreviewGrid" class="reference-grid">
+                                        <div class="reference-empty">还没有参考图。可以分批添加，后添加的不会覆盖前面的。</div>
+                                    </div>
+                                </div>
+                                <div class="setting-group">
+                                    <label>参考图说明（可选）</label>
+                                    <textarea id="refImages" class="reference-notes" placeholder="可用 @图片1、@图片2 调用上方缩略图，例如：@图片1 商北琛人物参考，只锁定五官发型和黑色高定西装；@图片3 天御集团大堂，只锁定空间、轴线、冷白顶光。"></textarea>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="btn-row">
+                            <button class="btn-primary" id="btnRun" onclick="startPipeline()">
+                                <span class="btn-icon">🚀</span> 启动导演流水线
+                            </button>
+                            <button class="btn-abort" id="btnAbort" onclick="abortPipeline()" style="display:none;">
+                                <span class="btn-icon">⏹</span> 中断任务
+                            </button>
+                            <button class="btn-clear" id="btnClearTask" onclick="clearPreviousSegment()">
+                                <span class="btn-icon">↩</span> 清除上一段
+                            </button>
+                            <button class="btn-restore" id="btnRestoreTask" onclick="restoreLatestSessionManual()">
+                                <span class="btn-icon">↻</span> 恢复最近任务
+                            </button>
+                        </div>
+                    </div>
+
+                    <div class="output-section">
+                        <div class="card pipeline-card">
+                            <div class="card-header">
+                                <h3>🔄 Agent 流水线</h3>
+                            </div>
+                            <div class="card-body">
+                                <div class="pipeline-steps">
+                                    <div class="step" id="step-rhythm">
+                                        <div class="step-icon">🎼</div>
+                                        <div class="step-info">
+                                            <div class="step-name">节奏总控</div>
+                                            <div class="step-desc">改写+氛围策略</div>
+                                        </div>
+                                        <div class="step-status">等待</div>
+                                    </div>
+                                    <div class="step-arrow">→</div>
+                                    <div class="step" id="step-analyze">
+                                        <div class="step-icon">📋</div>
+                                        <div class="step-info">
+                                            <div class="step-name">场景分析</div>
+                                            <div class="step-desc">约束/戏剧任务</div>
+                                        </div>
+                                        <div class="step-status">等待</div>
+                                    </div>
+                                    <div class="step-arrow">→</div>
+                                    <div class="step" id="step-plan">
+                                        <div class="step-icon">🎬</div>
+                                        <div class="step-info">
+                                            <div class="step-name">结构规划</div>
+                                            <div class="step-desc">拆片/连续性</div>
+                                        </div>
+                                        <div class="step-status">等待</div>
+                                    </div>
+                                    <div class="step-arrow">→</div>
+                                    <div class="step" id="step-direct">
+                                        <div class="step-icon">🎥</div>
+                                        <div class="step-info">
+                                            <div class="step-name">三段镜头导演</div>
+                                            <div class="step-desc">摆位/调度/守门</div>
+                                        </div>
+                                        <div class="step-status">等待</div>
+                                    </div>
+                                    <div class="step-arrow">→</div>
+                                    <div class="step" id="step-compile">
+                                        <div class="step-icon">✍️</div>
+                                        <div class="step-info">
+                                            <div class="step-name">Seedance编译</div>
+                                            <div class="step-desc">单段Prompt</div>
+                                        </div>
+                                        <div class="step-status">等待</div>
+                                    </div>
+                                    <div class="step-arrow">→</div>
+                                    <div class="step" id="step-inspect">
+                                        <div class="step-icon">🔍</div>
+                                        <div class="step-info">
+                                            <div class="step-name">质检导演</div>
+                                            <div class="step-desc">判例/返修</div>
+                                        </div>
+                                        <div class="step-status">等待</div>
+                                    </div>
+                                </div>
+                                <div id="pipelineMsg" class="pipeline-msg"></div>
+                            </div>
+                        </div>
+
+                        <div class="card result-card">
+                            <div class="card-header">
+                                <h3>📄 执行结果</h3>
+                                <button class="btn-small" onclick="copyCurrentTab()">📋 复制当前</button>
+                            </div>
+                            <div class="card-body">
+                                <div class="result-tabs" id="resultTabs" style="display:none;">
+                                    <button class="result-tab active" data-agent="prompt_compiler"
+                                        onclick="switchResultTab(this)">✍️ Seedance编译</button>
+                                    <button class="result-tab" data-agent="rhythm_rewrite_director"
+                                        onclick="switchResultTab(this)">🎼 节奏策略</button>
+                                    <button class="result-tab" data-agent="scene_analyst"
+                                        onclick="switchResultTab(this)">📋 场景约束</button>
+                                    <button class="result-tab" data-agent="story_planner"
+                                        onclick="switchResultTab(this)">🎬 拆片规划</button>
+                                    <button class="result-tab" data-agent="shot_director"
+                                        onclick="switchResultTab(this)">🎥 三段镜头</button>
+                                    <button class="result-tab" data-agent="quality_inspector"
+                                        onclick="switchResultTab(this)">🔍 质检报告</button>
+                                </div>
+                                <div id="resultOutput" class="result-output">
+                                    <div class="placeholder-text">等待执行...</div>
+                                </div>
+                                <div id="interactiveBox"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 系统配置 -->
+            <div class="tab-panel" id="tab-config">
+                <div class="panel-header">
+                    <h2>⚙️ 系统配置</h2>
+                    <p>模型连接由后端统一管理</p>
+                </div>
+                <div class="card" style="max-width: 600px;">
+                    <div class="card-header">
+                        <h3>统一中转站</h3>
+                    </div>
+                    <div class="card-body">
+                        <p style="color: var(--text-secondary); margin-bottom: 12px;">
+                            所有 Agent 与向量库固定走 https://ai.comfly.chat/v1。
+                        </p>
+                        <p style="color: var(--text-secondary);">
+                            API Key 与模型分配只从后端配置读取，浏览器不再保存或提交 API 配置。
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 知识库 -->
+            <div class="tab-panel" id="tab-knowledge">
+                <div class="panel-header">
+                    <h2>📚 知识库管理</h2>
+                    <p>管理 JSON 向量知识库</p>
+                </div>
+                <div class="card" style="max-width: 600px;">
+                    <div class="card-header">
+                        <h3>向量知识库</h3>
+                    </div>
+                    <div class="card-body">
+                        <p style="color: var(--text-secondary); margin-bottom: 16px;">
+                            将导演规则切分并向量化，供各 Agent 按需检索。
+                        </p>
+                        <button class="btn-primary" onclick="buildVectorDB()" id="btnBuildDB">
+                            🔄 构建/重建向量知识库
+                        </button>
+                        <div id="dbStatus" class="status-msg" style="margin-top: 12px;"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // === Tab 切换 ===
+        document.querySelectorAll('.nav-item').forEach(btn => {
+            btn.addEventListener('click', () => {
+                document.querySelectorAll('.nav-item').forEach(b => b.classList.remove('active'));
+                document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+                btn.classList.add('active');
+                document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+            });
+        });
+
+        let pollingTimer = null;
+        let agentOutputs = {};  // 存储各Agent的输出
+        let currentPublicState = {};
+        let referenceItems = [];
+        const MAX_REFERENCE_IMAGES = 12;
+        const SESSION_STORAGE_KEY = 'director_session_id';
+
+        function getSessionId() {
+            let sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
+            if (!sessionId) {
+                const randomPart = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '');
+                sessionId = `web_${randomPart}`;
+                localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+            }
+            return sessionId;
+        }
+
+        function statusUrl() {
+            return '/api/status?session_id=' + encodeURIComponent(getSessionId());
+        }
+
+        function appendSession(formData) {
+            formData.append('session_id', getSessionId());
+        }
+
+        function hasRestorableState(state) {
+            const outputs = state.agent_outputs || {};
+            return Boolean(
+                state.result ||
+                Object.keys(outputs).length > 0 ||
+                state.status === 'waiting_for_user_input' ||
+                state.status === 'done' ||
+                state.status === 'error' ||
+                String(state.status || '').startsWith('running')
+            );
+        }
+
+        async function restoreLatestSessionIfBlank(state) {
+            if (hasRestorableState(state)) return state;
+            const currentSessionId = getSessionId();
+            const latestResp = await fetch('/api/latest_session?exclude_session_id=' + encodeURIComponent(currentSessionId));
+            const latest = await latestResp.json();
+            if (!latest.success || !latest.session_id) return state;
+            localStorage.setItem(SESSION_STORAGE_KEY, latest.session_id);
+            const restoredResp = await fetch(statusUrl());
+            return await restoredResp.json();
+        }
+
+        async function restoreLatestSessionManual() {
+            const btn = document.getElementById('btnRestoreTask');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon spinner">⏳</span> 正在恢复...';
+            try {
+                const currentSessionId = getSessionId();
+                const latestResp = await fetch('/api/latest_session?exclude_session_id=' + encodeURIComponent(currentSessionId));
+                const latest = await latestResp.json();
+                if (!latest.success || !latest.session_id) {
+                    showError(latest.error || '没有找到可恢复的历史任务');
+                    return;
+                }
+                localStorage.setItem(SESSION_STORAGE_KEY, latest.session_id);
+                window.location.reload();
+            } catch (e) {
+                showError('恢复最近任务失败: ' + e.message);
+            } finally {
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        }
+
+        const REFERENCE_PURPOSE_OPTIONS = [
+            '主角人物身份、五官、发型、身形与服装一致性锁定',
+            '对手角色/第二核心角色身份、五官、发型、身形与服装一致性锁定',
+            '场景空间、轴线、光线与首帧环境基底锁定',
+            '多人位置关系、视线方向与调度关系锁定',
+            '服装、道具或局部细节一致性锁定',
+            '补充参考图，仅按说明限定用途',
+        ];
+
+        function defaultReferencePurpose(index) {
+            if (index === 1) return REFERENCE_PURPOSE_OPTIONS[0];
+            if (index === 2) return REFERENCE_PURPOSE_OPTIONS[1];
+            if (index === 3) return REFERENCE_PURPOSE_OPTIONS[2];
+            if (index === 4) return REFERENCE_PURPOSE_OPTIONS[3];
+            return REFERENCE_PURPOSE_OPTIONS[5];
+        }
+
+        document.getElementById('refImageFiles').addEventListener('change', (event) => {
+            const files = Array.from(event.target.files || []);
+            files.forEach(file => {
+                if (referenceItems.length >= MAX_REFERENCE_IMAGES) {
+                    showError(`一次最多添加 ${MAX_REFERENCE_IMAGES} 张参考图，请先移除不需要的图片。`);
+                    return;
+                }
+                const looksLikeImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(file.name);
+                if (!looksLikeImage) {
+                    showError(`${file.name} 不是支持的图片文件`);
+                    return;
+                }
+                const nextIndex = referenceItems.length + 1;
+                referenceItems.push({
+                    file,
+                    previewUrl: URL.createObjectURL(file),
+                    purpose: defaultReferencePurpose(nextIndex),
+                    note: '',
+                });
+            });
+            event.target.value = '';
+            renderReferenceImages();
+        });
+
+        function renderReferenceImages() {
+            const grid = document.getElementById('refPreviewGrid');
+            document.getElementById('refImageCount').textContent = `已添加 ${referenceItems.length} 张`;
+            if (referenceItems.length === 0) {
+                grid.innerHTML = '<div class="reference-empty">还没有参考图。可以分批添加，后添加的不会覆盖前面的。</div>';
+                return;
+            }
+
+            grid.innerHTML = referenceItems.map((item, index) => {
+                const options = REFERENCE_PURPOSE_OPTIONS.map(option => {
+                    const selected = option === item.purpose ? 'selected' : '';
+                    return `<option value="${escapeHtml(option)}" ${selected}>${escapeHtml(option)}</option>`;
+                }).join('');
+                return `
+                    <div class="reference-item">
+                        <div class="reference-thumb-wrap">
+                            <img src="${item.previewUrl}" alt="@图片${index + 1}" class="reference-thumb">
+                            <span class="reference-badge">@图片${index + 1}</span>
+                        </div>
+                        <div class="reference-meta">
+                            <div class="reference-name" title="${escapeHtml(item.file.name)}">${escapeHtml(item.file.name)}</div>
+                            <select onchange="updateReferencePurpose(${index}, this.value)">${options}</select>
+                            <input type="text" value="${escapeHtml(item.note)}" placeholder="补充：商北琛/乔熙/天御集团大堂..." oninput="updateReferenceNote(${index}, this.value)">
+                            <button type="button" class="btn-small reference-remove" onclick="removeReferenceImage(${index})">移除</button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function updateReferencePurpose(index, value) {
+            if (!referenceItems[index]) return;
+            referenceItems[index].purpose = value;
+        }
+
+        function updateReferenceNote(index, value) {
+            if (!referenceItems[index]) return;
+            referenceItems[index].note = value.trim();
+        }
+
+        function removeReferenceImage(index) {
+            const item = referenceItems[index];
+            if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+            referenceItems.splice(index, 1);
+            renderReferenceImages();
+        }
+
+        function clearReferenceImages() {
+            referenceItems.forEach(item => {
+                if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+            });
+            referenceItems = [];
+            document.getElementById('refImageFiles').value = '';
+            renderReferenceImages();
+        }
+
+        async function loadReferenceLibrary() {
+            try {
+                const resp = await fetch('/api/reference_library');
+                const data = await resp.json();
+                const select = document.getElementById('refLibrarySelect');
+                if (data.success && data.images && data.images.length > 0) {
+                    select.innerHTML = '<option value="">-- 从本地参考图库选择 --</option>' + 
+                        data.images.map(img => `<option value="${escapeHtml(img)}">${escapeHtml(img)}</option>`).join('');
+                } else {
+                    select.innerHTML = '<option value="">-- 本地参考图库为空 --</option>';
+                }
+            } catch (e) {
+                console.error("加载参考图库失败", e);
+            }
+        }
+
+        async function addReferenceFromLibrary(filename) {
+            if (!filename) return;
+            if (referenceItems.length >= MAX_REFERENCE_IMAGES) {
+                showError(`一次最多添加 ${MAX_REFERENCE_IMAGES} 张参考图，请先移除不需要的图片。`);
+                return;
+            }
+            try {
+                const resp = await fetch('/api/reference_library/' + encodeURIComponent(filename));
+                if (!resp.ok) throw new Error('获取文件失败');
+                const blob = await resp.blob();
+                const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
+                
+                const nextIndex = referenceItems.length + 1;
+                const baseName = filename.replace(/\.[^/.]+$/, "");
+                
+                referenceItems.push({
+                    file,
+                    previewUrl: URL.createObjectURL(file),
+                    purpose: defaultReferencePurpose(nextIndex),
+                    note: baseName,
+                });
+                renderReferenceImages();
+            } catch (e) {
+                showError(`添加库图片失败: ${e.message}`);
+            }
+        }
+
+        function buildReferenceManifest() {
+            return referenceItems.map((item, index) => ({
+                label: `@图片${index + 1}`,
+                filename: item.file.name,
+                purpose: item.purpose,
+                note: item.note,
+            }));
+        }
+
+        function compiledSegmentEntries(outputs) {
+            return Object.keys(outputs || {})
+                .map(key => {
+                    const match = key.match(/^compiled_segment_(\d+)$/);
+                    if (!match || !outputs[key]) return null;
+                    return { index: Number(match[1]), key, text: outputs[key] };
+                })
+                .filter(Boolean)
+                .sort((a, b) => a.index - b.index);
+        }
+
+        function renderCompiledSegments(outputs, state = {}) {
+            const entries = compiledSegmentEntries(outputs);
+            const entryMap = new Map(entries.map(item => [item.index, item]));
+            const totalSegments = Math.max(
+                Number(state.total_segments || 0),
+                entries.length ? entries[entries.length - 1].index : 0
+            );
+
+            // 没有 total_segments 也没有任何 entry：兜底显示空提示
+            if (!totalSegments) {
+                const fallback = outputs?.prompt_compiler || state.result || '';
+                if (fallback) return '<pre class="result-text">' + escapeHtml(fallback) + '</pre>';
+                return '<div class="placeholder-text">暂无已生成的 Seedance Prompt。</div>';
+            }
+
+            const currentIndex = Number(state.active_segment_index || state.current_segment_index || 0);
+            const status = state.status || '';
+            const isRunning = status.startsWith('running');
+
+            const cards = [];
+            for (let i = 1; i <= totalSegments; i++) {
+                const entry = entryMap.get(i);
+                const hasContent = !!entry;
+
+                // 片段状态判定：
+                //   - 已生成 Prompt → '已生成'
+                //   - 当前运行段 → '运行中'
+                //   - 当前等待输入段 → '等待输入'
+                //   - 其他未到的段 → '未生成'
+                let badgeLabel, badgeClass;
+                if (hasContent) {
+                    badgeLabel = '✅ 已生成';
+                    badgeClass = 'done';
+                } else if (i === currentIndex && isRunning) {
+                    badgeLabel = '⏳ 运行中';
+                    badgeClass = 'running';
+                } else if (i === currentIndex && status === 'waiting_for_user_input') {
+                    badgeLabel = '⏸ 等待输入';
+                    badgeClass = 'waiting';
+                } else {
+                    badgeLabel = '○ 未生成';
+                    badgeClass = 'pending';
+                }
+
+                const bodyHtml = hasContent
+                    ? `<pre class="result-text segment-prompt">${escapeHtml(entry.text)}</pre>`
+                    : `<div class="segment-empty">该段尚未生成 Prompt。</div>`;
+
+                // 只有已生成的片段才显示操作按钮（避免空段点了没意义）
+                const copyBtn = hasContent
+                    ? `<button class="btn-small segment-copy-btn" type="button" data-copy-segment="${i}"
+                               onclick="event.stopPropagation(); copySegmentPrompt(${i}, this); return false;">📋 复制本段 Prompt</button>`
+                    : '';
+                const rerunBtn = hasContent
+                    ? `<button class="btn-small segment-rerun-btn" type="button" data-rerun-segment="${i}"
+                               onclick="event.stopPropagation(); rerunSegment(${i}, this); return false;">🔄 重跑此段</button>`
+                    : '';
+
+                cards.push(`
+                    <div class="segment-card">
+                        <div class="segment-card-header">
+                            <div class="segment-title-row">
+                                <span class="segment-title">片段 ${i} / ${totalSegments}</span>
+                                <span class="segment-status ${badgeClass}">${badgeLabel}</span>
+                            </div>
+                            <div class="segment-actions">${copyBtn}${rerunBtn}</div>
+                        </div>
+                        ${bodyHtml}
+                    </div>
+                `);
+            }
+
+            return cards.join('');
+        }
+
+        function renderWaitingInputBox(state = {}) {
+            const segIdx = Number(state.current_segment_index || 1);
+            const totalSegments = Number(state.total_segments || segIdx || 1);
+            const completedSegment = Math.max(0, segIdx - 1);
+            const titleText = completedSegment > 0
+                ? `第 ${completedSegment} 段完成：上传视频后生成第 ${segIdx} 段`
+                : `宏观规划完成：准备生成第 ${segIdx} 段 Prompt`;
+            const helpText = completedSegment > 0
+                ? `直接上传第 ${completedSegment} 段完整视频即可，系统会自动抽取最后一帧作为第 ${segIdx} 段首帧锚点。`
+                : `现在可以直接生成第 ${segIdx} 段 Prompt，无需上传视频。`;
+            const videoInputHtml = completedSegment > 0
+                ? `
+                    <div style="flex:1; min-width: 200px;">
+                        <label style="display:block; margin-bottom: 6px; font-size: 13px;">📹 上一段完整视频（推荐）</label>
+                        <input type="file" id="previousVideoUpload" accept="video/mp4, video/quicktime, video/webm, video/x-msvideo" />
+                    </div>
+                `
+                : '';
+
+            document.getElementById('interactiveBox').innerHTML = `
+                <div style="padding: 16px; background: rgba(99, 102, 241, 0.12); border: 1.5px solid var(--accent-primary); border-radius: 10px; margin-top: 16px;">
+                    <h3 style="margin-top: 0; color: var(--accent-primary-hover);">${titleText}</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 12px; font-size: 14px;">${helpText}</p>
+                    <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px;">
+                        ${videoInputHtml}
+                        <div style="flex:1; min-width: 200px;">
+                            <label style="display:block; margin-bottom: 6px; font-size: 13px;">🖼️ 补充尾帧截图（可选）</label>
+                            <input type="file" id="tailFrameUpload" accept="image/png, image/jpeg, image/webp" />
+                        </div>
+                    </div>
+                    <button class="btn-primary" style="width: 100%;" onclick="resumePipeline(${segIdx})">🚀 生成片段 ${segIdx} / ${totalSegments}</button>
+                </div>
+            `;
+            markWaitingForInput(state);
+            updateAgentStatus('idle', '等待人类指令');
+            resetBtn();
+        }
+
+        function canRetryShotDirector(state = {}) {
+            const outputs = state.agent_outputs || {};
+            const status = String(state.status || '');
+            const recoverableStatus = ['error', 'idle', 'aborted'].includes(status);
+            return recoverableStatus
+                && Boolean(outputs.story_planner)
+                && !outputs.shot_director;
+        }
+
+        function renderShotDirectorRetryBox(state = {}) {
+            const outputs = state.agent_outputs || {};
+            const hasLayout = Boolean(outputs.shot_director_layout);
+            const nextStage = outputs.shot_director_blocking ? '规则守门导演' : '动作调度导演';
+            const title = hasLayout ? '三段镜头导演可继续' : '可从镜头导演重新启动';
+            const helpText = hasLayout
+                ? `已保留镜头摆位骨架，将从${nextStage}继续。`
+                : '已保留节奏改写、场景分析和结构规划，将从镜头摆位骨架重新开始，不重跑前三步。';
+            const buttonText = hasLayout ? '继续三段镜头导演' : '从镜头导演继续';
+            document.getElementById('interactiveBox').innerHTML = `
+                <div style="padding: 16px; background: rgba(245, 158, 11, 0.12); border: 1.5px solid var(--accent-warning); border-radius: 10px; margin-top: 16px;">
+                    <h3 style="margin-top: 0; color: var(--accent-warning);">${title}</h3>
+                    <p style="color: var(--text-secondary); margin-bottom: 12px; font-size: 14px;">${helpText}</p>
+                    <button class="btn-primary" style="width: 100%;" onclick="retryShotDirector()">${buttonText}</button>
+                </div>
+            `;
+            updateAgentStatus('error', hasLayout ? '镜头导演中断' : '等待重启镜头导演');
+            resetBtn();
+        }
+
+        async function retryShotDirector() {
+            const formData = new FormData();
+            formData.append('session_id', getSessionId());
+            // 发送当前剧本输入框中的内容，支持用户修改剧本后重新生成
+            const currentScript = document.getElementById('scriptInput').value.trim();
+            if (currentScript) {
+                formData.append('script', currentScript);
+            }
+            const outputs = currentPublicState.agent_outputs || {};
+            const hasLayout = Boolean(outputs.shot_director_layout);
+            document.getElementById('pipelineMsg').textContent = hasLayout
+                ? '正在从已完成的镜头骨架继续...'
+                : '正在复用前三步成果，从镜头导演重新启动...';
+            document.getElementById('interactiveBox').innerHTML = '';
+            updateAgentStatus('running', hasLayout ? '续跑三段镜头导演' : '重启镜头导演');
+            try {
+                const resp = await fetch('/api/retry_shot_director', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    showError(data.error || '续跑镜头导演失败');
+                    updateAgentStatus('error', '续跑失败');
+                    return;
+                }
+                startPolling();
+            } catch (e) {
+                showError('续跑镜头导演失败: ' + e.message);
+                updateAgentStatus('error', '续跑失败');
+            }
+        }
+
+        async function rerunSegment(segmentIndex, triggerButton = null) {
+            const originalHtml = triggerButton ? triggerButton.innerHTML : '';
+            if (triggerButton) {
+                triggerButton.disabled = true;
+                triggerButton.innerHTML = '正在清除...';
+            }
+            document.getElementById('pipelineMsg').textContent = `正在清除片段 ${segmentIndex} 及后续片段...`;
+            try {
+                const formData = new FormData();
+                formData.append('session_id', getSessionId());
+                formData.append('segment_index', String(segmentIndex));
+                const resp = await fetch('/api/clear_segment', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    showError(data.error || `清除片段 ${segmentIndex} 失败`);
+                    return;
+                }
+                if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; }
+                agentOutputs = (data.state && data.state.agent_outputs) || {};
+                currentPublicState = data.state || {};
+                resetBtn();
+                document.getElementById('resultTabs').style.display = 'flex';
+                // 重新渲染多卡片视图（被清除的段此时显示"未生成"）
+                document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, currentPublicState);
+                document.getElementById('pipelineMsg').textContent = data.message || `片段 ${segmentIndex} 已清除`;
+                renderWaitingInputBox(currentPublicState);
+            } catch (e) {
+                showError('重跑失败: ' + e.message);
+            } finally {
+                if (triggerButton) {
+                    triggerButton.disabled = false;
+                    triggerButton.innerHTML = originalHtml;
+                }
+            }
+        }
+        window.rerunSegment = rerunSegment;
+
+        document.addEventListener('click', (event) => {
+            const rerunButton = event.target.closest('[data-rerun-segment]');
+            if (!rerunButton) return;
+            event.preventDefault();
+            const segmentIndex = Number(rerunButton.dataset.rerunSegment || 0);
+            if (!segmentIndex) return;
+            rerunSegment(segmentIndex, rerunButton);
+        });
+
+        // 页面初始化：恢复后端状态（刷新不丢数据）
+        window.addEventListener('DOMContentLoaded', async () => {
+            try {
+                const resp = await fetch(statusUrl());
+                let state = await resp.json();
+                state = await restoreLatestSessionIfBlank(state);
+                currentPublicState = state;
+                const hasOutputs = Object.keys(state.agent_outputs || {}).length > 0 || Boolean(state.result);
+
+                // 恢复用户输入（剧本 + 参考图）
+                _restoreUserInputs(state);
+                applyBackendProgress(state);
+
+                if (hasOutputs && state.status !== 'waiting_for_user_input' && !String(state.status || '').startsWith('running')) {
+                    // 已完成或出错的历史数据
+                    showBestAvailableResult(state);
+                    document.getElementById('pipelineMsg').textContent = state.message || '上次结果已恢复';
+
+                    // 错误状态但 Phase 1 已完成：显示重试按钮让用户可以继续
+                    if (canRetryShotDirector(state)) {
+                        renderShotDirectorRetryBox(state);
+                    } else if (state.status === 'error' && Number(state.total_segments) > 0 && (state.agent_outputs || {}).shot_director) {
+                        const retryState = { ...state, status: 'waiting_for_user_input' };
+                        renderWaitingInputBox(retryState);
+                        document.getElementById('pipelineMsg').textContent = '❌ 上次执行出错，可重试生成当前片段。';
+                    }
+
+                } else if (state.status === 'waiting_for_user_input' && hasOutputs) {
+                    // 恢复等待交互状态：显示已有输出 + 交互按钮
+                    showBestAvailableResult(state);
+                    renderWaitingInputBox(state);
+
+                } else if (state.status && state.status.startsWith('running')) {
+                    // 恢复运行中状态：自动重新开始轮询
+                    agentOutputs = state.agent_outputs || {};
+                    document.getElementById('pipelineMsg').textContent = state.message || '流水线运行中...';
+                    renderRunningState(state);
+                    startPolling();
+                }
+            } catch (e) { console.warn('初始化状态恢复失败:', e); }
+        });
+
+        // 从后端状态恢复剧本文本和参考图
+        function _restoreUserInputs(state) {
+            // 恢复剧本
+            if (state.input_script) {
+                const ta = document.getElementById('scriptInput');
+                if (ta && !ta.value.trim()) {
+                    ta.value = state.input_script;
+                }
+            }
+            // 恢复画幅
+            if (state.input_aspect_ratio) {
+                const sel = document.getElementById('aspectRatio');
+                if (sel) {
+                    for (const opt of sel.options) {
+                        if (opt.value === state.input_aspect_ratio) {
+                            sel.value = state.input_aspect_ratio;
+                            break;
+                        }
+                    }
+                }
+            }
+            // 恢复参考图缩略图
+            const manifest = state.input_ref_manifest;
+            if (Array.isArray(manifest) && manifest.length > 0) {
+                const container = document.getElementById('referenceList');
+                if (container && container.children.length === 0) {
+                    const countEl = document.getElementById('referenceCount');
+                    manifest.forEach((item, idx) => {
+                        const card = document.createElement('div');
+                        card.className = 'reference-card';
+                        card.innerHTML = `
+                            <img src="${item.thumbnail || ''}" alt="参考图${idx+1}" style="width:60px;height:60px;object-fit:cover;border-radius:6px;">
+                            <div class="ref-info">
+                                <div class="ref-name" title="${escapeHtml(item.filename)}">${escapeHtml(item.filename.length > 15 ? item.filename.substring(0,12)+'...' : item.filename)}</div>
+                                <div class="ref-purpose">${escapeHtml(item.purpose || '')}</div>
+                                <div class="ref-label">${escapeHtml(item.label || '')}</div>
+                            </div>
+                        `;
+                        container.appendChild(card);
+                    });
+                    if (countEl) countEl.textContent = `已添加 ${manifest.length} 张`;
+                }
+            }
+        }
+
+        // === 启动流水线 ===
+        async function startPipeline() {
+            const script = document.getElementById('scriptInput').value.trim();
+            if (!script) {
+                showError('请先输入剧本内容！');
+                return;
+            }
+            if (referenceItems.length < 3) {
+                showError('请至少添加3张参考图：主角人物、对手人物、场景空间。');
+                return;
+            }
+            if (referenceItems.length > MAX_REFERENCE_IMAGES) {
+                showError(`一次最多添加 ${MAX_REFERENCE_IMAGES} 张参考图，请先移除不需要的图片。`);
+                return;
+            }
+
+            const btn = document.getElementById('btnRun');
+            btn.disabled = true;
+            btn.style.display = 'none';
+            document.getElementById('btnAbort').style.display = 'flex';
+
+            // 重置步骤与历史数据
+            resetSteps();
+            agentOutputs = {};
+            currentPublicState = {};
+            document.getElementById('resultTabs').style.display = 'none';
+            document.getElementById('resultOutput').innerHTML = '<div class="placeholder-text">Agent 团队已启动，请耐心等待...</div>';
+            updateAgentStatus('running', 'Agent 工作中');
+
+            const formData = new FormData();
+            formData.append('script', script);
+            formData.append('aspect_ratio', document.getElementById('aspectRatio').value);
+            formData.append('speed_mode', document.getElementById('speedMode').checked ? 'true' : 'false');
+            formData.append('reference_images', document.getElementById('refImages').value);
+            formData.append('reference_image_manifest_json', JSON.stringify(buildReferenceManifest()));
+            appendSession(formData);
+            referenceItems.forEach(item => formData.append('reference_image_files', item.file, item.file.name));
+
+            try {
+                const resp = await fetch('/api/run', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.success) {
+                    // 启动轮询
+                    startPolling();
+                } else {
+                    showError(data.error);
+                    resetBtn();
+                }
+            } catch (e) {
+                showError('网络错误: ' + e.message);
+                resetBtn();
+            }
+        }
+
+        // === 轮询状态 ===
+        function startPolling() {
+            if (pollingTimer) clearInterval(pollingTimer);
+            let elapsed = 0;
+            pollingTimer = setInterval(async () => {
+                elapsed += 2;
+                try {
+                    const resp = await fetch(statusUrl());
+                    const state = await resp.json();
+                    currentPublicState = state;
+                    const status = String(state.status || '');
+                    const isRunning = status.startsWith('running');
+
+                    // 更新流水线消息
+                    const msgEl = document.getElementById('pipelineMsg');
+                    const minutes = Math.floor(elapsed / 60);
+                    const secs = elapsed % 60;
+                    const timeStr = minutes > 0 ? `${minutes}分${secs}秒` : `${secs}秒`;
+
+                    if (!isRunning && status !== 'done' && status !== 'error' && status !== 'waiting_for_user_input') {
+                        clearInterval(pollingTimer);
+                        pollingTimer = null;
+                        agentOutputs = state.agent_outputs || {};
+                        if (Object.keys(agentOutputs).length > 0 || state.result) {
+                            document.getElementById('resultTabs').style.display = 'flex';
+                            document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, state);
+                        }
+                        resetStepBadges();
+                        msgEl.textContent = state.message || '当前没有运行中的任务';
+                        updateAgentStatus('idle', 'Agent 就绪');
+                        resetBtn();
+                        return;
+                    }
+
+                    msgEl.textContent = isRunning
+                        ? `${state.message || '处理中...'} (已用时 ${timeStr})`
+                        : (state.message || '');
+                    applyBackendProgress(state);
+
+                    if (state.status === 'done') {
+                        clearInterval(pollingTimer);
+                        pollingTimer = null;
+                        allStepsDone();
+
+                        showBestAvailableResult(state);
+                        document.getElementById('interactiveBox').innerHTML = '';
+
+                        msgEl.textContent = '全部完成！';
+                        updateAgentStatus('idle', 'Agent 就绪');
+                        resetBtn();
+                    } else if (state.status === 'error') {
+                        clearInterval(pollingTimer);
+                        pollingTimer = null;
+                        agentOutputs = state.agent_outputs || {};
+                        if (Object.keys(agentOutputs).length > 0 || state.result) {
+                            showBestAvailableResult(state);
+                            msgEl.textContent = state.message || '执行出错';
+                        } else {
+                            showError(state.message || state.error || '执行出错');
+                        }
+                        updateAgentStatus('error', '执行出错');
+                        resetBtn();
+
+                        // Phase 1 已完成时：保留重试按钮，不清空 interactiveBox
+                        if (canRetryShotDirector(state)) {
+                            renderShotDirectorRetryBox(state);
+                        } else if (Number(state.total_segments) > 0 && (state.agent_outputs || {}).shot_director) {
+                            showBestAvailableResult(state);
+                            const retryState = { ...state, status: 'waiting_for_user_input' };
+                            renderWaitingInputBox(retryState);
+                        } else {
+                            document.getElementById('interactiveBox').innerHTML = '';
+                        }
+                    } else if (isRunning) {
+                        agentOutputs = state.agent_outputs || {};
+                        renderRunningState(state);
+                    } else if (state.status === 'waiting_for_user_input') {
+                        // 系统挂起，等待用户交互
+                        clearInterval(pollingTimer);
+                        pollingTimer = null;
+
+                        agentOutputs = state.agent_outputs || {};
+                        document.getElementById('resultTabs').style.display = 'flex';
+                        document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, state);
+                        renderWaitingInputBox(state);
+                    }
+                } catch (e) {
+                    // 网络错误继续轮询，不中断
+                }
+            }, 2000);
+        }
+
+        async function resumePipeline(segmentIndex) {
+            const fileInput = document.getElementById('tailFrameUpload');
+            const videoInput = document.getElementById('previousVideoUpload');
+            let b64 = "";
+            if (fileInput.files && fileInput.files[0]) {
+                b64 = await new Promise((resolve) => {
+                    const reader = new FileReader();
+                    reader.onload = (e) => {
+                        const res = e.target.result;
+                        resolve(res.split(",")[1]); // Extract base64 part
+                    };
+                    reader.readAsDataURL(fileInput.files[0]);
+                });
+            }
+
+            currentPublicState = {
+                ...currentPublicState,
+                status: 'running_phase_2',
+                active_segment_index: segmentIndex,
+                current_segment_index: segmentIndex,
+                message: `正在生成片段 ${segmentIndex}`
+            };
+            document.getElementById('resultTabs').style.display = 'flex';
+            document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, currentPublicState);
+            document.getElementById('interactiveBox').innerHTML = '';
+            document.getElementById('pipelineMsg').textContent = `已提交上一段视频，正在生成片段 ${segmentIndex}`;
+            updateAgentStatus('running', `生成片段 ${segmentIndex}`);
+            const btn = document.getElementById('btnRun');
+            btn.disabled = true;
+            btn.style.display = 'none';
+            document.getElementById('btnAbort').style.display = 'flex';
+
+            const formData = new FormData();
+            formData.append('segment_index', segmentIndex);
+            appendSession(formData);
+            if (b64) formData.append('tail_frame_b64', b64);
+            if (videoInput && videoInput.files && videoInput.files[0]) {
+                formData.append('previous_video_file', videoInput.files[0]);
+            }
+
+            try {
+                const resp = await fetch('/api/resume', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.success) {
+                    startPolling();
+                } else {
+                    const errorText = data.error || `片段 ${segmentIndex} 生成启动失败`;
+                    currentPublicState = {
+                        ...currentPublicState,
+                        status: 'waiting_for_user_input',
+                        active_segment_index: segmentIndex,
+                        current_segment_index: segmentIndex,
+                        message: errorText
+                    };
+                    showError(errorText);
+                    document.getElementById('pipelineMsg').textContent = errorText;
+                    renderWaitingInputBox(currentPublicState);
+                    updateAgentStatus('error', '生成启动失败');
+                    resetBtn();
+                }
+            } catch (e) {
+                const errorText = '网络错误: ' + e.message;
+                currentPublicState = {
+                    ...currentPublicState,
+                    status: 'waiting_for_user_input',
+                    active_segment_index: segmentIndex,
+                    current_segment_index: segmentIndex,
+                    message: errorText
+                };
+                showError(errorText);
+                document.getElementById('pipelineMsg').textContent = errorText;
+                renderWaitingInputBox(currentPublicState);
+                updateAgentStatus('error', '生成启动失败');
+                resetBtn();
+            }
+        }
+
+        // 进度条只以 /api/status 返回的后端状态为准。
+        const STEP_ORDER = ['rhythm', 'analyze', 'plan', 'direct', 'compile', 'inspect'];
+        const STEP_KEY_MAP = {
+            'step_0_rhythm': 0,
+            'step_1_analyze': 1,
+            'step_2_plan': 2,
+            'step_3_direct': 3,
+            'step_4_compile': 4,
+            'step_5_inspect': 5,
+        };
+
+        function latestShotDirectorOutput(outputs = {}) {
+            return outputs.shot_director
+                || outputs.shot_director_guard
+                || outputs.shot_director_blocking
+                || outputs.shot_director_layout
+                || '';
+        }
+
+        function hasCompiledPrompt(outputs = {}, state = {}) {
+            return compiledSegmentEntries(outputs).length > 0
+                || Boolean(outputs.prompt_compiler || state.result);
+        }
+
+        function hasQualityOutput(outputs = {}) {
+            return Boolean(outputs.quality_inspector)
+                || Object.keys(outputs).some(key => /^quality_inspector_segment_\d+$/.test(key));
+        }
+
+        function inferCompletedStepIndex(state = {}) {
+            const outputs = state.agent_outputs || {};
+            let doneIdx = -1;
+            if (outputs.rhythm_rewrite_director) doneIdx = Math.max(doneIdx, 0);
+            if (outputs.scene_analyst) doneIdx = Math.max(doneIdx, 1);
+            if (outputs.story_planner) doneIdx = Math.max(doneIdx, 2);
+            if (latestShotDirectorOutput(outputs)) doneIdx = Math.max(doneIdx, 3);
+            if (hasCompiledPrompt(outputs, state)) doneIdx = Math.max(doneIdx, 4);
+            if (hasQualityOutput(outputs)) doneIdx = Math.max(doneIdx, 5);
+            if (state.status === 'done') doneIdx = STEP_ORDER.length - 1;
+            return doneIdx;
+        }
+
+        function inferActiveStepIndex(state = {}) {
+            const stepIdx = STEP_KEY_MAP[state.step];
+            if (stepIdx !== undefined) return stepIdx;
+
+            const outputs = state.agent_outputs || {};
+            const message = `${state.message || ''} ${state.error || ''}`;
+            if (/质检|quality|inspect/i.test(message)) return 5;
+            if (/Seedance|编译|Prompt|compile/i.test(message)) return 4;
+            if (/镜头导演|分镜|动作调度|守门|shot_director|blocking|layout|guard/i.test(message)) return 3;
+            if (/结构规划|拆片|story_planner|plan/i.test(message)) return 2;
+            if (/场景分析|节奏|scene_analyst|rhythm/i.test(message)) return 0;
+
+            if (hasCompiledPrompt(outputs, state)) return 5;
+            if (latestShotDirectorOutput(outputs)) return 4;
+            if (outputs.story_planner) return 3;
+            if (outputs.scene_analyst) return 2;
+            if (outputs.rhythm_rewrite_director) return 1;
+            return 0;
+        }
+
+        function setStepVisual(stepName, visualState, label) {
+            const el = document.getElementById('step-' + stepName);
+            if (!el) return;
+            el.classList.remove('active', 'done', 'error');
+            if (visualState) el.classList.add(visualState);
+            const statusEl = el.querySelector('.step-status');
+            if (statusEl) statusEl.textContent = label;
+        }
+
+        function applyBackendProgress(state = {}) {
+            const status = String(state.status || '');
+            if (status === 'done') {
+                allStepsDone();
+                return;
+            }
+
+            const doneIdx = inferCompletedStepIndex(state);
+            const activeIdx = inferActiveStepIndex(state);
+            STEP_ORDER.forEach((stepName, idx) => {
+                if (idx <= doneIdx) {
+                    setStepVisual(stepName, 'done', '✓');
+                } else {
+                    setStepVisual(stepName, '', '等待');
+                }
+            });
+
+            if (status.startsWith('running')) {
+                setStepVisual(STEP_ORDER[activeIdx], 'active', '运行中');
+                return;
+            }
+
+            if (status === 'error') {
+                setStepVisual(STEP_ORDER[activeIdx], 'error', '错误');
+                return;
+            }
+
+            if (status === 'waiting_for_user_input' && state.step === 'step_5_inspect') {
+                setStepVisual('inspect', 'done', '等待输入');
+            }
+        }
+
+        function resetStepBadges() {
+            STEP_ORDER.forEach(s => {
+                const el = document.getElementById('step-' + s);
+                el.classList.remove('active', 'done', 'error');
+                el.querySelector('.step-status').textContent = '等待';
+            });
+        }
+
+        function resetSteps() {
+            resetStepBadges();
+            document.getElementById('pipelineMsg').textContent = '';
+        }
+
+        function allStepsDone() {
+            STEP_ORDER.forEach(s => {
+                const el = document.getElementById('step-' + s);
+                el.classList.remove('active', 'error');
+                el.classList.add('done');
+                el.querySelector('.step-status').textContent = '✓';
+            });
+        }
+
+        function markWaitingForInput(state = {}) {
+            applyBackendProgress(state);
+            const segIdx = Number(state.current_segment_index || 1);
+            const previousSegment = Math.max(0, segIdx - 1);
+            const msg = previousSegment > 0
+                ? `片段 ${previousSegment} 已完成，请上传片段 ${previousSegment} 完整视频后生成片段 ${segIdx}`
+                : `宏观规划已完成，可以生成片段 ${segIdx}`;
+            document.getElementById('pipelineMsg').textContent = msg;
+        }
+
+        function renderRunningState(state) {
+            const segIdx = state.active_segment_index || state.current_segment_index || 1;
+            const totalSegments = state.total_segments || 1;
+            const isPhase2 = state.status === 'running_phase_2';
+            const title = isPhase2
+                ? `正在基于上一段视频生成片段 ${segIdx} / ${totalSegments}`
+                : 'Agent 团队正在处理';
+            const detail = state.message || '处理中...';
+            const hasTailAnalysis = Boolean(state.tail_frame_analysis);
+            const qcRetry = Number(state.qc_retry_count || 0);
+            if (isPhase2 || compiledSegmentEntries(state.agent_outputs || {}).length > 0) {
+                document.getElementById('resultTabs').style.display = 'flex';
+                document.getElementById('resultOutput').innerHTML = `
+                    <div class="segment-running-note">
+                        <strong>${escapeHtml(title)}</strong>
+                        <span>${escapeHtml(detail)}</span>
+                        ${isPhase2 ? `<span>${hasTailAnalysis ? '已完成视频读取、尾帧抽取和连续性分析，正在编译/质检当前片段。' : '正在读取上传视频并抽取上一段尾帧。'}</span>` : ''}
+                        ${qcRetry > 0 ? `<span>机械质检已触发第 ${qcRetry} 次自动返修，请稍等。</span>` : ''}
+                    </div>
+                    ${renderCompiledSegments(state.agent_outputs || agentOutputs, state)}
+                `;
+            } else {
+                document.getElementById('resultOutput').innerHTML = `
+                    <div class="placeholder-text">
+                    <strong>${escapeHtml(title)}</strong><br><br>
+                    ${escapeHtml(detail)}<br>
+                    ${isPhase2 ? (hasTailAnalysis ? '已完成视频读取、尾帧抽取和连续性分析，正在编译/质检当前片段。' : '正在读取上传视频并抽取上一段尾帧。') : ''}
+                    ${qcRetry > 0 ? `<br>机械质检已触发第 ${qcRetry} 次自动返修，请稍等。` : ''}
+                    </div>
+                `;
+            }
+            document.getElementById('interactiveBox').innerHTML = '';
+            updateAgentStatus('running', isPhase2 ? `生成片段 ${segIdx}` : (state.message || 'Agent 工作中'));
+        }
+
+        function resetBtn() {
+            const btn = document.getElementById('btnRun');
+            btn.disabled = false;
+            btn.style.display = 'flex';
+            document.getElementById('btnAbort').style.display = 'none';
+        }
+
+        async function abortPipeline() {
+            const btn = document.getElementById('btnAbort');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon spinner">⏳</span> 正在中断...';
+            try {
+                const formData = new FormData();
+                formData.append('session_id', getSessionId());
+                await fetch('/api/abort', { method: 'POST', body: formData });
+            } catch (e) { }
+            if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; }
+            document.getElementById('pipelineMsg').textContent = '⏹ 任务已中断';
+            document.getElementById('resultOutput').innerHTML = '<div class="placeholder-text">任务已被手动中断</div>';
+            updateAgentStatus('idle', 'Agent 就绪');
+            resetBtn();
+            btn.innerHTML = '<span class="btn-icon">⏹</span> 中断任务';
+            btn.disabled = false;
+        }
+
+        async function clearPreviousSegment() {
+            const confirmed = confirm('确定清除上一段吗？这只会删除最近已生成的片段 Prompt 和质检状态，保留全局规划、参考图、剧本输入和更早片段。');
+            if (!confirmed) return;
+
+            const btn = document.getElementById('btnClearTask');
+            const originalHtml = btn.innerHTML;
+            btn.disabled = true;
+            btn.innerHTML = '<span class="btn-icon spinner">⏳</span> 正在清除...';
+            try {
+                const formData = new FormData();
+                formData.append('session_id', getSessionId());
+                const resp = await fetch('/api/clear_previous_segment', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    showError(data.error || '清除失败');
+                    return;
+                }
+                if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; }
+                agentOutputs = (data.state && data.state.agent_outputs) || {};
+                currentPublicState = data.state || {};
+                resetBtn();
+                document.getElementById('resultTabs').style.display = 'flex';
+                // 多卡片视图：被清除的那段会变成"未生成"，更早的段仍然可见
+                document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, currentPublicState);
+                document.getElementById('pipelineMsg').textContent = data.message || '上一段已清除';
+                updateAgentStatus('idle', 'Agent 就绪');
+                startPolling();
+            } catch (e) {
+                showError('清除失败: ' + e.message);
+            } finally {
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+            }
+        }
+
+        function showError(msg) {
+            document.getElementById('resultOutput').innerHTML =
+                '<div class="error-text">❌ ' + escapeHtml(msg) + '</div>';
+        }
+
+        function updateAgentStatus(type, text) {
+            document.getElementById('agentStatus').innerHTML =
+                `<div class="status-dot ${type}"></div><span>${text}</span>`;
+        }
+
+        // === 构建向量库 ===
+        async function buildVectorDB() {
+            const btn = document.getElementById('btnBuildDB');
+            const status = document.getElementById('dbStatus');
+            btn.disabled = true;
+            status.textContent = '正在构建...';
+            status.className = 'status-msg info';
+            try {
+                const resp = await fetch('/api/build_vectordb', { method: 'POST' });
+                const data = await resp.json();
+                status.textContent = data.success ? ('✅ ' + data.message) : ('❌ ' + data.error);
+                status.className = 'status-msg ' + (data.success ? 'success' : 'error');
+            } catch (e) {
+                status.textContent = '❌ 网络错误: ' + e.message;
+                status.className = 'status-msg error';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        // === 工具函数 ===
+        function escapeHtml(text) {
+            if (text == null) return '';
+            const str = String(text);
+            const map = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' };
+            return str.replace(/[&<>"']/g, m => map[m]);
+        }
+
+        function selectResultTab(agent) {
+            document.querySelectorAll('.result-tab').forEach(t => t.classList.remove('active'));
+            const tab = document.querySelector(`.result-tab[data-agent="${agent}"]`);
+            if (tab) tab.classList.add('active');
+        }
+
+        function showBestAvailableResult(state = {}) {
+            agentOutputs = state.agent_outputs || {};
+            currentPublicState = state;
+            document.getElementById('resultTabs').style.display = 'flex';
+
+            const hasCompiledPrompt = compiledSegmentEntries(agentOutputs).length > 0
+                || Boolean(agentOutputs.prompt_compiler || state.result);
+            if (hasCompiledPrompt) {
+                selectResultTab('prompt_compiler');
+                document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, state);
+                return;
+            }
+
+            const fallbackCandidates = [
+                ['shot_director', latestShotDirectorOutput(agentOutputs)],
+                ['story_planner', agentOutputs.story_planner],
+                ['scene_analyst', agentOutputs.scene_analyst],
+                ['rhythm_rewrite_director', agentOutputs.rhythm_rewrite_director],
+                ['quality_inspector', agentOutputs.quality_inspector],
+            ];
+            const availableEntry = fallbackCandidates.find(([, text]) => Boolean(text));
+            if (availableEntry) {
+                const [availableAgent, text] = availableEntry;
+                selectResultTab(availableAgent);
+                document.getElementById('resultOutput').innerHTML =
+                    '<pre class="result-text">' + escapeHtml(text) + '</pre>';
+                return;
+            }
+
+            selectResultTab('prompt_compiler');
+            document.getElementById('resultOutput').innerHTML =
+                '<div class="placeholder-text">暂无可展示输出。</div>';
+        }
+
+        function switchResultTab(btn) {
+            document.querySelectorAll('.result-tab').forEach(t => t.classList.remove('active'));
+            btn.classList.add('active');
+            const agent = btn.dataset.agent;
+            const output = document.getElementById('resultOutput');
+
+            if (agent === 'prompt_compiler') {
+                output.innerHTML = renderCompiledSegments(agentOutputs, currentPublicState);
+                return;
+            }
+
+            const text = agent === 'shot_director'
+                ? latestShotDirectorOutput(agentOutputs)
+                : (agentOutputs[agent] || '');
+            if (text) {
+                output.innerHTML = '<pre class="result-text">' + escapeHtml(text) + '</pre>';
+            } else {
+                output.innerHTML = '<div class="placeholder-text">该 Agent 暂无输出</div>';
+            }
+        }
+
+        function copyCurrentTab() {
+            const activeTab = document.querySelector('.result-tab.active');
+            if (!activeTab) return;
+            const agent = activeTab.dataset.agent;
+            let text = '';
+            if (agent === 'prompt_compiler') {
+                const entries = compiledSegmentEntries(agentOutputs);
+                text = entries.map(e => e.text).join('\n\n');
+            } else if (agent === 'shot_director') {
+                text = latestShotDirectorOutput(agentOutputs);
+            } else {
+                text = agentOutputs[agent] || '';
+            }
+            if (!text) {
+                alert('当前标签页没有内容可复制');
+                return;
+            }
+            navigator.clipboard.writeText(text).then(() => {
+                const btn = document.querySelector('.card-header .btn-small');
+                if (btn) {
+                    const orig = btn.textContent;
+                    btn.textContent = '✅ 已复制';
+                    setTimeout(() => { btn.textContent = orig; }, 1500);
+                }
+            }).catch(() => {
+                // Fallback for older browsers
+                const ta = document.createElement('textarea');
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand('copy');
+                document.body.removeChild(ta);
+            });
+        }
+
+        function copyTextToClipboard(text, button = null) {
+            if (!text) {
+                alert('没有内容可复制');
+                return;
+            }
+            const markDone = () => {
+                if (!button) return;
+                const orig = button.textContent;
+                button.textContent = '✅ 已复制';
+                button.disabled = true;
+                setTimeout(() => {
+                    button.textContent = orig;
+                    button.disabled = false;
+                }, 1500);
+            };
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                navigator.clipboard.writeText(text).then(markDone).catch(() => {
+                    const ta = document.createElement('textarea');
+                    ta.value = text;
+                    document.body.appendChild(ta);
+                    ta.select();
+                    document.execCommand('copy');
+                    document.body.removeChild(ta);
+                    markDone();
+                });
+                return;
+            }
+            const ta = document.createElement('textarea');
+            ta.value = text;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            markDone();
+        }
+
+        function copySegmentPrompt(segmentIndex, button = null) {
+            const entries = compiledSegmentEntries(agentOutputs);
+            const entry = entries.find(item => item.index === Number(segmentIndex));
+            if (!entry || !entry.text) {
+                alert(`片段 ${segmentIndex} 还没有生成 Prompt`);
+                return;
+            }
+            copyTextToClipboard(entry.text, button);
+        }
+
+        document.addEventListener('DOMContentLoaded', loadReferenceLibrary);
+    </script>
+</body>
+
+</html>
