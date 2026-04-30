@@ -1715,13 +1715,10 @@ def _run_shot_director_single_pass(*args: Any, **kwargs: Any) -> tuple[str, dict
 
 
 def _run_shot_director_review_board(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
-    """Package-local compatibility entry.
+    """Compatibility wrapper for the migrated shot_director review board."""
+    from . import shot_director_impl
 
-    The monolith no longer needs to be imported by package callers. Tonight's
-    split scope did not uncover a live monolith implementation body for this
-    helper, so the compatibility path reuses the migrated single-pass flow.
-    """
-    return _run_shot_director_single_pass(*args, **kwargs)
+    return shot_director_impl._run_shot_director_review_board(*args, **kwargs)
 
 
 def _run_story_planner_with_schema_repair(*args: Any, **kwargs: Any) -> Any:
@@ -1736,6 +1733,7 @@ def _run_llm_quality_inspector(*args: Any, **kwargs: Any) -> Any:
     from .legacy_impl import _run_llm_quality_inspector as _impl
 
     return _impl(*args, **kwargs)
+
 
 
 
