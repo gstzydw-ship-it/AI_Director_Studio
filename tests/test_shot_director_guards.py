@@ -305,3 +305,23 @@ def test_shot_director_runtime_rules_and_rule_card_are_present():
     assert "镜头数量由节奏任务决定" in rhythm_rules
     assert "9:16 竖屏下，半身/中景/双人关系镜头是主力" in rhythm_rules
     assert "rules/shot_director/SHOT-SOURCE-EVENT-FIDELITY-001.md" in critical_files
+
+
+def test_shot_director_rhythm_compliance_rules_present():
+    rules = _shot_director_source_event_rules()
+    rhythm_rules = _shot_director_rhythm_match_rules()
+
+    assert "不得重新判断整体节奏" in rules, "shot_director must not re-judge overall rhythm"
+    assert "必须服从 atmosphere_strategy" in rules, "shot_director must obey atmosphere_strategy"
+    assert "快慢" in rules, "rules must include tempo control"
+    assert "停顿" in rules, "rules must include pause control"
+    assert "卡断" in rules, "rules must include cut control"
+    assert "反应归属" in rules, "rules must include reaction attribution"
+    assert "尾帧承接" in rules, "rules must include tailframe continuity"
+    assert "剧本事实" in rules, "rules must mention script facts"
+    assert "台词原文" in rules, "rules must mention original dialogue"
+    assert "动作道具连续性" in rules, "rules must mention action/prop continuity"
+    assert "空间轴线安全" in rules, "rules must mention spatial axis safety"
+    assert "后者优先" in rules, "rules must state script facts take priority over rhythm"
+    assert "story_planner 与 rhythm supervisor 给出的片段节奏指令" in rhythm_rules, "rhythm rules must reference upstream instructions"
+    assert "不得重新判断整体节奏" in rhythm_rules, "rhythm rules must not allow re-judging rhythm"

@@ -5,6 +5,7 @@ from typing import Any
 
 from . import legacy_impl as _impl
 from . import story_planner_impl as _story_planner_impl
+from . import shot_director_impl as _shot_director_impl
 
 
 def rhythm_rewrite_director_node(state: Any) -> Any:
@@ -24,7 +25,7 @@ def story_planner_node(state: Any) -> Any:
 
 
 def shot_director_node(state: Any) -> Any:
-    return _impl.shot_director_node(state)
+    return _shot_director_impl.shot_director_node(state)
 
 
 def wait_for_segment_request_node(state: Any) -> Any:

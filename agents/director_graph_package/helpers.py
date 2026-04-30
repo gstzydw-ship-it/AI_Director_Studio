@@ -691,12 +691,15 @@ def _shot_director_source_event_rules() -> str:
         "8. 9:16 竖屏默认以半身、中景、双人关系景别承担叙事；特写只给炸点、受击、情绪峰值或关键信息插入。一个片段的面部特写最多一次，不得把特写当默认景别。\n"
         "9. 没必要每个细节动作都给镜头：如果主镜头已经能看清动作和关系，就不要再为手指、掌心、鞋尖、袖口、嘴唇、眼角等微细节单独开镜头；只有线索揭示、动作前摇或受击落点无法看清时才允许插入。\n"
         "10. 悬念揭示优先采用\"停顿/发现前逼近 -> 关键物或文字 -> 人物反应\"；冲突升级优先采用\"施压 -> 受击 -> 短暂停顿\"；误解错位优先提升听者反应镜头，而不是让说话者一直占满画面。\n"
+        "11. shot_director 不得重新判断整体节奏，必须服从 atmosphere_strategy / rhythm supervisor 给出的快慢、停顿、卡断、反应归属、尾帧承接。\n"
+        "12. 若节奏建议与剧本事实、台词原文、动作道具连续性、人物位置、空间轴线安全冲突，后者优先。\n"
     )
 
 
 def _shot_director_rhythm_match_rules() -> str:
     return (
         "【节奏与镜头匹配规则（参考《AI 导演系统工程文档规范》）】\n"
+        "0. shot_director 只执行 story_planner 与 rhythm supervisor 给出的片段节奏指令，不得重新判断整体节奏；必须服从 atmosphere_strategy 的快慢、停顿、卡断、反应归属、尾帧承接。\n"
         "1. 先识别戏剧微粒，再决定镜头：权力反转看压制与失势，冲突升级看施压与受击，悬念揭示看发现与停顿，误解错位看听者反应，情绪极点看停住后的内压，钩子结尾看最后的悬住点。\n"
         "2. 镜头数量由节奏任务决定，不由镜头库模板决定；能用 1 个主镜头讲清的动作，不要硬拆成 3 个细碎镜头。\n"
         "3. 需要切镜时，只切信息增量最大的节点：动作前摇、揭示落点、受击反应、关系变化、关键道具或文字出现。走近、弯腰、拿起、站定等中间过渡默认省略。\n"
@@ -1518,7 +1521,7 @@ def _call_shot_director_stage(
         raise
 
 
-def _run_shot_director_single_pass(
+def _run_shot_director_single_pass_impl(
     *,
     script: str,
     planner_output: str,
@@ -1704,6 +1707,13 @@ def _run_shot_director_single_pass(
     return final_output, runtime, stage_meta, stage_outputs
 
 
+def _run_shot_director_single_pass(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
+    """Compatibility wrapper for the migrated shot_director implementation."""
+    from . import shot_director_impl
+
+    return shot_director_impl._run_shot_director_single_pass(*args, **kwargs)
+
+
 def _run_shot_director_review_board(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
     """Package-local compatibility entry.
 
@@ -1726,5 +1736,8 @@ def _run_llm_quality_inspector(*args: Any, **kwargs: Any) -> Any:
     from .legacy_impl import _run_llm_quality_inspector as _impl
 
     return _impl(*args, **kwargs)
+
+
+
 
 
