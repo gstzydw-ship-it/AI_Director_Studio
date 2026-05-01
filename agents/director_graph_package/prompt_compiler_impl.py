@@ -74,6 +74,17 @@ _AXIS_RIGHT_RE = _legacy._AXIS_RIGHT_RE
 _SILENT_CUT_TRIGGER_RE = _legacy._SILENT_CUT_TRIGGER_RE
 _NEW_SUBJECT_FRAMING_RE = _legacy._NEW_SUBJECT_FRAMING_RE
 
+_SOURCE_DIALOGUE_LINE_RE = re.compile(
+    r"(?m)^\s*[\u4e00-\u9fffA-Za-z0-9_\u00b7\uff08\uff09()]+"
+    r"(?:\s*(?:OS|O\.S\.|VO|V\.O\.))?\s*[:\uff1a].+"
+)
+_SOURCE_SOUND_LINE_RE = re.compile(
+    r"(?m)^\s*\u3010\s*(?:\u97f3\u6548|\u65c1\u767d|\u753b\u5916\u97f3|OS|O\.S\.|VO|V\.O\.)\s*[:\uff1a].+?\u3011"
+)
+_SOURCE_ACTION_BEAT_RE = re.compile(
+    r"(?m)^\s*\u25b2.+(?:\u53cd\u5e94|\u56de\u5e94|\u505c\u987f|\u6c89\u9ed8|\u8fdf\u7591|\u6123\u4f4f|\u50f5\u4f4f|\u773c\u795e|\u770b\u7740|\u770b\u5411|\u773c\u7736|\u6469\u6332).+"
+)
+
 def _normalise_compiled_prompt(prompt: str, segment_index: int | None = None, script: str = "") -> str:
     """Clean common streaming pollution while preserving the actual compiled prompt."""
     text = (prompt or "").strip()
