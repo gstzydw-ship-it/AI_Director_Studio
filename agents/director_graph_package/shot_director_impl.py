@@ -10,8 +10,24 @@ from .helpers import _primary_script_character_names
 from .state_store import _persist_update  
 from .story_planner_impl import _extract_segments  
 from .types import DirectorState  
-from .llm import _get_llm_settings, call_llm
-from .prompting import build_system_prompt
+
+
+def _get_llm_settings(*args: Any, **kwargs: Any) -> Any:
+    import agents.director_graph as dg
+
+    return dg._get_llm_settings(*args, **kwargs)
+
+
+def call_llm(*args: Any, **kwargs: Any) -> Any:
+    import agents.director_graph as dg
+
+    return dg.call_llm(*args, **kwargs)
+
+
+def build_system_prompt(*args: Any, **kwargs: Any) -> Any:
+    import agents.director_graph as dg
+
+    return dg.build_system_prompt(*args, **kwargs)
 
 
 _BODY_MECHANICS_ACTION_RE = re.compile(
@@ -1588,6 +1604,12 @@ def _run_shot_director_single_pass_impl(
 def _run_shot_director_single_pass(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
     """Public package entry for the migrated shot_director single-pass flow."""
     return _run_shot_director_single_pass_impl(*args, **kwargs)
+
+
+def _run_shot_director_three_stage(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
+    """Backward-compatible alias retained for orchestration tests and monkeypatch hooks."""
+    return _run_shot_director_single_pass(*args, **kwargs)
+
 
 def _validate_shot_director_dialogue_coverage(output: str) -> list[str]:
     """Ensure shot_director, not compiler, owns long-dialogue coverage design."""

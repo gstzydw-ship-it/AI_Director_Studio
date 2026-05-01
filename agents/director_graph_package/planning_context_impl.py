@@ -1,14 +1,9 @@
 """Package-local planning context nodes (showrunner + scene analyst) extracted from legacy_impl."""
 from __future__ import annotations
 
-import os
 from typing import Any
 
 DirectorState = dict[str, Any]
-
-
-def _should_send_reference_images_to_llm() -> bool:
-    return os.getenv("DIRECTOR_SEND_REFERENCE_IMAGES_TO_LLM", "").lower() in {"1", "true", "yes"}
 
 
 def _scene_reference_images(state: DirectorState) -> list[str]:

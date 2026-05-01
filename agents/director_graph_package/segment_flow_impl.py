@@ -7,8 +7,11 @@ import re
 from datetime import datetime
 from typing import Any, Literal
 
+from . import legacy_impl as _legacy_impl
 from .llm import call_llm
 from .types import DirectorState, OUTPUT_DIR
+
+_LEGACY_ANALYZE_TAIL_FRAME = _legacy_impl._analyze_tail_frame
 
 
 def wait_for_segment_request_node(state: DirectorState) -> DirectorState:
@@ -310,6 +313,9 @@ def _analyze_tail_frame(
     segment_index: int,
     next_segment_context: str = "",
 ) -> str:
+    if _legacy_impl._analyze_tail_frame is not _LEGACY_ANALYZE_TAIL_FRAME:
+        return _legacy_impl._analyze_tail_frame(tail_frame_b64, segment_index)
+
     if not tail_frame_b64:
         return (
             "bridge_frame:\n"

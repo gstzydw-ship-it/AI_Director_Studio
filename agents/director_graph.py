@@ -69,6 +69,10 @@ _PUBLIC_EXPORTS = {
     "run_phase_2_compile_segment",
     "run_shot_director_resume_from_partial",
     "run_shot_director_restart_from_story_plan",
+    "_run_shot_director_review_board",
+    "_run_shot_director_single_pass",
+    "_run_shot_director_three_stage",
+    "_collect_shot_director_issues",
 }
 
 
