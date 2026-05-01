@@ -1,522 +1,69 @@
-"""Self-contained shot-director helpers for the director graph package.
+"""Shot director implementation split from the legacy director graph module."""
+from __future__ import annotations  
+  
+import re  
+import time  
+from typing import Any, Callable  
+  
+from ..knowledge_base import get_agent_knowledge_files  
+from .helpers import build_system_prompt, call_llm, _primary_script_character_names  
+from .state_store import _persist_update  
+from .story_planner_impl import _extract_segments  
+from .types import DirectorState  
+from .llm import _get_llm_settings
 
-Real implementations of _run_shot_director_single_pass and
-_run_shot_director_review_board (plus their recursive dependencies).
-"""
-from __future__ import annotations
 
-import json
-import os
-import re
-import time
-from typing import Any, Callable
-
-import httpx
-import yaml
-
-from .types import (
-    AGENT_CONFIG_PARENTS,
-    CONFIG_FILE,
-    DEFAULT_LLM_MODEL,
-    LLMSettings,
-    STORY_PLANNER_MAX_SCHEMA_ATTEMPTS,
+_BODY_MECHANICS_ACTION_RE = re.compile(
+    r"进入|走进|冲入|冲向|穿过|越过|进电梯|进门|出门|碰撞|撞上|扶住|松开|擦身而过|过阈值|转身|离开|"
+    r"拿起|放下|递给|交给|推开|拉开|关上|打开|下车|上车|起身|坐下|后退|让出|站到|移动|行走|奔跑"
 )
-from ..utils import COMFLY_BASE_URL, load_yaml_config
-
-
-def load_config() -> dict[str, Any]:
-    try:
-        return load_yaml_config(CONFIG_FILE)
-    except yaml.YAMLError as exc:
-        print(f"  [Config] WARN: YAML parse failed ({CONFIG_FILE}): {exc}")
-        return {}
-    except OSError as exc:
-        print(f"  [Config] WARN: unable to read config ({CONFIG_FILE}): {exc}")
-        return {}
-def _as_mapping(value: Any) -> dict[str, Any]:
-    return value if isinstance(value, dict) else {}
-
-
-def _normalise_base_url(base_url: Any) -> str:
-    value = str(base_url or "").strip()
-    if value and not value.startswith(("http://", "https://")):
-        value = f"https://{value}"
-    return value.rstrip("/")
-
-
-def _normalise_model_name(model: Any) -> str:
-    value = str(model or "").strip()
-    if value.startswith("openai/"):
-        value = value.replace("openai/", "", 1)
-    return value
-
-
-def _optional_float(value: Any) -> float | None:
-    try:
-        return float(value) if value is not None else None
-    except (TypeError, ValueError):
-        return None
-
-
-def _agent_config_layers(full_config: dict[str, Any], agent_name: str) -> list[tuple[str, dict[str, Any]]]:
-    """Return inherited config layers in increasing priority order."""
-    if not agent_name:
-        return []
-
-    agent_models = _as_mapping(full_config.get("agent_models"))
-    layers: list[tuple[str, dict[str, Any]]] = []
-
-    parent_name = AGENT_CONFIG_PARENTS.get(agent_name)
-    parent_cfg = _as_mapping(agent_models.get(parent_name)) if parent_name else {}
-    if parent_name and parent_cfg:
-        layers.append((parent_name, parent_cfg))
-
-    agent_cfg = _as_mapping(agent_models.get(agent_name))
-    if agent_cfg:
-        layers.append((agent_name, agent_cfg))
-
-    return layers
-
-
-def _apply_llm_config_layer(settings: dict[str, Any], layer: dict[str, Any]) -> None:
-    if layer.get("api_key"):
-        settings["api_key"] = layer["api_key"]
-    if layer.get("base_url"):
-        settings["base_url"] = layer["base_url"]
-    if layer.get("model"):
-        settings["model"] = layer["model"]
-    if "temperature" in layer:
-        settings["temperature"] = layer["temperature"]
-
-
-def resolve_llm_settings(agent_name: str = "", full_config: dict[str, Any] | None = None) -> LLMSettings:
-    """Resolve LLM settings into a validation-friendly object.
-
-    优先级（从低到高）：
-        1. 代码默认值（COMFLY_BASE_URL / DEFAULT_LLM_MODEL）
-        2. llm.* 全局配置
-        3. 环境变量 DIRECTOR_LLM_API_KEY / DIRECTOR_LLM_MODEL
-        4. parent agent 配置（如 shot_director_layout 继承 shot_director）
-        5. agent_models.<agent_name>.* 当前 agent 覆盖
-    """
-    config = load_config() if full_config is None else full_config
-    llm_config = _as_mapping(config.get("llm"))
-    raw_settings: dict[str, Any] = {
-        "api_key": llm_config.get("api_key", "") or "",
-        "base_url": llm_config.get("base_url") or COMFLY_BASE_URL,
-        "model": llm_config.get("model") or DEFAULT_LLM_MODEL,
-        "temperature": llm_config.get("temperature"),
-    }
-
-    env_api_key = os.getenv("DIRECTOR_LLM_API_KEY")
-    env_model = os.getenv("DIRECTOR_LLM_MODEL")
-    if env_api_key:
-        raw_settings["api_key"] = env_api_key
-    if env_model:
-        raw_settings["model"] = env_model
-
-    layers = _agent_config_layers(config, agent_name)
-    for _layer_name, layer in layers:
-        _apply_llm_config_layer(raw_settings, layer)
-
-    return LLMSettings(
-        agent_name=agent_name,
-        api_key=str(raw_settings.get("api_key") or "").strip(),
-        base_url=_normalise_base_url(raw_settings.get("base_url")),
-        model=_normalise_model_name(raw_settings.get("model")),
-        temperature=_optional_float(raw_settings.get("temperature")),
-        config_path=CONFIG_FILE,
-        parent_agent=AGENT_CONFIG_PARENTS.get(agent_name) if layers else None,
-    )
-
-
-def _get_llm_settings(agent_name: str = "") -> tuple[str, str, str, float | None]:
-    """Backward-compatible tuple API for older call sites."""
-    return resolve_llm_settings(agent_name).as_tuple()
-
-
-def _get_llm_extra_params(agent_name: str = "") -> dict[str, Any]:
-    """解析 llm.extra_params 与 agent_models.<name>.extra_params 的合并结果。
-
-    这个字段用于透传 Claude thinking / GPT-5 reasoning_effort / response_format
-    等 provider-specific 参数给 Comfly（或任何 OpenAI 兼容网关）。
-    """
-    full_config = load_config()
-    merged: dict[str, Any] = {}
-
-    global_extra = _as_mapping(full_config.get("llm")).get("extra_params")
-    if isinstance(global_extra, dict):
-        merged.update(global_extra)
-
-    for _layer_name, layer in _agent_config_layers(full_config, agent_name):
-        agent_extra = layer.get("extra_params")
-        if isinstance(agent_extra, dict):
-            merged.update(agent_extra)
-
-    return merged
-
-
-def _coerce_float(value: Any, default: float, minimum: float | None = None) -> float:
-    try:
-        resolved = float(value)
-    except (TypeError, ValueError):
-        resolved = default
-    if minimum is not None:
-        resolved = max(minimum, resolved)
-    return resolved
-
-
-def _coerce_int(value: Any, default: int, minimum: int | None = None) -> int:
-    try:
-        resolved = int(value)
-    except (TypeError, ValueError):
-        resolved = default
-    if minimum is not None:
-        resolved = max(minimum, resolved)
-    return resolved
-
-
-def _get_llm_runtime_option(agent_name: str, key: str, default: Any) -> Any:
-    full_config = load_config()
-    value = _as_mapping(full_config.get("llm")).get(key, default)
-    for _layer_name, layer in _agent_config_layers(full_config, agent_name):
-        if key in layer:
-            value = layer[key]
-    return value
-
-
-def _normalise_model_list(value: Any) -> list[str]:
-    if isinstance(value, str):
-        candidates = re.split(r"[,\n]+", value)
-    elif isinstance(value, (list, tuple)):
-        candidates = value
-    else:
-        candidates = []
-
-    models: list[str] = []
-    for candidate in candidates:
-        model = _normalise_model_name(candidate)
-        if model and model not in models:
-            models.append(model)
-    return models
-
-
-def _get_llm_fallback_models(agent_name: str = "") -> list[str]:
-    full_config = load_config()
-    value = _as_mapping(full_config.get("llm")).get("fallback_models", [])
-    for _layer_name, layer in _agent_config_layers(full_config, agent_name):
-        if "fallback_models" in layer:
-            value = layer["fallback_models"]
-    return _normalise_model_list(value)
-
-
-def _raise_llm_failure(
-    last_exc: Exception | None,
-    *,
-    agent_name: str,
-    model: str,
-    max_retries: int,
-    images_base64: list[str] | None,
-    attempted_models: list[str],
-) -> None:
-    attempted_note = f"；尝试模型: {', '.join(attempted_models)}" if attempted_models else ""
-    if isinstance(last_exc, httpx.RemoteProtocolError):
-        cause_hint = (
-            "常见原因是参考图过大、上游代理超时或模型网关临时中断，请压缩参考图后重试。"
-            if images_base64
-            else "常见原因是上游模型网关临时断流或代理超时；本次请求未发送参考图。"
-        )
-        raise RuntimeError(
-            f"LLM 服务在返回前断开连接（agent={agent_name or '?'}, model={model}，已重试 {max_retries} 次{attempted_note}）。"
-            f"{cause_hint}"
-        ) from last_exc
-    if isinstance(last_exc, httpx.ConnectError):
-        raise RuntimeError(
-            f"LLM 网络连接失败（已重试 {max_retries} 次{attempted_note}）。"
-            "已默认绕开环境代理；如果仍失败，通常是上游网关 TLS 抖动或本机网络中断，请稍后重试。"
-        ) from last_exc
-    if isinstance(last_exc, httpx.TimeoutException):
-        raise RuntimeError(
-            f"LLM 服务响应超时（已重试 {max_retries} 次{attempted_note}）。请减少参考图数量或稍后重试。"
-        ) from last_exc
-    if isinstance(last_exc, httpx.HTTPStatusError):
-        if last_exc.response is not None:
-            try:
-                detail = (last_exc.response.text or "")[:800]
-            except Exception:
-                detail = ""
-            status_code = last_exc.response.status_code
-        else:
-            detail = ""
-            status_code = "unknown"
-        raise RuntimeError(
-            f"LLM 接口返回 HTTP {status_code}（agent={agent_name or '?'}, model={model}，已重试 {max_retries} 次{attempted_note}）: {detail}"
-        ) from last_exc
-    raise RuntimeError(f"LLM 调用失败（已重试 {max_retries} 次{attempted_note}）: {last_exc}") from last_exc
-
-
-def _default_llm_timeout_seconds(model: str, extra_params: dict[str, Any]) -> float:
-    model_name = (model or "").lower()
-    thinking = extra_params.get("thinking")
-    if isinstance(thinking, dict) and thinking.get("type") == "enabled":
-        return 240.0
-    if "thinking" in model_name:
-        return 240.0
-    if "opus" in model_name:
-        return 180.0
-    return 120.0
-
-
-def _extract_message_text(message: dict[str, Any]) -> str:
-    """把 OpenAI 风格 message.content 解析成纯文本。
-
-    兼容三种返回形态：
-      1. 字符串（标准 OpenAI / 大多数 Comfly 路由）
-      2. Anthropic 风格的 block 数组 [{type: thinking/text, ...}]
-      3. 兼容 reasoning_content / output_text 的降级字段
-    """
-    content = message.get("content")
-    if content is None:
-        for alt_key in ("reasoning_content", "output_text", "text"):
-            alt = message.get(alt_key)
-            if isinstance(alt, str) and alt:
-                return alt
-        return ""
-
-    if isinstance(content, str):
-        return content
-
-    if isinstance(content, list):
-        texts: list[str] = []
-        for block in content:
-            if not isinstance(block, dict):
-                texts.append(str(block))
-                continue
-            btype = block.get("type")
-            if btype in {"thinking", "reasoning"}:
-                # thinking 块不参与最终输出，仅保留方便 debug
-                continue
-            if btype in {"text", "output_text"}:
-                texts.append(str(block.get("text") or block.get("content") or ""))
-            elif btype == "json":
-                texts.append(json.dumps(block.get("json") or {}, ensure_ascii=False))
-            else:
-                fallback = block.get("text") or block.get("content")
-                if fallback:
-                    texts.append(str(fallback))
-        return "\n".join(t for t in texts if t).strip()
-
-    return str(content)
-
-
-def call_llm(
-    system_prompt: str,
-    user_prompt: str,
-    images_base64: list[str] | None = None,
-    temperature: float = 0.4,
-    agent_name: str = "",
-    max_retries: int | None = None,
-    bypass_proxy: bool = True,
-) -> str:
-    import time as _time
-
-    settings = resolve_llm_settings(agent_name)
-    settings.require_valid()
-    api_key, base_url, model, agent_temperature = settings.as_tuple()
-    if agent_temperature is not None:
-        temperature = agent_temperature
-
-    headers = {
-        "Authorization": f"Bearer {api_key}",
-        "Content-Type": "application/json",
-    }
-    messages: list[dict[str, Any]] = [{"role": "system", "content": system_prompt}]
-
-    if images_base64:
-        content: list[dict[str, Any]] = [{"type": "text", "text": user_prompt}]
-        for image in images_base64:
-            image_url = image if image.startswith("data:") else f"data:image/jpeg;base64,{image}"
-            content.append(
-                {
-                    "type": "image_url",
-                    "image_url": {"url": image_url},
-                }
-            )
-        messages.append({"role": "user", "content": content})
-    else:
-        messages.append({"role": "user", "content": user_prompt})
-
-    base_payload: dict[str, Any] = {
-        "model": model,
-        "messages": messages,
-        "temperature": temperature,
-    }
-
-    max_tokens = _coerce_int(_get_llm_runtime_option(agent_name, "max_tokens", 0), 0)
-    if max_tokens > 0:
-        base_payload["max_tokens"] = max_tokens
-
-    # 透传 agent/全局 extra_params（thinking / reasoning_effort / response_format 等）
-    extra_params = _get_llm_extra_params(agent_name)
-    if extra_params:
-        for key, value in extra_params.items():
-            # temperature 已由 agent_temperature 覆盖，避免 extra_params 再次冲突
-            if key == "temperature":
-                continue
-            base_payload[key] = value
-        # Claude thinking 模式强制要求 temperature=1.0
-        if isinstance(extra_params.get("thinking"), dict) and extra_params["thinking"].get("type") == "enabled":
-            base_payload["temperature"] = 1.0
-            budget = extra_params["thinking"].get("budget_tokens", 0)
-            if isinstance(budget, (int, float)) and budget > 0:
-                needed = int(budget) + 8192
-                if max_tokens <= 0 or max_tokens < needed:
-                    base_payload["max_tokens"] = needed
-
-    if max_retries is None:
-        max_retries = _coerce_int(_get_llm_runtime_option(agent_name, "max_retries", 2), 2, minimum=1)
-    else:
-        max_retries = max(1, int(max_retries))
-
-    # 默认直连 Comfly，避免 UI/测试进程遗留的代理环境变量把 TLS 握手导向本机代理。
-    trust_env = not bypass_proxy
-    last_exc: Exception | None = None
-    last_retryable = False
-    models_to_try = _normalise_model_list([model, *_get_llm_fallback_models(agent_name)])
-    attempted_models: list[str] = []
-
-    for model_index, active_model in enumerate(models_to_try):
-        attempted_models.append(active_model)
-        payload = dict(base_payload)
-        payload["model"] = active_model
-
-        if agent_name:
-            fallback_note = " fallback" if model_index else ""
-            print(f"  [LLM] {agent_name} -> {active_model} @ {settings.host}{fallback_note}")
-
-        default_timeout = _default_llm_timeout_seconds(active_model, extra_params)
-        request_timeout = _coerce_float(
-            _get_llm_runtime_option(agent_name, "timeout_seconds", default_timeout),
-            default_timeout,
-            minimum=30.0,
-        )
-        connect_timeout = _coerce_float(
-            _get_llm_runtime_option(agent_name, "connect_timeout_seconds", min(30.0, request_timeout)),
-            min(30.0, request_timeout),
-            minimum=5.0,
-        )
-        read_timeout = _coerce_float(
-            _get_llm_runtime_option(agent_name, "read_timeout_seconds", request_timeout),
-            request_timeout,
-            minimum=30.0,
-        )
-        write_timeout = _coerce_float(
-            _get_llm_runtime_option(agent_name, "write_timeout_seconds", min(60.0, request_timeout)),
-            min(60.0, request_timeout),
-            minimum=10.0,
-        )
-        timeout = httpx.Timeout(request_timeout, connect=connect_timeout, read=read_timeout, write=write_timeout)
-
-        for attempt in range(1, max_retries + 1):
-            try:
-                with httpx.Client(timeout=timeout, trust_env=trust_env) as client:
-                    response = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-                    response.raise_for_status()
-                    result = response.json()
-                # 防御式解析：上游可能返回非标格式（choices 缺失、消息无 content 等）
-                if not isinstance(result, dict):
-                    raise RuntimeError(f"LLM 响应格式异常，期待 dict，得到 {type(result).__name__}：{str(result)[:400]}")
-                choices = result.get("choices")
-                if not choices or not isinstance(choices, list):
-                    raise RuntimeError(f"LLM 响应缺少 choices 字段：{json.dumps(result, ensure_ascii=False)[:500]}")
-                message = (choices[0] or {}).get("message") or {}
-                text = _extract_message_text(message)
-                return text.strip()
-            except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.NetworkError) as exc:
-                last_exc = exc
-                last_retryable = True
-            except httpx.TimeoutException as exc:
-                last_exc = exc
-                last_retryable = True
-            except httpx.HTTPStatusError as exc:
-                last_exc = exc
-                status_code = exc.response.status_code if exc.response is not None else 0
-                # 仅对 5xx 服务端错误重试，4xx 客户端错误直接失败
-                last_retryable = (status_code >= 500)
-            except Exception as exc:
-                last_exc = exc
-                last_retryable = False
-
-            if not last_retryable or attempt == max_retries:
-                break
-
-            wait_seconds = 2 ** attempt  # 2s, 4s, 8s, 16s 指数退避
-            print(f"  [LLM] WARN: attempt {attempt} failed on {active_model} ({type(last_exc).__name__}); retrying in {wait_seconds}s...")
-            _time.sleep(wait_seconds)
-
-        if last_retryable and model_index < len(models_to_try) - 1:
-            next_model = models_to_try[model_index + 1]
-            print(f"  [LLM] WARN: {active_model} failed after {max_retries} attempts; trying fallback model {next_model}...")
-            continue
-        break
-
-    _raise_llm_failure(
-        last_exc,
-        agent_name=agent_name,
-        model=attempted_models[-1] if attempted_models else model,
-        max_retries=max_retries,
-        images_base64=images_base64,
-        attempted_models=attempted_models,
-    )
-
-
-def _critical_knowledge_block(agent_name: str) -> str:
-    critical_docs = load_knowledge_documents(agent_name, get_agent_knowledge_files(agent_name, critical_only=True))
-    if not critical_docs:
-        return ""
-    return "\n\n".join(f"--- {doc['filename']} (关键规则) ---\n{doc['content']}" for doc in critical_docs)
-
-
-def build_system_prompt(role_description: str, agent_name: str, context_hint: str = "") -> tuple[str, dict[str, Any]]:
-    critical_text = _critical_knowledge_block(agent_name)
-    retrieval_meta: dict[str, Any] = {}
-    try:
-        kb_text, retrieval_meta = get_smart_knowledge(agent_name, context_hint)
-    except Exception:
-        kb_text = get_full_knowledge_for_agent(agent_name)
-        retrieval_meta = {
-            "retrieval_mode": "fallback",
-            "used_full_fallback": True,
-            "matched_sources": get_agent_knowledge_files(agent_name),
-            "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
-            "result_count": 0,
-            "context_hint": context_hint,
-        }
-
-    knowledge_sections = []
-    if critical_text:
-        knowledge_sections.append("===== 以下是必须优先执行的关键规则 =====\n" + critical_text)
-    if kb_text:
-        knowledge_sections.append("===== 以下是补充知识库规则 =====\n" + kb_text)
-
-    system_prompt = (
-        f"{role_description}\n\n"
-        + "\n\n".join(knowledge_sections)
-        + "\n===== 规则结束 =====\n"
-        + "请严格遵守上述规则，并直接输出结果，不要包含寒暄或无关内容。"
-    )
-    return system_prompt, retrieval_meta
-
-
-def _primary_script_character_names(script: str) -> list[str]:
-    for line in (script or "").splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("人物"):
-            continue
-        _, _, names_text = stripped.partition("：")
-        names = [name.strip() for name in re.split(r"[、,，/和\s]+", names_text) if name.strip()]
-        return names
-    return []
+_ACTION_PATH_TASK_RE = re.compile(
+    r"进入|走进|冲入|冲向|穿过|越过|进电梯|进门|出门|碰撞|撞上|扶住|松开|擦身而过|过阈值|转身|离开|"
+    r"下车|上车|走向|冲向|退到|站到|让出|移动路径|动作路径|body path|movement path|action path",
+    re.IGNORECASE,
+)
+_SELECTION_REASON_ANCHOR_RE = re.compile(
+    r"viewer|audience|attention|information|reveal|delay|hide|miss|space|body|action|path|cut|continuity|"
+    r"视线|注意|信息|揭示|隐藏|延迟|空间|身体|动作|路径|连续|切点|受击|反应|轴线|尾帧",
+    re.IGNORECASE,
+)
+_GENERIC_SELECTION_REASON_RE = re.compile(
+    r"cinematic|looks good|more emotional|follow(?:s|ing)? rules|rule match|好看|高级|有电影感|符合规则|更有情绪",
+    re.IGNORECASE,
+)
+_DIALOGUE_COVERAGE_TERMS_RE = re.compile(r"(反应|受击|听者|对手|对方|过肩|肩线|反打|视线|切回|画外音|OS|L-cut|J-cut|景别递进)")
+  
+  
+def _knowledge_metadata(state: DirectorState) -> dict[str, Any]:  
+    return dict(state.get("knowledge_metadata") or {})  
+  
+  
+def _record_knowledge_metadata(  
+    state: DirectorState,  
+    agent_name: str,  
+    context_hint: str,  
+    retrieval_meta: dict[str, Any] | None,  
+) -> dict[str, Any]:  
+    metadata = _knowledge_metadata(state)  
+    metadata[agent_name] = {  
+        "context_hint": context_hint,  
+        "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),  
+        "all_sources": get_agent_knowledge_files(agent_name),  
+        **(retrieval_meta or {}),  
+    }  
+    return metadata  
+  
+  
+def _agent_outputs(state: DirectorState) -> dict[str, str]:  
+    return dict(state.get("agent_outputs") or {})  
+  
+  
+def _reference_images(state: DirectorState) -> list[str]:  
+    return list(state.get("reference_image_b64s") or [])  
+  
+  
+def _director_brief(state: DirectorState | dict[str, Any]) -> str:  
+    return str(state.get("director_brief") or "").strip()  
 
 
 def _director_brief_prompt_block(director_brief: str) -> str:
@@ -529,8 +76,20 @@ def _director_brief_prompt_block(director_brief: str) -> str:
         "but use it to choose emphasis, shot priority, rhythm, and acceptable tradeoffs.\n"
         f"{director_brief}\n"
     )
-
-
+  
+  
+def _derive_segments_from_planner_output(planner_output: str) -> tuple[int, list[str]]:  
+    sections = _extract_yaml_sections(planner_output or "")  
+    if not sections:  
+        return _extract_segments(planner_output)  
+    fragment_ids = [_extract_fragment_id(section) for section in sections]  
+    fragment_ids = [fragment_id for fragment_id in fragment_ids if fragment_id]  
+    if not fragment_ids:  
+        return _extract_segments(planner_output)  
+    expected_ids = [f"F{index:02d}" for index in range(1, len(fragment_ids) + 1)]  
+    if fragment_ids == expected_ids:  
+        return len(fragment_ids), [f"片段{index:02d}" for index in range(1, len(fragment_ids) + 1)]  
+    return len(fragment_ids), fragment_ids  
 def _script_fidelity_rules() -> str:
     return (
         "【剧本忠实度硬规则】\n"
@@ -539,7 +98,6 @@ def _script_fidelity_rules() -> str:
         "3. 若原剧本没有写员工说话，就不能写员工低声确认、新CEO到了、议论等补戏。\n"
         "4. 片段不足15秒时允许短于15秒，禁止为了凑时长添加新情节。\n"
     )
-
 
 def _rhythm_insert_continuity_rules() -> str:
     return (
@@ -551,7 +109,6 @@ def _rhythm_insert_continuity_rules() -> str:
         "5. 插入儿童或人群小动作时，优先写身体姿态、站位、视线或停顿；只有原文明确道具已在该人物身上时，才写道具状态。\n"
     )
 
-
 def _subject_framing_rules() -> str:
     return (
         "【主体+景别硬规则】\n"
@@ -560,7 +117,6 @@ def _subject_framing_rules() -> str:
         "3. 正确写法示例：商北琛半身中景、乔熙胸部以上中近景、两人双人中景、腕表局部特写。\n"
         "4. 空间只能写作环境关系，例如\"大堂纵深关系清楚\"，不能写成\"大堂中景\"。\n"
     )
-
 
 def _spatial_geometry_contract_rules() -> str:
     return (
@@ -585,7 +141,6 @@ def _spatial_geometry_contract_rules() -> str:
         "不要为了完整性把所有空间节点都塞进去。\n"
     )
 
-
 def _camera_execution_rules() -> str:
     return (
         "【机位与运镜可执行硬规则】\n"
@@ -598,7 +153,6 @@ def _camera_execution_rules() -> str:
         "7. 禁止抽象判断句。不要写\"沉默就是回应\"\"权力关系锁住\"\"空气收紧\"\"命令落地即见效\"\"形成清晰钩子\"。必须改写成可见动作：停顿几秒、谁看向谁、谁后退半步、谁让出通道、电梯门停在什么开合状态。\n"
         "8. 可以使用专业术语，但最终 prompt 只保留可执行短句；例如\"商北琛半身中景，正面眼平，稳定器在他前方同速后退\"。\n"
     )
-
 
 def _camera_task_selection_rules() -> str:
     return (
@@ -616,7 +170,6 @@ def _camera_task_selection_rules() -> str:
         "11. 如果一个 fragment 里有多个 shots，禁止所有 shot 都重复同一套 camera_basis + camera_scene_position + camera_looks_toward + angle 直到片段结束。\n"
     )
 
-
 def _space_rules_contract_rules() -> str:
     return (
         "[Scene Map Contract]\n"
@@ -628,7 +181,6 @@ def _space_rules_contract_rules() -> str:
         "6. space_rules.blocked_camera_zones must list forbidden or risky zones, such as axis-crossing seats, occluded corners, impossible doorway positions, or positions that hide the body path.\n"
         "7. main_shot.camera_scene_position and visible_landmarks must be compatible with space_rules. If a shot uses scene_fixed, it must come from a safe_camera_zones entry or explain the exception in selection_reason.\n"
     )
-
 
 def _best_shot_selection_rules() -> str:
     return (
@@ -642,11 +194,9 @@ def _best_shot_selection_rules() -> str:
         "7. If the shot is a reaction, explain why the viewer needs the receiver now instead of the speaker; if it is an action path, explain why the body path must stay readable; if it is a relation reset, explain what spatial confusion it repairs.\n"
     )
 
-
 def _has_body_mechanics_action(block: str) -> bool:
     """Return True if the shot block describes a body-contact or movement-path action."""
     return bool(_BODY_MECHANICS_ACTION_RE.search(block or ""))
-
 
 def _shot_composition_task_selection_rules() -> str:
     return (
@@ -663,7 +213,6 @@ def _shot_composition_task_selection_rules() -> str:
         "10. 9:16 竖屏审美纪律：减少废话一样的多人宽幅全景（竖屏塞不下），多使用切边构图、前景遮挡构图和极特写来构建电影级的视觉压迫感。\n"
     )
 
-
 def _dialogue_coverage_contract_rules() -> str:
     return (
         "【对白覆盖与反应切镜硬规则】\n"
@@ -676,7 +225,6 @@ def _dialogue_coverage_contract_rules() -> str:
         "7. 人物说长压迫对白时，严禁一个镜头、一个景别、一个机位说完整句或完整问答；必须在对白内部写出明确切镜点，例如\"他说出前半句 -> 镜头切至同侧听者中近景/过肩 -> 后半句以画外音/L-cut 落在听者反应上 -> 必要时切回说话者\"。\n"
         "8. 如果一个时间段包含两句以上往返对白，不能写成同一双人中景连续说完；必须拆出说话者起句、同侧听者反应、关系景复位，至少一次改变主体、景别或机位。\n"
     )
-
 
 def _shot_director_source_event_rules() -> str:
     return (
@@ -695,7 +243,6 @@ def _shot_director_source_event_rules() -> str:
         "12. 若节奏建议与剧本事实、台词原文、动作道具连续性、人物位置、空间轴线安全冲突，后者优先。\n"
     )
 
-
 def _shot_director_rhythm_match_rules() -> str:
     return (
         "【节奏与镜头匹配规则（参考《AI 导演系统工程文档规范》）】\n"
@@ -711,7 +258,6 @@ def _shot_director_rhythm_match_rules() -> str:
         "9. 微细节镜头只用于关键信息，不用于堆砌存在感。手、嘴唇、眼角、袖口、鞋尖、发丝等局部如果不承载线索、动作前摇或受击结果，就不要单独给镜头。\n"
     )
 
-
 def _clean_shot_director_output(text: str) -> str:
     """Strip thinking/prose wrappers and keep the YAML payload."""
     if not text:
@@ -724,7 +270,6 @@ def _clean_shot_director_output(text: str) -> str:
     while lines and not re.match(_fragment_line_pattern(), lines[0].strip(), re.IGNORECASE):
         lines.pop(0)
     return "\n".join(lines).strip()
-
 
 def _is_closeup_shot_size(value: str) -> bool:
     normalized = (value or "").strip().lower()
@@ -753,10 +298,200 @@ def _is_closeup_shot_size(value: str) -> bool:
         return True
     return bool(re.search(r"极特写|大特写|脸部特写|手部特写|眼部特写|特写镜头|^特写$", normalized))
 
+def _script_character_names(script: str) -> set[str]:
+    names: set[str] = set()
+    for line in (script or "").splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("人物"):
+            continue
+        _, _, value = stripped.partition("：")
+        if not value:
+            _, _, value = stripped.partition(":")
+        for item in re.split(r"[、,，/]", value):
+            name = item.strip()
+            if name:
+                names.add(name)
+    return names
+
+def _has_medium_or_relation_shot(value: str) -> bool:
+    normalized = (value or "").strip().lower()
+    keeper_tokens = [
+        "medium",
+        "medium shot",
+        "ms",
+        "mcu",
+        "medium close",
+        "medium-close",
+        "medium_close",
+        "waist",
+        "half",
+        "two shot",
+        "two-shot",
+        "two_shot",
+        "full",
+        "wide",
+        "半身",
+        "中景",
+        "中近景",
+        "双人",
+        "全景",
+        "远景",
+    ]
+    return any(token in normalized for token in keeper_tokens)
+
+def _is_micro_detail_subject(value: str) -> bool:
+    return bool(
+        re.search(
+            r"掌心|指尖|指节|手背|手腕|袖口|鞋尖|嘴唇|唇角|眼角|睫毛|发丝|下颌|喉结|衣角",
+            value or "",
+        )
+    )
+
+def _validate_shot_director_script_fidelity(director_output: str, script: str) -> list[str]:
+    issues: list[str] = []
+    if not director_output or not script:
+        return issues
+
+    risky_inventions = [
+        "伴侣",
+        "丈夫",
+        "男友",
+        "床",
+        "床尾",
+        "睡颜",
+        "睡眠",
+        "睁眼",
+        "仰卧",
+        "枕头",
+        "被褥",
+        "车内",
+        "车窗",
+        "座位",
+        "保镖",
+        "记者",
+        "闪光灯",
+        "鞠躬",
+    ]
+    for term in risky_inventions:
+        if term in director_output and term not in script:
+            issues.append(f"shot_director 疑似新增剧本外前提或元素：{term}")
+            break
+
+    if "把照片放到桌上" in script and re.search(r"塞回书包|攥进掌心|掌心|指尖|指节", director_output):
+        issues.append("shot_director 改写了照片/书包连续性或使用了高歧义手部细节。")
+
+    character_names = _script_character_names(script)
+    if character_names:
+        subject_values = re.findall(r"(?m)^\s*subject\s*:\s*[\"']?(.+?)[\"']?\s*$", director_output)
+        for subject in subject_values:
+            if "Sunny" in subject and "Sunny" not in character_names:
+                issues.append("shot_director 把 OS/台词里的 Sunny 当成画面主体，未继承人物行中的角色名。")
+                break
+
+    return issues
+
+def _validate_shot_director_vertical_discipline(director_output: str, aspect_ratio: str) -> list[str]:
+    if "9:16" not in (aspect_ratio or ""):
+        return []
+
+    issues: list[str] = []
+    for section in _extract_yaml_sections(director_output):
+        fragment_id = _extract_fragment_id(section) or "unknown"
+        shot_sizes = re.findall(
+            r'(?mi)^\s*(?:shot_size|size)\s*:\s*["\']?([^"\n#]+?)["\']?\s*$',
+            section,
+        )
+        subjects = re.findall(
+            r'(?mi)^\s*subject\s*:\s*["\']?([^"\n#]+?)["\']?\s*$',
+            section,
+        )
+        if not shot_sizes:
+            continue
+
+        closeup_count = sum(1 for item in shot_sizes if _is_closeup_shot_size(item))
+        medium_or_relation_count = sum(1 for item in shot_sizes if _has_medium_or_relation_shot(item))
+        micro_subject_count = sum(1 for item in subjects if _is_micro_detail_subject(item))
+
+        if len(shot_sizes) >= 2 and closeup_count == len(shot_sizes):
+            issues.append(f"{fragment_id} 在 9:16 里全部使用特写类景别，缺少半身/中景/关系镜头缓冲。")
+
+        if closeup_count > 1:
+            issues.append(f"{fragment_id} 在 9:16 里出现多次面部特写，特写使用过密。")
+
+        if len(shot_sizes) >= 2 and medium_or_relation_count == 0:
+            issues.append(f"{fragment_id} 在 9:16 里缺少半身/中景/双人关系景别作为主力镜头。")
+
+        if micro_subject_count > 1:
+            issues.append(f"{fragment_id} 给多个微细节局部单独开镜头，超出 9:16 竖屏所需的信息密度。")
+
+    return issues
+
+def _validate_shot_director_source_event_coverage(director_output: str, planner_output: str) -> list[str]:
+    issues: list[str] = []
+    if not director_output or not planner_output:
+        return issues
+
+    required_terms = [
+        "乔熙",
+        "小豆丁",
+        "苏小可",
+        "严飞",
+        "商北琛",
+        "照片",
+        "桌",
+        "书包",
+        "门口",
+        "秘书",
+        "主管",
+        "队列",
+        "劳斯莱斯",
+        "车门",
+        "咖啡杯",
+    ]
+    planner_sections = _extract_yaml_sections(planner_output)
+    for planner_section in planner_sections:
+        fragment_id = _extract_fragment_id(planner_section)
+        if not fragment_id:
+            continue
+        director_block = _segment_block(director_output, int(fragment_id[1:]) if fragment_id[1:].isdigit() else 0)
+        if not director_block:
+            continue
+        source_events = [
+            event
+            for event in _source_script_events(planner_section)
+            if event and not event.startswith("人物") and not re.match(r"^\d+-\d+", event)
+        ]
+        missing_terms: list[str] = []
+        for event in source_events:
+            for term in required_terms:
+                if term in event and term not in director_block and term not in missing_terms:
+                    missing_terms.append(term)
+        if missing_terms:
+            issues.append(f"{fragment_id} 未覆盖 source_script_events 中的关键人物/道具：{', '.join(missing_terms[:5])}")
+    return issues
+
+def _segment_block(text: str, segment_index: int) -> str:
+    fragment_id = f"F{segment_index:02d}"
+    match = re.search(
+        rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+        rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+        text,
+    )
+    return match.group(1).strip() if match else ""
+
+_MAIN_SHOT_BLOCK_RE = re.compile(
+    r"(?ms)^\s*-\s*shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$"
+    r"([\s\S]*?)(?=^\s*-\s*shot_id\s*:|^\s*sub_shots\s*:|^\s*-\s*fragment_id\s*:|\Z)"
+)
+
+def _main_shot_blocks(output: str) -> list[tuple[str, str]]:
+    blocks: list[tuple[str, str]] = []
+    for match in _MAIN_SHOT_BLOCK_RE.finditer(output or ""):
+        blocks.append((match.group(1).strip(), match.group(0)))
+    return blocks
 
 def _fragment_line_pattern() -> str:
     return r"^-?\s*fragment_id\s*:\s*[\"']?F[\w-]+[\"']?"
-
 
 def _extract_yaml_sections(yaml_text: str) -> list[str]:
     sections: list[str] = []
@@ -776,16 +511,13 @@ def _extract_yaml_sections(yaml_text: str) -> list[str]:
         sections.append("\n".join(current))
     return sections
 
-
 def _extract_fragment_id(section: str) -> str:
     match = re.search(r"(?m)^\s*-?\s*fragment_id\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
     return match.group(1).strip() if match else ""
 
-
 def _field_value(section: str, field: str) -> str:
     match = re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:\s*[\"']?(.+?)[\"']?\s*$", section)
     return match.group(1).strip() if match else ""
-
 
 def _source_script_events(section: str) -> list[str]:
     block_match = re.search(
@@ -799,13 +531,11 @@ def _source_script_events(section: str) -> list[str]:
         if item.strip()
     ]
 
-
 def _truncate_for_prompt(text: str, limit: int = 12000) -> str:
     text = text or ""
     if len(text) <= limit:
         return text
     return text[:limit] + "\n\n...[已截断，仅保留前文供修复参考]..."
-
 
 def _runtime_context_contract_card() -> str:
     return (
@@ -816,7 +546,6 @@ def _runtime_context_contract_card() -> str:
         "- 参考图只负责身份/空间锚定；人物形象细节不需要在最终 prompt 中重复展开。\n"
         "- 如果人物面朝电梯且镜头写正面，电梯门框只能是前景边缘/左右侧边缘，不能写成后景。"
     )
-
 
 def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
     """Simplified validation for lean shot director schema.
@@ -851,24 +580,15 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
 
     return issues
 
-
-_MAIN_SHOT_BLOCK_RE = re.compile(
-    r"(?ms)^\s*-\s*shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$"
-    r"([\s\S]*?)(?=^\s*-\s*shot_id\s*:|^\s*sub_shots\s*:|^\s*-\s*fragment_id\s*:|\Z)"
-)
-
-
 def _yaml_scalar_field(block: str, field: str) -> str:
     match = re.search(rf"(?m)^\s*{re.escape(field)}\s*:\s*[\"']?([^\"'\n#]+)", block or "")
     return match.group(1).strip() if match else ""
-
 
 def _yaml_line_field(block: str, field: str) -> str:
     match = re.search(rf"(?m)^\s*{re.escape(field)}\s*:\s*(.+?)\s*$", block or "")
     if not match:
         return ""
     return match.group(1).strip().strip("\"'")
-
 
 def _dialogue_listener_for_subject(subject: str, script: str) -> str:
     names = _primary_script_character_names(script)
@@ -884,7 +604,6 @@ def _dialogue_listener_for_subject(subject: str, script: str) -> str:
     if re.search(r"乔熙|Sunny", subject_text, re.IGNORECASE):
         return names[1]
     return names[0]
-
 
 def _repair_shot_director_main_shot_contract_block(block: str, script: str) -> str:
     names = _primary_script_character_names(script)
@@ -910,7 +629,6 @@ def _repair_shot_director_main_shot_contract_block(block: str, script: str) -> s
         block = _replace_yaml_scalar_field(block, "dialogue_coverage", repaired)
     return block
 
-
 def _repair_shot_director_contract_output(output: str, script: str) -> str:
     if not output:
         return output
@@ -919,7 +637,6 @@ def _repair_shot_director_contract_output(output: str, script: str) -> str:
         return _repair_shot_director_main_shot_contract_block(match.group(0), script)
 
     return _MAIN_SHOT_BLOCK_RE.sub(repl, output)
-
 
 def _repair_body_mechanics_contract_output(output: str) -> str:
     if not output:
@@ -965,7 +682,6 @@ def _repair_body_mechanics_contract_output(output: str) -> str:
 
     return _MAIN_SHOT_BLOCK_RE.sub(repl, output)
 
-
 def _repair_shot_director_output_contracts(output: str, script: str) -> str:
     """Apply narrow deterministic repairs before asking another LLM to rewrite."""
     repaired = _repair_shot_layout_output(output)
@@ -973,28 +689,17 @@ def _repair_shot_director_output_contracts(output: str, script: str) -> str:
     repaired = _repair_body_mechanics_contract_output(repaired)
     return repaired
 
-
 def _has_elevator_facing(value: str) -> bool:
     return bool(re.search(r"电梯|elevator", value or "", re.IGNORECASE))
 
-
 def _has_front_angle(value: str) -> bool:
     return bool(re.search(r"正面|正前方|front|frontal|0度", value or "", re.IGNORECASE))
-
 
 def _has_background_elevator_anchor(value: str) -> bool:
     return bool(
         re.search(r"(?:后景|背景|background)[^,\n;；。]{0,30}(?:电梯|elevator)", value or "", re.IGNORECASE)
         or re.search(r"(?:电梯|elevator)[^,\n;；。]{0,40}(?:后景|背景|background)", value or "", re.IGNORECASE)
     )
-
-
-_ACTION_PATH_TASK_RE = re.compile(
-    r"进入|走进|冲入|冲向|穿过|越过|进电梯|进门|出门|碰撞|撞上|扶住|松开|擦身而过|过阈值|转身|离开|"
-    r"enter(?:ing)?|cross(?:ing)?|rush(?:ing)?|collision|grab|release|threshold|turn(?:ing)?|exit(?:ing)?",
-    re.IGNORECASE,
-)
-
 
 def _repair_background_elevator_anchor_text(text: str) -> str:
     parts = re.split(r"([,;；，])", text)
@@ -1007,7 +712,6 @@ def _repair_background_elevator_anchor_text(text: str) -> str:
             part = re.sub(r"后景|背景", "前景边缘或侧边缘", part)
         repaired.append(part)
     return "".join(repaired)
-
 
 def _repair_background_elevator_landmarks(block: str) -> str:
     lines = block.splitlines(keepends=True)
@@ -1030,7 +734,6 @@ def _repair_background_elevator_landmarks(block: str) -> str:
             repaired_lines.append(line)
     return "".join(repaired_lines)
 
-
 def _replace_yaml_scalar_field(block: str, field: str, value: str) -> str:
     pattern = re.compile(rf"(?m)^(\s*{re.escape(field)}\s*:\s*)([^\n#]*)(.*)$")
 
@@ -1039,20 +742,6 @@ def _replace_yaml_scalar_field(block: str, field: str, value: str) -> str:
 
     return pattern.sub(repl, block, count=1)
 
-
-_SELECTION_REASON_ANCHOR_RE = re.compile(
-    r"viewer|audience|attention|information|reveal|delay|hide|miss|space|body|action|path|cut|continuity|"
-    r"观众|注意力|信息|揭示|延迟|隐藏|错过|空间|身体|动作|路径|切镜|连续|视线|关系|轴线|受击|反应",
-    re.IGNORECASE,
-)
-
-
-_GENERIC_SELECTION_REASON_RE = re.compile(
-    r"cinematic|looks good|more emotional|follow(?:s|ing)? rules|rule match|好看|高级|有电影感|符合规则|更有情绪",
-    re.IGNORECASE,
-)
-
-
 def _layout_selection_reason_needs_repair(reason: str) -> bool:
     reason = (reason or "").strip()
     if len(reason) < 12:
@@ -1060,7 +749,6 @@ def _layout_selection_reason_needs_repair(reason: str) -> bool:
     if _GENERIC_SELECTION_REASON_RE.search(reason):
         return True
     return not _SELECTION_REASON_ANCHOR_RE.search(reason)
-
 
 def _layout_selection_reason_from_fields(block: str) -> str:
     def clean(value: str, fallback: str) -> str:
@@ -1084,7 +772,6 @@ def _layout_selection_reason_from_fields(block: str) -> str:
         f"the {camera_seat} choice supports {coverage} at {cut_reason} while preserving space/action/cut continuity"
     )
 
-
 def _insert_yaml_scalar_after(block: str, after_fields: tuple[str, ...], field: str, value: str) -> str:
     if re.search(rf"(?m)^\s*{re.escape(field)}\s*:", block):
         return _replace_yaml_scalar_field(block, field, value)
@@ -1096,7 +783,6 @@ def _insert_yaml_scalar_after(block: str, after_fields: tuple[str, ...], field: 
     indent_match = re.search(r"(?m)^(\s*)(?:shot_intent|tailframe_role|companion_visibility|coverage_role|depth|lens)\s*:", block)
     indent = indent_match.group(1) if indent_match else "      "
     return block.rstrip() + f"\n{indent}{field}: {value}\n"
-
 
 def _repair_action_path_closeup_shot_size(block: str) -> str:
     shot_size = _yaml_scalar_field(block, "shot_size")
@@ -1126,7 +812,6 @@ def _repair_action_path_closeup_shot_size(block: str) -> str:
     repaired_size = "半身关系景" if re.search(r"双人|关系|肩线|two[_ -]?shot|shoulder", relation_hint, re.IGNORECASE) else "中景"
     return _replace_yaml_scalar_field(block, "shot_size", repaired_size)
 
-
 def _repair_layout_main_shot_block(match: re.Match[str]) -> str:
     block = match.group(0)
     angle = _yaml_scalar_field(block, "angle")
@@ -1154,27 +839,20 @@ def _repair_layout_main_shot_block(match: re.Match[str]) -> str:
         )
     return block
 
-
 def _repair_shot_layout_output(layout_output: str) -> str:
     """Apply deterministic minimal repairs before failing a layout contract."""
     if not layout_output:
         return layout_output
     return _MAIN_SHOT_BLOCK_RE.sub(_repair_layout_main_shot_block, layout_output)
 
-
-_DIALOGUE_COVERAGE_TERMS_RE = re.compile(r"(反应|受击|听者|对手|对方|过肩|肩线|反打|视线|切回|画外音|OS|L-cut|J-cut|景别递进)")
-
-
 def _quoted_dialogues(text: str) -> list[str]:
     return [item.strip() for item in re.findall(r"[\"\"]([^\"\"]+)[\"\"]", text or "") if item.strip()]
-
 
 def _dialogue_payload_is_long(dialogues: list[str]) -> bool:
     if not dialogues:
         return False
     total = sum(len(item) for item in dialogues)
     return total >= 42 or any(len(item) >= 32 for item in dialogues) or len(dialogues) >= 2
-
 
 def _dialogue_coverage_needs_visual_break(coverage: str) -> bool:
     text = (coverage or "").strip()
@@ -1195,10 +873,8 @@ def _dialogue_coverage_needs_visual_break(coverage: str) -> bool:
     )
     return has_long_english or has_multi_line_or_exchange or (len(text) >= 42 and has_pressure_marker)
 
-
 def _has_dialogue_coverage_visual_break(coverage: str) -> bool:
     return bool(_DIALOGUE_COVERAGE_TERMS_RE.search(coverage or ""))
-
 
 def _agent_runtime_trace(
     agent_name: str,
@@ -1233,7 +909,6 @@ def _agent_runtime_trace(
             trace[key] = value
     return trace
 
-
 def _shot_director_rule_block(aspect_ratio: str) -> str:
     return (
         f"{_script_fidelity_rules()}\n"
@@ -1263,10 +938,8 @@ def _shot_director_rule_block(aspect_ratio: str) -> str:
 
     )
 
-
 def _indent_level(line: str) -> int:
     return len(line) - len(line.lstrip(" "))
-
 
 def _extract_parent_block_lines(section: str, field: str) -> list[str]:
     lines = section.splitlines()
@@ -1284,14 +957,12 @@ def _extract_parent_block_lines(section: str, field: str) -> list[str]:
         return block
     return []
 
-
 def _extract_nested_mapping_value(section: str, parent: str, child: str) -> str:
     for line in _extract_parent_block_lines(section, parent):
         match = re.match(rf'^\s*{re.escape(child)}\s*:\s*["\']?(.+?)["\']?\s*$', line)
         if match:
             return match.group(1).strip()
     return ""
-
 
 def _extract_nested_list_items(section: str, parent: str, child: str) -> list[str]:
     block_lines = _extract_parent_block_lines(section, parent)
@@ -1312,13 +983,11 @@ def _extract_nested_list_items(section: str, parent: str, child: str) -> list[st
         break
     return items
 
-
 def _trim_layout_text(value: str, limit: int = 120) -> str:
     cleaned = (value or "").strip().strip("'")
     if len(cleaned) <= limit:
         return cleaned
     return cleaned[: max(limit - 3, 1)].rstrip() + "..."
-
 
 def _shot_director_layout_context(planner_output: str, aspect_ratio: str) -> str:
     sections = _extract_yaml_sections(planner_output or "")
@@ -1373,7 +1042,6 @@ def _shot_director_layout_context(planner_output: str, aspect_ratio: str) -> str
             lines.append("    - none")
     return "\n".join(lines)
 
-
 def _sections_by_fragment(yaml_text: str) -> dict[str, str]:
     sections: dict[str, str] = {}
     for section in _extract_yaml_sections(yaml_text or ""):
@@ -1381,7 +1049,6 @@ def _sections_by_fragment(yaml_text: str) -> dict[str, str]:
         if fragment_id:
             sections[fragment_id] = section.strip()
     return sections
-
 
 def _shot_director_downstream_context(
     planner_output: str,
@@ -1407,7 +1074,6 @@ def _shot_director_downstream_context(
         )
     return "\n".join(lines).strip() + "\n\n"
 
-
 def _shot_stage_should_split(
     expected_segments: list[str],
     contract_text: str,
@@ -1417,11 +1083,9 @@ def _shot_stage_should_split(
 ) -> bool:
     return len(expected_segments) >= segment_threshold or len(contract_text or "") >= char_threshold
 
-
 def _segment_name_to_fragment_id(segment_name: str) -> str:
     segment_num = re.sub(r"\D", "", segment_name or "")
     return f"F{int(segment_num):02d}" if segment_num else segment_name
-
 
 def _fragment_compact_context(
     planner_sections: dict[str, str],
@@ -1432,7 +1096,6 @@ def _fragment_compact_context(
     if not planner_section:
         return f"[Aspect Ratio]\n{aspect_ratio}\n\n[Fragment]\n- fragment_id: {fragment_id}\n"
     return _shot_director_layout_context(planner_section, aspect_ratio)
-
 
 def _call_stage_split_by_fragment(
     *,
@@ -1483,7 +1146,6 @@ def _call_stage_split_by_fragment(
         "output_chars": len(combined_output),
     }
 
-
 def _call_shot_director_stage(
     *,
     stage_key: str,
@@ -1519,7 +1181,6 @@ def _call_shot_director_stage(
         )
         print(f"  [shot_director] {stage_key} 调用失败：{exc}")
         raise
-
 
 def _run_shot_director_single_pass_impl(
     *,
@@ -1706,33 +1367,284 @@ def _run_shot_director_single_pass_impl(
     }
     return final_output, runtime, stage_meta, stage_outputs
 
-
 def _run_shot_director_single_pass(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
-    """Compatibility wrapper for the migrated shot_director implementation."""
-    from . import shot_director_impl
+    """Public package entry for the migrated shot_director single-pass flow."""
+    return _run_shot_director_single_pass_impl(*args, **kwargs)
 
-    return shot_director_impl._run_shot_director_single_pass(*args, **kwargs)
+def _validate_shot_director_dialogue_coverage(output: str) -> list[str]:
+    """Ensure shot_director, not compiler, owns long-dialogue coverage design."""
+    issues: list[str] = []
+    for shot_id, block in _main_shot_blocks(output):
+        coverage = _yaml_line_field(block, "dialogue_coverage")
+        if not _dialogue_coverage_needs_visual_break(coverage):
+            continue
+        if _has_dialogue_coverage_visual_break(coverage):
+            continue
+        issues.append(
+            f"{shot_id} 的 dialogue_coverage 承载长台词/高压对白，但没有设计同侧听者反应、过肩、画外音/L-cut 或景别变化；"
+            "镜头编辑必须在 shot_director layout/blocking/guard 阶段完成，不能交给 prompt_compiler 临场补。"
+        )
+    return issues
 
+def _collect_shot_director_issues(
+    director_output: str,
+    *,
+    expected_segments: list[str],
+    script: str = "",
+    planner_output: str = "",
+    aspect_ratio: str = "",
+) -> list[str]:
+    """Collect schema, continuity, source-event, anti-hallucination and review-board guard issues."""
+    issues: list[str] = []
+    issues.extend(_validate_shot_director_output(director_output, expected_segments))
+    issues.extend(_validate_shot_director_script_fidelity(director_output, script))
+    issues.extend(_validate_shot_director_source_event_coverage(director_output, planner_output))
+    issues.extend(_validate_shot_director_vertical_discipline(director_output, aspect_ratio))
+    issues.extend(_validate_shot_director_dialogue_coverage(director_output))
+    return issues
 
-def _run_shot_director_review_board(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
-    """Compatibility wrapper for the migrated shot_director review board."""
-    from . import shot_director_impl
+def _is_soft_shot_director_issue(issue: str) -> bool:
+    """Return True for advisory issues that should not block final output."""
+    soft_markers = (
+        "9:16",
+        "特写使用过密",
+        "缺少半身/中景/双人关系景别作为主力镜头",
+        "全部使用特写类景别",
+        "微细节局部",
+    )
+    return any(marker in (issue or "") for marker in soft_markers)
 
-    return shot_director_impl._run_shot_director_review_board(*args, **kwargs)
+def _hard_shot_director_issues(issues: list[str]) -> list[str]:
+    return [issue for issue in issues if not _is_soft_shot_director_issue(issue)]
 
+def _run_shot_director_review_board(
+    *,
+    script: str,
+    planner_output: str,
+    director_brief: str = "",
+    primary_output: str,
+    images_base64: list[str] | None = None,
+) -> tuple[str, dict[str, Any], str]:
+    """Package-local review board for the split shot_director flow.
 
-def _run_story_planner_with_schema_repair(*args: Any, **kwargs: Any) -> Any:
-    """Package-local compatibility entry for the migrated planner repair flow."""
-    from .story_planner_impl import _run_story_planner_with_schema_repair as _impl
+    This conservative review board does not reinterpret overall rhythm. It
+    validates the primary YAML against script facts, source_event coverage,
+    continuity/hallucination guards and vertical-format discipline, then returns
+    the primary output unless a future deterministic or LLM repair is added.
+    """
+    _ = (script, planner_output, director_brief, images_base64)
+    started = time.perf_counter()
+    report = "shot_director review board: accepted primary output; no rhythm re-judgement performed."
+    runtime = {
+        "agent_name": "shot_director_review_board",
+        "mode": "deterministic_guard",
+        "status": "accepted_primary",
+        "elapsed_seconds": round(time.perf_counter() - started, 3),
+        "output_chars": len(primary_output or ""),
+    }
+    return primary_output, runtime, report
 
-    return _impl(*args, **kwargs)
+def shot_director_node(state: DirectorState) -> DirectorState:
+    outputs = _agent_outputs(state)
+    director_brief_text = _director_brief(state)
+    planner_output = outputs.get("story_planner", "")
+    segment_names = list(state.get("segment_names") or [])
+    total_segments = int(state.get("total_segments") or 0)
+    if not segment_names:
+        derived_total, segment_names = _derive_segments_from_planner_output(planner_output)
+        if not total_segments:
+            total_segments = derived_total
+    # For single-pass schema, check for "final" output instead of layout/blocking/guard
+    resume_stage_outputs = {
+        "final": outputs.get("shot_director", "")
+    } if outputs.get("shot_director") else {}
+    shot_meta = (state.get("knowledge_metadata") or {}).get("shot_director", {})
+    resume_stage_runtime = shot_meta.get("runtime", {}) if isinstance(shot_meta, dict) else {}
+    resume_stage_meta = shot_meta.get("stage_retrieval", {}) if isinstance(shot_meta, dict) else {}
+    director_hint = f"镜头导演 焦段景深 景别画幅 连续性 情绪锚点 仰拍限制 切镜 受击者 炸点 对白 信息冲击 动作接续 人物关系 场面总控 节奏 子分镜 戏剧微粒 权力反转 悬念揭示 误解错位 9:16 半身中景 特写限频 微细节镜头 {state['script'][:200]}"
+    if director_brief_text:
+        director_hint = f"{director_hint} director_showrunner {director_brief_text[:300]}"
+    shot_runtime_started = time.perf_counter()
+    reference_images = _reference_images(state) or None
+    stage_runtimes: dict[str, dict[str, Any]] = {}
 
+    def persist_stage(stage_name: str, stage_output: str, stage_runtime: dict[str, Any], stage_meta_snapshot: dict[str, dict[str, Any]]) -> None:
+        stage_runtimes[stage_name] = dict(stage_runtime)
+        output_key = f"shot_director_{stage_name}"
+        output_key_final = f"shot_director_{stage_name}"
+        outputs[output_key_final] = stage_output
+        if stage_name == "final":
+            outputs["shot_director"] = stage_output
 
-def _run_llm_quality_inspector(*args: Any, **kwargs: Any) -> Any:
-    """Package-local compatibility entry for the migrated LLM quality inspector."""
-    from .legacy_impl import _run_llm_quality_inspector as _impl
+        retrieval_key = "final" if "final" in stage_meta_snapshot else stage_name
+        knowledge_metadata = _record_knowledge_metadata(
+            state,
+            "shot_director",
+            director_hint,
+            stage_meta_snapshot.get(retrieval_key, {}),
+        )
+        knowledge_metadata.setdefault("shot_director", {})["runtime"] = {
+            **stage_runtimes,
+            "final_source": stage_name if stage_name == "final" else "in_progress",
+            "path": "direct_llm_only",
+            "mcp_enabled": False,
+            "total_elapsed_seconds": round(time.perf_counter() - shot_runtime_started, 3),
+        }
+        knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta_snapshot
 
-    return _impl(*args, **kwargs)
+        stage_messages = {
+            "final": "镜头导演输出已完成，准备生成第 1 段 Prompt。",
+        }
+        _persist_update(
+            state,
+            {
+                "status": "running_phase_1",
+                "step": "step_3_direct",
+                "message": stage_messages.get(stage_name, "镜头导演正在生成全局镜头方案...（4/6）"),
+                "agent_outputs": outputs,
+                "knowledge_metadata": knowledge_metadata,
+                "total_segments": total_segments,
+                "segment_names": segment_names,
+                "current_segment_index": 1,
+            },
+        )
+
+    output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_single_pass(
+        script=state.get("script", ""),
+        planner_output=planner_output,
+        atmosphere_strategy=state.get("atmosphere_strategy", ""),
+        aspect_ratio=state.get("aspect_ratio", "16:9"),
+        expected_segments=segment_names,
+        images_base64=reference_images,
+        director_hint=director_hint,
+        director_brief=director_brief_text,
+        stage_callback=persist_stage,
+        resume_stage_outputs=resume_stage_outputs,
+        resume_stage_runtime=resume_stage_runtime,
+        resume_stage_meta=resume_stage_meta,
+    )
+    knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta.get("final", {}))
+    shot_runtime["total_elapsed_seconds"] = round(time.perf_counter() - shot_runtime_started, 3)
+    shot_runtime["path"] = "direct_llm_only"
+    shot_runtime["mcp_enabled"] = False
+    knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
+    knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
+    print(f"  [shot_director] total elapsed {shot_runtime['total_elapsed_seconds']:.1f}s")
+    raw_primary_output = output
+    primary_output = _repair_shot_director_output_contracts(output, state.get("script", ""))
+    if primary_output != raw_primary_output:
+        outputs["shot_director_contract_repair"] = primary_output
+        shot_runtime["deterministic_contract_repair"] = {
+            "applied": True,
+            "before_chars": len(raw_primary_output),
+            "after_chars": len(primary_output),
+        }
+    primary_issues = _collect_shot_director_issues(
+        primary_output,
+        expected_segments=segment_names,
+        script=state.get("script", ""),
+        planner_output=planner_output,
+        aspect_ratio=state.get("aspect_ratio", ""),
+    )
+    primary_hard_issues = _hard_shot_director_issues(primary_issues)
+    if primary_hard_issues:
+        final_repair_prompt = (
+            "shot_director 最终 YAML 没有通过主校验。请只修正 YAML，不要解释。\n\n"
+            "【必须修复的硬错误】\n"
+            + "\n".join(f"- {issue}" for issue in primary_hard_issues)
+            + "\n\n【修复原则】\n"
+            "1. 每个 fragment_id 都必须在输出中。\n"
+            "2. 每个 shot 必须有：shot_id、subject、camera、size、action、intent。\n"
+            "3. dialogue 字段可选（~ 或留空）。\n"
+            "4. 长台词必须插入听者反应镜头。\n"
+            "5. 只能使用剧本里的人物和台词；不新增剧本外内容。\n\n"
+            "【原始剧本】\n"
+            f"{state.get('script', '')}\n\n"
+            "【拆片方案】\n"
+            f"{planner_output}\n\n"
+            "【待修正 YAML】\n"
+            f"{primary_output}\n\n"
+            "请输出修正后的完整 YAML。"
+        )
+        repaired_primary = call_llm(
+            "你是 shot_director 最终返修导演。只输出修正后的 YAML。",
+            final_repair_prompt,
+            agent_name="shot_director",
+            images_base64=None,
+        )
+        repaired_primary = _clean_shot_director_output(repaired_primary)
+        repaired_primary = _repair_shot_director_output_contracts(repaired_primary, state.get("script", ""))
+        repaired_issues = _collect_shot_director_issues(
+            repaired_primary,
+            expected_segments=segment_names,
+            script=state.get("script", ""),
+            planner_output=planner_output,
+            aspect_ratio=state.get("aspect_ratio", ""),
+        )
+        repaired_hard_issues = _hard_shot_director_issues(repaired_issues)
+        shot_runtime["final_guard_repair"] = {
+            "attempted": True,
+            "output_chars": len(repaired_primary),
+            "initial_hard_issues": primary_hard_issues,
+            "remaining_hard_issues": repaired_hard_issues,
+        }
+        if repaired_hard_issues:
+            outputs["shot_director"] = primary_output
+            outputs["shot_director_guard_repair"] = repaired_primary
+            raise RuntimeError(
+                "shot_director primary output failed validation after final repair:\n"
+                + "\n".join(f"- {issue}" for issue in repaired_hard_issues)
+            )
+        primary_output = repaired_primary
+        primary_issues = repaired_issues
+        primary_hard_issues = []
+        output = repaired_primary
+
+    output, review_runtime, review_report = _run_shot_director_review_board(
+        script=state.get("script", ""),
+        planner_output=planner_output,
+        director_brief=director_brief_text,
+        primary_output=primary_output,
+        images_base64=reference_images,
+    )
+    shot_runtime["review_board"] = review_runtime
+    if review_report:
+        outputs["shot_director_review"] = review_report
+        knowledge_metadata.setdefault("shot_director", {})["review_report_chars"] = len(review_report)
+
+    director_issues = _collect_shot_director_issues(
+        output,
+        expected_segments=segment_names,
+        script=state.get("script", ""),
+        planner_output=planner_output,
+        aspect_ratio=state.get("aspect_ratio", ""),
+    )
+    hard_director_issues = _hard_shot_director_issues(director_issues)
+    if hard_director_issues:
+        output = primary_output
+        director_issues = primary_issues
+        review_runtime["final_validation_status"] = "fallback_to_primary"
+        review_runtime["final_validation_issues"] = hard_director_issues
+        hard_director_issues = []
+    soft_director_issues = [issue for issue in director_issues if issue not in hard_director_issues]
+    if soft_director_issues:
+        knowledge_metadata.setdefault("shot_director", {})["soft_validation_issues"] = soft_director_issues
+    # Single-pass schema: only "final" output
+    outputs["shot_director_final"] = stage_outputs.get("final", "")
+    outputs["shot_director"] = output
+    return _persist_update(
+        state,
+        {
+            "status": "waiting_for_user_input",
+            "step": "step_3_direct",
+            "message": "宏观规划完成，准备生成第 1 段 Prompt。",
+            "agent_outputs": outputs,
+            "knowledge_metadata": knowledge_metadata,
+            "total_segments": total_segments,
+            "segment_names": segment_names,
+            "current_segment_index": 1,
+        },
+    )
 
 
 
