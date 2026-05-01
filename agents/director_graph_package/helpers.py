@@ -1162,7 +1162,19 @@ def _repair_shot_layout_output(layout_output: str) -> str:
     return _MAIN_SHOT_BLOCK_RE.sub(_repair_layout_main_shot_block, layout_output)
 
 
-_DIALOGUE_COVERAGE_TERMS_RE = re.compile(r"(反应|受击|听者|对手|对方|过肩|肩线|反打|视线|切回|画外音|OS|L-cut|J-cut|景别递进)")
+_DIALOGUE_COVERAGE_TERMS_RE = re.compile(
+    r"("
+    r"\u5bf9\u767d|\u53f0\u8bcd|\u8bdd\u97f3|\u8bed\u6c14|\u58f0\u7ebf|\u8bf4\u8bdd\u8005|\u53d1\u8bdd\u8005|\u542c\u8005|\u5bf9\u624b|\u5bf9\u65b9|"
+    r"\u56de\u5e94|\u56de\u8bdd|\u63a5\u8bdd|\u63d2\u8bdd|\u6253\u65ad|\u505c\u987f|\u6c89\u9ed8|\u8fdf\u7591|\u54bd\u4f4f|\u54fd\u4f4f|\u6123\u4f4f|\u50f5\u4f4f|"
+    r"\u53cd\u5e94|\u53d7\u51fb|\u89c6\u7ebf|\u773c\u795e|\u770b\u7740|\u770b\u5411|\u907f\u5f00|\u5bf9\u89c6|\u773c\u7736|\u6469\u6332|"
+    r"\u8fc7\u80a9|\u80a9\u7ebf|\u53cd\u6253|\u5207\u56de|\u5207\u81f3|\u5207\u51fa|\u5207\u5165|\u63a5\u5207|\u538b\u5230|\u5e26\u5230|"
+    r"\u53f0\u8bcd\u65ad\u70b9|\u53e5\u5c3e|\u53e5\u4e2d|\u8bdd\u5934|\u753b\u5916\u97f3|\u65c1\u767d|\u97f3\u6548|"
+    r"\bOS\b|O\.S\.|\bVO\b|V\.O\.|L-cut|J-cut|"
+    r"\bdialogue\b|\bline\b|\blines\b|\bspeaker\b|\blistener\b|\breply\b|\brespond\b|\breaction\b|"
+    r"\bpause\b|\bbeat\b|\binterrupt\b|\boverlap\b|\boffscreen\b|\boff-screen\b|\bvoiceover\b|\bvoice-over\b"
+    r")",
+    re.IGNORECASE,
+)
 
 
 def _quoted_dialogues(text: str) -> list[str]:

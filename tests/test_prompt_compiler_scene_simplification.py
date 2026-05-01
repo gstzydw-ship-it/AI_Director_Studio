@@ -7,7 +7,7 @@ ROOT = str(Path(__file__).resolve().parents[1])
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from agents.director_graph import _compiler_guard_report
+from agents.director_graph_package.prompt_compiler_impl import _compiler_guard_report
 
 
 def test_guard_flags_overloaded_space_control_section():

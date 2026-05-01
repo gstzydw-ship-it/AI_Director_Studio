@@ -5,7 +5,19 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from agents.director_graph import _compiler_guard_report, _compress_director_for_compiler, prompt_compiler_node
+import agents.director_graph as dg
+import agents.director_graph_package.prompt_compiler_impl as prompt_compiler_impl
+from agents.director_graph_package.prompt_compiler_impl import (
+    _compiler_guard_report,
+    _compress_director_for_compiler,
+    prompt_compiler_node,
+)
+
+
+def test_prompt_compiler_shim_exports_package_impl():
+    assert dg.prompt_compiler_node is prompt_compiler_node
+    assert dg._compiler_guard_report is _compiler_guard_report
+    assert dg._compress_director_for_compiler is _compress_director_for_compiler
 
 
 def test_compiler_guard_flags_overloaded_space_control():
@@ -122,10 +134,10 @@ def test_prompt_compiler_prompt_teaches_successful_shot_chain(monkeypatch):
 我将基于实际尾帧继续输出片段2。
 """
 
-    monkeypatch.setattr("agents.director_graph.build_system_prompt", fake_build_system_prompt)
-    monkeypatch.setattr("agents.director_graph.call_llm_with_mcp", fake_call_llm_with_mcp)
-    monkeypatch.setattr("agents.director_graph._record_knowledge_metadata", lambda state, *_args, **_kwargs: state.get("knowledge_metadata", {}))
-    monkeypatch.setattr("agents.director_graph._persist_update", lambda state, update: {**state, **update})
+    monkeypatch.setattr(prompt_compiler_impl, "build_system_prompt", fake_build_system_prompt)
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fake_call_llm_with_mcp)
+    monkeypatch.setattr(prompt_compiler_impl, "_record_knowledge_metadata", lambda state, *_args, **_kwargs: state.get("knowledge_metadata", {}))
+    monkeypatch.setattr(prompt_compiler_impl, "_persist_update", lambda state, update: {**state, **update})
 
     state = {
         "aspect_ratio": "9:16",
@@ -146,5 +158,5 @@ def test_prompt_compiler_prompt_teaches_successful_shot_chain(monkeypatch):
     assert "过肩或双人关系景" in captured["system_prompt"]
     assert "命令句用半身景承载" in captured["system_prompt"]
     assert "镜头机位切换 + 人物动作表情 + 台词落点" in captured["system_prompt"]
-    assert "单段内禁止写“反打至/反打镜头”" in captured["system_prompt"]
+    assert "单段内禁止写\"反打至/反打镜头\"" in captured["system_prompt"]
     assert "同侧听者反应" in captured["system_prompt"]

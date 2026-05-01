@@ -7,9 +7,15 @@ ROOT = str(Path(__file__).resolve().parents[1])
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from agents.director_graph import (
+from agents.director_graph_package.prompt_compiler_impl import (
+    _DIALOGUE_COVERAGE_TERMS_RE,
+    _SOURCE_ACTION_BEAT_RE,
+    _SOURCE_DIALOGUE_LINE_RE,
+    _SOURCE_SOUND_LINE_RE,
     _compiler_guard_report,
     _dialogue_coverage_contract_rules,
+)
+from agents.director_graph_package.shot_director_impl import (
     _repair_shot_director_contract_output,
     _validate_shot_director_dialogue_coverage,
     _validate_shot_director_script_fidelity,
@@ -22,6 +28,33 @@ def test_dialogue_rules_forbid_single_setup_for_full_pressure_line():
     assert "严禁一个镜头、一个景别、一个机位说完整句" in rules
     assert "对白内部写出明确切镜点" in rules
     assert "同一双人中景连续说完" in rules
+
+
+def test_dialogue_coverage_terms_include_short_drama_script_signals():
+    coverage = (
+        "乔熙起句 Kiki, cover for me；切小豆丁听者反应；"
+        "乔熙OS以画外音落在照片特写上；音效闹钟铃响；句尾乔熙僵住，眼眶微红。"
+    )
+
+    assert _DIALOGUE_COVERAGE_TERMS_RE.search(coverage)
+
+
+def test_source_script_dialogue_sound_and_reaction_lines_are_detected():
+    script = """1-1 晨/内/乔熙公寓
+人物：乔熙、小豆丁
+【特写-闹钟：7:30】
+【音效：闹钟铃响】
+▲乔熙手忙脚乱地给小豆丁穿衣服，一边打电话。
+乔熙：Kiki, cover for me. I'll be right there!
+▲小豆丁扭来扭去，不肯配合。
+小豆丁：I don't want to go to school!
+乔熙OS：Why is Nash's photo here?
+▲乔熙看着照片，眼眶微红，手指不自觉地摩挲着照片边缘。
+"""
+
+    assert len(_SOURCE_DIALOGUE_LINE_RE.findall(script)) == 4
+    assert len(_SOURCE_SOUND_LINE_RE.findall(script)) == 1
+    assert len(_SOURCE_ACTION_BEAT_RE.findall(script)) == 1
 
 
 def test_guard_flags_pressure_dialogue_when_only_block_opening_cut_exists():

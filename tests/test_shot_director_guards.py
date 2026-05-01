@@ -4,7 +4,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agents.director_graph import (  # noqa: E402
+from agents.knowledge_base import get_agent_knowledge_files  # noqa: E402
+from agents.director_graph_package import legacy_impl, runners  # noqa: E402
+from agents.director_graph_package.shot_director_impl import (  # noqa: E402
     _clean_shot_director_output,
     _hard_shot_director_issues,
     _shot_director_rhythm_match_rules,
@@ -14,7 +16,7 @@ from agents.director_graph import (  # noqa: E402
     _validate_shot_director_script_fidelity,
     _validate_shot_director_vertical_discipline,
 )
-from agents.knowledge_base import get_agent_knowledge_files  # noqa: E402
+from agents.director_graph_package import shot_director_impl  # noqa: E402
 
 
 def test_clean_shot_director_output_strips_thinking_and_markdown():
@@ -279,6 +281,109 @@ sub_shots: []
     issues = _validate_shot_director_output(director_output, ["F01"])
 
     assert not any("sub_shots" in issue for issue in issues)
+
+
+def test_shot_director_requires_construction_sheet_fields():
+    director_output = """- fragment_id: F01
+  fragment_task: "建立关系 + 反应落点"
+  rhythm: "压缩后停顿"
+  shots:
+    - shot_id: F01-S01
+      duration: "0-2秒"
+      task: "建立关系"
+      subject: "乔熙、商北琛"
+      camera: "桌侧固定机位，右前方同侧轴线"
+      size: "双人中景"
+      action: "两人隔着办公桌对峙，乔熙停在桌前"
+      dialogue: ~
+      must_carry: "两人距离和办公桌阻隔关系"
+      cut_point: "关系建立后→镜头2"
+      continuity: "乔熙在桌前，商北琛在桌后，不越轴"
+    - shot_id: F01-S02
+      duration: "2-5秒"
+      task: "反应落点"
+      subject: "乔熙"
+      camera: "同侧过肩固定机位"
+      size: "中近景"
+      action: "她听完后视线停住，手指攥紧工牌"
+      dialogue: "What's this? Trying to intimidate me?"
+      must_carry: "乔熙被命令击中后的反讽反应"
+      cut_point: "反问句落下后切出"
+      continuity: "保持商北琛肩线在前景边缘，工牌仍挂在乔熙胸前"
+      type: reaction
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert issues == []
+
+
+def test_shot_director_rejects_vague_cut_point_in_construction_sheet():
+    director_output = """- fragment_id: F01
+  fragment_task: "建立关系"
+  rhythm: "压缩"
+  shots:
+    - shot_id: F01-S01
+      duration: "0-2秒"
+      task: "建立关系"
+      subject: "乔熙、商北琛"
+      camera: "桌侧固定机位"
+      size: "双人中景"
+      action: "两人对峙"
+      dialogue: ~
+      must_carry: "对峙关系"
+      cut_point: "切出"
+      continuity: "保持左右关系"
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert any("cut_point 过于空泛" in issue for issue in issues)
+
+
+def test_shot_director_restart_rerun_uses_package_shot_director_node():
+    state = {
+        "agent_outputs": {"story_planner": "planner-output"},
+        "knowledge_metadata": {"shot_director": {"old": True}},
+    }
+    saved_states = []
+    calls: list[str] = []
+
+    previous_load_state = legacy_impl.load_state
+    previous_save_state = legacy_impl.save_state
+    previous_legacy_shot_director_node = legacy_impl.shot_director_node
+    previous_package_shot_director_node = shot_director_impl.shot_director_node
+
+    def fake_load_state():
+        return state
+
+    def fake_save_state(updated_state):
+        saved_states.append(dict(updated_state))
+
+    def fake_legacy_shot_director_node(_state):
+        calls.append("legacy")
+        raise AssertionError("rerun unexpectedly used legacy shot_director_node")
+
+    def fake_package_shot_director_node(updated_state):
+        calls.append("package")
+        return {**updated_state, "result": "ok"}
+
+    legacy_impl.load_state = fake_load_state
+    legacy_impl.save_state = fake_save_state
+    legacy_impl.shot_director_node = fake_legacy_shot_director_node
+    shot_director_impl.shot_director_node = fake_package_shot_director_node
+    try:
+        result = runners.run_shot_director_restart_from_story_plan()
+    finally:
+        legacy_impl.load_state = previous_load_state
+        legacy_impl.save_state = previous_save_state
+        legacy_impl.shot_director_node = previous_legacy_shot_director_node
+        shot_director_impl.shot_director_node = previous_package_shot_director_node
+
+    assert calls == ["package"]
+    assert saved_states and saved_states[-1]["step"] == "step_3_direct"
+    assert "shot_director" not in state["knowledge_metadata"]
+    assert result["result"] == "ok"
 
 
 def test_shot_director_closeup_density_is_soft_issue():

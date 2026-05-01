@@ -7,7 +7,10 @@ ROOT = str(Path(__file__).resolve().parents[1])
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from agents.director_graph import _normalise_llm_quality_issues, _normalise_merged_quality_report
+from agents.director_graph_package.quality_inspector_impl import (
+    _normalise_llm_quality_issues,
+    _normalise_merged_quality_report,
+)
 
 
 def test_merged_quality_warn_report_keeps_optional_items_soft():
