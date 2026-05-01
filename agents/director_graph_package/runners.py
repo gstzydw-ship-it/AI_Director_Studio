@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime
 from typing import Any
 
+from . import legacy_impl as _impl
 from .state_store import (
     _agent_outputs,
     _checkpoint_file,
@@ -19,11 +20,34 @@ from .state_store import (
     save_state,
 )
 
+_LEGACY_LOAD_STATE = _impl.load_state
+_LEGACY_SAVE_STATE = _impl.save_state
+_LEGACY_INVOKE_GRAPH = _impl._invoke_graph
+
+
+def _load_runner_state() -> dict[str, Any]:
+    if _impl.load_state is not _LEGACY_LOAD_STATE:
+        return _impl.load_state()
+    return load_state()
+
+
+def _save_runner_state(state: dict[str, Any]) -> None:
+    if _impl.save_state is not _LEGACY_SAVE_STATE:
+        _impl.save_state(state)
+        return
+    save_state(state)
+
+
+def _invoke_runner_graph(input_value: Any, thread_id: str) -> Any:
+    if _impl._invoke_graph is not _LEGACY_INVOKE_GRAPH:
+        return _impl._invoke_graph(input_value, thread_id)
+    return _invoke_graph(input_value, thread_id)
+
 
 def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
     from .shot_director_impl import shot_director_node
 
-    state = load_state()
+    state = _load_runner_state()
     if not state:
         raise RuntimeError("没有已保存的流水线状态，无法续跑镜头导演。")
 
@@ -56,7 +80,7 @@ def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
         else "已复用宏观规划，正在重新运行镜头导演...（4/6）"
     )
     state["error"] = ""
-    save_state(state)
+    _save_runner_state(state)
     return shot_director_node(state)
 
 
