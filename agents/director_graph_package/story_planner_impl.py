@@ -10,7 +10,8 @@ from typing import Any
 
 from .types import DirectorState
 from . import legacy_impl as _legacy
-from .helpers import call_llm, build_system_prompt
+from .llm import call_llm
+from .prompting import build_system_prompt
 
 STORY_PLANNER_MAX_SCHEMA_ATTEMPTS = _legacy.STORY_PLANNER_MAX_SCHEMA_ATTEMPTS
 

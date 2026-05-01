@@ -8,8 +8,10 @@ from . import legacy_impl as _impl
 
 def _sync_package_graph_api() -> None:
     from .graph_api import create_director_graph
+    from .shot_director_impl import shot_director_node
 
     _impl.create_director_graph = create_director_graph
+    _impl.shot_director_node = shot_director_node
 
 
 def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:

@@ -6,11 +6,12 @@ import time
 from typing import Any, Callable  
   
 from ..knowledge_base import get_agent_knowledge_files  
-from .helpers import build_system_prompt, call_llm, _primary_script_character_names  
+from .helpers import _primary_script_character_names  
 from .state_store import _persist_update  
 from .story_planner_impl import _extract_segments  
 from .types import DirectorState  
-from .llm import _get_llm_settings
+from .llm import _get_llm_settings, call_llm
+from .prompting import build_system_prompt
 
 
 _BODY_MECHANICS_ACTION_RE = re.compile(
