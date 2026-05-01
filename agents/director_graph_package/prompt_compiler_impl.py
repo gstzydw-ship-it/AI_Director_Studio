@@ -8,12 +8,10 @@ from typing import Any
 
 from .types import DirectorState
 from . import legacy_impl as _legacy
+from .helpers import build_system_prompt, call_llm
+from ..mcp_llm import call_llm_with_mcp
 
 re = _legacy.re
-
-build_system_prompt = _legacy.build_system_prompt
-call_llm = _legacy.call_llm
-call_llm_with_mcp = _legacy.call_llm_with_mcp
 _agent_outputs = _legacy._agent_outputs
 _persist_update = _legacy._persist_update
 _record_knowledge_metadata = _legacy._record_knowledge_metadata
