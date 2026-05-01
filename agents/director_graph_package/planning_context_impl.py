@@ -12,7 +12,23 @@ def _should_send_reference_images_to_llm() -> bool:
 
 
 def _scene_reference_images(state: DirectorState) -> list[str]:
-    return list(state.get("reference_image_b64s") or [])
+    images = list(state.get("reference_image_b64s") or [])
+    if not images:
+        return []
+
+    manifest = list(state.get("reference_image_manifest") or [])
+    scene_markers = ("scene", "space", "location", "environment", "set", "场景", "空间", "环境", "地点", "场地")
+    for index, item in enumerate(manifest):
+        if index >= len(images):
+            break
+        haystack = " ".join(
+            str(item.get(key) or "")
+            for key in ("label", "filename", "purpose", "type", "role", "name")
+        ).lower()
+        if any(marker in haystack for marker in scene_markers):
+            return [images[index]]
+
+    return [images[0]]
 
 
 def _reference_context(state: DirectorState) -> str:

@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agents.director_graph_package.shot_director_impl import (  # noqa: E402
     _build_shot_director_workflow_trace,
     _extract_rhythm_shot_director_notes,
+    _reference_images,
     _rhythm_shot_director_notes_prompt,
     _shot_director_coverage_contract_prompt,
     _shot_director_downstream_context,
@@ -106,3 +107,9 @@ construction_notes: no split before the flashback.
     assert "[Rhythm Supervisor Shot Notes]" in context
     assert "reaction belongs to Qiao Xi" in context
     assert "[Atmosphere Excerpt]" in context
+
+
+def test_shot_director_does_not_upload_raw_reference_images():
+    state = {"reference_image_b64s": ["scene-a", "person-a"]}
+
+    assert _reference_images(state) == []

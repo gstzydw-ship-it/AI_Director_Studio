@@ -100,14 +100,16 @@ def _prepare_phase_2_compile_state(
         _analyze_tail_frame,
         _analyze_video_segment,
         _extract_tail_frame_from_video,
+        _next_segment_bridge_context,
     )
 
     total_segments = int(state.get("total_segments") or 1)
     requested_segment = max(1, min(segment_index, total_segments))
+    next_segment_context = _next_segment_bridge_context(state, requested_segment)
 
     if video_path and os.path.exists(video_path):
         try:
-            tail_frame_analysis = _analyze_video_segment(video_path, requested_segment)
+            tail_frame_analysis = _analyze_video_segment(video_path, requested_segment, next_segment_context)
         except Exception as exc:
             fallback_tail_b64 = tail_frame_b64
             tail_frame_note = ""
@@ -120,7 +122,7 @@ def _prepare_phase_2_compile_state(
                     tail_frame_note = f"Auto-extracted tail frame: {tail_frame_path}\n"
                 elif tail_frame_error:
                     tail_frame_note = f"Tail-frame extraction also failed: {tail_frame_error}\n"
-            fallback = _analyze_tail_frame(fallback_tail_b64, requested_segment)
+            fallback = _analyze_tail_frame(fallback_tail_b64, requested_segment, next_segment_context)
             tail_frame_analysis = (
                 f"Full video continuity analysis failed, so the pipeline fell back to tail-frame analysis. "
                 f"Failure reason: {exc}\n\n"
@@ -128,7 +130,7 @@ def _prepare_phase_2_compile_state(
                 f"{fallback}"
             )
     else:
-        tail_frame_analysis = _analyze_tail_frame(tail_frame_b64, requested_segment)
+        tail_frame_analysis = _analyze_tail_frame(tail_frame_b64, requested_segment, next_segment_context)
 
     return _persist_update(
         state,

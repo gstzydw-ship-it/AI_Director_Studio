@@ -777,6 +777,16 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
     scene_memory = _scene_memory_card(outputs.get("scene_analyst", ""), 1400)
     current_source_events = _current_segment_event_card(current_planner_segment, 1600)
     tail_frame_memory = _truncate_for_prompt(state.get("tail_frame_analysis", ""), 1800)
+    if tail_frame_memory:
+        tail_frame_memory = (
+            f"{tail_frame_memory}\n\n"
+            "【视频桥接决策执行规则】\n"
+            "1. 如果视频分析里的 next_segment_start_mode.mode 是 image_start，空间与首帧总控必须继承 selected_candidate 对应的可见人物位置、朝向、道具和空间状态。\n"
+            "2. 如果 next_segment_start_mode.mode 是 direct_cut，禁止强行沿用上一段尾帧；应按当前片段规划资产重新开镜、闪回、换场或做空间复位。\n"
+            "3. 如果 bridge_frame.usable_as_start_image=false，不能把该帧当作下一段首帧，只能继承明确可见的道具/空间状态。\n"
+            "4. 如果 continuity_constraints.must_reset_space=true，当前片段开头必须用关系景、中景或明确空间状态重建，不要从局部特写硬接。\n"
+            "5. 本桥接决策高于下面旧的尾帧继承规则；direct_cut 时，“必须以视频最终位置为准”只适用于明确可继承的道具/空间状态，不适用于人物首帧站位。"
+        )
     reference_context = _reference_context(state)
     reference_usage_instruction = (
         "第一段也必须调用人物参考图与场景参考图：人物图只锁定身份/五官/服装，场景图只锁定空间/光线/轴线。\n\n"

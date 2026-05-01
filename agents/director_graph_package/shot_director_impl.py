@@ -174,8 +174,10 @@ def _agent_outputs(state: DirectorState) -> dict[str, str]:
     return dict(state.get("agent_outputs") or {})  
   
   
-def _reference_images(state: DirectorState) -> list[str]:  
-    return list(state.get("reference_image_b64s") or [])  
+def _reference_images(state: DirectorState) -> list[str]:
+    """Shot director consumes scene_analyst text; raw reference images stay scene-only."""
+    _ = state
+    return []
   
   
 def _director_brief(state: DirectorState | dict[str, Any]) -> str:  

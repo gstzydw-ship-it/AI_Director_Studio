@@ -2,9 +2,10 @@
 from __future__ import annotations
 
 import os
+import uuid
+from datetime import datetime
 from typing import Any
 
-from . import legacy_impl as _impl
 from .state_store import (
     _agent_outputs,
     _checkpoint_file,
@@ -13,22 +14,10 @@ from .state_store import (
     _normalise_graph_result as _state_store_normalise_graph_result,
     _prepare_phase_2_compile_state as _state_store_prepare_phase_2_compile_state,
     _session_output_dir,
+    clear_state,
     load_state,
     save_state,
 )
-
-
-def _sync_package_graph_api() -> None:
-    from .graph_api import create_director_graph
-    from .shot_director_impl import shot_director_node
-
-    _impl.create_director_graph = create_director_graph
-    _impl.shot_director_node = shot_director_node
-
-
-def _call_legacy_entrypoint(name: str, *args: Any, **kwargs: Any) -> Any:
-    _sync_package_graph_api()
-    return getattr(_impl, name)(*args, **kwargs)
 
 
 def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
@@ -140,8 +129,48 @@ def _run_phase_2_compile_direct(
     return _merge_state_update(working_state, complete_update)
 
 
-def run_phase_1_planning(*args: Any, **kwargs: Any) -> Any:
-    return _call_legacy_entrypoint("run_phase_1_planning", *args, **kwargs)
+def run_phase_1_planning(
+    script: str,
+    aspect_ratio: str,
+    reference_images: str | None,
+    reference_image_b64s: list[str] | None = None,
+    reference_image_manifest: list[dict[str, str]] | None = None,
+    speed_mode: bool = False,
+) -> Any:
+    reference_image_b64s = reference_image_b64s or []
+    reference_image_manifest = reference_image_manifest or []
+    reference_image_count = len(reference_image_b64s)
+    stored_reference_images = reference_image_b64s
+
+    clear_state()
+    thread_id = f"director-{uuid.uuid4().hex}"
+    initial_state = {
+        "thread_id": thread_id,
+        "status": "running_phase_1",
+        "step": "step_1_analyze",
+        "message": "节奏总控导演正在改写剧本...（1/6）",
+        "script": script,
+        "original_script": script,
+        "atmosphere_strategy": "",
+        "director_brief": "",
+        "aspect_ratio": aspect_ratio,
+        "speed_mode": speed_mode,
+        "reference_images": reference_images,
+        "reference_image_b64s": stored_reference_images,
+        "reference_image_count": reference_image_count,
+        "reference_image_manifest": reference_image_manifest,
+        "knowledge_metadata": {},
+        "agent_outputs": {},
+        "current_segment_index": 1,
+        "total_segments": 0,
+        "segment_names": [],
+        "started_at": datetime.now().isoformat(),
+        "result": "",
+        "error": "",
+        "director_review_report": "",
+    }
+    save_state(dict(initial_state))
+    return _invoke_graph(initial_state, thread_id)
 
 
 def run_phase_2_compile_segment(
@@ -168,8 +197,22 @@ def run_phase_2_compile_segment(
     return _invoke_graph(state, thread_id)
 
 
-def run_full_pipeline(*args: Any, **kwargs: Any) -> Any:
-    return _call_legacy_entrypoint("run_full_pipeline", *args, **kwargs)
+def run_full_pipeline(
+    script: str,
+    aspect_ratio: str = "16:9",
+    reference_images: str | None = None,
+    reference_image_b64s: list[str] | None = None,
+    reference_image_manifest: list[dict[str, str]] | None = None,
+    speed_mode: bool = False,
+) -> Any:
+    return run_phase_1_planning(
+        script=script,
+        aspect_ratio=aspect_ratio,
+        reference_images=reference_images,
+        reference_image_b64s=reference_image_b64s,
+        reference_image_manifest=reference_image_manifest,
+        speed_mode=speed_mode,
+    )
 
 
 def run_shot_director_resume_from_partial(*args: Any, **kwargs: Any) -> Any:
