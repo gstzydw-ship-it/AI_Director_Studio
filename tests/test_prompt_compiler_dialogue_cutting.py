@@ -7,9 +7,11 @@ ROOT = str(Path(__file__).resolve().parents[1])
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from agents.director_graph import (
+from agents.director_graph_package.prompt_compiler_impl import (
     _compiler_guard_report,
     _dialogue_coverage_contract_rules,
+)
+from agents.director_graph_package.shot_director_impl import (
     _repair_shot_director_contract_output,
     _validate_shot_director_dialogue_coverage,
     _validate_shot_director_script_fidelity,
