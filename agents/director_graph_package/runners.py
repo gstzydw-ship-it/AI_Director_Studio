@@ -1,15 +1,18 @@
 """Package runner entry points backed by the migrated director implementation."""
 from __future__ import annotations
 
+import os
 from typing import Any
 
 from . import legacy_impl as _impl
 from .state_store import (
     _agent_outputs,
+    _checkpoint_file,
     _config as _state_store_config,
     _merge_state_update as _state_store_merge_state_update,
     _normalise_graph_result as _state_store_normalise_graph_result,
     _prepare_phase_2_compile_state as _state_store_prepare_phase_2_compile_state,
+    _session_output_dir,
     load_state,
     save_state,
 )
@@ -84,8 +87,16 @@ def _config(*args: Any, **kwargs: Any) -> Any:
     return _state_store_config(*args, **kwargs)
 
 
-def _invoke_graph(*args: Any, **kwargs: Any) -> Any:
-    return _call_legacy_entrypoint("_invoke_graph", *args, **kwargs)
+def _invoke_graph(input_value: Any, thread_id: str) -> Any:
+    from langgraph.checkpoint.sqlite import SqliteSaver
+
+    from .graph_api import create_director_graph
+
+    os.makedirs(_session_output_dir(), exist_ok=True)
+    with SqliteSaver.from_conn_string(_checkpoint_file()) as checkpointer:
+        app = create_director_graph().compile(checkpointer=checkpointer)
+        result = app.invoke(input_value, config=_config(thread_id))
+    return _normalise_graph_result(result, thread_id)
 
 
 def _normalise_graph_result(*args: Any, **kwargs: Any) -> Any:
