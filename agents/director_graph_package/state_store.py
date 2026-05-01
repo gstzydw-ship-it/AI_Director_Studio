@@ -8,6 +8,20 @@ from ..request_context import request_session_id
 from .types import CHECKPOINT_FILE, DirectorState, OUTPUT_DIR, SESSION_ID_RE
 
 
+def _agent_outputs(state: DirectorState) -> dict[str, str]:
+    return dict(state.get("agent_outputs") or {})
+
+
+def _merge_state_update(state: DirectorState, update: DirectorState) -> DirectorState:
+    merged: DirectorState = dict(state)
+    merged.update(update)
+    return merged
+
+
+def _config(thread_id: str) -> dict[str, dict[str, str]]:
+    return {"configurable": {"thread_id": thread_id}}
+
+
 def _normalise_session_id(session_id: str | None) -> str:
     safe = SESSION_ID_RE.sub("", (session_id or "local").strip())[:80]
     return safe or "local"

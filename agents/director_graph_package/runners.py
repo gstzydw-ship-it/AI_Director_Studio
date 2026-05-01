@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import legacy_impl as _impl
+from .state_store import _agent_outputs, _config as _state_store_config, _merge_state_update, load_state, save_state
 
 
 def _sync_package_graph_api() -> None:
@@ -17,11 +18,11 @@ def _sync_package_graph_api() -> None:
 def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
     from .shot_director_impl import shot_director_node
 
-    state = _impl.load_state()
+    state = load_state()
     if not state:
         raise RuntimeError("没有已保存的流水线状态，无法续跑镜头导演。")
 
-    outputs = _impl._agent_outputs(state)
+    outputs = _agent_outputs(state)
     if not outputs.get("story_planner"):
         raise RuntimeError("缺少 story_planner 输出，无法续跑镜头导演。")
     if outputs.get("shot_director"):
@@ -50,7 +51,7 @@ def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
         else "已复用宏观规划，正在重新运行镜头导演...（4/6）"
     )
     state["error"] = ""
-    _impl.save_state(state)
+    save_state(state)
     return shot_director_node(state)
 
 
@@ -61,11 +62,13 @@ def route_after_qc(state: Any) -> Any:
 
 
 def route_after_segment(state: Any) -> Any:
-    return _impl.route_after_segment(state)
+    from .segment_flow_impl import route_after_segment as _route_after_segment
+
+    return _route_after_segment(state)
 
 
 def _config(*args: Any, **kwargs: Any) -> Any:
-    return _impl._config(*args, **kwargs)
+    return _state_store_config(*args, **kwargs)
 
 
 def _invoke_graph(*args: Any, **kwargs: Any) -> Any:
@@ -78,7 +81,7 @@ def _normalise_graph_result(*args: Any, **kwargs: Any) -> Any:
 
 
 def _merge_state_update(*args: Any, **kwargs: Any) -> Any:
-    return _impl._merge_state_update(*args, **kwargs)
+    return _merge_state_update(*args, **kwargs)
 
 
 def _prepare_phase_2_compile_state(*args: Any, **kwargs: Any) -> Any:
@@ -96,22 +99,22 @@ def _run_phase_2_compile_direct(
     from .quality_inspector_impl import quality_inspector_node, qc_router_node
 
     prepared_update = _impl._prepare_phase_2_compile_state(state, segment_index, tail_frame_b64, video_path)
-    working_state = _impl._merge_state_update(state, prepared_update)
+    working_state = _merge_state_update(state, prepared_update)
 
     while True:
         compile_update = prompt_compiler_node(working_state)
-        working_state = _impl._merge_state_update(working_state, compile_update)
+        working_state = _merge_state_update(working_state, compile_update)
 
         inspect_update = quality_inspector_node(working_state)
-        working_state = _impl._merge_state_update(working_state, inspect_update)
+        working_state = _merge_state_update(working_state, inspect_update)
 
         router_update = qc_router_node(working_state)
-        working_state = _impl._merge_state_update(working_state, router_update)
+        working_state = _merge_state_update(working_state, router_update)
         if not working_state.get("revision_instruction"):
             break
 
     complete_update = segment_complete_node(working_state)
-    return _impl._merge_state_update(working_state, complete_update)
+    return _merge_state_update(working_state, complete_update)
 
 
 def run_phase_1_planning(*args: Any, **kwargs: Any) -> Any:
@@ -126,17 +129,17 @@ def run_phase_2_compile_segment(
 ) -> Any:
     _sync_package_graph_api()
 
-    state = _impl.load_state()
+    state = load_state()
     if not state:
         raise RuntimeError("没有已保存的流水线状态，无法生成片段。")
 
-    outputs = _impl._agent_outputs(state)
+    outputs = _agent_outputs(state)
     if not outputs.get("story_planner"):
         raise RuntimeError("缺少 story_planner 输出，无法生成片段。")
 
     if outputs.get("shot_director"):
         result = _run_phase_2_compile_direct(state, segment_index, tail_frame_b64, video_path)
-        _impl.save_state(dict(result))
+        save_state(dict(result))
         return result
 
     thread_id = state.get("thread_id")

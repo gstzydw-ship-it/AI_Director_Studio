@@ -3,23 +3,25 @@ from __future__ import annotations
 
 from typing import Any
 
-from . import legacy_impl as _impl
 from . import prompt_compiler_impl as _prompt_compiler_impl
 from . import quality_inspector_impl as _quality_inspector_impl
 from . import story_planner_impl as _story_planner_impl
 from . import shot_director_impl as _shot_director_impl
+from . import rhythm_rewrite_impl as _rhythm_rewrite_impl
+from . import planning_context_impl as _planning_context_impl
+from . import segment_flow_impl as _segment_flow_impl
 
 
 def rhythm_rewrite_director_node(state: Any) -> Any:
-    return _impl.rhythm_rewrite_director_node(state)
+    return _rhythm_rewrite_impl.rhythm_rewrite_director_node(state)
 
 
 def director_showrunner_node(state: Any) -> Any:
-    return _impl.director_showrunner_node(state)
+    return _planning_context_impl.director_showrunner_node(state)
 
 
 def scene_analyst_node(state: Any) -> Any:
-    return _impl.scene_analyst_node(state)
+    return _planning_context_impl.scene_analyst_node(state)
 
 
 def story_planner_node(state: Any) -> Any:
@@ -31,7 +33,7 @@ def shot_director_node(state: Any) -> Any:
 
 
 def wait_for_segment_request_node(state: Any) -> Any:
-    return _impl.wait_for_segment_request_node(state)
+    return _segment_flow_impl.wait_for_segment_request_node(state)
 
 
 def prompt_compiler_node(state: Any) -> Any:
@@ -47,7 +49,7 @@ def qc_router_node(state: Any) -> Any:
 
 
 def segment_complete_node(state: Any) -> Any:
-    return _impl.segment_complete_node(state)
+    return _segment_flow_impl.segment_complete_node(state)
 
 
 __all__ = [
