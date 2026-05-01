@@ -10,10 +10,10 @@ from typing import Any
 
 from .types import DirectorState
 from . import legacy_impl as _legacy
+from .helpers import call_llm, build_system_prompt
 
 STORY_PLANNER_MAX_SCHEMA_ATTEMPTS = _legacy.STORY_PLANNER_MAX_SCHEMA_ATTEMPTS
 
-call_llm = _legacy.call_llm
 _agent_runtime_trace = _legacy._agent_runtime_trace
 _agent_configured = _legacy._agent_configured
 _truncate_for_prompt = _legacy._truncate_for_prompt
@@ -24,7 +24,6 @@ _director_brief_prompt_block = _legacy._director_brief_prompt_block
 _script_fidelity_rules = _legacy._script_fidelity_rules
 _record_knowledge_metadata = _legacy._record_knowledge_metadata
 _persist_update = _legacy._persist_update
-build_system_prompt = _legacy.build_system_prompt
 _fragment_line_pattern = _legacy._fragment_line_pattern
 
 def _story_planner_rhythm_boundary_rules() -> str:

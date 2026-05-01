@@ -15,6 +15,7 @@ from agents.director_graph import (  # noqa: E402
     _validate_shot_director_vertical_discipline,
 )
 from agents.knowledge_base import get_agent_knowledge_files  # noqa: E402
+from agents.director_graph_package import legacy_impl, nodes, runners  # noqa: E402
 
 
 def test_clean_shot_director_output_strips_thinking_and_markdown():
@@ -279,6 +280,73 @@ sub_shots: []
     issues = _validate_shot_director_output(director_output, ["F01"])
 
     assert not any("sub_shots" in issue for issue in issues)
+
+
+def test_shot_director_requires_construction_sheet_fields():
+    director_output = """- fragment_id: F01
+  fragment_task: "建立关系 + 反应落点"
+  rhythm: "压缩后停顿"
+  shots:
+    - shot_id: F01-S01
+      duration: "0-2秒"
+      task: "建立关系"
+      subject: "乔熙、商北琛"
+      camera: "桌侧固定机位，右前方同侧轴线"
+      size: "双人中景"
+      action: "两人隔着办公桌对峙，乔熙停在桌前"
+      dialogue: ~
+      must_carry: "两人距离和办公桌阻隔关系"
+      cut_point: "关系建立后→镜头2"
+      continuity: "乔熙在桌前，商北琛在桌后，不越轴"
+    - shot_id: F01-S02
+      duration: "2-5秒"
+      task: "反应落点"
+      subject: "乔熙"
+      camera: "同侧过肩固定机位"
+      size: "中近景"
+      action: "她听完后视线停住，手指攥紧工牌"
+      dialogue: "What's this? Trying to intimidate me?"
+      must_carry: "乔熙被命令击中后的反讽反应"
+      cut_point: "反问句落下后切出"
+      continuity: "保持商北琛肩线在前景边缘，工牌仍挂在乔熙胸前"
+      type: reaction
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert issues == []
+
+
+def test_shot_director_rejects_vague_cut_point_in_construction_sheet():
+    director_output = """- fragment_id: F01
+  fragment_task: "建立关系"
+  rhythm: "压缩"
+  shots:
+    - shot_id: F01-S01
+      duration: "0-2秒"
+      task: "建立关系"
+      subject: "乔熙、商北琛"
+      camera: "桌侧固定机位"
+      size: "双人中景"
+      action: "两人对峙"
+      dialogue: ~
+      must_carry: "对峙关系"
+      cut_point: "切出"
+      continuity: "保持左右关系"
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert any("cut_point 过于空泛" in issue for issue in issues)
+
+
+def test_shot_director_direct_rerun_binds_package_node():
+    previous = legacy_impl.shot_director_node
+
+    with runners._bind_package_shot_director_node():
+        assert legacy_impl.shot_director_node is nodes.shot_director_node
+
+    assert legacy_impl.shot_director_node is previous
 
 
 def test_shot_director_closeup_density_is_soft_issue():
