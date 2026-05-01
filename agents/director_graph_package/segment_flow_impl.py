@@ -4,18 +4,18 @@ from __future__ import annotations
 import base64
 import os
 import re
+import sys
 from datetime import datetime
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
-from . import legacy_impl as _legacy_impl
 from .llm import call_llm
+from .state_store import _agent_outputs, _persist_update
 from .types import DirectorState, OUTPUT_DIR
 
-_LEGACY_ANALYZE_TAIL_FRAME = _legacy_impl._analyze_tail_frame
+_LEGACY_ANALYZE_TAIL_FRAME: Callable[..., str] | None = None
 
 
 def wait_for_segment_request_node(state: DirectorState) -> DirectorState:
-    import agents.director_graph as dg
     from langgraph.types import interrupt
     import os
 
@@ -61,7 +61,7 @@ def wait_for_segment_request_node(state: DirectorState) -> DirectorState:
     else:
         tail_frame_analysis = _analyze_tail_frame(payload.get("tail_frame_b64"), requested_segment, next_segment_context)
 
-    return dg._persist_update(
+    return _persist_update(
         state,
         {
             "status": "running_phase_2",
@@ -76,16 +76,14 @@ def wait_for_segment_request_node(state: DirectorState) -> DirectorState:
 
 
 def segment_complete_node(state: DirectorState) -> DirectorState:
-    import agents.director_graph as dg
-
-    outputs = dg._agent_outputs(state)
+    outputs = _agent_outputs(state)
     segment_index = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
     total_segments = int(state.get("total_segments") or 1)
     next_segment = segment_index + 1
     combined = _combined_prompt(outputs)
 
     if next_segment > total_segments:
-        return dg._persist_update(
+        return _persist_update(
             state,
             {
                 "status": "done",
@@ -97,7 +95,7 @@ def segment_complete_node(state: DirectorState) -> DirectorState:
             },
         )
 
-    return dg._persist_update(
+    return _persist_update(
         state,
         {
             "status": "waiting_for_user_input",
@@ -130,6 +128,16 @@ def _combined_prompt(agent_outputs: dict[str, str]) -> str:
 def _segment_block(text: str, segment_index: int) -> str:
     from .legacy_impl import _segment_block as _impl
     return _impl(text, segment_index)
+
+
+def _legacy_analyze_tail_frame() -> Callable[..., str]:
+    global _LEGACY_ANALYZE_TAIL_FRAME
+
+    from .legacy_impl import _analyze_tail_frame as _impl
+
+    if _LEGACY_ANALYZE_TAIL_FRAME is None:
+        _LEGACY_ANALYZE_TAIL_FRAME = _impl
+    return _impl
 
 
 def _truncate_bridge_text(text: str, limit: int = 1800) -> str:
@@ -313,8 +321,9 @@ def _analyze_tail_frame(
     segment_index: int,
     next_segment_context: str = "",
 ) -> str:
-    if _legacy_impl._analyze_tail_frame is not _LEGACY_ANALYZE_TAIL_FRAME:
-        return _legacy_impl._analyze_tail_frame(tail_frame_b64, segment_index)
+    legacy_analyze_tail_frame = _legacy_analyze_tail_frame()
+    if legacy_analyze_tail_frame is not _LEGACY_ANALYZE_TAIL_FRAME:
+        return legacy_analyze_tail_frame(tail_frame_b64, segment_index)
 
     if not tail_frame_b64:
         return (
@@ -343,6 +352,11 @@ def _analyze_tail_frame(
         temperature=0.2,
         agent_name="shot_director",
     )
+
+
+_legacy_module = sys.modules.get("agents.director_graph_package.legacy_impl")
+if _legacy_module is not None and hasattr(_legacy_module, "_analyze_tail_frame"):
+    _LEGACY_ANALYZE_TAIL_FRAME = _legacy_module._analyze_tail_frame
 
 
 def _extract_tail_frame_from_video(video_path: str, segment_index: int = 0) -> tuple[str | None, str | None, str | None]:

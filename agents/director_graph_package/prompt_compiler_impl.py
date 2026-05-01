@@ -10,8 +10,6 @@ from typing import Any
 from .types import DirectorState
 from . import legacy_impl as _legacy
 from .helpers import (
-    build_system_prompt,
-    call_llm,
     _truncate_for_prompt,
     _runtime_context_contract_card,
     _shot_composition_task_selection_rules,
@@ -25,10 +23,11 @@ from .helpers import (
     _MAIN_SHOT_BLOCK_RE,
     _DIALOGUE_COVERAGE_TERMS_RE,
 )
+from .llm import call_llm
+from .prompting import build_system_prompt
+from .state_store import _agent_outputs, _persist_update
 from ..mcp_llm import call_llm_with_mcp
 
-_agent_outputs = _legacy._agent_outputs
-_persist_update = _legacy._persist_update
 _record_knowledge_metadata = _legacy._record_knowledge_metadata
 _segment_block = _legacy._segment_block
 _scene_memory_card = _legacy._scene_memory_card

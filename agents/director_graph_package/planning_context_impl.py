@@ -3,7 +3,39 @@ from __future__ import annotations
 
 from typing import Any
 
-DirectorState = dict[str, Any]
+from .helpers import build_system_prompt
+from .llm import _get_llm_settings, call_llm
+from .state_store import _agent_outputs, _persist_update
+from .types import DirectorState
+
+# Import knowledge-base helpers locally to avoid a reverse dep on legacy_impl.
+from ..knowledge_base import (
+    get_agent_knowledge_files,
+    get_full_knowledge_for_agent,
+    get_smart_knowledge,
+    load_knowledge_documents,
+)
+
+
+def _record_knowledge_metadata(
+    state: DirectorState,
+    agent_name: str,
+    context_hint: str,
+    retrieval_meta: dict[str, Any] | None,
+) -> dict[str, Any]:
+    """Return agent_name-dimension knowledge metadata snapshot (dict[agent_name -> meta]).
+
+    Returns the complete metadata dict (including historical agents); callers should
+    assign it wholesale to state['knowledge_metadata'].
+    """
+    existing: dict[str, Any] = dict(state.get("knowledge_metadata") or {})
+    existing[agent_name] = {
+        "context_hint": context_hint,
+        "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
+        "all_sources": get_agent_knowledge_files(agent_name),
+        **(retrieval_meta or {}),
+    }
+    return existing
 
 
 def _scene_reference_images(state: DirectorState) -> list[str]:
@@ -40,7 +72,7 @@ def _reference_context(state: DirectorState) -> str:
     return "\n".join(lines)
 
 
-def _director_brief(state: DirectorState | dict[str, Any]) -> str:
+def _director_brief(state: DirectorState | dict[str, object]) -> str:
     return str(state.get("director_brief") or "").strip()
 
 
@@ -56,7 +88,7 @@ def _director_brief_prompt_block(director_brief: str) -> str:
     )
 
 
-def _fallback_director_brief(state: DirectorState | dict[str, Any], reason: str = "") -> str:
+def _fallback_director_brief(state: DirectorState | dict[str, object], reason: str = "") -> str:
     reason_line = f"fallback_reason: {reason[:180]}\n" if reason else ""
     return (
         "film_tone: preserve the user's script tone; do not invent new plot facts\n"
@@ -87,15 +119,14 @@ def _script_fidelity_rules() -> str:
 
 
 def director_showrunner_node(state: DirectorState) -> DirectorState:
-    import agents.director_graph as dg
     import time
 
-    outputs = dg._agent_outputs(state)
+    outputs = _agent_outputs(state)
 
     if bool(state.get("speed_mode", False)):
         output = _fallback_director_brief(state, "speed_mode")
         outputs["director_showrunner"] = output
-        knowledge_metadata = dg._record_knowledge_metadata(
+        knowledge_metadata = _record_knowledge_metadata(
             state,
             "director_showrunner",
             "speed_mode_director_brief",
@@ -107,7 +138,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
                 "result_count": 0,
             },
         )
-        _api_key, base_url, model, temperature = dg._get_llm_settings("director_showrunner")
+        _api_key, base_url, model, temperature = _get_llm_settings("director_showrunner")
         try:
             host = base_url.split("//", 1)[1].split("/", 1)[0] if "//" in base_url else base_url
         except Exception:
@@ -121,7 +152,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
             "host": host,
             "temperature": temperature,
         }
-        return dg._persist_update(
+        return _persist_update(
             state,
             {
                 "status": "running_phase_1",
@@ -137,7 +168,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "director showrunner style bible emotional curve shot priority "
         f"script fidelity visual intent {state.get('script', '')[:200]}"
     )
-    system_prompt, retrieval_meta = dg.build_system_prompt(
+    system_prompt, retrieval_meta = build_system_prompt(
         "You are the Director Showrunner for an AI short-film pipeline.\n"
         "Your job is not to design detailed shots. Your job is to define the "
         "top-level creative contract that every downstream agent must obey.\n"
@@ -171,7 +202,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
 
     started = time.perf_counter()
     try:
-        output = dg.call_llm(system_prompt, user_prompt, agent_name="director_showrunner")
+        output = call_llm(system_prompt, user_prompt, agent_name="director_showrunner")
         output = (output or "").strip() or _fallback_director_brief(state, "empty_showrunner_output")
         runtime = {
             "agent_name": "director_showrunner",
@@ -191,9 +222,9 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         }
 
     outputs["director_showrunner"] = output
-    knowledge_metadata = dg._record_knowledge_metadata(state, "director_showrunner", showrunner_hint, retrieval_meta)
+    knowledge_metadata = _record_knowledge_metadata(state, "director_showrunner", showrunner_hint, retrieval_meta)
     knowledge_metadata.setdefault("director_showrunner", {})["runtime"] = runtime
-    return dg._persist_update(
+    return _persist_update(
         state,
         {
             "status": "running_phase_1",
@@ -207,9 +238,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
 
 
 def scene_analyst_node(state: DirectorState) -> DirectorState:
-    import agents.director_graph as dg
-
-    outputs = dg._agent_outputs(state)
+    outputs = _agent_outputs(state)
     director_brief_block = _director_brief_prompt_block(_director_brief(state))
 
     if bool(state.get("speed_mode", False)):
@@ -227,7 +256,7 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
             f"{_reference_context(state) or '  无'}\n"
         )
         outputs["scene_analyst"] = output
-        knowledge_metadata = dg._record_knowledge_metadata(
+        knowledge_metadata = _record_knowledge_metadata(
             state,
             "scene_analyst",
             "fast_mode_local_scene_card",
@@ -239,7 +268,7 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
                 "result_count": 0,
             },
         )
-        return dg._persist_update(
+        return _persist_update(
             state,
             {
                 "status": "running_phase_1",
@@ -251,7 +280,7 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         )
 
     scene_hint = f"场景分析 剧本拆解 核心动作 炸点 约束 导演意图 {state['script'][:200]}"
-    system_prompt, retrieval_meta = dg.build_system_prompt(
+    system_prompt, retrieval_meta = build_system_prompt(
         "你是一位顶尖短剧场景分析师。你需要拆解用户提供的剧本，提取核心动作、炸点和约束。\n\n"
         "【绝对禁令】你只能提取剧本原文中明确存在的信息。\n"
         "禁止推测、补充或扩展剧本中没有出现的内容。\n"
@@ -277,16 +306,16 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
     )
     ref_images = _scene_reference_images(state) or None
     agent_for_call = "scene_vision_analyst" if ref_images else "scene_analyst"
-    knowledge_metadata = dg._record_knowledge_metadata(state, "scene_analyst", scene_hint, retrieval_meta)
+    knowledge_metadata = _record_knowledge_metadata(state, "scene_analyst", scene_hint, retrieval_meta)
     try:
-        output = dg.call_llm(system_prompt, user_prompt, images_base64=ref_images, agent_name=agent_for_call)
+        output = call_llm(system_prompt, user_prompt, images_base64=ref_images, agent_name=agent_for_call)
     except Exception as exc:
         if ref_images:
             raise
         print(f"  [scene_analyst] primary text model failed, retrying via prompt_compiler channel: {exc}")
-        output = dg.call_llm(system_prompt, user_prompt, images_base64=None, agent_name="prompt_compiler", max_retries=1)
+        output = call_llm(system_prompt, user_prompt, images_base64=None, agent_name="prompt_compiler", max_retries=1)
     outputs["scene_analyst"] = output
-    return dg._persist_update(
+    return _persist_update(
         state,
         {
             "status": "running_phase_1",

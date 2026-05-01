@@ -23,7 +23,6 @@ from .state_store import (
 
 _LEGACY_LOAD_STATE = _impl.load_state
 _LEGACY_SAVE_STATE = _impl.save_state
-_LEGACY_INVOKE_GRAPH = _impl._invoke_graph
 _STATE_STORE_LOAD_STATE = load_state
 _STATE_STORE_SAVE_STATE = save_state
 _STATE_STORE_CLEAR_STATE = clear_state
@@ -77,8 +76,6 @@ def _clear_runner_state() -> None:
 
 
 def _invoke_runner_graph(input_value: Any, thread_id: str) -> Any:
-    if _impl._invoke_graph is not _LEGACY_INVOKE_GRAPH:
-        return _impl._invoke_graph(input_value, thread_id)
     original = _RUNNER_INVOKE_GRAPH or _invoke_graph
     if _invoke_graph is not original:
         return _invoke_graph(input_value, thread_id)

@@ -8,6 +8,7 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .llm import call_llm, load_config
 from .types import (
     DirectorState,
     MAX_QC_RETRIES,
@@ -15,15 +16,50 @@ from .types import (
     _AXIS_RIGHT_RE,
     _REVERSE_SHOT_INSIDE_SEGMENT_RE,
 )
-from .helpers import call_llm
-from . import legacy_impl as _legacy
-from . import prompt_compiler_impl as _prompt_compiler_impl
-from .state_store import _persist_update
+from .state_store import _agent_outputs, _persist_update
 
 
 # ---------------------------------------------------------------------------
 # Low-level report parsers / normalisers
 # ---------------------------------------------------------------------------
+def _agent_configured(agent_name: str) -> bool:
+    agent_cfg = (load_config().get("agent_models") or {}).get(agent_name) or {}
+    if not isinstance(agent_cfg, dict):
+        return False
+    return bool(agent_cfg.get("model") or agent_cfg.get("base_url"))
+
+
+def _segment_block(text: str, segment_index: int) -> str:
+    fragment_id = f"F{segment_index:02d}"
+    match = re.search(
+        rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+        rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+        text,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def _timeline_blocks(prompt: str) -> list[tuple[float, float, str]]:
+    matches = list(re.finditer(r"(?m)^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)绉掞細", prompt or ""))
+    blocks: list[tuple[float, float, str]] = []
+    for index, match in enumerate(matches):
+        body_start = match.end()
+        body_end = matches[index + 1].start() if index + 1 < len(matches) else len(prompt)
+        blocks.append((float(match.group(1)), float(match.group(2)), prompt[body_start:body_end].strip()))
+    if blocks:
+        return blocks
+
+    shot_matches = list(re.finditer(r"(?m)^闀滃ご\s*\d+\s*銆怽s*(\d+(?:\.\d+)?)\s*绉抃s*銆?", prompt or ""))
+    current = 0.0
+    for index, match in enumerate(shot_matches):
+        duration = float(match.group(1))
+        body_start = match.end()
+        body_end = shot_matches[index + 1].start() if index + 1 < len(shot_matches) else len(prompt)
+        blocks.append((current, current + duration, prompt[body_start:body_end].strip()))
+        current += duration
+    return blocks
+
+
 def _quality_report_rating(report: str) -> str | None:
     match = re.search(
         r"(?:总体评级|overall\s*rating|rating)\s*[：:]\s*(pass|warn|fail)",
@@ -107,7 +143,7 @@ def _run_llm_quality_inspector(
 
     若未配置，返回 ('skip', [], '') 表示调用方继续用规则质检结果。
     """
-    if not _legacy._agent_configured("quality_inspector_llm_a"):
+    if not _agent_configured("quality_inspector_llm_a"):
         return "skip", [], ""
 
     reviewers = [
@@ -118,7 +154,7 @@ def _run_llm_quality_inspector(
 
     review_reports: list[tuple[str, str]] = []
     for agent_key, role_brief, focus in reviewers:
-        if not _legacy._agent_configured(agent_key):
+        if not _agent_configured(agent_key):
             continue
         system_prompt = (
             f"你是一位专业的短剧质检导演（{role_brief}）。\n"
@@ -172,7 +208,7 @@ def _run_llm_quality_inspector(
 
     # 若配置了 merger，再用 merger 做最终去重汇总
     merged_report = ""
-    if _legacy._agent_configured("quality_inspector_merger") and review_reports:
+    if _agent_configured("quality_inspector_merger") and review_reports:
         try:
             merger_system = (
                 "你是质检汇总导演。以下是三位独立质检师的审查报告。\n"
@@ -208,11 +244,11 @@ def _run_llm_quality_inspector(
 # Graph nodes
 # ---------------------------------------------------------------------------
 def quality_inspector_node(state: DirectorState) -> DirectorState:
-    outputs = _legacy._agent_outputs(state)
+    outputs = _agent_outputs(state)
     segment_index = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
     prompt = outputs.get(f"compiled_segment_{segment_index}", "")
-    planner_segment = _legacy._segment_block(outputs.get("story_planner", ""), segment_index)
-    director_segment = _legacy._segment_block(outputs.get("shot_director", ""), segment_index)
+    planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index)
+    director_segment = _segment_block(outputs.get("shot_director", ""), segment_index)
     guard_report = state.get("system_guard_report") or ""
 
     qc_issues: list[str] = []
@@ -271,7 +307,7 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
         )
 
     # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单时间段轴线锁 — 检查编译后 prompt ===
-    compiled_timeline_blocks = _prompt_compiler_impl._timeline_blocks(prompt)
+    compiled_timeline_blocks = _timeline_blocks(prompt)
     for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(compiled_timeline_blocks, start=1):
         if _AXIS_LEFT_RE.search(blk_body) and _AXIS_RIGHT_RE.search(blk_body):
             qc_issues.append(
@@ -343,7 +379,7 @@ def qc_router_node(state: DirectorState) -> DirectorState:
             state,
             {
                 "qc_retry_count": retry_count + 1,
-                "revision_instruction": _legacy._agent_outputs(state).get("quality_inspector", ""),
+                "revision_instruction": _agent_outputs(state).get("quality_inspector", ""),
                 "step": "step_2_compile",
                 "message": "机械质检发现问题，正在自动返修当前片段 Prompt。",
             },
