@@ -4,44 +4,48 @@ Owns prompt compilation guard helpers and the package runtime prompt_compiler no
 """
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .types import DirectorState
 from . import legacy_impl as _legacy
-from .helpers import build_system_prompt, call_llm
+from .helpers import (
+    build_system_prompt,
+    call_llm,
+    _truncate_for_prompt,
+    _runtime_context_contract_card,
+    _shot_composition_task_selection_rules,
+    _dialogue_coverage_contract_rules,
+    _camera_execution_rules,
+    _camera_task_selection_rules,
+    _script_fidelity_rules,
+    _subject_framing_rules,
+    _yaml_line_field,
+    _dialogue_payload_is_long,
+    _MAIN_SHOT_BLOCK_RE,
+    _DIALOGUE_COVERAGE_TERMS_RE,
+)
 from ..mcp_llm import call_llm_with_mcp
 
-re = _legacy.re
 _agent_outputs = _legacy._agent_outputs
 _persist_update = _legacy._persist_update
 _record_knowledge_metadata = _legacy._record_knowledge_metadata
 _segment_block = _legacy._segment_block
 _scene_memory_card = _legacy._scene_memory_card
 _current_segment_event_card = _legacy._current_segment_event_card
-_truncate_for_prompt = _legacy._truncate_for_prompt
 _reference_context = _legacy._reference_context
-_runtime_context_contract_card = _legacy._runtime_context_contract_card
-_shot_composition_task_selection_rules = _legacy._shot_composition_task_selection_rules
-_dialogue_coverage_contract_rules = _legacy._dialogue_coverage_contract_rules
-_camera_execution_rules = _legacy._camera_execution_rules
-_camera_task_selection_rules = _legacy._camera_task_selection_rules
 _reaction_cut_and_action_path_rules = _legacy._reaction_cut_and_action_path_rules
 _timeline_continuity_contract_rules = _legacy._timeline_continuity_contract_rules
-_script_fidelity_rules = _legacy._script_fidelity_rules
-_subject_framing_rules = _legacy._subject_framing_rules
 _prompt_guard_report = _legacy._prompt_guard_report
 _prompt_section = _legacy._prompt_section
 _meaningful_sentence_count = _legacy._meaningful_sentence_count
 _validate_spatial_geometry_contract = _legacy._validate_spatial_geometry_contract
-_yaml_line_field = _legacy._yaml_line_field
 _cleanup_timeline_constraints = _legacy._cleanup_timeline_constraints
 _normalise_prompt_character_aliases = _legacy._normalise_prompt_character_aliases
 _quoted_dialogues = _legacy._quoted_dialogues
-_dialogue_payload_is_long = _legacy._dialogue_payload_is_long
 _has_internal_dialogue_visual_coverage = _legacy._has_internal_dialogue_visual_coverage
 _INTERNAL_FIELD_LEAK_RE = _legacy._INTERNAL_FIELD_LEAK_RE
 _SPATIAL_GEOMETRY_FIELDS = _legacy._SPATIAL_GEOMETRY_FIELDS
-_MAIN_SHOT_BLOCK_RE = _legacy._MAIN_SHOT_BLOCK_RE
 _AMBIGUOUS_PROMPT_CAMERA_TERMS = _legacy._AMBIGUOUS_PROMPT_CAMERA_TERMS
 _ABSTRACT_PROMPT_TERMS = _legacy._ABSTRACT_PROMPT_TERMS
 _SPATIAL_OVEREXPLAIN_TERMS_RE = _legacy._SPATIAL_OVEREXPLAIN_TERMS_RE
@@ -55,7 +59,6 @@ _EMPLOYEE_FACE_LOCK_RE = _legacy._EMPLOYEE_FACE_LOCK_RE
 _UNSAFE_ACTION_TERMS = _legacy._UNSAFE_ACTION_TERMS
 _REACTION_BEAT_TERMS = _legacy._REACTION_BEAT_TERMS
 _DIALOGUE_VISUAL_CUT_RE = _legacy._DIALOGUE_VISUAL_CUT_RE
-_DIALOGUE_COVERAGE_TERMS_RE = _legacy._DIALOGUE_COVERAGE_TERMS_RE
 _PERFORMANCE_BEAT_RE = _legacy._PERFORMANCE_BEAT_RE
 _TIMELINE_BRIDGE_RE = _legacy._TIMELINE_BRIDGE_RE
 _TIMELINE_END_STATE_RE = _legacy._TIMELINE_END_STATE_RE
