@@ -8,6 +8,10 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import agents.director_graph as dg
+import agents.director_graph_package.nodes as pkg_nodes
+import agents.director_graph_package.prompt_compiler_impl as prompt_compiler_impl
+import agents.director_graph_package.quality_inspector_impl as quality_inspector_impl
+import agents.director_graph_package.runners as pkg_runners
 
 
 def _base_state(agent_outputs: dict[str, str]) -> dict:
@@ -33,14 +37,14 @@ def test_phase_2_resume_uses_persisted_shot_director_without_graph_resume(monkey
     saved_states: list[dict] = []
     calls: list[tuple[str, str]] = []
 
-    monkeypatch.setattr(dg, "load_state", lambda: dict(state))
-    monkeypatch.setattr(dg, "save_state", lambda saved: saved_states.append(dict(saved)))
-    monkeypatch.setattr(dg, "_analyze_tail_frame", lambda tail_frame_b64, idx: f"tail-{idx}-{tail_frame_b64}")
+    monkeypatch.setattr(pkg_runners._impl, "load_state", lambda: dict(state))
+    monkeypatch.setattr(pkg_runners._impl, "save_state", lambda saved: saved_states.append(dict(saved)))
+    monkeypatch.setattr(pkg_runners._impl, "_analyze_tail_frame", lambda tail_frame_b64, idx: f"tail-{idx}-{tail_frame_b64}")
 
     def fail_graph_resume(*_args, **_kwargs):
         raise AssertionError("phase 2 should not resume the graph when shot_director already exists")
 
-    monkeypatch.setattr(dg, "_invoke_graph", fail_graph_resume)
+    monkeypatch.setattr(pkg_runners._impl, "_invoke_graph", fail_graph_resume)
 
     def prompt_node(node_state):
         calls.append(("compile", node_state["tail_frame_analysis"]))
@@ -77,10 +81,10 @@ def test_phase_2_resume_uses_persisted_shot_director_without_graph_resume(monkey
             "agent_outputs": node_state["agent_outputs"],
         }
 
-    monkeypatch.setattr(dg, "prompt_compiler_node", prompt_node)
-    monkeypatch.setattr(dg, "quality_inspector_node", inspect_node)
-    monkeypatch.setattr(dg, "qc_router_node", route_node)
-    monkeypatch.setattr(dg, "segment_complete_node", complete_node)
+    monkeypatch.setattr(prompt_compiler_impl, "prompt_compiler_node", prompt_node)
+    monkeypatch.setattr(quality_inspector_impl, "quality_inspector_node", inspect_node)
+    monkeypatch.setattr(quality_inspector_impl, "qc_router_node", route_node)
+    monkeypatch.setattr(pkg_nodes, "segment_complete_node", complete_node)
 
     result = dg.run_phase_2_compile_segment(9, tail_frame_b64="frame")
 
@@ -100,9 +104,9 @@ def test_phase_2_resume_falls_back_to_graph_without_shot_director(monkeypatch):
     state = _base_state({"story_planner": "planner"})
     invoked: dict[str, str] = {}
 
-    monkeypatch.setattr(dg, "load_state", lambda: dict(state))
+    monkeypatch.setattr(pkg_runners._impl, "load_state", lambda: dict(state))
     monkeypatch.setattr(
-        dg,
+        pkg_runners,
         "_run_phase_2_compile_direct",
         lambda *_args, **_kwargs: (_ for _ in ()).throw(AssertionError("direct path should not run")),
     )
@@ -111,7 +115,7 @@ def test_phase_2_resume_falls_back_to_graph_without_shot_director(monkeypatch):
         invoked["thread_id"] = thread_id
         return {"status": "graph-resumed"}
 
-    monkeypatch.setattr(dg, "_invoke_graph", graph_resume)
+    monkeypatch.setattr(pkg_runners._impl, "_invoke_graph", graph_resume)
 
     result = dg.run_phase_2_compile_segment(1)
 

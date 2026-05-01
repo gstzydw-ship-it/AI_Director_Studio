@@ -21,6 +21,7 @@ _MODULES = tuple(
         "agents.director_graph_package.shot_director_impl",
         "agents.director_graph_package.story_planner_impl",
         "agents.director_graph_package.prompt_compiler_impl",
+        "agents.director_graph_package.quality_inspector_impl",
         "agents.director_graph_package.helpers",
         "agents.director_graph_package.nodes",
         "agents.director_graph_package.runners",

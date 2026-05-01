@@ -5,6 +5,7 @@ from typing import Any
 
 from . import legacy_impl as _impl
 from . import prompt_compiler_impl as _prompt_compiler_impl
+from . import quality_inspector_impl as _quality_inspector_impl
 from . import story_planner_impl as _story_planner_impl
 from . import shot_director_impl as _shot_director_impl
 
@@ -38,11 +39,11 @@ def prompt_compiler_node(state: Any) -> Any:
 
 
 def quality_inspector_node(state: Any) -> Any:
-    return _impl.quality_inspector_node(state)
+    return _quality_inspector_impl.quality_inspector_node(state)
 
 
 def qc_router_node(state: Any) -> Any:
-    return _impl.qc_router_node(state)
+    return _quality_inspector_impl.qc_router_node(state)
 
 
 def segment_complete_node(state: Any) -> Any:
