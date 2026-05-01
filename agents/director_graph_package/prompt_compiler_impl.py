@@ -34,16 +34,9 @@ _segment_block = _legacy._segment_block
 _scene_memory_card = _legacy._scene_memory_card
 _current_segment_event_card = _legacy._current_segment_event_card
 _reference_context = _legacy._reference_context
-_reaction_cut_and_action_path_rules = _legacy._reaction_cut_and_action_path_rules
-_timeline_continuity_contract_rules = _legacy._timeline_continuity_contract_rules
-_prompt_guard_report = _legacy._prompt_guard_report
-_prompt_section = _legacy._prompt_section
-_meaningful_sentence_count = _legacy._meaningful_sentence_count
 _validate_spatial_geometry_contract = _legacy._validate_spatial_geometry_contract
 _cleanup_timeline_constraints = _legacy._cleanup_timeline_constraints
 _normalise_prompt_character_aliases = _legacy._normalise_prompt_character_aliases
-_quoted_dialogues = _legacy._quoted_dialogues
-_has_internal_dialogue_visual_coverage = _legacy._has_internal_dialogue_visual_coverage
 _INTERNAL_FIELD_LEAK_RE = _legacy._INTERNAL_FIELD_LEAK_RE
 _SPATIAL_GEOMETRY_FIELDS = _legacy._SPATIAL_GEOMETRY_FIELDS
 _AMBIGUOUS_PROMPT_CAMERA_TERMS = _legacy._AMBIGUOUS_PROMPT_CAMERA_TERMS
@@ -73,6 +66,156 @@ _AXIS_LEFT_RE = _legacy._AXIS_LEFT_RE
 _AXIS_RIGHT_RE = _legacy._AXIS_RIGHT_RE
 _SILENT_CUT_TRIGGER_RE = _legacy._SILENT_CUT_TRIGGER_RE
 _NEW_SUBJECT_FRAMING_RE = _legacy._NEW_SUBJECT_FRAMING_RE
+
+_INTERNAL_DIALOGUE_CUT_RE = re.compile(r"(镜头切至|镜头切到|切至|切到|切回|反打至|反打镜头|过肩|画外音|OS|L-cut|J-cut)")
+_LISTENER_COVERAGE_RE = re.compile(r"(听者|对手|对方|受击|反应|反打|过肩|视线|下颌|呼吸|停顿|画外音|OS|L-cut|J-cut)")
+
+
+def _reaction_cut_and_action_path_rules() -> str:
+    return (
+        "【反应切镜与动作路径安全硬规则】\n"
+        "1. 时间轴内可以也必须写清镜头切换。凡出现受击、回神、视线相撞、表情一僵、听完反应、松手等反应落点，必须明确写\"镜头切至/切回\"谁；单段内禁止写反打。\n"
+        "2. 反应镜头必须写成：镜头切至乔熙胸部以上中近景，摄影机位于乔熙正前方0度或商北琛右肩后方，眼平高度，画面前景保留商北琛右肩/西装领口虚化，乔熙抬头看向他。\n"
+        "3. 如果同一时间段内有\"商北琛说话 -> 乔熙受击反应 -> 商北琛继续说话 -> 乔熙回神动作\"，必须拆成至少两个同侧镜头句：说话镜头、乔熙听者反应/过肩镜头；不要全塞在同一个双人中景里。\n"
+        "4. 所有关键动作必须写清\"起点 -> 路径 -> 接触/避让对象 -> 终点 -> 结束状态\"。禁止只写结果词，例如冲入、撞上、退开、弹开、转身、靠近、拉开、扶住、松开、走进。\n"
+        "5. 身体位移动作必须写清移动方向和停止位置：从门外中轴向电梯门缝冲入，右肩先穿过门缝，脚步在商北琛胸前半步处刹停失败，身体前倾撞到他胸前，最后停在电梯内近门侧。\n"
+        "6. 接触动作必须写清接触部位和力度状态：商北琛右手从身侧抬到乔熙右腰侧，手掌平贴腰侧布料扶住，不上滑、不环抱，乔熙重心停止前扑。\n"
+        "7. 离开接触点的动作必须写清离开路径和结束位置：手指松开西装前襟 -> 手掌向自己胸前后撤10-15厘米 -> 自然落回身体两侧或移向发梢。\n"
+        "8. 禁止写\"手弹开\"\"从西装前襟弹开\"\"飞开\"\"甩开\"\"弹向空中\"\"猛地弹开\"\"身体弹开\"\"突然闪开\"。这些词会让视频模型生成肢体乱甩或空间跳变。\n"
+        "9. 正确示例：乔熙双手松开商北琛西装前襟，手指张开，双手先向自己胸前收回约一掌距离，再自然下落到身体两侧；手掌不向上甩、不出画、不再碰到商北琛。\n"
+        "10. 所有反应镜头都要交代画面内可见物：谁在前景虚化、谁占画面中心、被抓住的西装前襟是否仍可见、电梯门或门框在画面哪一侧。\n"
+        "11. 明确切镜不等于频繁碎切。13秒以内片段通常控制在4-5个有效镜头；只有上游明确给出关键 sub_shot 时才允许更多。\n"
+        "12. 单个2秒以内时间段禁止同时承载\"局部插入镜头 + 切回人物中近景 + 一整句长台词\"。长台词至少给3秒左右，手部/道具插入镜头应放在台词前后，或并入双人中景完成。\n"
+        "13. 反应切镜要服务信息增量：说话者镜头、同侧听者反应、动作路径复位可以各自成镜；不要为了每个微动作单独切镜。\n"
+    )
+
+
+def _timeline_continuity_contract_rules() -> str:
+    return (
+        "【时间轴段内连续性交接硬规则】\n"
+        "1. 时间轴不是独立小段落拼接。每个时间段都必须包含：承接上一段的入口状态、当前动作推进、结束状态。\n"
+        "2. 除第一个时间段外，每个时间段开头必须明确写\"同一机位继续\"\"延续上一镜\"\"镜头切至/切回\"之一；不能直接重新开一个新主体新机位，单段内禁止反打。\n"
+        "3. 如果同一机位继续，必须继承上一时间段尾部的人物位置、朝向、景别、空间锚点；只能让动作在这个状态上继续推进。\n"
+        "4. 如果镜头切至新机位，必须写清切镜类型和原因：同侧反应、动作承接、插入细节、空间复位、尾帧复位；禁止无理由硬切。\n"
+        "5. 每次切镜必须保留至少一个空间锚点：电梯门框、走廊中轴、大堂两侧员工列、商北琛身体方向、严飞所在侧边位置等。没有锚点的切镜会被模型当成换场。\n"
+        "6. 每个时间段最后一句必须写清结束状态：谁停在什么位置、身体朝向哪里、谁仍在画内/画外、门/道具/手部/距离状态是什么。\n"
+        "7. 下一个时间段的第一句必须继承上一个时间段最后一句的结束状态；如果不继承，必须明确说明这是\"镜头切至同一空间的另一机位\"，并说明保留的空间锚点。\n"
+        "8. 人物相对机位和场景固定机位不能混用。人物要转身、进入电梯、穿过门框时，必须切换为场景固定机位，例如\"摄影机固定在电梯门外大堂中轴，朝向电梯内部\"。\n"
+        "9. 禁止写成\"3-6秒：员工群体中景...\"这种像新 prompt 的开头；应写成\"延续上一镜/镜头切至员工列反应中景，保留商北琛背影在右前景...\"并说明承接关系。\n"
+        "10. 尾段尤其要拆清楚：命令落点、让路、进入电梯、门合拢不能塞进一个固定人物正面镜头；必须用场景固定机位或明确切镜桥接。\n"
+        "11. 空间锚点的前景/后景必须符合摄影机位置与人物朝向。若人物面朝电梯且镜头拍人物正面，摄影机就在电梯方向，电梯门框不能写成后景；只能写成前景边缘、侧边门框，或改用人物背面/侧背机位让电梯门框位于前方。\n"
+    )
+
+
+def _has_negation_near(text: str, start: int, end: int, window: int = 30) -> bool:
+    """Return whether a matched phrase is locally negated in the same sentence."""
+    boundaries = "。！？；;\n\r"
+    left_boundary = max([text.rfind(mark, 0, start) for mark in boundaries] or [-1]) + 1
+    right_candidates = [idx for mark in boundaries if (idx := text.find(mark, end)) != -1]
+    right_boundary = min(right_candidates) if right_candidates else len(text)
+    left = max(left_boundary, start - window)
+    right = min(right_boundary, end + window)
+    local = text[left:right]
+    return bool(re.search(r"禁止|严禁|不得|不能|不许|不要|避免|不可|无|没有|不再|不在|不出现|已退出", local))
+
+
+def _prompt_guard_report(prompt: str, script: str, planner_segment: str = "", director_segment: str = "") -> str:
+    issues: list[str] = []
+    scene_terms = [
+        "大堂",
+        "电梯厅",
+        "电梯",
+        "入口",
+        "前台",
+        "走廊",
+        "办公室",
+        "公寓",
+        "卧室",
+        "玄关",
+        "集团门口",
+        "通道",
+        "空间",
+        "场景",
+    ]
+    shot_terms = "半身中景|中景|近景|特写|中近景|远景|全景|局部特写"
+    for term in scene_terms:
+        pattern = rf"{re.escape(term)}(?:[\u4e00-\u9fff]{{0,8}})?(?:{shot_terms})"
+        if re.search(pattern, prompt):
+            issues.append(f'非人物主体误带景别：发现类似"{term}+景别"的写法。')
+            break
+
+    quote_pattern = r"[\"\u201c\u201d]([^\"\u201c\u201d]{2,120})[\"\u201c\u201d]"
+    dialogue_markers = (
+        "说|道|喊|问|答|念|心声|画外|旁白|低声|开口|台词|对白|声音|确认|回应|"
+        "说出|喊出|嘀咕|耳语|补充|打出"
+    )
+    for match in re.finditer(quote_pattern, prompt):
+        text = match.group(1)
+        normalized = text.strip()
+        if not normalized:
+            continue
+        if normalized in script:
+            continue
+        context_start = max(0, match.start() - 18)
+        context_end = min(len(prompt), match.end() + 18)
+        context = prompt[context_start:context_end]
+        if not re.search(dialogue_markers, context):
+            continue
+        if normalized.startswith("@") or normalized.lower() in {"pass", "warn", "fail"}:
+            continue
+        if re.search(r"[\u4e00-\u9fffA-Za-z]", normalized):
+            issues.append(f"疑似新增剧本外引号内容：{normalized}")
+            break
+
+    fabrication_patterns = [
+        (r"员工[们]?(?:低声|小声|窃窃私语|议论|确认|低语|嘀咕)", "员工低语/议论"),
+        (r"(?:有人|旁人|路人|围观者)(?:低声|小声|窃窃私语|议论|确认)", "旁人低语/议论"),
+        (r"(?:众人|大家|所有人)(?:整齐|齐声|同声|异口同声)(?:回应|回答|应答)", "群体整齐回应"),
+    ]
+    for pattern, label in fabrication_patterns:
+        for match in re.finditer(pattern, prompt):
+            if _has_negation_near(prompt, match.start(), match.end()):
+                continue
+            if re.search(pattern, script or "") or re.search(pattern, (planner_segment or "") + (director_segment or "")):
+                continue
+            issues.append(f'疑似编造剧本外行为：发现[{label}]但原剧本与上游资产中均无此情节。')
+            break
+        if issues and "疑似编造剧本外行为" in issues[-1]:
+            break
+
+    return "\n".join(f"- {issue}" for issue in issues)
+
+
+def _prompt_section(prompt: str, title: str) -> str:
+    match = re.search(rf"【{re.escape(title)}】([\s\S]*?)(?=\n【|$)", prompt or "")
+    return match.group(1).strip() if match else ""
+
+
+def _meaningful_sentence_count(text: str) -> int:
+    pieces = re.split(r"[。！？\n]+", text or "")
+    return len([piece for piece in pieces if piece.strip()])
+
+
+def _quoted_dialogues(text: str) -> list[str]:
+    return [item.strip() for item in re.findall(r"[\"\u201c\u201d]([^\"\u201c\u201d]+)[\"\u201c\u201d]", text or "") if item.strip()]
+
+
+def _has_internal_dialogue_visual_coverage(body: str) -> bool:
+    quote_matches = list(re.finditer(r"[\"\u201c\u201d]([^\"\u201c\u201d]+)[\"\u201c\u201d]", body or ""))
+    dialogues = [match.group(1).strip() for match in quote_matches if match.group(1).strip()]
+    if not _dialogue_payload_is_long(dialogues):
+        return True
+
+    first_quote_end = quote_matches[0].end() if quote_matches else 0
+    after_first_line_starts = (body or "")[first_quote_end:]
+    if _INTERNAL_DIALOGUE_CUT_RE.search(after_first_line_starts) and _LISTENER_COVERAGE_RE.search(after_first_line_starts):
+        return True
+
+    before_first_line = (body or "")[: quote_matches[0].start()] if quote_matches else body or ""
+    if re.search(r"(听者|对手|对方|受击|反应|过肩|反打)", before_first_line) and re.search(r"(画外音|OS|L-cut|J-cut)", before_first_line):
+        return True
+
+    return False
 
 _SOURCE_DIALOGUE_LINE_RE = re.compile(
     r"(?m)^\s*[\u4e00-\u9fffA-Za-z0-9_\u00b7\uff08\uff09()]+"
