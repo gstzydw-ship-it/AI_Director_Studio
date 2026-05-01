@@ -49,12 +49,107 @@ _SHOT_CONSTRUCTION_REQUIRED_FIELDS: tuple[str, ...] = (
     "cut_point",
     "continuity",
 )
+_SHOT_COVERAGE_CONTRACT_FIELDS: tuple[str, ...] = (
+    "coverage_role",
+    "cut_reason",
+    "companion_visibility",
+    "state_delta",
+    "tailframe_role",
+)
+_SHOT_DIRECTOR_WORKFLOW_STAGES: tuple[str, ...] = (
+    "fact_extraction",
+    "dramatic_task_mapping",
+    "layout_blueprint",
+    "blocking_and_subshots",
+    "cut_timing",
+    "guard_minimal_repair",
+    "final_yaml_handoff",
+)
 _SHOT_DURATION_RE = re.compile(r"^\s*[\"']?(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*秒[\"']?\s*$")
 _SHOT_CUT_TRIGGER_RE = re.compile(
     r"(动作顶点|台词(?:断点|落下|结束)?|反应(?:出现|落点)?|信息(?:看清|揭示)|看清|停住|完成|命中|落桌|撞上|尾帧|切出|切至|切到|→)"
 )
   
   
+def _shot_director_workflow_contract() -> str:
+    return (
+        "【shot_director 显式工作流】\n"
+        "在输出最终 YAML 前，必须按顺序完成以下内部步骤，不能直接套模板生成镜头：\n"
+        "1. fact_extraction：只提取当前 fragment 的人物、地点、动作、道具、对白和可见事实；禁止补剧情。\n"
+        "2. dramatic_task_mapping：判断片段任务与节奏功能，例如建立关系、冲突升级、悬念揭示、情绪极点、钩子结尾。\n"
+        "3. layout_blueprint：先决定主镜头数量、每镜拍谁、承担什么覆盖职责和必须承载的信息。\n"
+        "4. blocking_and_subshots：再补动作路径、听者反应、子分镜重音；子分镜必须服务父镜头，不能漂浮。\n"
+        "5. cut_timing：每个 cut_point 必须绑定动作顶点前、台词断点、信息看清、反应出现或尾帧完成。\n"
+        "6. guard_minimal_repair：只做最小修复，检查剧本外内容、漏事件、道具跳变、越轴、特写过密、切点无信息变化。\n"
+        "7. final_yaml_handoff：最后输出可交给 prompt_compiler 的 YAML 镜头施工单。\n"
+        "每个 shot 除基础字段外，尽量补齐 coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role，"
+        "让下游无需猜测镜头职责、切镜原因、同场人物位置和尾帧状态。\n"
+    )
+
+
+def _shot_director_coverage_contract_prompt() -> str:
+    return (
+        "【每个 shot 需要补齐的镜头职责字段】\n"
+        "- coverage_role：这镜负责什么覆盖任务，例如建立关系、承载对白、听者反应、道具信息、尾帧承接。\n"
+        "- cut_reason：为什么必须在这里切，必须绑定动作顶点前、台词断点、信息看清、反应出现或尾帧完成。\n"
+        "- companion_visibility：同场人物是否在画面里、在前景/背景/画外/过肩位置，避免人物位置突然消失。\n"
+        "- state_delta：这一镜比上一镜多交代了什么信息、情绪或空间状态。\n"
+        "- tailframe_role：这一镜尾帧怎样交给下一镜或下一片段。\n"
+        "这些字段是给 prompt_compiler 的施工依据，不能写成空泛形容词。\n"
+    )
+
+
+def _build_shot_director_workflow_trace(
+    *,
+    planner_output: str,
+    expected_segments: list[str],
+    atmosphere_strategy: str,
+    director_brief: str,
+    aspect_ratio: str,
+) -> dict[str, Any]:
+    """Create a compact runtime trace for the explicit shot-director workflow."""
+    sections = _extract_yaml_sections(planner_output)
+    fragments: list[dict[str, Any]] = []
+    for index, section in enumerate(sections, start=1):
+        fragment_id = _extract_fragment_id(section) or f"F{index:02d}"
+        source_events = _source_script_events(section)
+        fragments.append(
+            {
+                "fragment_id": fragment_id,
+                "source_event_count": len(source_events),
+                "source_event_preview": [_truncate_for_prompt(event, 180) for event in source_events[:3]],
+                "reaction_plan": _truncate_for_prompt(_field_value(section, "reaction_plan"), 240),
+                "director_brief": _truncate_for_prompt(_field_value(section, "director_brief"), 240),
+            }
+        )
+
+    if not fragments:
+        fragments = [
+            {
+                "fragment_id": fragment_id,
+                "source_event_count": 0,
+                "source_event_preview": [],
+                "reaction_plan": "",
+                "director_brief": "",
+            }
+            for fragment_id in expected_segments
+        ]
+
+    rhythm_shot_notes = _extract_rhythm_shot_director_notes(atmosphere_strategy)
+    return {
+        "mode": "explicit_internal_pipeline",
+        "stages": list(_SHOT_DIRECTOR_WORKFLOW_STAGES),
+        "required_shot_fields": list(_SHOT_CONSTRUCTION_REQUIRED_FIELDS),
+        "coverage_contract_fields": list(_SHOT_COVERAGE_CONTRACT_FIELDS),
+        "aspect_ratio": aspect_ratio,
+        "rhythm_guidance_present": bool((atmosphere_strategy or "").strip()),
+        "rhythm_shot_director_notes_present": bool(rhythm_shot_notes),
+        "rhythm_shot_director_notes_preview": _truncate_for_prompt(rhythm_shot_notes, 360),
+        "director_brief_present": bool((director_brief or "").strip()),
+        "fragments": fragments,
+    }
+
+
 def _knowledge_metadata(state: DirectorState) -> dict[str, Any]:  
     return dict(state.get("knowledge_metadata") or {})  
   
@@ -1080,6 +1175,46 @@ def _sections_by_fragment(yaml_text: str) -> dict[str, str]:
             sections[fragment_id] = section.strip()
     return sections
 
+def _extract_rhythm_shot_director_notes(atmosphere_strategy: str) -> str:
+    """Extract rhythm supervisor notes that are explicitly addressed to shot_director."""
+    text = (atmosphere_strategy or "").strip()
+    if not text:
+        return ""
+
+    label_pattern = re.compile(r"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?shot_director_notes\s*[：:]\s*(.*)$")
+    match = label_pattern.search(text)
+    if not match:
+        return ""
+
+    stop_pattern = re.compile(
+        r"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?"
+        r"(?:rhythm_diagnosis|construction_notes|shot_director_notes|atmosphere_strategy|rewritten_script|改写后剧本)"
+        r"\s*[：:]"
+    )
+    lines: list[str] = []
+    first_line = match.group(1).strip()
+    if first_line:
+        lines.append(first_line)
+
+    for line in text[match.end() :].splitlines():
+        if stop_pattern.match(line):
+            break
+        lines.append(line.rstrip())
+
+    return "\n".join(lines).strip()
+
+def _rhythm_shot_director_notes_prompt(atmosphere_strategy: str) -> str:
+    notes = _extract_rhythm_shot_director_notes(atmosphere_strategy)
+    if not notes:
+        return ""
+    return (
+        "[Rhythm Supervisor Shot Notes]\n"
+        "These are upstream shot-construction instructions for reaction ownership, pauses, "
+        "cut landing points, and tailframe handoff. Obey them unless they conflict with "
+        "source_script_events, original dialogue, prop continuity, or spatial axis safety.\n"
+        f"{_truncate_for_prompt(notes, 1200)}\n"
+    )
+
 def _shot_director_downstream_context(
     planner_output: str,
     atmosphere_strategy: str,
@@ -1094,6 +1229,9 @@ def _shot_director_downstream_context(
         "",
         _shot_director_layout_context(planner_output, aspect_ratio),
     ]
+    rhythm_shot_notes_prompt = _rhythm_shot_director_notes_prompt(atmosphere_strategy)
+    if rhythm_shot_notes_prompt:
+        lines.extend(["", rhythm_shot_notes_prompt.strip()])
     if atmosphere_strategy:
         lines.extend(
             [
@@ -1233,6 +1371,15 @@ def _run_shot_director_single_pass_impl(
     if director_brief_block:
         downstream_context = director_brief_block + "\n" + downstream_context
     rule_block = _shot_director_rule_block(aspect_ratio)
+    workflow_contract = _shot_director_workflow_contract()
+    workflow_trace = _build_shot_director_workflow_trace(
+        planner_output=planner_output,
+        expected_segments=expected_segments,
+        atmosphere_strategy=atmosphere_strategy,
+        director_brief=director_brief,
+        aspect_ratio=aspect_ratio,
+    )
+    rhythm_shot_notes_prompt = _rhythm_shot_director_notes_prompt(atmosphere_strategy)
     resume_stage_outputs = resume_stage_outputs or {}
     resume_stage_runtime = resume_stage_runtime or {}
     stage_meta: dict[str, dict[str, Any]] = dict(resume_stage_meta or {})
@@ -1293,6 +1440,7 @@ def _run_shot_director_single_pass_impl(
             system_prompt = system_prompt + "\n\n" + director_brief_block
         user_prompt = (
             "基于以下素材，为每个片段设计镜头序列，输出 YAML 格式。\n\n"
+            f"{workflow_contract}\n"
             f"{downstream_context}\n\n"
             "【输出 YAML 结构】\n"
             "- fragment_id: (F01, F02, ...)\n"
@@ -1318,6 +1466,7 @@ def _run_shot_director_single_pass_impl(
             "4. 保持 fragment_id 和 shot_id 稳定，遵循 F01/F02... 和 F01-S01/F01-S02... 格式。\n"
             "5. dialogue 字段可写 ~，仅用原剧本文字或原剧本 OS。\n"
             "6. 只有剧本已有信息载体才能写 insert；不要新增空镜、道具或环境信息。\n\n"
+            f"{_shot_director_coverage_contract_prompt()}\n"
             f"{rule_block}"
             "请输出完整 YAML 镜头方案。"
         )
@@ -1329,6 +1478,10 @@ def _run_shot_director_single_pass_impl(
                 return (
                     f"[Task]\nDesign shot sequence for {fragment_id} only.\n\n"
                     f"{fragment_context}\n\n"
+                    "[Workflow]\n"
+                    f"{workflow_contract}\n"
+                    f"{_shot_director_coverage_contract_prompt()}\n"
+                    f"{rhythm_shot_notes_prompt}"
                     "[Output YAML fields]\n"
                     "- fragment_task\n"
                     "- rhythm\n"
@@ -1343,6 +1496,11 @@ def _run_shot_director_single_pass_impl(
                     "- must_carry\n"
                     "- cut_point\n"
                     "- continuity\n"
+                    "- coverage_role\n"
+                    "- cut_reason\n"
+                    "- companion_visibility\n"
+                    "- state_delta\n"
+                    "- tailframe_role\n"
                     "- type (optional: reaction/insert/cutaway)\n"
                     "- audio (optional: OS/J-cut/L-cut)\n\n"
                     "[Rules]\n"
@@ -1409,6 +1567,10 @@ def _run_shot_director_single_pass_impl(
             final_output = repaired_final
             final_issues = repaired_issues
     final_runtime["validation_issues"] = final_issues
+    final_runtime["workflow_trace"] = workflow_trace
+    final_stage_meta = stage_meta.setdefault("final", {})
+    final_stage_meta["workflow_stages"] = list(_SHOT_DIRECTOR_WORKFLOW_STAGES)
+    final_stage_meta["coverage_contract_fields"] = list(_SHOT_COVERAGE_CONTRACT_FIELDS)
     stage_outputs["final"] = final_output
     if stage_callback:
         stage_callback("final", final_output, final_runtime, dict(stage_meta))
@@ -1417,6 +1579,7 @@ def _run_shot_director_single_pass_impl(
     runtime = {
         "final": final_runtime,
         "final_source": "final",
+        "workflow_trace": workflow_trace,
     }
     return final_output, runtime, stage_meta, stage_outputs
 

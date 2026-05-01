@@ -88,3 +88,73 @@ def _persist_update(state: DirectorState, update: DirectorState) -> DirectorStat
     merged.update(update)
     save_state(dict(merged))
     return update
+
+
+def _prepare_phase_2_compile_state(
+    state: DirectorState,
+    segment_index: int,
+    tail_frame_b64: str | None = None,
+    video_path: str | None = None,
+) -> DirectorState:
+    from .segment_flow_impl import (
+        _analyze_tail_frame,
+        _analyze_video_segment,
+        _extract_tail_frame_from_video,
+    )
+
+    total_segments = int(state.get("total_segments") or 1)
+    requested_segment = max(1, min(segment_index, total_segments))
+
+    if video_path and os.path.exists(video_path):
+        try:
+            tail_frame_analysis = _analyze_video_segment(video_path, requested_segment)
+        except Exception as exc:
+            fallback_tail_b64 = tail_frame_b64
+            tail_frame_note = ""
+            if not fallback_tail_b64:
+                fallback_tail_b64, tail_frame_path, tail_frame_error = _extract_tail_frame_from_video(
+                    video_path,
+                    requested_segment,
+                )
+                if tail_frame_path:
+                    tail_frame_note = f"Auto-extracted tail frame: {tail_frame_path}\n"
+                elif tail_frame_error:
+                    tail_frame_note = f"Tail-frame extraction also failed: {tail_frame_error}\n"
+            fallback = _analyze_tail_frame(fallback_tail_b64, requested_segment)
+            tail_frame_analysis = (
+                f"Full video continuity analysis failed, so the pipeline fell back to tail-frame analysis. "
+                f"Failure reason: {exc}\n\n"
+                f"{tail_frame_note}"
+                f"{fallback}"
+            )
+    else:
+        tail_frame_analysis = _analyze_tail_frame(tail_frame_b64, requested_segment)
+
+    return _persist_update(
+        state,
+        {
+            "status": "running_phase_2",
+            "step": "step_4_compile",
+            "message": f"Seedance compiler is generating segment {requested_segment} prompt...",
+            "active_segment_index": requested_segment,
+            "tail_frame_analysis": tail_frame_analysis,
+            "qc_retry_count": 0,
+            "revision_instruction": "",
+            "error": "",
+        },
+    )
+
+
+def _normalise_graph_result(result: dict[str, Any], thread_id: str) -> dict[str, Any]:
+    from .segment_flow_impl import _combined_prompt as _seg_combined_prompt
+
+    state = dict(result)
+    interrupted = bool(state.pop("__interrupt__", None))
+    state["thread_id"] = thread_id
+    if interrupted:
+        state["status"] = "waiting_for_user_input"
+        state.setdefault("message", "等待用户确认后继续...")
+    state.setdefault("agent_outputs", {})
+    state.setdefault("result", _seg_combined_prompt(state.get("agent_outputs", {})))
+    save_state(state)
+    return state

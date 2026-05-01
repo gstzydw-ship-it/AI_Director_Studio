@@ -4,7 +4,15 @@ from __future__ import annotations
 from typing import Any
 
 from . import legacy_impl as _impl
-from .state_store import _agent_outputs, _config as _state_store_config, _merge_state_update, load_state, save_state
+from .state_store import (
+    _agent_outputs,
+    _config as _state_store_config,
+    _merge_state_update as _state_store_merge_state_update,
+    _normalise_graph_result as _state_store_normalise_graph_result,
+    _prepare_phase_2_compile_state as _state_store_prepare_phase_2_compile_state,
+    load_state,
+    save_state,
+)
 
 
 def _sync_package_graph_api() -> None:
@@ -13,6 +21,11 @@ def _sync_package_graph_api() -> None:
 
     _impl.create_director_graph = create_director_graph
     _impl.shot_director_node = shot_director_node
+
+
+def _call_legacy_entrypoint(name: str, *args: Any, **kwargs: Any) -> Any:
+    _sync_package_graph_api()
+    return getattr(_impl, name)(*args, **kwargs)
 
 
 def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
@@ -72,20 +85,19 @@ def _config(*args: Any, **kwargs: Any) -> Any:
 
 
 def _invoke_graph(*args: Any, **kwargs: Any) -> Any:
-    _sync_package_graph_api()
-    return _impl._invoke_graph(*args, **kwargs)
+    return _call_legacy_entrypoint("_invoke_graph", *args, **kwargs)
 
 
 def _normalise_graph_result(*args: Any, **kwargs: Any) -> Any:
-    return _impl._normalise_graph_result(*args, **kwargs)
+    return _state_store_normalise_graph_result(*args, **kwargs)
 
 
 def _merge_state_update(*args: Any, **kwargs: Any) -> Any:
-    return _merge_state_update(*args, **kwargs)
+    return _state_store_merge_state_update(*args, **kwargs)
 
 
 def _prepare_phase_2_compile_state(*args: Any, **kwargs: Any) -> Any:
-    return _impl._prepare_phase_2_compile_state(*args, **kwargs)
+    return _state_store_prepare_phase_2_compile_state(*args, **kwargs)
 
 
 def _run_phase_2_compile_direct(
@@ -98,7 +110,7 @@ def _run_phase_2_compile_direct(
     from .prompt_compiler_impl import prompt_compiler_node
     from .quality_inspector_impl import quality_inspector_node, qc_router_node
 
-    prepared_update = _impl._prepare_phase_2_compile_state(state, segment_index, tail_frame_b64, video_path)
+    prepared_update = _prepare_phase_2_compile_state(state, segment_index, tail_frame_b64, video_path)
     working_state = _merge_state_update(state, prepared_update)
 
     while True:
@@ -118,8 +130,7 @@ def _run_phase_2_compile_direct(
 
 
 def run_phase_1_planning(*args: Any, **kwargs: Any) -> Any:
-    _sync_package_graph_api()
-    return _impl.run_phase_1_planning(*args, **kwargs)
+    return _call_legacy_entrypoint("run_phase_1_planning", *args, **kwargs)
 
 
 def run_phase_2_compile_segment(
@@ -127,8 +138,6 @@ def run_phase_2_compile_segment(
     tail_frame_b64: str | None = None,
     video_path: str | None = None,
 ) -> Any:
-    _sync_package_graph_api()
-
     state = load_state()
     if not state:
         raise RuntimeError("没有已保存的流水线状态，无法生成片段。")
@@ -145,21 +154,18 @@ def run_phase_2_compile_segment(
     thread_id = state.get("thread_id")
     if not thread_id:
         raise RuntimeError("缺少 thread_id，无法恢复图执行。")
-    return _impl._invoke_graph(state, thread_id)
+    return _invoke_graph(state, thread_id)
 
 
 def run_full_pipeline(*args: Any, **kwargs: Any) -> Any:
-    _sync_package_graph_api()
-    return _impl.run_full_pipeline(*args, **kwargs)
+    return _call_legacy_entrypoint("run_full_pipeline", *args, **kwargs)
 
 
 def run_shot_director_resume_from_partial(*args: Any, **kwargs: Any) -> Any:
-    _sync_package_graph_api()
     return _rerun_shot_director(clear_knowledge_metadata=False)
 
 
 def run_shot_director_restart_from_story_plan(*args: Any, **kwargs: Any) -> Any:
-    _sync_package_graph_api()
     return _rerun_shot_director(clear_knowledge_metadata=True)
 
 
