@@ -4,6 +4,7 @@ from __future__ import annotations
 from typing import Any
 
 from . import legacy_impl as _impl
+from . import prompt_compiler_impl as _prompt_compiler_impl
 from . import story_planner_impl as _story_planner_impl
 from . import shot_director_impl as _shot_director_impl
 
@@ -33,7 +34,7 @@ def wait_for_segment_request_node(state: Any) -> Any:
 
 
 def prompt_compiler_node(state: Any) -> Any:
-    return _impl.prompt_compiler_node(state)
+    return _prompt_compiler_impl.prompt_compiler_node(state)
 
 
 def quality_inspector_node(state: Any) -> Any:

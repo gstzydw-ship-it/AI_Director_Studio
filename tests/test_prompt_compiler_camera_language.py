@@ -31,7 +31,7 @@ def test_camera_task_selection_rules_map_tasks_to_angles():
     assert "背后180度" in rules
     assert "单一主机位持续承担整段" in rules
     assert "同段切换只能发生在选定一侧内部" in rules
-    assert "cut_reason" in rules
+    assert "cut_point" in rules
 
 
 def test_shot_composition_rules_map_tasks_to_shot_sizes():

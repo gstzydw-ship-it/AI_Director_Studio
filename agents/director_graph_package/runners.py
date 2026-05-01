@@ -15,7 +15,7 @@ def _sync_package_graph_api() -> None:
 
 @contextmanager
 def _bind_package_shot_director_node():
-    from .nodes import shot_director_node
+    from .shot_director_impl import shot_director_node
 
     previous = _impl.shot_director_node
     _impl.shot_director_node = shot_director_node

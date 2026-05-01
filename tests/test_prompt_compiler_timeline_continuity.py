@@ -7,14 +7,18 @@ ROOT = str(Path(__file__).resolve().parents[1])
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from agents.director_graph import _compiler_guard_report, _timeline_continuity_contract_rules
+from agents.director_graph_package.prompt_compiler_impl import (
+    _compiler_guard_report,
+    _timeline_continuity_contract_rules,
+)
 
 
 def test_timeline_continuity_rules_require_bridged_time_blocks():
     rules = _timeline_continuity_contract_rules()
 
     assert "同一机位继续" in rules
-    assert "镜头切至/切回/反打至" in rules
+    assert "镜头切至/切回" in rules
+    assert "单段内禁止反打" in rules
     assert "每个时间段最后一句必须写清结束状态" in rules
     assert "人物相对机位和场景固定机位不能混用" in rules
 

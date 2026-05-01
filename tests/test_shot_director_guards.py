@@ -4,7 +4,9 @@ import sys
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from agents.director_graph import (  # noqa: E402
+from agents.knowledge_base import get_agent_knowledge_files  # noqa: E402
+from agents.director_graph_package import legacy_impl, runners  # noqa: E402
+from agents.director_graph_package.shot_director_impl import (  # noqa: E402
     _clean_shot_director_output,
     _hard_shot_director_issues,
     _shot_director_rhythm_match_rules,
@@ -14,8 +16,7 @@ from agents.director_graph import (  # noqa: E402
     _validate_shot_director_script_fidelity,
     _validate_shot_director_vertical_discipline,
 )
-from agents.knowledge_base import get_agent_knowledge_files  # noqa: E402
-from agents.director_graph_package import legacy_impl, nodes, runners  # noqa: E402
+from agents.director_graph_package import shot_director_impl  # noqa: E402
 
 
 def test_clean_shot_director_output_strips_thinking_and_markdown():
@@ -340,13 +341,49 @@ def test_shot_director_rejects_vague_cut_point_in_construction_sheet():
     assert any("cut_point 过于空泛" in issue for issue in issues)
 
 
-def test_shot_director_direct_rerun_binds_package_node():
-    previous = legacy_impl.shot_director_node
+def test_shot_director_restart_rerun_uses_package_shot_director_node():
+    state = {
+        "agent_outputs": {"story_planner": "planner-output"},
+        "knowledge_metadata": {"shot_director": {"old": True}},
+    }
+    saved_states = []
+    calls: list[str] = []
 
-    with runners._bind_package_shot_director_node():
-        assert legacy_impl.shot_director_node is nodes.shot_director_node
+    previous_load_state = legacy_impl.load_state
+    previous_save_state = legacy_impl.save_state
+    previous_legacy_shot_director_node = legacy_impl.shot_director_node
+    previous_package_shot_director_node = shot_director_impl.shot_director_node
 
-    assert legacy_impl.shot_director_node is previous
+    def fake_load_state():
+        return state
+
+    def fake_save_state(updated_state):
+        saved_states.append(dict(updated_state))
+
+    def fake_legacy_shot_director_node(_state):
+        calls.append("legacy")
+        raise AssertionError("rerun unexpectedly used legacy shot_director_node")
+
+    def fake_package_shot_director_node(updated_state):
+        calls.append("package")
+        return {**updated_state, "result": "ok"}
+
+    legacy_impl.load_state = fake_load_state
+    legacy_impl.save_state = fake_save_state
+    legacy_impl.shot_director_node = fake_legacy_shot_director_node
+    shot_director_impl.shot_director_node = fake_package_shot_director_node
+    try:
+        result = runners.run_shot_director_restart_from_story_plan()
+    finally:
+        legacy_impl.load_state = previous_load_state
+        legacy_impl.save_state = previous_save_state
+        legacy_impl.shot_director_node = previous_legacy_shot_director_node
+        shot_director_impl.shot_director_node = previous_package_shot_director_node
+
+    assert calls == ["package"]
+    assert saved_states and saved_states[-1]["step"] == "step_3_direct"
+    assert "shot_director" not in state["knowledge_metadata"]
+    assert result["result"] == "ok"
 
 
 def test_shot_director_closeup_density_is_soft_issue():

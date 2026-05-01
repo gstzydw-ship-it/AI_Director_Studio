@@ -8,6 +8,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import agents.director_graph as dg
+import agents.director_graph_package.prompt_compiler_impl as prompt_compiler_impl
 
 
 def _patch_fast_prompt_builder(monkeypatch):
@@ -18,7 +19,7 @@ def _patch_fast_prompt_builder(monkeypatch):
             "context_hint": context_hint,
         }
 
-    monkeypatch.setattr(dg, "build_system_prompt", fake_build_system_prompt)
+    monkeypatch.setattr(prompt_compiler_impl, "build_system_prompt", fake_build_system_prompt)
 
 
 def test_scene_memory_card_keeps_spatial_facts_and_drops_appearance_noise():
@@ -66,8 +67,8 @@ def test_prompt_compiler_uses_current_fragment_compressed_context(monkeypatch):
         merged.update(update)
         return merged
 
-    monkeypatch.setattr(dg, "call_llm_with_mcp", fake_call_llm_with_mcp)
-    monkeypatch.setattr(dg, "_persist_update", fake_persist_update)
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fake_call_llm_with_mcp)
+    monkeypatch.setattr(prompt_compiler_impl, "_persist_update", fake_persist_update)
     _patch_fast_prompt_builder(monkeypatch)
 
     state = {
