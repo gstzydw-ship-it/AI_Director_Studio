@@ -307,6 +307,11 @@ AGENT_KNOWLEDGE_MAP = {
     "prompt_compiler": [
         "06_连续性与安全规则.md",
         "07_Seedance输出词典与模型适配.md",
+        "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",
+        "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",
+        "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",
+        "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",
+        "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",
     ],
     "quality_inspector": [
         "03_镜头切换与推进规则.md",
@@ -320,6 +325,11 @@ AGENT_KNOWLEDGE_MAP = {
         "20_镜头库与机位库.md",
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
+        "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",
+        "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",
+        "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",
+        "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",
+        "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",
     ],
 }
 
@@ -370,6 +380,11 @@ CRITICAL_KNOWLEDGE_MAP = {
         "07_Seedance输出词典与模型适配.md",  # 输出模板，必须全文
         "rules/prompt_compiler/PROMPT-HARD-CONSTRAINT-DEDUP-001.md",  # 约束集中，禁止污染时间轴
         "rules/prompt_compiler/PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md",  # 导演口语转可见画面语言
+        "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",  # 时间切片继承上游，不得重切
+        "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",  # 主体变化时准确选衔接词
+        "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",  # 禁止滥用同一机位继续
+        "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",  # 抽象情绪转身体语言
+        "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",  # 小动作优先与动作拆链
         "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 复杂运镜降级
     ],
     "quality_inspector": [
@@ -378,6 +393,11 @@ CRITICAL_KNOWLEDGE_MAP = {
         "06_连续性与安全规则.md",          # 连续性与禁忌校验
         "24_戏剧微粒识别与节奏触发规则.md",  # 戏剧微粒与 Hook 回查
         "rules/quality_inspector/QC-PACING-SAFETY-CHECKLIST-001.md",  # 节奏质检清单
+        "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",  # 校验时间继承
+        "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",  # 校验衔接词准确性
+        "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",  # 校验同一机位滥用
+        "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",  # 校验抽象情绪降级
+        "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",  # 校验动作拆链与单任务运镜
     ],
 }
 

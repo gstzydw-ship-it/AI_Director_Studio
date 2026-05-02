@@ -1374,35 +1374,56 @@ def _call_stage_split_by_fragment(
     aspect_ratio: str,
     contract_output: str,
     prompt_builder: Callable[[str, str, str], str],
+    progress_callback: Callable[[str, str, dict[str, Any]], None] | None = None,
+    resume_fragment_outputs: dict[str, str] | None = None,
+    resume_fragment_runtime: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     planner_sections = _sections_by_fragment(planner_output)
     contract_sections = _sections_by_fragment(contract_output)
+    resume_fragment_outputs = resume_fragment_outputs or {}
+    resume_fragment_runtime = resume_fragment_runtime or {}
     started_at = time.time()
     outputs: list[str] = []
     fragment_runtimes: list[dict[str, Any]] = []
     for segment_name in expected_segments:
         fragment_id = _segment_name_to_fragment_id(segment_name)
+        fragment_stage_name = f"fragment_{fragment_id}"
         fragment_context = _fragment_compact_context(planner_sections, fragment_id, aspect_ratio)
         fragment_contract = contract_sections.get(fragment_id, "")
         if not fragment_contract:
             # Fall back to the full contract instead of silently dropping a fragment.
             fragment_contract = contract_output
         fragment_started_at = time.time()
-        fragment_output = call_llm(
-            system_prompt=system_prompt,
-            user_prompt=prompt_builder(fragment_id, fragment_context, fragment_contract),
-            agent_name=stage_key,
-            images_base64=None,
+        resumed_output = (
+            resume_fragment_outputs.get(fragment_stage_name)
+            or resume_fragment_outputs.get(fragment_id)
+            or ""
         )
-        cleaned = _clean_shot_director_output(fragment_output)
-        outputs.append(cleaned)
-        fragment_runtimes.append(
-            {
+        if resumed_output.strip():
+            cleaned = _clean_shot_director_output(resumed_output)
+            fragment_runtime = dict(resume_fragment_runtime.get(fragment_stage_name) or {})
+            fragment_runtime.setdefault("fragment_id", fragment_id)
+            fragment_runtime.setdefault("elapsed_seconds", 0)
+            fragment_runtime.setdefault("output_chars", len(cleaned))
+            fragment_runtime.setdefault("status", "reused")
+        else:
+            fragment_output = call_llm(
+                system_prompt=system_prompt,
+                user_prompt=prompt_builder(fragment_id, fragment_context, fragment_contract),
+                agent_name=stage_key,
+                images_base64=None,
+            )
+            cleaned = _clean_shot_director_output(fragment_output)
+            fragment_runtime = {
                 "fragment_id": fragment_id,
                 "elapsed_seconds": round(time.time() - fragment_started_at, 3),
                 "output_chars": len(cleaned),
+                "status": "success" if cleaned else "empty",
             }
-        )
+        outputs.append(cleaned)
+        fragment_runtimes.append(fragment_runtime)
+        if progress_callback:
+            progress_callback(fragment_stage_name, cleaned, fragment_runtime)
     combined_output = "\n\n".join(output.strip() for output in outputs if output.strip())
     return combined_output, {
         "agent_name": stage_key,
@@ -1612,6 +1633,10 @@ def _run_shot_director_single_pass_impl(
                     "Output YAML only."
                 )
 
+            def persist_fragment(fragment_stage_name: str, fragment_output: str, fragment_runtime: dict[str, Any]) -> None:
+                if stage_callback:
+                    stage_callback(fragment_stage_name, fragment_output, fragment_runtime, dict(stage_meta))
+
             final_output, final_runtime = _call_stage_split_by_fragment(
                 stage_key="shot_director",
                 system_prompt=system_prompt,
@@ -1620,6 +1645,9 @@ def _run_shot_director_single_pass_impl(
                 aspect_ratio=aspect_ratio,
                 contract_output="",
                 prompt_builder=build_fragment_prompt,
+                progress_callback=persist_fragment,
+                resume_fragment_outputs=resume_stage_outputs,
+                resume_fragment_runtime=resume_stage_runtime,
             )
         else:
             final_output, final_runtime = _call_shot_director_stage(
@@ -1789,10 +1817,16 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         derived_total, segment_names = _derive_segments_from_planner_output(planner_output)
         if not total_segments:
             total_segments = derived_total
-    # For single-pass schema, check for "final" output instead of layout/blocking/guard
-    resume_stage_outputs = {
-        "final": outputs.get("shot_director", "")
-    } if outputs.get("shot_director") else {}
+    # For single-pass schema, check for "final" output; for split runs, also
+    # keep completed fragment outputs so a restart resumes from the first
+    # unfinished fragment instead of rerunning every fragment.
+    resume_stage_outputs: dict[str, str] = {}
+    if outputs.get("shot_director"):
+        resume_stage_outputs["final"] = outputs.get("shot_director", "")
+    for key, value in outputs.items():
+        prefix = "shot_director_fragment_"
+        if key.startswith(prefix) and value:
+            resume_stage_outputs[key.removeprefix("shot_director_")] = value
     shot_meta = (state.get("knowledge_metadata") or {}).get("shot_director", {})
     resume_stage_runtime = shot_meta.get("runtime", {}) if isinstance(shot_meta, dict) else {}
     resume_stage_meta = shot_meta.get("stage_retrieval", {}) if isinstance(shot_meta, dict) else {}
@@ -1827,9 +1861,21 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         }
         knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta_snapshot
 
+        completed_fragment_index = 0
+        if stage_name.startswith("fragment_F"):
+            try:
+                completed_fragment_index = int(stage_name.rsplit("F", 1)[1])
+            except Exception:
+                completed_fragment_index = 0
+        active_index = completed_fragment_index or 1
         stage_messages = {
             "final": "镜头导演输出已完成，准备生成第 1 段 Prompt。",
         }
+        if completed_fragment_index:
+            stage_messages[stage_name] = (
+                f"镜头导演已完成 {stage_name.removeprefix('fragment_')} "
+                f"（{completed_fragment_index}/{total_segments}），正在继续下一个片段..."
+            )
         _persist_update(
             state,
             {
@@ -1840,7 +1886,8 @@ def shot_director_node(state: DirectorState) -> DirectorState:
                 "knowledge_metadata": knowledge_metadata,
                 "total_segments": total_segments,
                 "segment_names": segment_names,
-                "current_segment_index": 1,
+                "current_segment_index": active_index,
+                "active_segment_index": active_index,
             },
         )
 
