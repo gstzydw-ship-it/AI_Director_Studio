@@ -6201,3 +6201,29 @@ def run_full_pipeline(
         speed_mode=speed_mode,
     )
 
+
+# --- rhythm_rewrite shim: re-export from rhythm_rewrite_impl for backward compatibility ---
+from .rhythm_rewrite_impl import (  # noqa: E402
+    _cleanup_rhythm_abstract_language,
+    _clean_rhythm_rewritten_script,
+    _validate_rhythm_structure_lock,
+    _rhythm_insert_continuity_rules,
+    _validate_rhythm_insert_continuity,
+    rhythm_rewrite_director_node,
+)
+
+
+# --- planning_context shim: re-export from planning_context_impl for backward compatibility ---
+from .planning_context_impl import (  # noqa: E402
+    director_showrunner_node,
+    scene_analyst_node,
+)
+
+
+# --- segment_flow shim: re-export from segment_flow_impl for backward compatibility ---
+from .segment_flow_impl import (  # noqa: E402
+    route_after_segment,
+    segment_complete_node,
+    wait_for_segment_request_node,
+)
+

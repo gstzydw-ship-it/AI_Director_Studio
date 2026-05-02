@@ -21,6 +21,7 @@ from .types import (
     LLMSettings,
     STORY_PLANNER_MAX_SCHEMA_ATTEMPTS,
 )
+from ..knowledge_base import get_agent_knowledge_files, get_smart_knowledge, load_knowledge_documents
 from ..utils import COMFLY_BASE_URL, load_yaml_config
 
 

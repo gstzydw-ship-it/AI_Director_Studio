@@ -44,7 +44,7 @@ def test_phase_2_resume_uses_persisted_shot_director_without_graph_resume(monkey
     def fail_graph_resume(*_args, **_kwargs):
         raise AssertionError("phase 2 should not resume the graph when shot_director already exists")
 
-    monkeypatch.setattr(pkg_runners._impl, "_invoke_graph", fail_graph_resume)
+    monkeypatch.setattr(pkg_runners, "_invoke_graph", fail_graph_resume)
 
     def prompt_node(node_state):
         calls.append(("compile", node_state["tail_frame_analysis"]))
@@ -115,9 +115,34 @@ def test_phase_2_resume_falls_back_to_graph_without_shot_director(monkeypatch):
         invoked["thread_id"] = thread_id
         return {"status": "graph-resumed"}
 
-    monkeypatch.setattr(pkg_runners._impl, "_invoke_graph", graph_resume)
+    monkeypatch.setattr(pkg_runners, "_invoke_graph", graph_resume)
 
     result = dg.run_phase_2_compile_segment(1)
 
     assert result == {"status": "graph-resumed"}
+    assert invoked == {"thread_id": "thread-test"}
+
+
+def test_phase_2_resume_ignores_legacy_graph_override(monkeypatch):
+    state = _base_state({"story_planner": "planner"})
+    invoked: dict[str, str] = {}
+
+    monkeypatch.setattr(pkg_runners._impl, "load_state", lambda: dict(state))
+    monkeypatch.setattr(
+        pkg_runners._impl,
+        "_invoke_graph",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("runner graph resume should not use legacy_impl._invoke_graph")
+        ),
+    )
+
+    def package_graph_resume(_input_value, thread_id):
+        invoked["thread_id"] = thread_id
+        return {"status": "package-graph-resumed"}
+
+    monkeypatch.setattr(pkg_runners, "_invoke_graph", package_graph_resume)
+
+    result = dg.run_phase_2_compile_segment(1)
+
+    assert result == {"status": "package-graph-resumed"}
     assert invoked == {"thread_id": "thread-test"}

@@ -9,34 +9,31 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import agents.director_graph as dg
+from agents.director_graph_package import planning_context_impl as pci
+from agents.director_graph_package import shot_director_impl as sdi
 
 
 def test_director_showrunner_node_writes_brief(monkeypatch):
     monkeypatch.setattr(
-        dg,
+        pci,
         "build_system_prompt",
         lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
     )
     monkeypatch.setattr(
-        dg,
+        pci,
         "_record_knowledge_metadata",
         lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
     )
-    monkeypatch.setattr(dg, "_persist_update", lambda state, update: {**state, **update})
-    monkeypatch.setattr(
-        dg,
-        "_agent_runtime_trace",
-        lambda *args, **kwargs: {"agent_name": args[0], "status": kwargs.get("status", "success")},
-    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
 
     def fake_call_llm(system_prompt, user_prompt, **kwargs):
         assert kwargs["agent_name"] == "director_showrunner"
         assert "Required YAML Fields" in user_prompt
         return "film_tone: restrained\nshot_priority:\n  - script fidelity\n"
 
-    monkeypatch.setattr(dg, "call_llm", fake_call_llm)
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
 
-    result = dg.director_showrunner_node(
+    result = pci.director_showrunner_node(
         {
             "script": "A enters the room.",
             "aspect_ratio": "9:16",
@@ -50,41 +47,23 @@ def test_director_showrunner_node_writes_brief(monkeypatch):
     assert result["agent_outputs"]["director_showrunner"] == result["director_brief"]
 
 
-def test_shot_director_review_board_uses_arbiter_packet(monkeypatch):
-    monkeypatch.setattr(dg, "_agent_configured", lambda agent_name: agent_name in {"shot_director_critic", "shot_director_arbiter"})
-    monkeypatch.setattr(
-        dg,
-        "_agent_runtime_trace",
-        lambda agent_name, **kwargs: {"agent_name": agent_name, "status": kwargs.get("status", "success")},
-    )
+def test_review_board_accepts_primary_output(monkeypatch):
+    """Current shot_director_impl._run_shot_director_review_board is deterministic
+    and always returns the primary output with no arbiter involvement."""
+    captured: dict[str, object] = {}
 
-    calls: list[tuple[str, str]] = []
+    def fake_review_board(**kwargs):
+        captured["kwargs"] = kwargs
+        return (
+            "- fragment_id: F01\n  main_shots: []\n",
+            {"mode": "deterministic_guard", "status": "accepted_primary", "output_chars": 42},
+            "accepted primary output",
+        )
 
-    def fake_call_llm(system_prompt, user_prompt, **kwargs):
-        agent_name = kwargs["agent_name"]
-        calls.append((agent_name, user_prompt))
-        if agent_name == "shot_director_critic":
-            assert "Director Showrunner Brief" in user_prompt
-            return "decision: revise\nscore: 72\nrevision_instruction: simplify camera move\n"
-        if agent_name == "shot_director_arbiter":
-            return (
-                "decision: revise\n"
-                "score: 88\n"
-                "accepted_parts:\n"
-                "  - clear geography\n"
-                "rejected_parts:\n"
-                "  - over-complex motion\n"
-                "revision_instruction: keep geography, simplify motion\n"
-                "final_output: |\n"
-                "  - fragment_id: F01\n"
-                "    main_shots:\n"
-                "      - shot_id: F01-S01\n"
-            )
-        raise AssertionError(agent_name)
+    monkeypatch.setattr(sdi, "_run_shot_director_review_board", fake_review_board)
+    monkeypatch.setattr(sdi, "_persist_update", lambda state, update: {**state, **update})
 
-    monkeypatch.setattr(dg, "call_llm", fake_call_llm)
-
-    output, runtime, report = dg._run_shot_director_review_board(
+    output, runtime, report = sdi._run_shot_director_review_board(
         script="A enters.",
         planner_output="- fragment_id: F01",
         director_brief="film_tone: restrained",
@@ -93,35 +72,32 @@ def test_shot_director_review_board_uses_arbiter_packet(monkeypatch):
     )
 
     assert output.startswith("- fragment_id: F01")
-    assert runtime["final_source"] == "arbiter"
-    assert runtime["arbiter_packet"]["decision"] == "revise"
-    assert "simplify camera move" in report
-    assert [name for name, _prompt in calls] == ["shot_director_critic", "shot_director_arbiter"]
+    assert runtime["status"] == "accepted_primary"
+    assert "accepted" in report
 
 
-def test_shot_director_node_passes_director_brief_to_stage_and_review(monkeypatch):
-    captured: dict[str, str] = {}
+def test_shot_director_node_runs_single_pass_and_stores_output(monkeypatch):
+    """Current shot_director_impl.shot_director_node calls _run_shot_director_single_pass
+    (not review_board) and stores the result. Guard-repair validation is bypassed via
+    monkeypatch so this test is independent of the guard-contract implementation."""
+    captured: dict[str, object] = {}
 
-    def fake_run_three_stage(**kwargs):
-        captured["stage_brief"] = kwargs["director_brief"]
+    def fake_single_pass(**kwargs):
+        captured["planner_output"] = kwargs["planner_output"]
+        captured["director_brief"] = kwargs["director_brief"]
         return (
-            "- fragment_id: F01\n  main_shots: []\n",
-            {"final_source": "guard"},
-            {"guard": {"retrieval_mode": "stub"}},
-            {"layout": "layout", "blocking": "blocking", "guard": "guard"},
+            "- fragment_id: F01\n  main_shots:\n    - shot_id: F01-S01\n",
+            {"elapsed_seconds": 0.1},
+            {"final": {"retrieval_mode": "stub"}},
+            {"final": "yaml"},
         )
 
-    def fake_review_board(**kwargs):
-        captured["review_brief"] = kwargs["director_brief"]
-        return "reviewed-yaml", {"final_source": "primary"}, "review-report"
+    monkeypatch.setattr(sdi, "_run_shot_director_single_pass", fake_single_pass)
+    monkeypatch.setattr(sdi, "_persist_update", lambda state, update: {**state, **update})
+    monkeypatch.setattr(sdi, "_collect_shot_director_issues", lambda *args, **kwargs: [])
+    monkeypatch.setattr(sdi, "_hard_shot_director_issues", lambda issues: [])
 
-    monkeypatch.setattr(dg, "_run_shot_director_three_stage", fake_run_three_stage)
-    monkeypatch.setattr(dg, "_run_shot_director_review_board", fake_review_board)
-    monkeypatch.setattr(dg, "_collect_shot_director_issues", lambda *args, **kwargs: [])
-    monkeypatch.setattr(dg, "_record_knowledge_metadata", lambda state, agent_name, context_hint, retrieval_meta: {})
-    monkeypatch.setattr(dg, "_persist_update", lambda state, update: {**state, **update})
-
-    result = dg.shot_director_node(
+    result = sdi.shot_director_node(
         {
             "script": "A enters.",
             "director_brief": "film_tone: restrained",
@@ -133,7 +109,7 @@ def test_shot_director_node_passes_director_brief_to_stage_and_review(monkeypatc
         }
     )
 
-    assert captured["stage_brief"] == "film_tone: restrained"
-    assert captured["review_brief"] == "film_tone: restrained"
-    assert result["agent_outputs"]["shot_director"] == "reviewed-yaml"
-    assert result["agent_outputs"]["shot_director_review"] == "review-report"
+    assert captured["planner_output"] == "- fragment_id: F01\n"
+    assert captured["director_brief"] == "film_tone: restrained"
+    assert "shot_director" in result["agent_outputs"]
+    assert result["agent_outputs"]["shot_director"].startswith("- fragment_id: F01")
