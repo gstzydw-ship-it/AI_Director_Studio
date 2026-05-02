@@ -1,47 +1,47 @@
 agent_models:
   director_showrunner:
     base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-6
+    model: claude-opus-4-7
     temperature: 0.2
     timeout_seconds: 180
   prompt_compiler:
     base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-6
+    model: gpt-5.5
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 3
   quality_inspector:
     base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-6
+    model: claude-opus-4-7
     temperature: 0.1
   rhythm_rewrite_director:
     base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-6
+    model: kimi-k2.6
     temperature: 0.2
     timeout_seconds: 180
     max_retries: 3
   scene_analyst:
     base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-6
+    model: glm-5.1
     temperature: 0.1
   script_event_validator:
     base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-6
+    model: deepseek-v3.2
     temperature: 0.0
   shot_director:
     base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-6
+    model: gpt-5.5
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 3
   story_planner:
     base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-6
+    model: claude-opus-4-7
     temperature: 0.2
     timeout_seconds: 240
   video_analyst:
     base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-6
+    model: Moonshot-Vision-128K
     temperature: 0.1
 knowledge:
   bm25_top_k: 10
@@ -56,7 +56,7 @@ llm:
   base_url: http://8.nat0.cn:49347/v1
   max_tokens: 8192
   max_retries: 2
-  model: claude-opus-4-6
+  model: claude-opus-4-7
   provider: openai
   temperature: 0.3
   timeout_seconds: 120
@@ -84,8 +84,9 @@ ui:
   host: 127.0.0.1
   port: 8686
 vectordb:
-  api_key: ${DIRECTOR_EMBEDDING_API_KEY}
+  api_key: sk-7ofCCJBy2aNJU5ojZyl54nHT3RgEd1gByTOk44nTH6o8H67E
   base_url: https://ai.comfly.chat/v1
   chunk_overlap: 100
   chunk_size: 800
   collection_name: director_knowledge
+  embedding_model: text-embedding-3-large

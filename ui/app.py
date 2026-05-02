@@ -1098,12 +1098,6 @@ async def api_run(
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)})
 
-    if len(reference_image_b64s) < 3:
-        return JSONResponse({
-            "success": False,
-            "error": "请至少上传3张参考图：主角人物、对手人物、场景空间。"
-        })
-
     # 持久化用户输入（刷新页面后可恢复）。先重置整份会话状态，避免上一轮
     # active_segment_index / last_qc_status / tail_frame_analysis 等运行态残留。
     task_generation = _bump_task_generation(session_id)

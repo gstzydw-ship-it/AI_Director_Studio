@@ -62,6 +62,39 @@ def _get_embed_client() -> OpenAI:
     return _embed_clients[cache_key]
 
 
+def _embedding_vectors_from_response(resp: Any) -> list[list[float]]:
+    """兼容标准 SDK 对象、dict 以及 JSON 字符串形态的 embedding 响应。"""
+    parsed = resp
+    if isinstance(parsed, str):
+        try:
+            parsed = json.loads(parsed)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Embedding API 返回了字符串而非标准对象，且不是合法 JSON: {parsed[:200]}"
+            ) from exc
+
+    data = getattr(parsed, "data", None)
+    if data is None and isinstance(parsed, dict):
+        data = parsed.get("data")
+
+    if not isinstance(data, list):
+        raise RuntimeError(
+            "Embedding API 响应缺少 data 列表，无法解析向量；"
+            f"实际类型={type(resp).__name__}"
+        )
+
+    vectors: list[list[float]] = []
+    for item in data:
+        embedding = getattr(item, "embedding", None)
+        if embedding is None and isinstance(item, dict):
+            embedding = item.get("embedding")
+        if not isinstance(embedding, list):
+            raise RuntimeError("Embedding API 响应项缺少 embedding 向量列表")
+        vectors.append(embedding)
+    return vectors
+
+
+
 def _embed_texts(texts: list[str], model: str = None, batch_size: int = 20) -> list[list[float]]:
     """调用在线 API 获取文本 Embedding 向量"""
     if model is None:
@@ -73,8 +106,7 @@ def _embed_texts(texts: list[str], model: str = None, batch_size: int = 20) -> l
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         resp = client.embeddings.create(input=batch, model=model)
-        for item in resp.data:
-            all_embeddings.append(item.embedding)
+        all_embeddings.extend(_embedding_vectors_from_response(resp))
     return all_embeddings
 
 
