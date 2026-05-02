@@ -1300,11 +1300,14 @@ async def api_retry_shot_director(
                 script.strip(),
                 aspect_ratio,
                 reference_images,
-                [],  # reference_image_b64s
-                task_generation,
-                session_id,
             ),
-            kwargs={"reference_image_manifest": ref_manifest},
+            kwargs={
+                "reference_image_b64s": [],
+                "reference_image_manifest": ref_manifest,
+                "speed_mode": True,
+                "task_generation": task_generation,
+                "session_id": session_id,
+            },
             daemon=True,
         )
         _register_task_thread(session_id, thread)
