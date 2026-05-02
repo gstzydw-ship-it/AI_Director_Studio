@@ -206,6 +206,36 @@ main_shots:
     assert any("多次面部特写" in issue for issue in issues)
 
 
+def test_validate_shot_director_output_rejects_invalid_transition_type_and_missing_tail_state_card():
+    director_output = """fragment_id: F01
+schema_version: shot_director_v2
+fragment_intent: "门口压迫建立"
+reaction_coverage: "听者受压后停住"
+continuity_anchor: "两人站在门口对峙"
+shots:
+  - shot_id: "F01-S01"
+    subject: "商北琛"
+    shot_size: "中近景"
+    camera_height: "平视"
+    angle: "正面"
+    movement: "固定"
+    lens: "50mm"
+    depth: "浅景深"
+    coverage_role: "承载压迫发言"
+    cut_reason: "台词前半句落下后切出"
+    companion_visibility: "乔熙在过肩边缘"
+    tailframe_role: "尾帧交给听者反应"
+    dialogue_coverage: "前半句落在说话者，后半句切听者反应"
+    transition_type: "同一机位继续"
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert any("transition_type" in issue for issue in issues)
+    assert any("tail_state_card" in issue for issue in issues)
+
+
+
 def test_shot_director_vertical_discipline_rejects_micro_detail_shot_pileup():
     director_output = """fragment_id: F01
 fragment_intent: "穿衣手忙脚乱"

@@ -146,8 +146,42 @@ _SHOT_DURATION_RE = re.compile(r"^\s*[\"']?(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*
 _SHOT_CUT_TRIGGER_RE = re.compile(
     r"(动作顶点|台词(?:断点|落下|结束)?|反应(?:出现|落点)?|信息(?:看清|揭示)|看清|停住|完成|命中|落桌|撞上|尾帧|切出|切至|切到|→)"
 )
-  
-  
+
+# ------------------------------------------------------------------
+# Priority B: 镜头衔接类型 FSM — 禁止自由文本，只允许以下四种枚举
+# ------------------------------------------------------------------
+_TRANSITION_TYPE_FSM: tuple[str, ...] = (
+    "stay_on_A",      # 保持在A（同一主体继续，景别可变化）
+    "cut_to_B",       # 切至B（主体变化或机位大跳）
+    "dolly_in_to_A",  # 切近/拉开至A（同一主体景别变化）
+    "scene_fixed",    # 固定机位保持（场景固定机位，不跟人）
+)
+_TRANSITION_TYPE_HUMAN: dict[str, str] = {
+    "stay_on_A":   "镜头保持在A身上 / 同一机位继续",
+    "cut_to_B":    "镜头切至B / 镜头切近至B / 镜头拉开至B",
+    "dolly_in_to_A": "镜头切近至A / 镜头拉开至A / 镜头切远至A",
+    "scene_fixed": "固定机位保持在某空间锚点",
+}
+_TRANSITION_TYPE_NATURAL_RE = re.compile(
+    r"("
+    r"镜头保持在|同一机位继续|同一主体继续|镜头切至|镜头切到|镜头切近至|镜头拉开至|镜头切远至|"
+    r"切至|切到|切近至|拉开至|切远至|"
+    r"固定机位保持|固定机位保持在"
+    r")",
+    re.IGNORECASE,
+)
+
+# ------------------------------------------------------------------
+# Priority B: 尾态显式化 — 每个镜头必须产出 tail_state_card
+# ------------------------------------------------------------------
+_TAIL_STATE_CARD_SUBSHOTS: tuple[str, ...] = (
+    "人物站位",
+    "接触关系",
+    "道具/门/车门状态",
+    "视线朝向",
+    "距离关系",
+)
+
 def _shot_director_workflow_contract() -> str:
     return (
         "【shot_director 显式工作流】\n"
@@ -792,6 +826,38 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             for field in _SHOT_DIRECTOR_V2_MAIN_SHOT_REQUIRED:
                 if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_block):
                     issues.append(f"{shot_id} 缺少 v2 主镜头字段 {field}。")
+
+            # Priority B: FSM transition_type 枚举校验
+            transition_type = _yaml_line_field(shot_block, "transition_type")
+            if not transition_type:
+                issues.append(f"{shot_id} 缺少 transition_type（镜头衔接类型 FS M枚举：stay_on_A / cut_to_B / dolly_in_to_A / scene_fixed）。")
+            elif transition_type not in _TRANSITION_TYPE_FSM:
+                issues.append(
+                    f"{shot_id} 的 transition_type='{transition_type}' 不是合法枚举值。"
+                    f"允许值：{', '.join(_TRANSITION_TYPE_FSM)}。"
+                    f"禁止写'同一机位继续'等自由文本。"
+                )
+
+            # Priority B: tail_state_card 尾态卡校验
+            tail_state_card_match = re.search(
+                r"(?ms)^\s*tail_state_card\s*:\s*([\s\S]*?)$",
+                shot_block,
+            )
+            if not tail_state_card_match:
+                issues.append(
+                    f"{shot_id} 缺少 tail_state_card（尾态卡必须包含：人物站位、接触关系、"
+                    f"道具/门/车门状态、视线朝向、距离关系）。"
+                )
+            else:
+                tail_card_text = tail_state_card_match.group(1)
+                # 宽松检查：至少包含 3 个关键词
+                card_keywords = ["站位", "接触", "道具", "门", "视线", "距离"]
+                found = sum(1 for kw in card_keywords if kw in tail_card_text)
+                if found < 3:
+                    issues.append(
+                        f"{shot_id} 的 tail_state_card 内容不足（找到 {found}/5 个必需子项）。"
+                        f"必须包含：人物站位、接触关系、道具/门/车门状态、视线朝向、距离关系。"
+                    )
 
         if re.search(r"(?m)^\s*sub_shots\s*:", block):
             sub_blocks = re.findall(

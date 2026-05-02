@@ -289,9 +289,34 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
             )
             for shot_id_raw, shot_body in shot_blocks:
                 shot_id = shot_id_raw.strip()
-                for field in ("coverage_role", "cut_reason", "companion_visibility", "tailframe_role", "dialogue_coverage"):
+                for field in (
+                    "coverage_role",
+                    "cut_reason",
+                    "companion_visibility",
+                    "tailframe_role",
+                    "dialogue_coverage",
+                    "transition_type",
+                    "tail_state_card",
+                ):
                     if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", shot_body):
                         qc_issues.append(f"- {shot_id} 缺少 v2 字段 {field}。")
+
+                transition_type = _yaml_line_field(shot_body, "transition_type")
+                if transition_type and transition_type not in ("stay_on_A", "cut_to_B", "dolly_in_to_A", "scene_fixed"):
+                    qc_issues.append(
+                        f"- {shot_id} 的 transition_type={transition_type} 非法；"
+                        "只允许 stay_on_A / cut_to_B / dolly_in_to_A / scene_fixed。"
+                    )
+
+                tail_state_card = _yaml_line_field(shot_body, "tail_state_card")
+                if tail_state_card:
+                    tail_keywords = ("站位", "接触", "道具", "门", "视线", "距离")
+                    found = sum(1 for kw in tail_keywords if kw in tail_state_card)
+                    if found < 3:
+                        qc_issues.append(
+                            f"- {shot_id} 的 tail_state_card 信息不足；"
+                            "至少要明确人物站位、接触/道具状态、视线或距离关系。"
+                        )
         # v2 sub_shot 必填字段检查
         if re.search(r"sub_shots\s*:", director_segment):
             sub_blocks = re.findall(

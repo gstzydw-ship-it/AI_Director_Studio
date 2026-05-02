@@ -31,6 +31,8 @@ _V2_MAIN_SHOT_REQUIRED_FIELDS: tuple[str, ...] = (
     "companion_visibility",
     "tailframe_role",
     "dialogue_coverage",
+    "transition_type",
+    "tail_state_card",
 )
 from .helpers import (
     _truncate_for_prompt,
@@ -899,6 +901,32 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
                 )
         if re.search(r"(?m)^\s*main_shots\s*:", current_director_segment_raw):
             v2_gate_issues.append("shot_director 仍在使用已禁用的 main_shots 旧结构。")
+
+        shot_blocks = _MAIN_SHOT_BLOCK_RE.findall(current_director_segment_raw)
+        if not shot_blocks:
+            v2_gate_issues.append("shot_director 当前片段没有任何合法 shot_id，无法编译。")
+        for shot_id_raw, shot_body in shot_blocks:
+            shot_id = shot_id_raw.strip()
+            for field in _V2_MAIN_SHOT_REQUIRED_FIELDS:
+                if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", shot_body):
+                    v2_gate_issues.append(f"{shot_id} 缺少 v2 主镜头字段 {field}。")
+
+            transition_type = _yaml_line_field(shot_body, "transition_type")
+            if transition_type and transition_type not in ("stay_on_A", "cut_to_B", "dolly_in_to_A", "scene_fixed"):
+                v2_gate_issues.append(
+                    f"{shot_id} 的 transition_type={transition_type} 非法；"
+                    "只允许 stay_on_A / cut_to_B / dolly_in_to_A / scene_fixed。"
+                )
+
+            tail_state_card = _yaml_line_field(shot_body, "tail_state_card")
+            if tail_state_card:
+                tail_keywords = ("站位", "接触", "道具", "门", "视线", "距离")
+                found = sum(1 for kw in tail_keywords if kw in tail_state_card)
+                if found < 3:
+                    v2_gate_issues.append(
+                        f"{shot_id} 的 tail_state_card 信息不足；"
+                        "至少要明确人物站位、接触/道具状态、视线或距离关系。"
+                    )
     else:
         v2_gate_issues.append("当前片段缺少镜头资产，无法编译。")
 
