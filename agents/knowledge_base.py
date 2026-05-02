@@ -274,6 +274,7 @@ AGENT_KNOWLEDGE_MAP = {
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
         "28_全场景分镜与转场案例库.md",
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",
     ],
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",
@@ -283,6 +284,7 @@ AGENT_KNOWLEDGE_MAP = {
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
         "28_全场景分镜与转场案例库.md",
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",
     ],
     "shot_director_blocking": [
         "26_动作调度与受击覆盖规则.md",
@@ -292,6 +294,7 @@ AGENT_KNOWLEDGE_MAP = {
         "18_情绪锚点与逐段交互与仰拍限制补丁.md",
         "21_镜头调用规则与多机位模板.md",
         "28_全场景分镜与转场案例库.md",
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",
     ],
     "shot_director_guard": [
         "27_规则守门与最小修复规则.md",
@@ -338,6 +341,7 @@ CRITICAL_KNOWLEDGE_MAP = {
         "04_对白与表演镜头规则.md",       # 对白覆盖与反应切镜
         "06_连续性与安全规则.md",          # 安全约束必须全文
         "21_镜头调用规则与多机位模板.md",  # 机位调用与执行模板
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # Seedance 稳定短句降级
     ],
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",   # 一号机位摆位导演的职责合同
@@ -345,12 +349,14 @@ CRITICAL_KNOWLEDGE_MAP = {
         "04_对白与表演镜头规则.md",       # 发言单元覆盖蓝图
         "06_连续性与安全规则.md",          # 接缝与状态安全
         "21_镜头调用规则与多机位模板.md",  # 主镜头骨架模板
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 单任务镜头基底
     ],
     "shot_director_blocking": [
         "26_动作调度与受击覆盖规则.md",   # 二号动作调度导演的职责合同
         "06_连续性与安全规则.md",          # 受击接续需要连续性保障
         "14_动作描述精细化控制规则.md",   # 动作描述精度
         "04_对白与表演镜头规则.md",       # 对白落点规则
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 禁止复杂摆尾运镜
     ],
     "shot_director_guard": [
         "27_规则守门与最小修复规则.md",   # 三号守门导演的职责合同
@@ -364,6 +370,7 @@ CRITICAL_KNOWLEDGE_MAP = {
         "07_Seedance输出词典与模型适配.md",  # 输出模板，必须全文
         "rules/prompt_compiler/PROMPT-HARD-CONSTRAINT-DEDUP-001.md",  # 约束集中，禁止污染时间轴
         "rules/prompt_compiler/PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md",  # 导演口语转可见画面语言
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 复杂运镜降级
     ],
     "quality_inspector": [
         "17_结果质检与回溯修正规则.md",    # 质检核心文件
