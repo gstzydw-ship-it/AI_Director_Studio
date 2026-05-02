@@ -51,6 +51,67 @@ _GENERIC_SELECTION_REASON_RE = re.compile(
 _DIALOGUE_COVERAGE_TERMS_RE = re.compile(
     r"(反应|受击|听者|对手|对方|过肩|肩线|反打|视线|切回|切至|切到|切出|台词断点|画外音|OS|L-cut|J-cut|景别递进)"
 )
+# =============================================================================
+# shot_director v2 schema contract — 硬性版本切换
+# =============================================================================
+_SCHEMA_VERSION_V2 = "shot_director_v2"
+
+# V2 fragment 层必填字段（新增 fragment_intent / reaction_coverage / continuity_anchor 替代旧 fragment_task）
+_SHOT_DIRECTOR_V2_FRAGMENT_REQUIRED: tuple[str, ...] = (
+    "fragment_intent",
+    "reaction_coverage",
+    "continuity_anchor",
+    "shots",
+)
+
+# V2 main_shot 层必填字段（新增 coverage_role / cut_reason / companion_visibility / tailframe_role / dialogue_coverage）
+_SHOT_DIRECTOR_V2_MAIN_SHOT_REQUIRED: tuple[str, ...] = (
+    "shot_id",
+    "subject",
+    "shot_size",
+    "camera_height",
+    "angle",
+    "movement",
+    "lens",
+    "depth",
+    "coverage_role",
+    "cut_reason",
+    "companion_visibility",
+    "tailframe_role",
+    "dialogue_coverage",
+)
+
+# V2 blocking 层可选但必须一致（如果有 blocking_plan / state_chain / event_coverage）
+_SHOT_DIRECTOR_V2_BLOCKING_OPTIONAL: tuple[str, ...] = (
+    "blocking_plan",
+    "state_chain",
+    "event_coverage",
+    "reaction_coverage",
+)
+
+# V2 sub_shot 层必填字段
+_SHOT_DIRECTOR_V2_SUB_SHOT_REQUIRED: tuple[str, ...] = (
+    "parent_shot_id",
+    "trigger",
+    "beat_purpose",
+    "emotion_anchor",
+    "duration_hint",
+    "action_phase",
+)
+
+# 禁止出现的旧字段（一旦出现直接 fail）
+_FORBIDDEN_LEGACY_FIELDS: tuple[str, ...] = (
+    "fragment_task",
+    "must_carry",
+    "duration",      # 旧 shot-level 字段
+    "task",          # 旧 shot-level 字段
+    "continuity",    # 旧 shot-level 字段（非 continuity_anchor）
+    "cut_point",     # 旧 shot-level 字段
+)
+
+# =============================================================================
+# 向后兼容旧常量（仅测试 fixture 使用，生产代码不再依赖）
+# =============================================================================
 _SHOT_CONSTRUCTION_FRAGMENT_FIELDS: tuple[str, ...] = ("fragment_task", "rhythm", "shots")
 _SHOT_CONSTRUCTION_REQUIRED_FIELDS: tuple[str, ...] = (
     "shot_id",
@@ -266,32 +327,33 @@ def _spatial_geometry_contract_rules() -> str:
 def _camera_execution_rules() -> str:
     return (
         "【机位与运镜可执行硬规则】\n"
-        "1. 每个 shot 只能有一个主体焦点、一个景别基底、一个简洁机位、最多一种镜头运动；不要把入场、反应、回主位、进门等多个任务塞进同一镜头。\n"
-        "2. 摄影机位置优先使用大模型更稳的短词：正面、左前方、右前方、左侧、右侧、背后、左后方、右后方、门外固定机位、电梯口固定机位。只有空间易混淆时才补 0度/45度/90度/180度，不要每段都写数字角度。\n"
-        "3. 镜头高度只在有叙事功能时写：低机位仰拍用于权力压制，高机位俯拍用于弱势/群体散开；普通对话和走位默认不写\"眼平高度\"，避免机械模板味。\n"
-        "4. 运镜优先使用固定机位、平稳跟拍、缓慢推近、缓慢后退、同侧反应切镜、门外固定机位。除非单一主体单一动作确实需要，禁止写稳定器在人物前方同速后退、稳定器在人物背后同速前进、truck left/right、pan left/right 这类专业摆尾词。\n"
-        "5. 如果写\"跟拍\"，只能服务一个清楚动作路径，例如\"商北琛从入口走到通道中段\"；跟拍镜头不得再横移去拍反应，也不得再横移回主角。\n"
-        "6. 反应落点优先拆成新镜头：\"镜头切至严飞胸部以上中近景\"，不要写\"同一运动里带到严飞和主管反应\"。\n"
-        "7. 禁止复合景别/复合机位：不要写\"纵深中全景到半身中景\"\"中景转电梯口关系景\"\"右后方中景转固定机位\"\"同轴线偏右侧\"\"前后景关系\"。改成单一可执行短句：\"大堂全景\"、\"商北琛半身中景\"、\"电梯口固定中景\"。\n"
-        "8. 禁止使用模糊机位词：三分之四角度、斜侧、斜前方、轻微前推、轻微前推跟随、缓慢靠近、背影轻压。\n"
-        "9. 禁止抽象判断句。不要写\"沉默就是回应\"\"权力关系锁住\"\"空气收紧\"\"命令落地即见效\"\"形成清晰钩子\"。必须改写成可见动作：停顿几秒、谁看向谁、谁后退半步、谁让出通道、电梯门停在什么开合状态。\n"
-        "10. 最终 prompt 只保留 Seedance 能理解的自然句；正确示例：\"镜头1【3秒】【商北琛】大堂中景，正面平稳跟拍，商北琛从入口走到通道中段。\"错误示例：\"纵深中全景到商北琛半身中景，右前方眼平高度，稳定器在商北琛前方同速后退。\"\n"
+        "1. 内部镜头设计必须保留完整镜头语法：主体+主体景别、焦段、景深、机位高度、拍摄角度、唯一运镜、动作/表演、光源；不得因为最终要给 Seedance 就提前丢掉焦段/景深/高度/角度判断。\n"
+        "2. 每个 shot 只能有一个主体焦点、一个景别基底、一个主导运镜；景别可以在子分镜内递进，但不能写成\"纵深中全景到半身中景\"这种单字段混合景别。\n"
+        "3. 机位高度从仰拍、平视、俯拍、顶拍、虫眼中选择；普通关系/对白可用平视，权力压制可用仰拍，弱势/群体散开可用俯拍。最终 prompt 可把\"平视\"译成自然短句，避免机械写\"眼平高度\"。\n"
+        "4. 拍摄角度从正面、斜侧面、正侧面、背面、过肩、荷兰角、POV 中选择；POV 必须先有建立镜头说明谁在看，禁止直接跳 POV。\n"
+        "5. 运镜从推镜、拉镜、横移、横摇、垂直摇、升降、变焦、稳定器跟拍、手持、固定机位中选唯一主导运镜；禁止在一个 shot 内同时推近、横移、摇摄、再回主位。\n"
+        "6. 运镜必须服务镜头目的：推近/切近/转特写只能服务信息逼近、情绪暴露、压迫上升、受击反应变重要、道具或局部动作成为焦点；禁止把慢推近当通用情绪模板。\n"
+        "7. 反应落点优先按层级处理：主分镜负责主体关系和空间重心，子分镜负责受击、表情重音、局部动作；不要把\"同一运动里带到反应再回主位\"写成一个复杂主镜头。\n"
+        "8. 禁止复合景别/复合机位：不要写\"纵深中全景到半身中景\"\"中景转电梯口关系景\"\"右后方中景转固定机位\"\"同轴线偏右侧\"\"前后景关系\"。改成结构化字段：shot_size=MS/MCU，angle=正面/斜侧面/背面，movement=固定/跟拍。\n"
+        "9. 禁止使用模糊机位词：三分之四角度、斜侧、斜前方、轻微前推、轻微前推跟随、缓慢靠近、背影轻压。\n"
+        "10. 禁止抽象判断句。不要写\"沉默就是回应\"\"权力关系锁住\"\"空气收紧\"\"命令落地即见效\"\"形成清晰钩子\"。必须改写成可见动作：停顿几秒、谁看向谁、谁后退半步、谁让出通道、电梯门停在什么开合状态。\n"
+        "11. 内部可以技术化，最终编译必须感知化：85mm浅景深可译为\"背景虚化、主体突出\"，深景深可译为\"前后景都清楚\"，不得把\"电影感/高级感\"写成空壳标签。\n"
     )
 
 def _camera_task_selection_rules() -> str:
     return (
         "【镜头任务到机位选择硬规则】\n"
-        "1. 先判断当前 shot 的 task，再决定 camera 与 size；不要先挑一个好听的机位，再把动作硬塞进去。\n"
-        "2. 发言承载、正面施压、冷处理对峙：单段只能从正面、左前方、右前方三类中选一类并贯穿全段；同段不得同时出现\"左前方\"和\"右前方\"这种跨轴。前提是人物朝向稳定，且没有转身、穿门、进电梯这类阈值动作。\n"
-        "3. 听者受击、视线撞上、回神、表情冻结：受击者机位必须落在第 2 条选定的同侧；优先单独切成听者胸部以上中近景，不要靠横移摆尾带到反应。\n"
-        "4. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先左侧、右侧、左后方、右后方，或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定一侧。\n"
-        "5. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背后、左后方、右后方，或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
-        "6. 双人关系复位、群体关系复位、尾帧交接：优先 双人半身关系景 或 scene_fixed 关系景，重新交代距离、站位、轴线和谁仍在画内。\n"
-        "7. **机内连续运动不计为切镜，但不能承担新叙事任务**：缓慢推近、缓慢后退、同向平稳跟拍只服务当前主体当前动作；一旦要看听者反应、群体散开、门口状态，必须切成新镜头。\n"
-        "8. 同段切换只能发生在选定一侧内部（例如全段右前方，可以从右前方半身→右前方过肩→右前方双人关系景）；跨到另一侧本段不得擅自跨。\n"
-        "9. 只有在 单一主体 + 单一动作 + 没有说话者切换 + 没有受击反应 + 没有进门/进电梯/过阈值 时，才允许单一主机位持续承担整段。\n"
-        "10. 每次硬切都必须由 cut_point 解释，例如台词断点、动作顶点、信息看清、反应出现、space_reset、tailframe_reset；禁止 cut_point 写 axis_flip / reverse_angle / 反打。\n"
-        "11. 如果一个 fragment 里有多个 shots，禁止所有 shot 都重复同一套 camera + size 直到片段结束。\n"
+        "1. 先判断当前 main_shot 的 coverage_role 与 shot_intent，再决定 shot_size、camera_height、angle、movement、lens、depth；不要先挑一个好看的机位再硬套剧情。\n"
+        "2. 主分镜只在主体关系变化、场面权力关系变化、叙事重心变化、空间观察点变化、当前主镜头无法承载下一动作单元时新开；不要用主分镜机械对应每句台词。\n"
+        "3. 完整发言单元优先保持在同一主分镜内；长挑衅/揭晓/质问台词超过2秒时，用子分镜/L-cut 切受击者，让后半句以画外音落在反应上。\n"
+        "4. 听者受击、视线撞上、回神、表情冻结：优先挂到现有主镜头或新增 sub_shot；受击者机位必须落在同侧轴线内，并写 companion_visibility，不要靠横移摆尾带到反应。\n"
+        "5. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先正侧面、背面、斜侧面或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定轴线一侧。\n"
+        "6. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背面、斜侧面或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
+        "7. 9:16 主力景别为半身景/中景/MS，MCU 只用于压迫段或信息逼近中间层，CU 只用于信息炸点/受击反应/情绪顶点；禁止长期只在 MCU 与 CU 之间摆动。\n"
+        "8. 群体调度必须保留空间容量：群体四散、主管退让、员工让路不能用面部特写承接，优先中景关系、半身关系或 scene_fixed。\n"
+        "9. 每个 main_shot 必须有 cut_reason，回答为什么从上一主镜头切到这里；有效理由包括台词落点后切听者反应、动作中间态切接续、需要回关系景确认距离/门状态、tailframe_reset。\n"
+        "10. sub_shot 必须有 parent_shot_id、trigger、shot_size、cut_point、companion_visibility、state_delta、beat_purpose、emotion_anchor、duration_hint、action_phase；每个片段最多2个子分镜。\n"
+        "11. 如果一个 fragment 里有多个 main_shots，禁止所有 shot 都重复同一套 shot_size + angle + movement；但变化必须有叙事动机，禁止假丰富感。"
     )
 
 def _space_rules_contract_rules() -> str:
@@ -672,12 +734,13 @@ def _runtime_context_contract_card() -> str:
     )
 
 def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
-    """Validate the active shot construction-sheet schema.
+    """Validate the hard-switched shot_director v2 schema.
 
-    Current runtime output is intentionally lightweight, but it must be
-    executable by prompt_compiler: fragment_task/rhythm at fragment level and
-    duration/task/must_carry/cut_point/continuity at shot level. Legacy
-    main_shots are still tolerated for older saved states and guard fixtures.
+    规则：
+    1. 旧字段一旦出现，直接 fail；
+    2. main_shots 不再作为合法运行时出口；
+    3. fragment / main_shot / sub_shot 必须满足 v2 合同；
+    4. schema_version 缺失或错误，直接 fail。
     """
     issues: list[str] = []
     for segment_name in expected_segments:
@@ -693,17 +756,32 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             continue
         block = block_match.group(1)
 
-        # Legacy saved states/tests may still use main_shots. Keep that path
-        # readable, but enforce the new construction-sheet contract for shots.
-        if re.search(r"(?m)^\s*main_shots\s*:", block) and not re.search(r"(?m)^\s*shots\s*:", block):
-            for field in ["shot_id", "subject"]:
-                if not re.search(rf"^\s*-?\s*{field}\s*:", block, re.MULTILINE):
-                    issues.append(f"{fragment_id} 的 main_shots 缺少字段 {field}。")
-            continue
+        schema_version = _yaml_line_field(block, "schema_version")
+        if schema_version != _SCHEMA_VERSION_V2:
+            issues.append(
+                f"{fragment_id} 的 schema_version 必须为 {_SCHEMA_VERSION_V2}，当前为 {schema_version or '缺失'}。"
+            )
 
-        for field in _SHOT_CONSTRUCTION_FRAGMENT_FIELDS:
-            if not re.search(rf"(?m)^\s*{field}\s*:", block):
-                issues.append(f"{fragment_id} 缺少 {field} 字段。")
+        if re.search(r"(?m)^\s*main_shots\s*:", block):
+            issues.append(f"{fragment_id} 仍在使用已禁用的 main_shots 旧结构，必须改为 shots。")
+
+        for legacy_field in _FORBIDDEN_LEGACY_FIELDS:
+            if legacy_field == "continuity":
+                legacy_re = r"(?m)^\s*continuity\s*:"
+            elif legacy_field == "task":
+                legacy_re = r"(?m)^\s*task\s*:"
+            elif legacy_field == "duration":
+                legacy_re = r"(?m)^\s*duration\s*:"
+            elif legacy_field == "cut_point":
+                legacy_re = r"(?m)^\s*cut_point\s*:"
+            else:
+                legacy_re = rf"(?m)^\s*{re.escape(legacy_field)}\s*:"
+            if re.search(legacy_re, block):
+                issues.append(f"{fragment_id} 包含已禁用旧字段 {legacy_field}，运行时只允许 v2 合同。")
+
+        for field in _SHOT_DIRECTOR_V2_FRAGMENT_REQUIRED:
+            if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", block):
+                issues.append(f"{fragment_id} 缺少 v2 fragment 字段 {field}。")
 
         shot_blocks = _main_shot_blocks(block)
         if not shot_blocks:
@@ -711,20 +789,22 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             continue
 
         for shot_id, shot_block in shot_blocks:
-            for field in _SHOT_CONSTRUCTION_REQUIRED_FIELDS:
-                if not re.search(rf"(?m)^\s*-?\s*{field}\s*:", shot_block):
-                    issues.append(f"{shot_id} 缺少字段 {field}。")
+            for field in _SHOT_DIRECTOR_V2_MAIN_SHOT_REQUIRED:
+                if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_block):
+                    issues.append(f"{shot_id} 缺少 v2 主镜头字段 {field}。")
 
-            duration = _yaml_line_field(shot_block, "duration")
-            if duration and not _SHOT_DURATION_RE.search(duration):
-                issues.append(f"{shot_id} 的 duration 必须写成 '0-2秒' 或 '2秒' 这种秒数格式。")
-
-            cut_point = _yaml_line_field(shot_block, "cut_point")
-            if cut_point:
-                if re.fullmatch(r"[\"']?(?:切出|切到下个镜头|下个镜头)[\"']?", cut_point.strip()):
-                    issues.append(f"{shot_id} 的 cut_point 过于空泛，必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。")
-                elif not _SHOT_CUT_TRIGGER_RE.search(cut_point):
-                    issues.append(f"{shot_id} 的 cut_point 缺少可执行切镜触发点。")
+        if re.search(r"(?m)^\s*sub_shots\s*:", block):
+            sub_blocks = re.findall(
+                r"(?ms)^\s*-\s*parent_shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*parent_shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
+                block,
+            )
+            if not sub_blocks:
+                issues.append(f"{fragment_id} 声明了 sub_shots，但没有任何 parent_shot_id 子镜头。")
+            for parent_shot_id, sub_tail in sub_blocks:
+                sub_block = f"parent_shot_id: {parent_shot_id}\n{sub_tail}"
+                for field in _SHOT_DIRECTOR_V2_SUB_SHOT_REQUIRED:
+                    if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", sub_block):
+                        issues.append(f"{fragment_id} 的 sub_shot({parent_shot_id.strip()}) 缺少字段 {field}。")
 
     return issues
 

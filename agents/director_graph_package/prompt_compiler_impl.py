@@ -9,6 +9,29 @@ from typing import Any
 
 from .types import DirectorState
 from . import legacy_impl as _legacy
+
+_SCHEMA_VERSION_V2 = "shot_director_v2"
+_FORBIDDEN_LEGACY_FIELDS: tuple[str, ...] = (
+    "fragment_task",
+    "must_carry",
+    "duration",
+    "task",
+    "continuity",
+    "cut_point",
+)
+_V2_FRAGMENT_REQUIRED_FIELDS: tuple[str, ...] = (
+    "fragment_intent",
+    "reaction_coverage",
+    "continuity_anchor",
+    "shots",
+)
+_V2_MAIN_SHOT_REQUIRED_FIELDS: tuple[str, ...] = (
+    "coverage_role",
+    "cut_reason",
+    "companion_visibility",
+    "tailframe_role",
+    "dialogue_coverage",
+)
 from .helpers import (
     _truncate_for_prompt,
     _runtime_context_contract_card,
@@ -448,7 +471,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         )
 
     has_reaction_beat = any(term in prompt for term in _REACTION_BEAT_TERMS)
-    has_explicit_reaction_cut = re.search(r"(?:镜头)?(?:切至|切到|切回)|反打至|反打镜头|→镜头", prompt)
+    has_explicit_reaction_cut = re.search(r"(?:镜头)?(?:切至|切到|切回)|反打至|反打镜头", prompt)
     if has_reaction_beat and not has_explicit_reaction_cut:
         issues.append('- 受击/反应落点缺少明确切镜：请写清"镜头切至谁、什么景别、什么机位、画面里保留谁/什么空间锚点"。')
 
@@ -855,6 +878,35 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         if reference_context.strip()
         else "本次未提供参考图；最终 Prompt 中严禁编造 @图片1、@图片2、@图片3 或任何参考图占位。\n\n"
     )
+    # --- v2 schema hard gate: reject legacy director segment ---
+    v2_gate_issues: list[str] = []
+    if current_director_segment_raw:
+        if not re.search(r"schema_version\s*:\s*" + _SCHEMA_VERSION_V2, current_director_segment_raw):
+            v2_gate_issues.append(
+                f"shot_director 缺少 schema_version: {_SCHEMA_VERSION_V2}，"
+                f"compiler 拒绝消费旧版镜头资产。"
+            )
+        for field in _V2_FRAGMENT_REQUIRED_FIELDS:
+            if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", current_director_segment_raw):
+                v2_gate_issues.append(f"shot_director 缺少 v2 fragment 字段 {field}。")
+        for legacy_field in _FORBIDDEN_LEGACY_FIELDS:
+            if re.search(rf"(?m)^\s*{re.escape(legacy_field)}\s*:", current_director_segment_raw):
+                v2_gate_issues.append(
+                    f"shot_director 包含旧字段 {legacy_field}，"
+                    f"compiler 拒绝编译旧版施工单。"
+                )
+        if re.search(r"(?m)^\s*main_shots\s*:", current_director_segment_raw):
+            v2_gate_issues.append("shot_director 仍在使用已禁用的 main_shots 旧结构。")
+    else:
+        v2_gate_issues.append("当前片段缺少镜头资产，无法编译。")
+
+    if v2_gate_issues:
+        raise RuntimeError(
+            "[PROMPT-COMPILER-V2-GATE] prompt_compiler 拒绝编译旧版 shot_director schema。\n"
+            + "\n".join(f"  - {issue}" for issue in v2_gate_issues)
+            + "\n请重新运行 shot_director 确保输出 v2 合同镜头资产。"
+        )
+
     user_prompt = (
         f"=== 当前片段压缩上下文 ===\n\n"
         f"{_runtime_context_contract_card()}\n\n"
@@ -890,7 +942,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "3. subject + size + camera 必须合成镜头行开头，例如【乔熙】中近景，右前方同侧过肩固定机位。\n"
         "4. action + dialogue 是镜头行主体；台词直接嵌入动作句中，OS/J-cut/L-cut 写成画外音或声音桥。\n"
         "5. must_carry 必须转译成画面里看得见的信息或反应，不能只放到约束里。\n"
-        "6. cut_point 必须放进括号，写成（动作顶点前→镜头2）、（台词断点切至乔熙反应→镜头4）、（文件内容看清后→镜头3）这类具体触发。\n"
+        "6. cut_point 必须放进括号，写成（动作顶点前切至镜头2）、（台词断点时切至乔熙反应镜头）、（文件内容看清后切至镜头3）这类自然中文触发句；禁止使用箭头式表达。\n"
         "7. continuity 必须落实到镜头行或【约束】里，保证人物左右关系、道具状态、动作路径和尾帧不跳变。\n"
         "8. 最终 prompt 禁止出现 fragment_task、must_carry、cut_point、continuity、shot_id、fragment_id 等内部字段名。\n\n"
         "如果镜头资产包含 coverage_role / cut_reason / companion_visibility / state_delta / tailframe_role，必须翻译进最终时间轴：\n"
