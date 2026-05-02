@@ -8,6 +8,7 @@ import {
   Database,
   Eye,
   Film,
+  FolderSearch,
   Images,
   KeyRound,
   MapPinned,
@@ -29,7 +30,9 @@ import {
   getModelProfiles,
   getRecentProjects,
   importAsset,
+  importAssetBatch,
   getStatus,
+  runPipeline,
   saveDirectorEdit,
   saveModelProfile,
   submitDirectorEdit,
@@ -61,8 +64,8 @@ const emptyEdit: DirectorEdit = {
 
 const defaultProfile: ModelProfile = {
   id: "",
-  name: "我的 Comfly 方案",
-  base_url: "https://api.comfly.ai/v1",
+  name: "我的 API 方案",
+  base_url: "",
   api_key: "",
   default_model: "gpt-5.5",
   agent_models: {
@@ -124,7 +127,11 @@ function App() {
   const [showProjects, setShowProjects] = useState(false);
   const [profileDraft, setProfileDraft] = useState<ModelProfile>(defaultProfile);
   const [edit, setEdit] = useState<DirectorEdit>(emptyEdit);
-  const [activeTab, setActiveTab] = useState<"director" | "result" | "prompt">("director");
+  const [activeTab, setActiveTab] = useState<"script" | "director" | "result" | "prompt">("script");
+  const [scriptDraft, setScriptDraft] = useState("");
+  const [scriptDirty, setScriptDirty] = useState(false);
+  const [aspectRatio, setAspectRatio] = useState("9:16");
+  const [stylePreset, setStylePreset] = useState("modern_short_drama");
   const [connected, setConnected] = useState(false);
   const [toast, setToast] = useState("");
 
@@ -178,9 +185,35 @@ function App() {
     }));
   }, [segmentIndex]);
 
+  useEffect(() => {
+    if (!scriptDirty) {
+      setScriptDraft(status.input_script || "");
+      setAspectRatio(status.input_aspect_ratio || "9:16");
+      setStylePreset(status.style_preset || "modern_short_drama");
+    }
+  }, [scriptDirty, status.input_aspect_ratio, status.input_script, status.style_preset]);
+
+  const startPipeline = async () => {
+    const script = scriptDraft.trim();
+    if (!script) {
+      setToast("请先输入剧本");
+      return;
+    }
+    await runPipeline({
+      sessionId: activeSessionId,
+      script,
+      aspectRatio,
+      modelProfileId: profileDraft.id,
+      stylePreset
+    });
+    setScriptDirty(false);
+    setToast("已开始拆片和镜头导演");
+    await refresh();
+  };
+
   const saveEdit = async () => {
     const state = await saveDirectorEdit({
-      session_id: sessionId,
+      session_id: activeSessionId,
       segment_index: segmentIndex,
       edited_yaml: approvedYaml,
       edit_payload: edit
@@ -191,7 +224,7 @@ function App() {
 
   const submitEdit = async () => {
     await submitDirectorEdit({
-      session_id: sessionId,
+      session_id: activeSessionId,
       segment_index: segmentIndex,
       edited_yaml: approvedYaml,
       edit_payload: edit
@@ -210,12 +243,45 @@ function App() {
   };
 
   const onAssetUpload = async (assetType: "character" | "scene" | "prop", event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    await importAsset(file, assetType);
-    setToast("资源已导入");
+    const files = Array.from(event.target.files || []);
+    if (!files.length) return;
+    if (files.length === 1) {
+      await importAsset(files[0], assetType);
+      setToast("资源已导入");
+    } else {
+      const result = await importAssetBatch(files, assetType);
+      setToast(`已导入 ${result.count}/${files.length} 个资源`);
+    }
     await refreshAssets();
     event.target.value = "";
+  };
+
+  const openRecentProjects = async () => {
+    const data = await getRecentProjects();
+    setProjects(data.projects);
+    setShowProjects((visible) => !visible);
+  };
+
+  const newProject = async () => {
+    const name = window.prompt("项目名称", `新项目 ${new Date().toLocaleTimeString("zh-CN", { hour12: false })}`) || "";
+    if (!name.trim()) return;
+    const result = await createProject(name.trim());
+    setActiveSessionId(result.project.session_id);
+    setShowProjects(false);
+    setStatus({});
+    setScriptDraft("");
+    setScriptDirty(false);
+    setActiveTab("script");
+    setToast("新项目已创建");
+  };
+
+  const archiveCurrentProject = async () => {
+    await archiveProject(activeSessionId);
+    setToast("项目已归档");
+    const data = await getRecentProjects();
+    setProjects(data.projects);
+    setShowProjects(true);
+    await refresh();
   };
 
   const saveProfile = async () => {
@@ -247,7 +313,7 @@ function App() {
     <div className="app-shell">
       <header className="topbar">
         <div className="brand"><Film size={19} />AI Director Studio</div>
-        <div className="project-title">霸总短剧_电梯误撞</div>
+        <div className="project-title">{status.project_name || "AI Director Studio"}</div>
         <div className="top-actions">
           <select
             value={profileDraft.id}
@@ -256,7 +322,7 @@ function App() {
               setProfileDraft(profile ? { ...defaultProfile, ...profile, api_key: "" } : defaultProfile);
             }}
           >
-            <option value="">我的 Comfly 方案</option>
+            <option value="">我的 API 方案</option>
             {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
           </select>
           <span className={connected ? "status-dot online" : "status-dot"} />
@@ -268,9 +334,28 @@ function App() {
       <main className="main-grid">
         <aside className="sidebar panel">
           <SectionTitle icon={<ClipboardList size={15} />} label="项目管理" />
-          <button className="nav-row active">最近项目</button>
-          <button className="nav-row">新建项目</button>
-          <button className="nav-row">归档项目</button>
+          <button className={showProjects ? "nav-row active" : "nav-row"} onClick={openRecentProjects}>最近项目</button>
+          <button className="nav-row" onClick={newProject}>新建项目</button>
+          <button className="nav-row" onClick={archiveCurrentProject}>归档项目</button>
+          {showProjects && (
+            <div className="project-list">
+              {projects.map((project) => (
+                <button
+                  key={project.session_id}
+                  className={project.session_id === activeSessionId ? "project-item active" : "project-item"}
+                  onClick={() => {
+                    setActiveSessionId(project.session_id);
+                    setShowProjects(false);
+                    setScriptDirty(false);
+                    setActiveTab(project.total_segments ? "director" : "script");
+                  }}
+                >
+                  <strong>{project.name}</strong>
+                  <span>{project.status} · {project.total_segments || 0} 段</span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <SectionTitle icon={<Scissors size={15} />} label="剧本片段" action="+" />
           <div className="segment-list">
@@ -303,10 +388,73 @@ function App() {
 
         <section className="workspace panel">
           <div className="tabs">
+            <button className={activeTab === "script" ? "tab active" : "tab"} onClick={() => setActiveTab("script")}>剧本输入</button>
             <button className={activeTab === "result" ? "tab active" : "tab"} onClick={() => setActiveTab("result")}>镜头导演结果</button>
             <button className={activeTab === "director" ? "tab active" : "tab"} onClick={() => setActiveTab("director")}>导演修改台</button>
             <button className={activeTab === "prompt" ? "tab active" : "tab"} onClick={() => setActiveTab("prompt")}>Seedance Prompt</button>
           </div>
+
+          {activeTab === "script" && (
+            <div className="script-board">
+              <div className="board-header">
+                <div>
+                  <p className="eyebrow">剧本输入</p>
+                  <h1>{status.project_name || "新项目"}</h1>
+                </div>
+                <div className="script-controls">
+                  <label>
+                    <span>画幅</span>
+                    <select value={aspectRatio} onChange={(event) => setAspectRatio(event.target.value)}>
+                      <option value="9:16">9:16 竖屏</option>
+                      <option value="16:9">16:9 横屏</option>
+                      <option value="1:1">1:1 方屏</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>风格</span>
+                    <select value={stylePreset} onChange={(event) => setStylePreset(event.target.value)}>
+                      <option value="modern_short_drama">现代短剧</option>
+                      <option value="ceo_short_drama">霸总短剧</option>
+                      <option value="urban_emotion">都市情感</option>
+                      <option value="suspense_thriller">悬疑惊悚</option>
+                      <option value="crime_realism">犯罪写实</option>
+                      <option value="cyberpunk">赛博朋克</option>
+                      <option value="new_chinese">新中式</option>
+                      <option value="ancient_politics">古装权谋</option>
+                      <option value="martial_hero">武侠江湖</option>
+                      <option value="xianxia_fantasy">仙侠玄幻</option>
+                      <option value="korean_drama">韩剧质感</option>
+                      <option value="japanese_mood">日系清冷</option>
+                      <option value="hongkong_cinema">港风电影</option>
+                      <option value="wong_kar_wai">王家卫式</option>
+                      <option value="film_noir">黑色电影</option>
+                      <option value="documentary">纪录片写实</option>
+                      <option value="commercial">广告大片</option>
+                      <option value="music_mv">音乐 MV</option>
+                      <option value="anime_storyboard">动漫分镜</option>
+                      <option value="vertical_drama">竖屏爽剧</option>
+                    </select>
+                  </label>
+                  <button className="primary" onClick={startPipeline} disabled={status.status?.startsWith("running")}>
+                    <Play size={16} />开始拆片
+                  </button>
+                </div>
+              </div>
+              <textarea
+                className="script-input"
+                value={scriptDraft}
+                onChange={(event) => {
+                  setScriptDraft(event.target.value);
+                  setScriptDirty(true);
+                }}
+                placeholder="在这里输入完整剧本。点击“开始拆片”后，后端会执行：剧本输入 → 拆片 → 镜头导演 → 导演修改确认。"
+              />
+              <div className="script-meta">
+                <span>{scriptDraft.trim().length} 字</span>
+                <span>{status.message || "等待输入剧本"}</span>
+              </div>
+            </div>
+          )}
 
           {activeTab === "director" && (
             <div className="director-board">
@@ -423,7 +571,7 @@ function SectionTitle({ icon, label, action }: { icon: JSX.Element; label: strin
 function AssetShelf({ title, icon, assets, onImport }: { title: string; icon: JSX.Element; assets: AssetItem[]; onImport: (event: ChangeEvent<HTMLInputElement>) => void }) {
   return (
     <>
-      <SectionTitle icon={icon} label={title} action={<label className="mini-upload"><Upload size={13} /><input type="file" accept="image/*" onChange={onImport} /></label>} />
+      <SectionTitle icon={icon} label={title} action={<span className="asset-upload-row"><label className="mini-upload" title="单图导入"><Upload size={13} /><input type="file" accept="image/*" onChange={onImport} /></label><label className="mini-upload" title="文件夹导入"><FolderSearch size={13} /><input type="file" accept="image/*" {...{ webkitdirectory: "" }} onChange={onImport} /></label></span>} />
       <div className="asset-grid">
         {assets.slice(0, 6).map((asset) => (
           <div className="asset-card" key={asset.id}>

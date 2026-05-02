@@ -68,6 +68,7 @@ def _default_task_state() -> dict:
         "archived": False,
         "model_profile_snapshot": {},
         "asset_selection": {},
+        "style_preset": "",
         "director_review_required": False,
         "director_edits_by_segment": {},
         "shot_director_original_by_segment": {},
@@ -94,7 +95,7 @@ ASSET_TYPE_DIRS = {
     "frame": "frames",
     "upload": "uploads",
 }
-IMAGE_ASSET_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp"}
+IMAGE_ASSET_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
 
 def _normalise_session_id(session_id: str | None) -> str:
@@ -1563,6 +1564,47 @@ async def api_assets_import(
     return JSONResponse({"success": True, "asset": asset})
 
 
+@app.post("/api/assets/import_batch")
+async def api_assets_import_batch(
+    asset_type: str = Form("character"),
+    tags: str = Form(""),
+    description: str = Form(""),
+    purpose: str = Form(""),
+    files: list[UploadFile] = File(...),
+):
+    _ensure_asset_dirs()
+    asset_type = _normalise_asset_type(asset_type)
+    dirname = ASSET_TYPE_DIRS[asset_type]
+    results: list[dict] = []
+    for file in files:
+        if not file or not file.filename:
+            continue
+        _, ext = os.path.splitext(file.filename)
+        if ext.lower() not in IMAGE_ASSET_EXTENSIONS:
+            continue
+        content = await file.read()
+        if not content:
+            continue
+        safe_name = os.path.splitext(file.filename)[0]
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_safe_filename(file.filename)}"
+        path = os.path.join(ASSET_LIBRARY_DIR, dirname, filename)
+        with open(path, "wb") as output:
+            output.write(content)
+        meta = {
+            "id": f"{asset_type}:{filename}",
+            "type": asset_type,
+            "name": safe_name,
+            "tags": _parse_tags(tags),
+            "description": description.strip(),
+            "purpose": purpose.strip(),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        _write_asset_meta(path, meta)
+        asset = _asset_from_path(asset_type, path)
+        results.append(asset)
+    return JSONResponse({"success": True, "assets": results, "count": len(results)})
+
+
 @app.post("/api/video/extract_frames")
 async def api_video_extract_frames(
     video_file: UploadFile = File(...),
@@ -1770,6 +1812,7 @@ async def api_run(
     model_profile_id: str = Form(""),
     model_profile_snapshot_json: str = Form(""),
     asset_selection_json: str = Form(""),
+    style_preset: str = Form(""),
     reference_image_files: list[UploadFile] | None = File(None),
 ):
     """启动流水线（宏观规划阶段一）"""
@@ -1799,11 +1842,18 @@ async def api_run(
 
     # 持久化用户输入（刷新页面后可恢复）。先重置整份会话状态，避免上一轮
     # active_segment_index / last_qc_status / tail_frame_analysis 等运行态残留。
+    preserved_project_name = task_state.get("project_name")
+    preserved_created_at = task_state.get("created_at")
     task_generation = _bump_task_generation(session_id)
     task_state.clear()
     task_state.update(_default_task_state())
+    if preserved_project_name:
+        task_state["project_name"] = preserved_project_name
+    if preserved_created_at:
+        task_state["created_at"] = preserved_created_at
     task_state["input_script"] = script
     task_state["input_aspect_ratio"] = aspect_ratio
+    task_state["style_preset"] = style_preset
     task_state["model_profile_snapshot"] = selected_model_profile
     task_state["asset_selection"] = selected_asset_selection
     # 生成参考图缩略图用于前端恢复显示

@@ -54,6 +54,8 @@ export interface TaskState {
   message?: string;
   error?: string;
   result?: string;
+  input_script?: string;
+  input_aspect_ratio?: string;
   project_name?: string;
   archived?: boolean;
   current_segment_index?: number;
@@ -62,6 +64,7 @@ export interface TaskState {
   segment_names?: string[];
   agent_outputs?: Record<string, string>;
   model_profile_snapshot?: Partial<ModelProfile> & { base_url_host?: string };
+  style_preset?: string;
   director_review_required?: boolean;
   director_edits_by_segment?: Record<string, { edited_yaml: string; edit_payload?: Record<string, unknown> }>;
   shot_director_original_by_segment?: Record<string, string>;

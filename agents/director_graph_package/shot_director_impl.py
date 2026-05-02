@@ -838,6 +838,10 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
                     f"禁止写'同一机位继续'等自由文本。"
                 )
 
+            cut_reason = _yaml_line_field(shot_block, "cut_reason")
+            if cut_reason and not _SHOT_CUT_TRIGGER_RE.search(cut_reason):
+                issues.append(f"{shot_id} 的 cut_reason 过于空泛，必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。")
+
             # Priority B: tail_state_card 尾态卡校验
             tail_state_card_match = re.search(
                 r"(?ms)^\s*tail_state_card\s*:\s*([\s\S]*?)$",
@@ -859,7 +863,7 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
                         f"必须包含：人物站位、接触关系、道具/门/车门状态、视线朝向、距离关系。"
                     )
 
-        if re.search(r"(?m)^\s*sub_shots\s*:", block):
+        if re.search(r"(?m)^\s*sub_shots\s*:", block) and not re.search(r"(?m)^\s*sub_shots\s*:\s*\[\s*\]\s*$", block):
             sub_blocks = re.findall(
                 r"(?ms)^\s*-\s*parent_shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*parent_shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
                 block,

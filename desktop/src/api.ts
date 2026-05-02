@@ -33,6 +33,23 @@ export const archiveProject = (sessionId: string) =>
     body: JSON.stringify({ session_id: sessionId })
   });
 
+export const runPipeline = (payload: {
+  sessionId: string;
+  script: string;
+  aspectRatio: string;
+  modelProfileId?: string;
+  stylePreset?: string;
+}) => {
+  const body = new FormData();
+  body.append("session_id", payload.sessionId);
+  body.append("script", payload.script);
+  body.append("aspect_ratio", payload.aspectRatio);
+  body.append("speed_mode", "false");
+  if (payload.modelProfileId) body.append("model_profile_id", payload.modelProfileId);
+  if (payload.stylePreset) body.append("style_preset", payload.stylePreset);
+  return readJson<{ success: true; message: string }>("/api/run", { method: "POST", body });
+};
+
 export const getModelProfiles = () =>
   readJson<{ success: true; profiles: ModelProfile[] }>("/api/model_profiles");
 
@@ -79,4 +96,13 @@ export const importAsset = (file: File, assetType: "character" | "scene" | "prop
   body.append("asset_type", assetType);
   body.append("name", file.name.replace(/\.[^.]+$/, ""));
   return readJson<{ success: true }>("/api/assets/import", { method: "POST", body });
+};
+
+export const importAssetBatch = (files: File[], assetType: "character" | "scene" | "prop") => {
+  const body = new FormData();
+  for (const file of files) {
+    body.append("files", file);
+  }
+  body.append("asset_type", assetType);
+  return readJson<{ success: true; count: number }>("/api/assets/import_batch", { method: "POST", body });
 };
