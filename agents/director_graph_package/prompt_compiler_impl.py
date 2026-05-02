@@ -691,7 +691,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
     if silent_cut_blocks:
         seg_list = "、".join(str(i) for i in silent_cut_blocks[:3])
         issues.append(
-            f'- [PROMPT-CUT-BUDGET-001] 隐性切镜：时间段 {seg_list} 写了"同一机位继续"但紧接着引入新主体+新景别，'
+            f'- [PROMPT-NO-SAME-CAMERA-ABUSE-001] [PROMPT-CUT-BUDGET-001] 隐性切镜：时间段 {seg_list} 写了"同一机位继续"但紧接着引入新主体+新景别，'
             "实际等于一次硬切，模型会按切镜处理。请要么把后续描述改成同主体的延续动作/表情，"
             '要么显式拆成新时间段并写明"镜头切至 ..."。'
         )

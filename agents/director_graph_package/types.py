@@ -3,7 +3,8 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Any, TypedDict
+from enum import Enum
+from typing import Any, Literal, TypedDict
 
 from ..utils import get_base_dir, get_config_path, get_output_dir
 
@@ -71,6 +72,33 @@ class LLMSettings:
         )
 
 
+class ShotTransitionType(str, Enum):
+    HOLD_ON_A = "hold_on_a"
+    CUT_TO_B = "cut_to_b"
+    PUSH_IN_ON_A = "push_in_on_a"
+    PULL_BACK_ON_A = "pull_back_on_a"
+    LOCKED_KEEP = "locked_keep"
+
+
+class TailStateCard(TypedDict, total=False):
+    character_positions: list[str]
+    contact_relations: list[str]
+    prop_states: list[str]
+    eyelines: list[str]
+    distance_relations: list[str]
+
+
+class StructuredShotContract(TypedDict, total=False):
+    subject_id: str
+    space_anchor: str
+    action_chain: list[str]
+    transition_type: str
+    camera_motion: str
+    tail_state: TailStateCard
+    tail_state_card: TailStateCard
+    inherits_prev_tail_state: bool
+
+
 class DirectorState(TypedDict, total=False):
     thread_id: str
     status: str
@@ -88,6 +116,12 @@ class DirectorState(TypedDict, total=False):
     reference_image_b64s: list[str]
     reference_image_count: int
     reference_image_manifest: list[dict[str, str]]
+    model_profile_snapshot: dict[str, Any]
+    asset_selection: dict[str, Any]
+    director_review_required: bool
+    director_edits_by_segment: dict[str, Any]
+    shot_director_original_by_segment: dict[str, str]
+    shot_director_approved_by_segment: dict[str, str]
     knowledge_metadata: dict[str, dict[str, Any]]
     agent_outputs: dict[str, str]
     current_segment_index: int

@@ -332,6 +332,25 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     ):
         qc_issues.append("- 当前片段规划要求片段内承受到击/反应，但 prompt 未写出可见落点。")
 
+    if "同一机位继续" in prompt:
+        qc_issues.append(
+            '- [PROMPT-NO-SAME-CAMERA-ABUSE-001] prompt 仍使用"同一机位继续"：应改成"镜头保持在A身上"、"固定机位保持在某空间锚点"、"镜头切至B"或"镜头切近至/拉开至A"。'
+        )
+
+    if re.search(r"压迫感|张力|炸点|钩子|气口|留白|情绪顶点|受压反应|空气收紧|前慢后碎|稳慢压", prompt):
+        qc_issues.append(
+            "- [PROMPT-VISIBLE-BODY-LANGUAGE-001] prompt 仍残留抽象导演词：必须翻译成停顿时长、视线方向、肩膀收紧、下颌收紧、嘴唇停住、身体距离或门/道具状态等可见画面。"
+        )
+
+    timeline_blocks = _timeline_blocks(prompt)
+    for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(timeline_blocks[1:], start=2):
+        prefix = blk_body[:120]
+        if not re.search(r"镜头保持在|固定机位保持|镜头切至|镜头切到|镜头切近至|镜头拉开至|切至|切到|切近至|拉开至", prefix):
+            qc_issues.append(
+                f"- [PROMPT-SHOT-TRANSITION-VERB-001] 时间轴第 {block_idx} 个时间段缺少精确衔接词：必须明确写同主体保持、固定机位保持、主体切镜或同主体景别变化。"
+            )
+            break
+
     # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段反打硬失败 — 检查编译后 prompt ===
     if _REVERSE_SHOT_INSIDE_SEGMENT_RE.search(prompt):
         qc_issues.append(

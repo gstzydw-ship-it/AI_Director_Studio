@@ -2014,6 +2014,16 @@ def shot_director_node(state: DirectorState) -> DirectorState:
     # Single-pass schema: only "final" output
     outputs["shot_director_final"] = stage_outputs.get("final", "")
     outputs["shot_director"] = output
+    original_by_segment = dict(state.get("shot_director_original_by_segment") or {})
+    for idx in range(1, max(total_segments, 1) + 1):
+        fragment_id = f"F{idx:02d}"
+        match = re.search(
+            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+            output or "",
+        )
+        if match:
+            original_by_segment.setdefault(str(idx), match.group(1).strip())
     return _persist_update(
         state,
         {
@@ -2025,6 +2035,10 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             "total_segments": total_segments,
             "segment_names": segment_names,
             "current_segment_index": 1,
+            "director_review_required": True,
+            "director_edits_by_segment": dict(state.get("director_edits_by_segment") or {}),
+            "shot_director_original_by_segment": original_by_segment,
+            "shot_director_approved_by_segment": dict(state.get("shot_director_approved_by_segment") or {}),
         },
     )
 

@@ -19,7 +19,8 @@ except ImportError:
     _HAS_BM25S = False
 from typing import Dict, List, Any
 
-from .utils import COMFLY_BASE_URL, get_config_path, get_knowledge_dir, get_cache_dir, load_yaml_config
+from .request_context import request_session_id
+from .utils import COMFLY_BASE_URL, get_config_path, get_knowledge_dir, get_cache_dir, get_output_dir, load_yaml_config
 
 
 def load_config():
@@ -44,6 +45,20 @@ def load_config():
 _embed_clients: dict[tuple[str, str], OpenAI] = {}
 
 
+def _load_session_model_profile() -> dict[str, Any]:
+    session_id = re.sub(r"[^A-Za-z0-9_-]", "", request_session_id.get("local") or "local")[:80] or "local"
+    state_path = os.path.join(get_output_dir(), "sessions", session_id, "pipeline_state.json")
+    if not os.path.exists(state_path):
+        return {}
+    try:
+        with open(state_path, "r", encoding="utf-8-sig") as file:
+            state = json.load(file)
+    except Exception:
+        return {}
+    profile = state.get("model_profile_snapshot") if isinstance(state, dict) else {}
+    return profile if isinstance(profile, dict) else {}
+
+
 def _get_embed_client() -> OpenAI:
     """获取 OpenAI 兼容 Embedding 客户端，按 key/base_url 隔离缓存。
 
@@ -52,8 +67,9 @@ def _get_embed_client() -> OpenAI:
     """
     config = load_config() or {}
     vdb_config = config.get("vectordb") or {}
-    api_key = vdb_config.get("api_key") or ""
-    base_url = vdb_config.get("base_url") or COMFLY_BASE_URL
+    profile = _load_session_model_profile()
+    api_key = profile.get("vectordb_api_key") or profile.get("api_key") or vdb_config.get("api_key") or ""
+    base_url = profile.get("vectordb_base_url") or vdb_config.get("base_url") or COMFLY_BASE_URL
     if not api_key:
         raise RuntimeError("vectordb.api_key 未配置，无法创建 Embedding 客户端。")
     cache_key = (api_key, base_url)
@@ -99,7 +115,8 @@ def _embed_texts(texts: list[str], model: str = None, batch_size: int = 20) -> l
     """调用在线 API 获取文本 Embedding 向量"""
     if model is None:
         config = load_config()
-        model = config["vectordb"]["embedding_model"]
+        profile = _load_session_model_profile()
+        model = profile.get("embedding_model") or config["vectordb"]["embedding_model"]
     client = _get_embed_client()
     # OpenAI embedding API 单次最多 2048 条，按批处理
     all_embeddings = []
@@ -594,6 +611,9 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
     global _vectordb_cache
     config = load_config()
     vdb_config = config["vectordb"]
+    profile = _load_session_model_profile()
+    embedding_model = profile.get("embedding_model") or vdb_config["embedding_model"]
+    embedding_base_url = profile.get("vectordb_base_url") or vdb_config.get("base_url", "")
 
     if knowledge_dir is None:
         knowledge_dir = get_knowledge_dir()
@@ -608,7 +628,7 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
     print("[INFO] 开始构建向量知识库...")
     print(f"  knowledge dir: {knowledge_dir}")
     print(f"  persist dir:   {persist_dir}")
-    print(f"  embedding:     {vdb_config['embedding_model']} via {vdb_config.get('base_url', '')}")
+    print(f"  embedding:     {embedding_model} via {embedding_base_url}")
 
     # 构建文件 → Agent 反向映射；Obsidian 规则卡优先使用 frontmatter.agent_scope。
     file_to_agents = {}
@@ -657,7 +677,7 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
 
     # 调用在线 API 获取所有片段的 Embedding
     print(f"\n[INFO] 正在获取 {len(all_documents)} 个片段的 Embedding...")
-    all_embeddings = _embed_texts(all_documents, model=vdb_config["embedding_model"])
+    all_embeddings = _embed_texts(all_documents, model=embedding_model)
     print(f"  [OK] Embedding 维度: {len(all_embeddings[0])}")
 
     # 持久化到 JSON 文件

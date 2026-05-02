@@ -16,6 +16,10 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+node_modules/
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
 
 *.sqlite
 *.db
