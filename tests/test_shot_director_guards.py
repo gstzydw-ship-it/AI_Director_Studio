@@ -274,6 +274,7 @@ sub_shots:
 
 def test_shot_director_allows_empty_sub_shots_array():
     director_output = """fragment_id: F01
+schema_version: shot_director_v2
 fragment_intent: "handoff"
 reaction_coverage: "none"
 continuity_anchor: "same lobby"
@@ -284,7 +285,7 @@ state_chain:
 event_coverage:
   - source_event: "Event."
     covered_by: "F01-S01"
-main_shots:
+shots:
   - shot_id: "F01-S01"
     subject: "Actor"
     shot_size: "medium shot"
@@ -304,6 +305,9 @@ main_shots:
     companion_visibility: "none"
     state_delta: "stable"
     tailframe_role: "tailframe_reset"
+    dialogue_coverage: "none"
+    transition_type: "scene_fixed"
+    tail_state_card: "人物站位: Actor在room_center；接触关系: 无接触；道具/门/车门状态: 门保持open；视线朝向: toward_camera；距离关系: 单人中景距离"
     shot_intent: "cover event"
 sub_shots: []
 """
