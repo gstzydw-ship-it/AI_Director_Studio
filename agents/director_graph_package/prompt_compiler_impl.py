@@ -493,7 +493,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         if _dialogue_payload_is_long(block_dialogues) and not _has_internal_dialogue_visual_coverage(body):
             issues.append(
                 f"- 时间轴第 {index} 个时间段让长台词/高压对白停留在单一画面：人物说话时严禁一个镜头、一个景别或一个机位说完整句；"
-                '请在对白内部加入"说话者起句 -> 镜头切至同侧听者反应或过肩 -> 后半句画外音/L-cut -> 必要时切回"的覆盖变化。'
+                '请在对白内部加入“说话者起句，切至同侧听者反应或过肩；镜头停留在听者脸部或过肩画面，说话者后半句在画外继续；若后续还有新动作或新信息点，必须另起新镜头承接”的覆盖变化。'
             )
             break
 
@@ -951,7 +951,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "3. companion_visibility 必须写成可见画面语言，例如前景肩线轻虚、近侧侧影、边缘虚化、画外左侧/右侧仍为视线对象、已出画。\n"
         "4. state_delta 必须写进动作链，保持单向变化：松手后不再搭回，门关闭后保持关闭，退出人物不再回到画面。\n"
         "5. tailframe_role=tailframe_reset 时，最后 0.5-1 秒必须回到双人/多人关系景或明确空间状态，不能停在局部特写。\n"
-        "5a. dialogue_coverage 如果包含长台词、高压命令、质问或揭晓句，时间轴必须保留对白内部视觉覆盖变化：说话者起句、同侧听者反应/过肩、必要时切回；可以让后半句以画外音/OS/L-cut 砸在听者画面上，禁止单段反打。\n"
+        "5a. dialogue_coverage 如果包含长台词、高压命令、质问或揭晓句，时间轴必须保留对白内部视觉覆盖变化：说话者起句、同侧听者反应/过肩；镜头停留在听者脸部或过肩画面，说话者后半句在画外继续。若后续还有新动作、新信息点或新的主体重心，必须另起新镜头承接，禁止偷写成切回前一个已完成动作链的镜头，也禁止单段反打。\n"
         "5b. 严禁把一整句长压迫对白、一个完整问答、或两句以上往返对白放在同一个镜头/景别/机位里连续说完；即使时间段开头已经写\"镜头切至\"，对白开始后仍必须有新的切镜点、主体变化或景别变化。\n"
         "如果镜头资产还包含 blocking_plan / state_chain / event_coverage / duration_hint / action_phase，也必须落实进最终时间轴：\n"
         "6. blocking_plan 决定动作推进顺序：谁先动、谁承接、何时复位，时间轴不要写成散点句子。\n"
