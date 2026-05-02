@@ -68,6 +68,9 @@ _NEW_SUBJECT_FRAMING_RE = _legacy._NEW_SUBJECT_FRAMING_RE
 
 _INTERNAL_DIALOGUE_CUT_RE = re.compile(r"(镜头切至|镜头切到|切至|切到|切回|反打至|反打镜头|过肩|画外音|OS|L-cut|J-cut)")
 _LISTENER_COVERAGE_RE = re.compile(r"(听者|对手|对方|受击|反应|反打|过肩|视线|下颌|呼吸|停顿|画外音|OS|L-cut|J-cut)")
+_DIRECTOR_JARGON_RE = re.compile(
+    r"(稳定器在同一运动里带到|同一运动里带到|顺势带到|带到.{0,12}受压反应|受压反应|权力压住|气场压住|空气收紧|沉默就是回应)"
+)
 
 
 def _reaction_cut_and_action_path_rules() -> str:
@@ -103,6 +106,19 @@ def _timeline_continuity_contract_rules() -> str:
         "9. 禁止写成\"3-6秒：员工群体中景...\"这种像新 prompt 的开头；应写成\"延续上一镜/镜头切至员工列反应中景，保留商北琛背影在右前景...\"并说明承接关系。\n"
         "10. 尾段尤其要拆清楚：命令落点、让路、进入电梯、门合拢不能塞进一个固定人物正面镜头；必须用场景固定机位或明确切镜桥接。\n"
         "11. 空间锚点的前景/后景必须符合摄影机位置与人物朝向。若人物面朝电梯且镜头拍人物正面，摄影机就在电梯方向，电梯门框不能写成后景；只能写成前景边缘、侧边门框，或改用人物背面/侧背机位让电梯门框位于前方。\n"
+    )
+
+
+def _director_jargon_translation_rules() -> str:
+    return (
+        "【导演调度翻译成 Seedance 可见语言硬规则】\n"
+        "1. prompt_compiler 的职责不是照抄 shot_director 的导演口语，而是把它翻译成 Seedance 能直接生成的画面自然句。\n"
+        "2. 禁止原样输出\"稳定器在同一运动里带到\"\"顺势带到\"\"受压反应\"\"权力压住\"\"空气收紧\"等抽象调度词；这些词必须落成摄影机动作、主体景别和可见表演。\n"
+        "3. 运镜要写成模型能执行的物理动作：\"稳定缓慢横移\"、\"平稳跟拍\"、\"固定机位轻微推近\"、\"镜头切至同侧听者反应\"。不要把\"稳定器\"写成一个会做动作的主体。\n"
+        "4. \"带到某人反应\"必须改成明确画面：镜头从谁开始，向哪个方向移动或切到谁，谁以什么景别出现，人物做了什么可见动作。\n"
+        "5. \"受压反应/被压住\"必须改成可见表演：低头、屏住呼吸、肩膀收紧、眼神回避、嘴唇停住、身体僵住、让开通道、没人说话。\n"
+        "6. 正确示例：\"稳定缓慢横移镜头，从商北琛冷峻正面开始，带过严飞和几名主管的胸部以上画面；严飞微微低头，主管们肩膀收紧、屏住呼吸、避开商北琛视线。\"\n"
+        "7. 错误示例：\"稳定器在同一运动里带到严飞和主管胸部以上受压反应。\" 这类句子像导演现场口令，不能作为最终 Seedance prompt。\n"
     )
 
 
@@ -339,6 +355,13 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             "- Prompt 包含不可生成的抽象情绪判断："
             + "、".join(abstract_terms[:6])
             + "。请改写为停顿时长、视线方向、身体距离、站位变化、让路动作、电梯门状态等可见画面。"
+        )
+    director_jargon_terms = sorted(set(match.group(0) for match in _DIRECTOR_JARGON_RE.finditer(prompt or "")))
+    if director_jargon_terms:
+        issues.append(
+            "- Prompt 残留导演调度口语："
+            + "、".join(director_jargon_terms[:5])
+            + "。请翻译成 Seedance 可见语言：明确镜头从谁到谁、景别、运动方向，以及低头/屏息/肩膀收紧/眼神回避等可见反应。"
         )
 
     space_section = _prompt_section(prompt, "空间与首帧总控")
@@ -709,6 +732,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         # NOTE: _spatial_geometry_contract_rules() 不注入 compiler，已由【空间几何字段翻译规则】替代。
         f"{_reaction_cut_and_action_path_rules()}\n"
         f"{_timeline_continuity_contract_rules()}\n"
+        f"{_director_jargon_translation_rules()}\n"
         "【片段连续性规则——替代旧的单主体僵化规则】\n"
         "1. 单个片段必须有清晰的主导主体与稳定空间轴线，但不等于全程只能看一个人。\n"
         "2. 如果上游资产明确给出 shots / sub_shots / reaction_plan，你可以在同一片段内自然承接炸点命中、受击落点、双人关系变化；但必须写出连续过渡，不能伪造剪辑软件式瞬切。\n"
@@ -881,6 +905,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"{_camera_task_selection_rules()}\n"
         f"{_reaction_cut_and_action_path_rules()}\n"
         f"{_timeline_continuity_contract_rules()}\n"
+        f"{_director_jargon_translation_rules()}\n"
         "【输出前强制自检】\n"
         "1. 标题行是否为 '片段N｜场景名｜关键词｜~秒数秒' 格式？\n"
         "2. 是否包含【风格锚点】【画幅锚点】【空间与首帧总控】【人物】【镜头序列】【约束】六个段落？\n"
@@ -910,6 +935,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "25. 【空间方位词密度】每个时间段的空间方位词（前景/中景/后景/远端/近侧/边缘/侧边/画面左/画面右/前方/后方/左侧/右侧）是否超过3个？如果超过，只保留最必要的0-1个锚点。\n"
         "26. 【视角翻转铺垫】相邻两个时间段之间是否存在从正面突变为背面（或反之）的视角翻转？如果有，必须在文本中铺垫人物转身动作，或插入侧面过渡机位。\n"
         "27. 【内部字段泄漏】是否出现 fragment_task、must_carry、cut_point、continuity、shot_id、fragment_id 等字段名？如有必须改写成自然中文镜头语言。\n"
+        "28. 【导演口语翻译】是否还残留\"稳定器在同一运动里带到\"\"顺势带到\"\"受压反应\"\"权力压住\"等导演调度口语？如有必须改成镜头从谁到谁、景别、运动方向和低头/屏息/肩膀收紧/眼神回避等可见表演。\n"
         "全部通过后再输出。"
     )
     output = call_llm_with_mcp(system_prompt, user_prompt, server_type="filesystem", images_base64=None, agent_name="prompt_compiler")

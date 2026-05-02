@@ -58,6 +58,19 @@ def test_compiler_guard_flags_ambiguous_camera_and_abstract_phrases():
     assert "缺少可执行摄影机位置" in report
 
 
+def test_compiler_guard_flags_director_jargon_that_needs_visual_translation():
+    prompt = """片段1｜天御集团大堂｜入场立威｜~12秒
+
+【时间轴】
+0-4秒：商北琛半身中景，摄影机位于商北琛正前方0度、眼平高度。稳定器在同一运动里带到严飞和主管胸部以上受压反应。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "导演调度口语" in report
+    assert "受压反应" in report
+
+
 def test_compiler_guard_accepts_explicit_camera_position_language():
     prompt = """片段1｜天御集团大堂｜入场立威｜~12秒
 

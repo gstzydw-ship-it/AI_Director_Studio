@@ -363,6 +363,7 @@ CRITICAL_KNOWLEDGE_MAP = {
         "06_连续性与安全规则.md",          # 状态合同翻译与禁止项
         "07_Seedance输出词典与模型适配.md",  # 输出模板，必须全文
         "rules/prompt_compiler/PROMPT-HARD-CONSTRAINT-DEDUP-001.md",  # 约束集中，禁止污染时间轴
+        "rules/prompt_compiler/PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md",  # 导演口语转可见画面语言
     ],
     "quality_inspector": [
         "17_结果质检与回溯修正规则.md",    # 质检核心文件
