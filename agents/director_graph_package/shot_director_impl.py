@@ -790,6 +790,62 @@ def _extract_fragment_id(section: str) -> str:
     match = re.search(r"(?m)^\s*-?\s*fragment_id\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
     return match.group(1).strip() if match else ""
 
+
+def _fragment_ids_from_validation_issues(issues: list[str], expected_segments: list[str]) -> list[str]:
+    """Return only fragment ids implicated by validation issues.
+
+    This keeps shot_director repair scoped to the failed/missing fragments instead
+    of rewriting already valid split-by-fragment output.
+    """
+    ordered_expected: list[str] = []
+    for segment_name in expected_segments:
+        segment_num = re.sub(r"\D", "", segment_name or "")
+        fragment_id = f"F{int(segment_num):02d}" if segment_num else (segment_name or "").strip()
+        if fragment_id and fragment_id not in ordered_expected:
+            ordered_expected.append(fragment_id)
+
+    failed: list[str] = []
+    for issue in issues:
+        for fragment_id in re.findall(r"\bF\d{2,}\b", issue or ""):
+            if fragment_id not in failed:
+                failed.append(fragment_id)
+
+    return [fragment_id for fragment_id in ordered_expected if fragment_id in failed] or failed
+
+
+def _filter_yaml_sections_by_fragment_ids(yaml_text: str, fragment_ids: list[str]) -> str:
+    if not fragment_ids:
+        return yaml_text
+    wanted = set(fragment_ids)
+    sections = [section for section in _extract_yaml_sections(yaml_text or "") if _extract_fragment_id(section) in wanted]
+    return "\n\n".join(section.strip() for section in sections if section.strip()).strip()
+
+
+def _merge_repaired_yaml_sections(original_yaml: str, repaired_yaml: str, fragment_ids: list[str]) -> str:
+    """Patch only repaired fragment sections back into the original YAML."""
+    if not fragment_ids:
+        return repaired_yaml or original_yaml
+    wanted = set(fragment_ids)
+    original_sections = _extract_yaml_sections(original_yaml or "")
+    repaired_by_id = {
+        _extract_fragment_id(section): section.strip()
+        for section in _extract_yaml_sections(repaired_yaml or "")
+        if _extract_fragment_id(section) in wanted
+    }
+    merged: list[str] = []
+    seen: set[str] = set()
+    for section in original_sections:
+        fragment_id = _extract_fragment_id(section)
+        if fragment_id in repaired_by_id:
+            merged.append(repaired_by_id[fragment_id])
+            seen.add(fragment_id)
+        else:
+            merged.append(section.strip())
+    for fragment_id in fragment_ids:
+        if fragment_id in repaired_by_id and fragment_id not in seen:
+            merged.append(repaired_by_id[fragment_id])
+    return "\n\n".join(section for section in merged if section).strip()
+
 def _field_value(section: str, field: str) -> str:
     match = re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:\s*[\"']?(.+?)[\"']?\s*$", section)
     return match.group(1).strip() if match else ""
@@ -1809,36 +1865,50 @@ def _run_shot_director_single_pass_impl(
         final_output = _repair_shot_director_output_contracts(final_output, script)
         final_runtime["auto_repair_applied"] = final_output != raw_final_output
 
-    # Validate output
+    # Validate output. Trust already split fragment outputs and repair only failed fragments.
     final_issues = _validate_shot_director_output(final_output, expected_segments)
     if final_issues and not existing_final:
+        failed_fragment_ids = _fragment_ids_from_validation_issues(final_issues, expected_segments)
+        repair_target_output = _filter_yaml_sections_by_fragment_ids(final_output, failed_fragment_ids)
+        if not repair_target_output:
+            repair_target_output = final_output
+        repair_scope_line = (
+            f"只修复这些失败片段：{', '.join(failed_fragment_ids)}；"
+            "其他已生成片段视为可信，不要重写。"
+            if failed_fragment_ids
+            else "无法定位具体失败片段时，才允许修复完整 YAML。"
+        )
         repair_prompt = (
             "shot_director 输出没有通过校验。请只修正 YAML，不要解释。\n\n"
+            f"【返修范围】\n{repair_scope_line}\n\n"
             "【必须修复的问题】\n"
             + "\n".join(f"- {issue}" for issue in final_issues)
             + "\n\n【关键原则】\n"
-            "1. 必须覆盖所有 fragment_id。\n"
-            "2. 每个 fragment 必须有 fragment_task、rhythm、shots。\n"
-            "3. 每个 shot 必须有 shot_id、duration、task、subject、camera、size、action、dialogue、must_carry、cut_point、continuity。\n"
-            "4. duration 必须连续，cut_point 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
+            "1. 优先信任已分片输出，只修失败/缺失的 fragment_id。\n"
+            "2. 每个返修 fragment 必须有 schema_version: shot_director_v2、fragment_intent、reaction_coverage、continuity_anchor、shots。\n"
+            "3. 每个 shot 必须有 v2 字段：shot_id、subject、shot_size、camera_height、angle、movement、lens、depth、coverage_role、cut_reason、companion_visibility、tailframe_role、dialogue_coverage、transition_type、tail_state_card。\n"
+            "4. cut_reason 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
             "5. 长台词必须插入听者反应镜头；不新增剧本外元素。\n\n"
-            "【待修正 YAML】\n"
-            f"{final_output}\n\n"
+            "【待修正 YAML（仅失败片段或定位失败时的完整 YAML）】\n"
+            f"{repair_target_output}\n\n"
             f"{rule_block}"
-            "请输出修正后的完整 YAML。"
+            "请只输出返修范围内的 YAML 片段。"
         )
-        repaired_final, repair_runtime = _call_shot_director_stage(
+        repaired_fragment_output, repair_runtime = _call_shot_director_stage(
             stage_key="shot_director",
             system_prompt=system_prompt,
             user_prompt=repair_prompt,
             images_base64=None,
         )
-        raw_repaired_final = repaired_final
-        repaired_final = _repair_shot_director_output_contracts(repaired_final, script)
+        raw_repaired_final = repaired_fragment_output
+        repaired_fragment_output = _repair_shot_director_output_contracts(repaired_fragment_output, script)
+        repaired_final = _merge_repaired_yaml_sections(final_output, repaired_fragment_output, failed_fragment_ids)
         repaired_issues = _validate_shot_director_output(repaired_final, expected_segments)
         final_runtime["repair_attempted"] = True
+        final_runtime["repair_scope"] = "failed_fragments" if failed_fragment_ids else "full_yaml"
+        final_runtime["repair_fragment_ids"] = failed_fragment_ids
         final_runtime["repair_runtime"] = repair_runtime
-        final_runtime["repair_auto_repair_applied"] = repaired_final != raw_repaired_final
+        final_runtime["repair_auto_repair_applied"] = repaired_fragment_output != raw_repaired_final
         final_runtime["repair_validation_issues"] = repaired_issues
         if len(repaired_issues) <= len(final_issues):
             final_output = repaired_final
@@ -2079,32 +2149,44 @@ def shot_director_node(state: DirectorState) -> DirectorState:
     )
     primary_hard_issues = _hard_shot_director_issues(primary_issues)
     if primary_hard_issues:
+        failed_fragment_ids = _fragment_ids_from_validation_issues(primary_hard_issues, segment_names)
+        repair_target_output = _filter_yaml_sections_by_fragment_ids(primary_output, failed_fragment_ids)
+        if not repair_target_output:
+            repair_target_output = primary_output
+        final_repair_scope = (
+            f"只修复这些失败片段：{', '.join(failed_fragment_ids)}；"
+            "其他已分片输出优先视为可信，不要重写。"
+            if failed_fragment_ids
+            else "无法定位具体失败片段时，才允许修复完整 YAML。"
+        )
         final_repair_prompt = (
             "shot_director 最终 YAML 没有通过主校验。请只修正 YAML，不要解释。\n\n"
+            f"【返修范围】\n{final_repair_scope}\n\n"
             "【必须修复的硬错误】\n"
             + "\n".join(f"- {issue}" for issue in primary_hard_issues)
             + "\n\n【修复原则】\n"
-            "1. 每个 fragment_id 都必须在输出中。\n"
-            "2. 每个 fragment 必须有：fragment_task、rhythm、shots。\n"
-            "3. 每个 shot 必须有：shot_id、duration、task、subject、camera、size、action、dialogue、must_carry、cut_point、continuity。\n"
-            "4. duration 必须连续；cut_point 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
+            "1. 优先信任已分片输出，只修失败/缺失的 fragment_id。\n"
+            "2. 每个返修 fragment 必须有 schema_version: shot_director_v2、fragment_intent、reaction_coverage、continuity_anchor、shots。\n"
+            "3. 每个 shot 必须有 v2 字段：shot_id、subject、shot_size、camera_height、angle、movement、lens、depth、coverage_role、cut_reason、companion_visibility、tailframe_role、dialogue_coverage、transition_type、tail_state_card。\n"
+            "4. cut_reason 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
             "5. 长台词必须插入听者反应镜头；只能使用剧本里的人物和台词，不新增剧本外内容。\n\n"
             "【原始剧本】\n"
             f"{state.get('script', '')}\n\n"
             "【拆片方案】\n"
             f"{planner_output}\n\n"
-            "【待修正 YAML】\n"
-            f"{primary_output}\n\n"
-            "请输出修正后的完整 YAML。"
+            "【待修正 YAML（仅失败片段或定位失败时的完整 YAML）】\n"
+            f"{repair_target_output}\n\n"
+            "请只输出返修范围内的 YAML 片段。"
         )
-        repaired_primary = call_llm(
+        repaired_fragment_output = call_llm(
             "你是 shot_director 最终返修导演。只输出修正后的 YAML。",
             final_repair_prompt,
             agent_name="shot_director",
             images_base64=None,
         )
-        repaired_primary = _clean_shot_director_output(repaired_primary)
-        repaired_primary = _repair_shot_director_output_contracts(repaired_primary, state.get("script", ""))
+        repaired_fragment_output = _clean_shot_director_output(repaired_fragment_output)
+        repaired_fragment_output = _repair_shot_director_output_contracts(repaired_fragment_output, state.get("script", ""))
+        repaired_primary = _merge_repaired_yaml_sections(primary_output, repaired_fragment_output, failed_fragment_ids)
         repaired_issues = _collect_shot_director_issues(
             repaired_primary,
             expected_segments=segment_names,
@@ -2115,6 +2197,8 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         repaired_hard_issues = _hard_shot_director_issues(repaired_issues)
         shot_runtime["final_guard_repair"] = {
             "attempted": True,
+            "scope": "failed_fragments" if failed_fragment_ids else "full_yaml",
+            "fragment_ids": failed_fragment_ids,
             "output_chars": len(repaired_primary),
             "initial_hard_issues": primary_hard_issues,
             "remaining_hard_issues": repaired_hard_issues,

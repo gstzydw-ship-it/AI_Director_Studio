@@ -6,7 +6,7 @@ agent_models:
     timeout_seconds: 180
   prompt_compiler:
     base_url: http://8.nat0.cn:49347/v1
-    model: gpt-5.5
+    model: mimo-v2.5-pro
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 3
@@ -24,16 +24,21 @@ agent_models:
     base_url: http://8.nat0.cn:49347/v1
     model: glm-5.1
     temperature: 0.1
+    timeout_seconds: 240
+    read_timeout_seconds: 240
+    max_retries: 3
+    fallback_models:
+    - claude-opus-4-7
   script_event_validator:
     base_url: http://8.nat0.cn:49347/v1
     model: deepseek-v3.2
     temperature: 0.0
   shot_director:
     base_url: http://8.nat0.cn:49347/v1
-    model: gpt-5.5
+    model: claude-opus-4-7
     temperature: 0.3
     timeout_seconds: 180
-    max_retries: 3
+    max_retries: 1
   story_planner:
     base_url: http://8.nat0.cn:49347/v1
     model: claude-opus-4-7
