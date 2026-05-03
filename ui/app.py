@@ -14,8 +14,12 @@ import re
 import shutil
 from io import BytesIO
 from datetime import datetime
+from typing import Any
+from urllib.parse import quote, urlparse
 
-from fastapi import FastAPI, Request, UploadFile, File, Form
+import httpx
+from fastapi import FastAPI, Request, UploadFile, File, Form, Body
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -33,6 +37,12 @@ from agents.utils import COMFLY_BASE_URL
 
 
 app = FastAPI(title="智能导演多Agent团队", version="0.2.0")
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 静态文件和模板
 ui_dir = os.path.dirname(__file__)
@@ -54,6 +64,15 @@ def _default_task_state() -> dict:
         "input_script": "",     # 用户输入的剧本文本（持久化，刷新不丢）
         "input_aspect_ratio": "9:16",  # 画幅
         "input_ref_manifest": [],  # 参考图元数据（含缩略图）
+        "project_name": "未命名项目",
+        "archived": False,
+        "model_profile_snapshot": {},
+        "asset_selection": {},
+        "style_preset": "",
+        "director_review_required": False,
+        "director_edits_by_segment": {},
+        "shot_director_original_by_segment": {},
+        "shot_director_approved_by_segment": {},
     }
 
 
@@ -67,6 +86,16 @@ active_task_threads: dict[str, threading.Thread] = {}
 RUNNING_STATUSES = {"running", "running_phase_1", "running_phase_2"}
 BLOCKING_STATUSES = RUNNING_STATUSES | {"waiting_for_user_input"}
 LIVE_TASK_STALL_TIMEOUT_SECONDS = int(os.getenv("DIRECTOR_UI_STALL_TIMEOUT_SECONDS", "900"))
+ASSET_LIBRARY_DIR = os.path.join(OUTPUT_DIR, "client_assets")
+MODEL_PROFILES_PATH = os.path.join(OUTPUT_DIR, "private", "model_profiles.json")
+ASSET_TYPE_DIRS = {
+    "character": "characters",
+    "scene": "scenes",
+    "prop": "props",
+    "frame": "frames",
+    "upload": "uploads",
+}
+IMAGE_ASSET_EXTENSIONS = {".png", ".jpg", ".jpeg", ".webp", ".bmp"}
 
 
 def _normalise_session_id(session_id: str | None) -> str:
@@ -410,14 +439,352 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
         _recover_stalled_live_task(session_id, task_state)
 
 
+def _mask_secret(value: Any) -> str:
+    text = str(value or "")
+    if not text:
+        return ""
+    if len(text) <= 8:
+        return "*" * len(text)
+    return f"{text[:3]}***{text[-4:]}"
+
+
+def _mask_sensitive(value: Any) -> Any:
+    if isinstance(value, dict):
+        masked: dict[str, Any] = {}
+        for key, item in value.items():
+            lower_key = str(key).lower()
+            if "api_key" in lower_key or lower_key in {"apikey", "token", "secret"}:
+                masked[key] = _mask_secret(item)
+            else:
+                masked[key] = _mask_sensitive(item)
+        return masked
+    if isinstance(value, list):
+        return [_mask_sensitive(item) for item in value]
+    return value
+
+
+def _host_from_base_url(base_url: Any) -> str:
+    text = str(base_url or "").strip()
+    if not text:
+        return ""
+    parsed = urlparse(text if "://" in text else f"https://{text}")
+    return parsed.netloc or parsed.path.split("/", 1)[0]
+
+
 def _public_task_state(session_id: str = DEFAULT_SESSION_ID) -> dict:
     state = dict(_task_state(session_id))
     image_refs = state.get("reference_image_b64s") or []
     if image_refs:
         state["reference_image_b64s"] = f"{len(image_refs)} reference images omitted from status response"
+    if isinstance(state.get("model_profile_snapshot"), dict):
+        snapshot = _mask_sensitive(state["model_profile_snapshot"])
+        snapshot["base_url_host"] = _host_from_base_url(snapshot.get("base_url"))
+        state["model_profile_snapshot"] = snapshot
     error = state.get("error")
     if isinstance(error, str) and len(error) > 5000:
         state["error"] = error[:5000] + "\n... traceback truncated ..."
+    return state
+
+
+def _ensure_asset_dirs() -> None:
+    for dirname in ASSET_TYPE_DIRS.values():
+        os.makedirs(os.path.join(ASSET_LIBRARY_DIR, dirname), exist_ok=True)
+    os.makedirs(os.path.dirname(MODEL_PROFILES_PATH), exist_ok=True)
+
+
+def _normalise_asset_type(asset_type: str | None) -> str:
+    value = (asset_type or "").strip().lower()
+    aliases = {
+        "person": "character",
+        "role": "character",
+        "location": "scene",
+        "place": "scene",
+        "object": "prop",
+        "frame_reference": "frame",
+    }
+    value = aliases.get(value, value)
+    return value if value in ASSET_TYPE_DIRS else "upload"
+
+
+def _safe_filename(filename: str, fallback: str = "asset") -> str:
+    stem, ext = os.path.splitext(filename or "")
+    safe_stem = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in stem).strip("._")
+    safe_ext = "".join(ch for ch in ext.lower() if ch.isalnum() or ch == ".")
+    return f"{safe_stem or fallback}{safe_ext or '.bin'}"
+
+
+def _parse_tags(value: Any) -> list[str]:
+    if isinstance(value, list):
+        candidates = value
+    else:
+        text = str(value or "")
+        try:
+            parsed = json.loads(text)
+            candidates = parsed if isinstance(parsed, list) else re.split(r"[,，\n]+", text)
+        except json.JSONDecodeError:
+            candidates = re.split(r"[,，\n]+", text)
+    tags: list[str] = []
+    for item in candidates:
+        tag = str(item or "").strip()
+        if tag and tag not in tags:
+            tags.append(tag)
+    return tags
+
+
+def _thumbnail_data_url(path: str, size: int = 180) -> str:
+    try:
+        image = Image.open(path)
+        image = ImageOps.exif_transpose(image)
+        image.thumbnail((size, size), Image.Resampling.LANCZOS)
+        if image.mode in ("RGBA", "LA") or (image.mode == "P" and "transparency" in image.info):
+            canvas = Image.new("RGB", image.size, (20, 24, 31))
+            rgba = image.convert("RGBA")
+            canvas.paste(rgba, mask=rgba.getchannel("A"))
+            image = canvas
+        else:
+            image = image.convert("RGB")
+        buf = BytesIO()
+        image.save(buf, format="JPEG", quality=76)
+        return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+    except Exception:
+        return ""
+
+
+def _asset_meta_path(path: str) -> str:
+    return f"{path}.meta.json"
+
+
+def _read_asset_meta(path: str) -> dict[str, Any]:
+    meta_path = _asset_meta_path(path)
+    if not os.path.exists(meta_path):
+        return {}
+    try:
+        with open(meta_path, "r", encoding="utf-8-sig") as file:
+            data = json.load(file)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _write_asset_meta(path: str, meta: dict[str, Any]) -> None:
+    with open(_asset_meta_path(path), "w", encoding="utf-8") as file:
+        json.dump(meta, file, ensure_ascii=False, indent=2)
+
+
+def _asset_url(asset_type: str, filename: str) -> str:
+    return f"/api/assets/file/{asset_type}/{quote(filename)}"
+
+
+def _asset_from_path(asset_type: str, path: str) -> dict[str, Any] | None:
+    if not os.path.isfile(path) or path.endswith(".meta.json"):
+        return None
+    _, ext = os.path.splitext(path)
+    filename = os.path.basename(path)
+    meta = _read_asset_meta(path)
+    asset_type = _normalise_asset_type(meta.get("type") or asset_type)
+    return {
+        "id": str(meta.get("id") or f"{asset_type}:{filename}"),
+        "name": str(meta.get("name") or os.path.splitext(filename)[0]),
+        "type": asset_type,
+        "filename": filename,
+        "url": _asset_url(asset_type, filename),
+        "thumbnail": _thumbnail_data_url(path) if ext.lower() in IMAGE_ASSET_EXTENSIONS else "",
+        "tags": _parse_tags(meta.get("tags") or []),
+        "description": str(meta.get("description") or ""),
+        "purpose": str(meta.get("purpose") or ""),
+        "timecode": str(meta.get("timecode") or ""),
+        "timestamp_seconds": meta.get("timestamp_seconds"),
+        "created_at": str(meta.get("created_at") or ""),
+        "source_video": str(meta.get("source_video") or ""),
+    }
+
+
+def _read_asset_library() -> dict[str, Any]:
+    _ensure_asset_dirs()
+    assets: list[dict[str, Any]] = []
+    for asset_type, dirname in ASSET_TYPE_DIRS.items():
+        folder = os.path.join(ASSET_LIBRARY_DIR, dirname)
+        for filename in sorted(os.listdir(folder)):
+            asset = _asset_from_path(asset_type, os.path.join(folder, filename))
+            if asset:
+                assets.append(asset)
+
+    groups = {asset_type: [] for asset_type in ("character", "scene", "prop", "frame")}
+    groups["upload"] = []
+    for asset in assets:
+        groups.setdefault(asset["type"], []).append(asset)
+    return {"assets": assets, "groups": groups}
+
+
+def _load_model_profiles() -> list[dict[str, Any]]:
+    _ensure_asset_dirs()
+    if not os.path.exists(MODEL_PROFILES_PATH):
+        return []
+    try:
+        with open(MODEL_PROFILES_PATH, "r", encoding="utf-8-sig") as file:
+            data = json.load(file)
+    except Exception:
+        return []
+    profiles = data.get("profiles", []) if isinstance(data, dict) else data
+    return [item for item in profiles if isinstance(item, dict)]
+
+
+def _save_model_profiles(profiles: list[dict[str, Any]]) -> None:
+    _ensure_asset_dirs()
+    with open(MODEL_PROFILES_PATH, "w", encoding="utf-8") as file:
+        json.dump({"profiles": profiles}, file, ensure_ascii=False, indent=2)
+
+
+def _normalise_model_list_payload(value: Any) -> list[str]:
+    if isinstance(value, str):
+        candidates = re.split(r"[,，\n]+", value)
+    elif isinstance(value, list):
+        candidates = value
+    else:
+        candidates = []
+    models: list[str] = []
+    for candidate in candidates:
+        model = str(candidate or "").strip()
+        if model and model not in models:
+            models.append(model)
+    return models
+
+
+def _normalise_model_profile_payload(payload: dict[str, Any], existing: dict[str, Any] | None = None) -> dict[str, Any]:
+    existing = existing or {}
+    profile_id = str(payload.get("id") or existing.get("id") or f"profile_{datetime.now().strftime('%Y%m%d%H%M%S')}").strip()
+    profile_id = re.sub(r"[^A-Za-z0-9_-]", "_", profile_id)[:80] or "profile"
+    incoming_key = str(payload.get("api_key") or "").strip()
+    if incoming_key and set(incoming_key) <= {"*"}:
+        incoming_key = str(existing.get("api_key") or "")
+    if not incoming_key and existing.get("api_key") and not payload.get("clear_api_key"):
+        incoming_key = str(existing.get("api_key") or "")
+
+    agent_models = payload.get("agent_models")
+    if not isinstance(agent_models, dict):
+        agent_models = existing.get("agent_models") if isinstance(existing.get("agent_models"), dict) else {}
+
+    return {
+        "id": profile_id,
+        "name": str(payload.get("name") or existing.get("name") or "Local Model Profile").strip(),
+        "base_url": str(payload.get("base_url") or existing.get("base_url") or "").strip().rstrip("/"),
+        "api_key": incoming_key,
+        "default_model": str(payload.get("default_model") or payload.get("model") or existing.get("default_model") or "").strip(),
+        "agent_models": agent_models,
+        "fallback_models": _normalise_model_list_payload(payload.get("fallback_models", existing.get("fallback_models", []))),
+        "vectordb_base_url": str(payload.get("vectordb_base_url") or existing.get("vectordb_base_url") or "").strip().rstrip("/"),
+        "embedding_model": str(payload.get("embedding_model") or existing.get("embedding_model") or "").strip(),
+        "max_tokens": payload.get("max_tokens", existing.get("max_tokens", "")),
+        "max_retries": payload.get("max_retries", existing.get("max_retries", 2)),
+        "timeout_seconds": payload.get("timeout_seconds", existing.get("timeout_seconds", "")),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+
+def _sanitize_model_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    clean = _mask_sensitive(dict(profile))
+    clean["api_key_set"] = bool(profile.get("api_key"))
+    clean["base_url_host"] = _host_from_base_url(profile.get("base_url"))
+    return clean
+
+
+def _find_model_profile(profile_id: str) -> dict[str, Any] | None:
+    for profile in _load_model_profiles():
+        if str(profile.get("id") or "") == profile_id:
+            return profile
+    return None
+
+
+def _model_profile_snapshot(profile_id: str = "", raw_profile_json: str = "") -> dict[str, Any]:
+    if raw_profile_json:
+        try:
+            payload = json.loads(raw_profile_json)
+        except json.JSONDecodeError as exc:
+            raise ValueError("model_profile_snapshot_json is not valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("model_profile_snapshot_json must be an object")
+        return _normalise_model_profile_payload(payload)
+    if profile_id:
+        profile = _find_model_profile(profile_id)
+        if not profile:
+            raise ValueError(f"Model profile not found: {profile_id}")
+        snapshot = dict(profile)
+        snapshot["snapshot_at"] = datetime.now().isoformat(timespec="seconds")
+        return snapshot
+    return {}
+
+
+def _parse_json_object(raw: str, field_name: str) -> dict[str, Any]:
+    if not raw:
+        return {}
+    try:
+        value = json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"{field_name} is not valid JSON") from exc
+    if not isinstance(value, dict):
+        raise ValueError(f"{field_name} must be an object")
+    return value
+
+
+def _segment_key(segment_index: int) -> str:
+    return str(max(1, int(segment_index)))
+
+
+def _extract_segment_block(text: str, segment_index: int) -> str:
+    fragment_id = f"F{int(segment_index):02d}"
+    match = re.search(
+        rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+        rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+        text or "",
+    )
+    return match.group(1).strip() if match else ""
+
+
+def _replace_segment_block(text: str, segment_index: int, replacement: str) -> str:
+    fragment_id = f"F{int(segment_index):02d}"
+    pattern = re.compile(
+        rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+        rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)"
+    )
+    replacement = (replacement or "").strip()
+    if not replacement:
+        return text or ""
+    if pattern.search(text or ""):
+        return pattern.sub(replacement.rstrip() + "\n", text or "", count=1).strip() + "\n"
+    glue = "\n\n" if text and text.strip() else ""
+    return f"{(text or '').rstrip()}{glue}{replacement}\n"
+
+
+def _apply_director_edit_to_state(
+    state: dict[str, Any],
+    segment_index: int,
+    edited_yaml: str,
+    edit_payload: dict[str, Any] | None = None,
+    *,
+    approved: bool = False,
+) -> dict[str, Any]:
+    key = _segment_key(segment_index)
+    outputs = state.setdefault("agent_outputs", {})
+    if not isinstance(outputs, dict):
+        outputs = {}
+        state["agent_outputs"] = outputs
+    original_map = state.setdefault("shot_director_original_by_segment", {})
+    edits_map = state.setdefault("director_edits_by_segment", {})
+    approved_map = state.setdefault("shot_director_approved_by_segment", {})
+    source = str(outputs.get("shot_director") or "")
+    original_map.setdefault(key, _extract_segment_block(source, segment_index))
+    edits_map[key] = {
+        "edited_yaml": edited_yaml,
+        "edit_payload": edit_payload or {},
+        "saved_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    if approved:
+        approved_map[key] = edited_yaml
+        outputs["shot_director"] = _replace_segment_block(source, segment_index, edited_yaml)
+        outputs[f"shot_director_prompt_source_segment_{segment_index}"] = edited_yaml
+        state["director_review_required"] = False
+    state["current_segment_index"] = segment_index
+    state["active_segment_index"] = segment_index
     return state
 
 
@@ -571,6 +938,7 @@ def _clear_segment_and_downstream(state: dict, segment_index: int) -> tuple[bool
     state["current_segment_index"] = segment_index
     state["status"] = "waiting_for_user_input"
     state["step"] = "step_3_direct"
+    state["director_review_required"] = True
     cleared_range = (
         f"片段 {segment_index}"
         if len(targets) == 1
@@ -792,6 +1160,8 @@ def _run_pipeline_in_thread(
     speed_mode: bool = True,
     task_generation: int = 0,
     session_id: str = DEFAULT_SESSION_ID,
+    model_profile_snapshot: dict[str, Any] | None = None,
+    asset_selection: dict[str, Any] | None = None,
 ):
     """在后台线程中执行流水线阶段一（全局规划）"""
     session_id = _normalise_session_id(session_id)
@@ -814,6 +1184,8 @@ def _run_pipeline_in_thread(
                 "input_script": task_state.get("input_script") or script,
                 "input_aspect_ratio": task_state.get("input_aspect_ratio") or aspect_ratio,
                 "input_ref_manifest": task_state.get("input_ref_manifest") or [],
+                "model_profile_snapshot": task_state.get("model_profile_snapshot") or model_profile_snapshot or {},
+                "asset_selection": task_state.get("asset_selection") or asset_selection or {},
             }
             task_state.clear()
             task_state.update(_default_task_state())
@@ -836,6 +1208,8 @@ def _run_pipeline_in_thread(
                 reference_image_b64s=reference_image_b64s,
                 reference_image_manifest=reference_image_manifest,
                 speed_mode=speed_mode,
+                model_profile_snapshot=model_profile_snapshot or preserved_inputs.get("model_profile_snapshot") or {},
+                asset_selection=asset_selection or preserved_inputs.get("asset_selection") or {},
             )
             if task_generation != _active_task_generation(session_id):
                 return
@@ -1043,6 +1417,74 @@ async def get_latest_session(exclude_session_id: str = ""):
     return JSONResponse({"success": True, **latest})
 
 
+def _project_summary(session_id: str, state: dict[str, Any], state_path: str = "") -> dict[str, Any]:
+    updated_at = ""
+    if state_path and os.path.exists(state_path):
+        updated_at = datetime.fromtimestamp(os.path.getmtime(state_path)).isoformat(timespec="seconds")
+    return {
+        "session_id": session_id,
+        "name": state.get("project_name") or f"项目 {session_id}",
+        "status": state.get("status") or "idle",
+        "current_segment_index": state.get("current_segment_index") or 1,
+        "total_segments": state.get("total_segments") or 0,
+        "archived": bool(state.get("archived")),
+        "updated_at": updated_at,
+    }
+
+
+@app.get("/api/projects/recent")
+async def api_projects_recent(include_archived: bool = False):
+    sessions_dir = os.path.join(OUTPUT_DIR, "sessions")
+    projects: list[dict[str, Any]] = []
+    if os.path.isdir(sessions_dir):
+        paths = []
+        for name in os.listdir(sessions_dir):
+            state_path = os.path.join(sessions_dir, name, "pipeline_state.json")
+            if os.path.isfile(state_path):
+                paths.append((name, state_path))
+        for name, state_path in sorted(paths, key=lambda item: os.path.getmtime(item[1]), reverse=True):
+            try:
+                with open(state_path, "r", encoding="utf-8-sig") as file:
+                    state = json.load(file)
+            except Exception:
+                continue
+            if state.get("archived") and not include_archived:
+                continue
+            projects.append(_project_summary(_normalise_session_id(name), state, state_path))
+
+    current = _task_state(DEFAULT_SESSION_ID)
+    if not any(item["session_id"] == DEFAULT_SESSION_ID for item in projects):
+        projects.insert(0, _project_summary(DEFAULT_SESSION_ID, current))
+    return JSONResponse({"success": True, "projects": projects[:24]})
+
+
+@app.post("/api/projects/new")
+async def api_projects_new(payload: dict[str, Any] = Body(default={})):
+    name = str((payload or {}).get("name") or "未命名项目").strip() or "未命名项目"
+    session_id = _normalise_session_id((payload or {}).get("session_id") or f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    state = _default_task_state()
+    state["project_name"] = name
+    state["created_at"] = datetime.now().isoformat(timespec="seconds")
+    state["message"] = "新项目已创建。"
+    task_states[session_id] = state
+    _save_task_state_for_session(session_id, state)
+    return JSONResponse({"success": True, "project": _project_summary(session_id, state)})
+
+
+@app.post("/api/projects/archive")
+async def api_projects_archive(payload: dict[str, Any] = Body(default={})):
+    session_id = _normalise_session_id(str((payload or {}).get("session_id") or DEFAULT_SESSION_ID))
+    _refresh_task_state_from_disk(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "当前项目仍有任务运行，先停止或等待完成后再归档。"}, status_code=409)
+    state = _task_state(session_id)
+    state["archived"] = True
+    state["archived_at"] = datetime.now().isoformat(timespec="seconds")
+    state["message"] = "项目已归档。"
+    _save_task_state_for_session(session_id, state)
+    return JSONResponse({"success": True, "project": _project_summary(session_id, state)})
+
+
 REFERENCE_IMAGES_DIR = os.path.join(ROOT_DIR, "reference_images")
 
 @app.get("/api/reference_library")
@@ -1064,6 +1506,300 @@ async def get_reference_image(filename: str):
         return JSONResponse({"success": False, "error": "文件不存在"}, status_code=404)
     return FileResponse(file_path)
 
+
+@app.get("/api/assets/library")
+async def api_assets_library():
+    library = _read_asset_library()
+    return JSONResponse({"success": True, **library})
+
+
+@app.get("/api/assets/file/{asset_type}/{filename:path}")
+async def api_asset_file(asset_type: str, filename: str):
+    asset_type = _normalise_asset_type(asset_type)
+    dirname = ASSET_TYPE_DIRS[asset_type]
+    safe_name = os.path.basename(filename)
+    file_path = os.path.join(ASSET_LIBRARY_DIR, dirname, safe_name)
+    if not os.path.isfile(file_path):
+        return JSONResponse({"success": False, "error": "Asset file not found"}, status_code=404)
+    return FileResponse(file_path)
+
+
+@app.post("/api/assets/import")
+async def api_assets_import(
+    asset_type: str = Form("character"),
+    name: str = Form(""),
+    tags: str = Form(""),
+    description: str = Form(""),
+    purpose: str = Form(""),
+    file: UploadFile = File(...),
+):
+    if not file or not file.filename:
+        return JSONResponse({"success": False, "error": "No asset file uploaded"}, status_code=400)
+    asset_type = _normalise_asset_type(asset_type)
+    _, ext = os.path.splitext(file.filename)
+    if asset_type != "upload" and ext.lower() not in IMAGE_ASSET_EXTENSIONS:
+        return JSONResponse({"success": False, "error": "Asset library only accepts png/jpg/jpeg/webp images"}, status_code=400)
+    content = await file.read()
+    if not content:
+        return JSONResponse({"success": False, "error": "Uploaded asset is empty"}, status_code=400)
+
+    _ensure_asset_dirs()
+    dirname = ASSET_TYPE_DIRS[asset_type]
+    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_safe_filename(file.filename)}"
+    path = os.path.join(ASSET_LIBRARY_DIR, dirname, filename)
+    with open(path, "wb") as output:
+        output.write(content)
+
+    meta = {
+        "id": f"{asset_type}:{filename}",
+        "type": asset_type,
+        "name": name.strip() or os.path.splitext(file.filename)[0],
+        "tags": _parse_tags(tags),
+        "description": description.strip(),
+        "purpose": purpose.strip(),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    _write_asset_meta(path, meta)
+    asset = _asset_from_path(asset_type, path)
+    return JSONResponse({"success": True, "asset": asset})
+
+
+@app.post("/api/assets/import_batch")
+async def api_assets_import_batch(
+    asset_type: str = Form("character"),
+    tags: str = Form(""),
+    description: str = Form(""),
+    purpose: str = Form(""),
+    files: list[UploadFile] = File(...),
+):
+    _ensure_asset_dirs()
+    asset_type = _normalise_asset_type(asset_type)
+    dirname = ASSET_TYPE_DIRS[asset_type]
+    results: list[dict] = []
+    for file in files:
+        if not file or not file.filename:
+            continue
+        _, ext = os.path.splitext(file.filename)
+        if ext.lower() not in IMAGE_ASSET_EXTENSIONS:
+            continue
+        content = await file.read()
+        if not content:
+            continue
+        safe_name = os.path.splitext(file.filename)[0]
+        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_safe_filename(file.filename)}"
+        path = os.path.join(ASSET_LIBRARY_DIR, dirname, filename)
+        with open(path, "wb") as output:
+            output.write(content)
+        meta = {
+            "id": f"{asset_type}:{filename}",
+            "type": asset_type,
+            "name": safe_name,
+            "tags": _parse_tags(tags),
+            "description": description.strip(),
+            "purpose": purpose.strip(),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        _write_asset_meta(path, meta)
+        asset = _asset_from_path(asset_type, path)
+        results.append(asset)
+    return JSONResponse({"success": True, "assets": results, "count": len(results)})
+
+
+@app.post("/api/video/extract_frames")
+async def api_video_extract_frames(
+    video_file: UploadFile = File(...),
+    interval_seconds: int = Form(3),
+    max_frames: int = Form(12),
+    purpose: str = Form("action_reference"),
+):
+    if not video_file or not video_file.filename:
+        return JSONResponse({"success": False, "error": "No video uploaded"}, status_code=400)
+    _, ext = os.path.splitext(video_file.filename)
+    if ext.lower() not in SEGMENT_VIDEO_EXTENSIONS:
+        return JSONResponse({"success": False, "error": "Video must be mp4/mov/avi/webm"}, status_code=400)
+
+    _ensure_asset_dirs()
+    upload_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_safe_filename(video_file.filename, 'video')}"
+    upload_path = os.path.join(ASSET_LIBRARY_DIR, ASSET_TYPE_DIRS["upload"], upload_name)
+    content = await video_file.read()
+    if not content:
+        return JSONResponse({"success": False, "error": "Uploaded video is empty"}, status_code=400)
+    with open(upload_path, "wb") as output:
+        output.write(content)
+
+    try:
+        import cv2
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"OpenCV is not available: {exc}"}, status_code=500)
+
+    cap = cv2.VideoCapture(upload_path)
+    if not cap.isOpened():
+        cap.release()
+        return JSONResponse({"success": False, "error": "Cannot open uploaded video"}, status_code=400)
+
+    interval_seconds = max(1, int(interval_seconds or 3))
+    max_frames = max(1, min(int(max_frames or 12), 60))
+    fps = float(cap.get(cv2.CAP_PROP_FPS) or 0) or 25.0
+    frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    duration_seconds = frame_count / fps if frame_count > 0 else 0
+    timestamps = [i * interval_seconds for i in range(max_frames)]
+    if duration_seconds > 0:
+        timestamps = [second for second in timestamps if second <= duration_seconds]
+    if not timestamps:
+        timestamps = [0]
+
+    def format_timecode(seconds: float) -> str:
+        minutes = int(seconds // 60)
+        whole_seconds = int(seconds % 60)
+        return f"{minutes:02d}:{whole_seconds:02d}"
+
+    assets: list[dict[str, Any]] = []
+    try:
+        for index, seconds in enumerate(timestamps, start=1):
+            cap.set(cv2.CAP_PROP_POS_MSEC, float(seconds) * 1000)
+            ok, frame = cap.read()
+            if not ok or frame is None:
+                continue
+            ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 84])
+            if not ok:
+                continue
+            timecode = format_timecode(float(seconds))
+            frame_name = f"{os.path.splitext(upload_name)[0]}_{index:03d}_{timecode.replace(':', '-')}.jpg"
+            frame_path = os.path.join(ASSET_LIBRARY_DIR, ASSET_TYPE_DIRS["frame"], frame_name)
+            with open(frame_path, "wb") as frame_output:
+                frame_output.write(encoded.tobytes())
+            meta = {
+                "id": f"frame:{frame_name}",
+                "type": "frame",
+                "name": f"{os.path.splitext(video_file.filename)[0]} {timecode}",
+                "tags": ["video_frame"],
+                "description": "",
+                "purpose": purpose.strip() or "action_reference",
+                "source_video": upload_name,
+                "timecode": timecode,
+                "timestamp_seconds": round(float(seconds), 3),
+                "created_at": datetime.now().isoformat(timespec="seconds"),
+            }
+            _write_asset_meta(frame_path, meta)
+            asset = _asset_from_path("frame", frame_path)
+            if asset:
+                assets.append(asset)
+    finally:
+        cap.release()
+
+    return JSONResponse({"success": True, "video": upload_name, "frames": assets})
+
+
+@app.get("/api/model_profiles")
+async def api_model_profiles():
+    profiles = [_sanitize_model_profile(profile) for profile in _load_model_profiles()]
+    return JSONResponse({"success": True, "profiles": profiles})
+
+
+@app.post("/api/model_profiles")
+async def api_save_model_profile(payload: dict[str, Any] = Body(...)):
+    if not isinstance(payload, dict):
+        return JSONResponse({"success": False, "error": "Model profile payload must be an object"}, status_code=400)
+    profiles = _load_model_profiles()
+    existing = next((item for item in profiles if str(item.get("id") or "") == str(payload.get("id") or "")), None)
+    profile = _normalise_model_profile_payload(payload, existing)
+    if not profile["name"]:
+        return JSONResponse({"success": False, "error": "Profile name is required"}, status_code=400)
+    if not profile["base_url"]:
+        return JSONResponse({"success": False, "error": "BaseURL is required"}, status_code=400)
+
+    replaced = False
+    for index, item in enumerate(profiles):
+        if str(item.get("id") or "") == profile["id"]:
+            profiles[index] = profile
+            replaced = True
+            break
+    if not replaced:
+        profiles.append(profile)
+    _save_model_profiles(profiles)
+    return JSONResponse({"success": True, "profile": _sanitize_model_profile(profile)})
+
+
+@app.post("/api/model_profiles/test")
+async def api_test_model_profile(payload: dict[str, Any] = Body(...)):
+    if not isinstance(payload, dict):
+        return JSONResponse({"success": False, "error": "Model profile payload must be an object"}, status_code=400)
+    existing = _find_model_profile(str(payload.get("id") or "")) if payload.get("id") else None
+    profile = _normalise_model_profile_payload(payload, existing)
+    base_url = profile.get("base_url")
+    if not base_url:
+        return JSONResponse({"success": False, "error": "BaseURL is required"}, status_code=400)
+    headers = {"Authorization": f"Bearer {profile.get('api_key', '')}"} if profile.get("api_key") else {}
+    try:
+        async with httpx.AsyncClient(timeout=15.0, trust_env=False) as client:
+            response = await client.get(f"{base_url}/models", headers=headers)
+        if response.status_code >= 400:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": f"Connection reached {_host_from_base_url(base_url)} but returned HTTP {response.status_code}",
+                    "base_url_host": _host_from_base_url(base_url),
+                }
+            )
+        return JSONResponse({"success": True, "base_url_host": _host_from_base_url(base_url), "status_code": response.status_code})
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": str(exc), "base_url_host": _host_from_base_url(base_url)})
+
+
+@app.post("/api/director_edits/save")
+async def api_director_edits_save(payload: dict[str, Any] = Body(...)):
+    if not isinstance(payload, dict):
+        return JSONResponse({"success": False, "error": "Payload must be an object"}, status_code=400)
+    session_id = _normalise_session_id(str(payload.get("session_id") or DEFAULT_SESSION_ID))
+    segment_index = int(payload.get("segment_index") or payload.get("segment") or 1)
+    edited_yaml = str(payload.get("edited_yaml") or payload.get("director_yaml") or "").strip()
+    if not edited_yaml:
+        return JSONResponse({"success": False, "error": "edited_yaml is required"}, status_code=400)
+    _refresh_task_state_from_disk(session_id)
+    state = _task_state(session_id)
+    edit_payload = payload.get("edit_payload") if isinstance(payload.get("edit_payload"), dict) else {}
+    _apply_director_edit_to_state(state, segment_index, edited_yaml, edit_payload, approved=False)
+    state["message"] = f"Director edit saved for segment {segment_index}."
+    _save_task_state_for_session(session_id, state)
+    return JSONResponse({"success": True, "state": _public_task_state(session_id)})
+
+
+@app.post("/api/director_edits/submit")
+async def api_director_edits_submit(payload: dict[str, Any] = Body(...)):
+    if not isinstance(payload, dict):
+        return JSONResponse({"success": False, "error": "Payload must be an object"}, status_code=400)
+    session_id = _normalise_session_id(str(payload.get("session_id") or DEFAULT_SESSION_ID))
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "A task is already running. Please wait for it to finish."}, status_code=409)
+    segment_index = int(payload.get("segment_index") or payload.get("segment") or 1)
+    edited_yaml = str(payload.get("edited_yaml") or payload.get("director_yaml") or "").strip()
+    if not edited_yaml:
+        return JSONResponse({"success": False, "error": "edited_yaml is required"}, status_code=400)
+
+    _refresh_task_state_from_disk(session_id)
+    state = _task_state(session_id)
+    edit_payload = payload.get("edit_payload") if isinstance(payload.get("edit_payload"), dict) else {}
+    _apply_director_edit_to_state(state, segment_index, edited_yaml, edit_payload, approved=True)
+    task_generation = _bump_task_generation(session_id)
+    now = _now_iso()
+    state["status"] = "running_phase_2"
+    state["step"] = "step_4_compile"
+    state["message"] = f"Seedance compiler is generating segment {segment_index} from approved director edit."
+    state["error"] = ""
+    state["started_at"] = now
+    _touch_task_progress(state, now)
+    _save_task_state_for_session(session_id, state)
+
+    tail_frame_b64 = str(payload.get("tail_frame_b64") or "")
+    thread = threading.Thread(
+        target=_resume_pipeline_in_thread,
+        args=(segment_index, tail_frame_b64 if tail_frame_b64 else None, None, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": "Director edit approved; prompt compilation started."})
+
 @app.post("/api/run")
 async def api_run(
     request: Request,
@@ -1073,6 +1809,10 @@ async def api_run(
     session_id: str = Form(DEFAULT_SESSION_ID),
     reference_images: str = Form(""),
     reference_image_manifest_json: str = Form(""),
+    model_profile_id: str = Form(""),
+    model_profile_snapshot_json: str = Form(""),
+    asset_selection_json: str = Form(""),
+    style_preset: str = Form(""),
     reference_image_files: list[UploadFile] | None = File(None),
 ):
     """启动流水线（宏观规划阶段一）"""
@@ -1090,6 +1830,8 @@ async def api_run(
         _save_task_state_for_session(session_id, task_state)
 
     try:
+        selected_model_profile = _model_profile_snapshot(model_profile_id, model_profile_snapshot_json)
+        selected_asset_selection = _parse_json_object(asset_selection_json, "asset_selection_json")
         reference_manifest_overrides = _parse_reference_manifest(reference_image_manifest_json)
         reference_image_b64s, reference_image_manifest = await _read_reference_uploads(
             reference_image_files,
@@ -1098,19 +1840,22 @@ async def api_run(
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)})
 
-    if len(reference_image_b64s) < 3:
-        return JSONResponse({
-            "success": False,
-            "error": "请至少上传3张参考图：主角人物、对手人物、场景空间。"
-        })
-
     # 持久化用户输入（刷新页面后可恢复）。先重置整份会话状态，避免上一轮
     # active_segment_index / last_qc_status / tail_frame_analysis 等运行态残留。
+    preserved_project_name = task_state.get("project_name")
+    preserved_created_at = task_state.get("created_at")
     task_generation = _bump_task_generation(session_id)
     task_state.clear()
     task_state.update(_default_task_state())
+    if preserved_project_name:
+        task_state["project_name"] = preserved_project_name
+    if preserved_created_at:
+        task_state["created_at"] = preserved_created_at
     task_state["input_script"] = script
     task_state["input_aspect_ratio"] = aspect_ratio
+    task_state["style_preset"] = style_preset
+    task_state["model_profile_snapshot"] = selected_model_profile
+    task_state["asset_selection"] = selected_asset_selection
     # 生成参考图缩略图用于前端恢复显示
     ref_thumbs = []
     for i, b64 in enumerate(reference_image_b64s):
@@ -1150,6 +1895,8 @@ async def api_run(
             speed_mode.lower() in {"1", "true", "yes", "on"},
             task_generation,
             session_id,
+            selected_model_profile,
+            selected_asset_selection,
         ),
         daemon=True
     )
@@ -1193,6 +1940,10 @@ async def api_resume(
         return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
     if task_state.get("status") != "waiting_for_user_input":
         return JSONResponse({"success": False, "error": "当前未处于等待交互状态"})
+
+    approved_map = task_state.get("shot_director_approved_by_segment") or {}
+    if task_state.get("director_review_required") and _segment_key(segment_index) not in approved_map:
+        return JSONResponse({"success": False, "error": "Please confirm director edits before prompt compilation."})
 
     try:
         video_path = await _save_segment_video_upload(previous_video_file)
@@ -1306,11 +2057,14 @@ async def api_retry_shot_director(
                 script.strip(),
                 aspect_ratio,
                 reference_images,
-                [],  # reference_image_b64s
-                task_generation,
-                session_id,
             ),
-            kwargs={"reference_image_manifest": ref_manifest},
+            kwargs={
+                "reference_image_b64s": [],
+                "reference_image_manifest": ref_manifest,
+                "speed_mode": True,
+                "task_generation": task_generation,
+                "session_id": session_id,
+            },
             daemon=True,
         )
         _register_task_thread(session_id, thread)

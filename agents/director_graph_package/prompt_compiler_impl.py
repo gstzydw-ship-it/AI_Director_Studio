@@ -9,6 +9,31 @@ from typing import Any
 
 from .types import DirectorState
 from . import legacy_impl as _legacy
+
+_SCHEMA_VERSION_V2 = "shot_director_v2"
+_FORBIDDEN_LEGACY_FIELDS: tuple[str, ...] = (
+    "fragment_task",
+    "must_carry",
+    "duration",
+    "task",
+    "continuity",
+    "cut_point",
+)
+_V2_FRAGMENT_REQUIRED_FIELDS: tuple[str, ...] = (
+    "fragment_intent",
+    "reaction_coverage",
+    "continuity_anchor",
+    "shots",
+)
+_V2_MAIN_SHOT_REQUIRED_FIELDS: tuple[str, ...] = (
+    "coverage_role",
+    "cut_reason",
+    "companion_visibility",
+    "tailframe_role",
+    "dialogue_coverage",
+    "transition_type",
+    "tail_state_card",
+)
 from .helpers import (
     _truncate_for_prompt,
     _runtime_context_contract_card,
@@ -68,6 +93,27 @@ _NEW_SUBJECT_FRAMING_RE = _legacy._NEW_SUBJECT_FRAMING_RE
 
 _INTERNAL_DIALOGUE_CUT_RE = re.compile(r"(镜头切至|镜头切到|切至|切到|切回|反打至|反打镜头|过肩|画外音|OS|L-cut|J-cut)")
 _LISTENER_COVERAGE_RE = re.compile(r"(听者|对手|对方|受击|反应|反打|过肩|视线|下颌|呼吸|停顿|画外音|OS|L-cut|J-cut)")
+_DIRECTOR_JARGON_RE = re.compile(
+    r"("
+    r"稳定器在同一运动里带到|同一运动里带到|顺势带到|带到.{0,12}(?:受压|受击|情绪)?反应|"
+    r"受压反应|受击反应|情绪受击|被压住|压迫感|权力压住|气场压住|空气收紧|沉默就是回应|"
+    r"压入|压住空间|卡断|卡在.{0,8}落点|尾帧悬停|悬停收尾|黄金停顿|留足回味|留白|气口|泄压|"
+    r"炸点|钩子|情绪顶点|情绪任务|戏剧任务|节奏快狠|前慢后碎|稳慢压|凝滞|粘滞|暧昧感|氛围感|张力"
+    r")"
+)
+_COMPLEX_CAMERA_PHRASE_RE = re.compile(
+    r"("
+    r"纵深中全景到[^，。；\n]{0,20}(?:半身中景|中景|近景)|"
+    r"(?:中景|半身中景|关系景)转.{0,16}(?:中景|关系景|固定机位)|"
+    r"同轴线偏右|同轴线偏左|大堂中轴偏右|大堂中轴偏左|右侧同轴|左侧同轴|"
+    r"前后景关系|前后景分布|肩线/侧身分布|"
+    r"稳定器在人物前方同速后退|稳定器在人物背后同速前进|稳定器在.{0,8}前方.{0,8}同速后退|"
+    r"truck\s*(?:left|right)|横移\s*truck|"
+    r"同一镜头内横移|横移.{0,12}回到|带过.{0,12}反应|"
+    r"眼平高度"
+    r")",
+    re.IGNORECASE,
+)
 
 
 def _reaction_cut_and_action_path_rules() -> str:
@@ -103,6 +149,25 @@ def _timeline_continuity_contract_rules() -> str:
         "9. 禁止写成\"3-6秒：员工群体中景...\"这种像新 prompt 的开头；应写成\"延续上一镜/镜头切至员工列反应中景，保留商北琛背影在右前景...\"并说明承接关系。\n"
         "10. 尾段尤其要拆清楚：命令落点、让路、进入电梯、门合拢不能塞进一个固定人物正面镜头；必须用场景固定机位或明确切镜桥接。\n"
         "11. 空间锚点的前景/后景必须符合摄影机位置与人物朝向。若人物面朝电梯且镜头拍人物正面，摄影机就在电梯方向，电梯门框不能写成后景；只能写成前景边缘、侧边门框，或改用人物背面/侧背机位让电梯门框位于前方。\n"
+    )
+
+
+
+
+def _director_jargon_translation_rules() -> str:
+    return (
+        "【导演调度翻译成 Seedance 可见语言硬规则】\n"
+        "1. prompt_compiler 的职责不是照抄 shot_director 的导演口语，而是把它翻译成 Seedance 能直接生成的画面自然句。它负责翻译，不负责再导演。\n"
+        "2. 禁止原样输出\"稳定器在同一运动里带到\"、\"同一机位继续\"这类导演现场口令；必须改成镜头切至、固定机位保持、或具体可见动作。\n"
+        "3. 如果画面主体从 A 变成 B，必须写成\"镜头切至 B\"，不能写\"同一机位继续拍 B\"。\n"
+        "4. 只有同一人物在当前空间内切换景别，才允许写\"镜头切近至\"、\"镜头拉开至\"等承接词。\n"
+        "5. \"受压反应/被压住\"必须改成可见表演：低头、屏住呼吸、肩膀收紧、眼神回避、嘴唇停住、身体僵住、让开通道、没人说话。\n"
+        "6. \"压入/卡断/炸点/钩子/尾帧悬停\"必须改成动作或台词触发：台词说完后停0.8秒、手刚要抬起时切镜、门尚未完全闭合时冲入、画面停在两人身体接触瞬间。\n"
+        "7. \"凝滞/粘滞/暧昧感/张力\"必须改成身体距离、视线时长、动作速度和表情落点：两人相距半步、对视1秒、手停在腰侧不移动、乔熙嘴唇停住。\n"
+        "8. \"气口/留白/回味/泄压\"必须改成时间和画面状态：停0.5-1秒、无人说话、人物停在原位、镜头保持固定、呼吸放慢。\n"
+        "9. 正确示例：\"镜头切至严飞和几名主管胸部以上中近景；严飞微微低头，主管们肩膀收紧、屏住呼吸、避开商北琛视线。\"\n"
+        "10. 错误示例：\"稳定器在同一运动里带到严飞和主管胸部以上受压反应。\" 这类句子像导演现场口令，不能作为最终 Seedance prompt。\n"
+        "11. 上游若写\"纵深中全景到半身中景\"\"中景转关系景\"\"同轴线偏右\"\"眼平高度\"\"truck right/left\"，最终必须降级为一个简单镜头基底：\"大堂全景\"、\"商北琛半身中景\"、\"电梯口固定中景\"、\"正面平稳跟拍\"。\n"
     )
 
 
@@ -188,6 +253,15 @@ def _prompt_guard_report(prompt: str, script: str, planner_segment: str = "", di
 def _prompt_section(prompt: str, title: str) -> str:
     match = re.search(rf"【{re.escape(title)}】([\s\S]*?)(?=\n【|$)", prompt or "")
     return match.group(1).strip() if match else ""
+
+
+def _prompt_execution_text(prompt: str) -> str:
+    sections = [
+        _prompt_section(prompt, "镜头序列"),
+        _prompt_section(prompt, "时间轴"),
+    ]
+    text = "\n".join(section for section in sections if section)
+    return text or (prompt or "")
 
 
 def _meaningful_sentence_count(text: str) -> int:
@@ -304,6 +378,7 @@ def _timeline_blocks(prompt: str) -> list[tuple[float, float, str]]:
 
 def _compiler_guard_report(prompt: str, script: str, planner_segment: str, director_segment: str) -> str:
     issues: list[str] = []
+    execution_text = _prompt_execution_text(prompt)
     base_report = _prompt_guard_report(prompt, script, planner_segment, director_segment)
     if base_report:
         issues.extend(line for line in base_report.splitlines() if line.strip())
@@ -339,6 +414,20 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             "- Prompt 包含不可生成的抽象情绪判断："
             + "、".join(abstract_terms[:6])
             + "。请改写为停顿时长、视线方向、身体距离、站位变化、让路动作、电梯门状态等可见画面。"
+        )
+    director_jargon_terms = sorted(set(match.group(0) for match in _DIRECTOR_JARGON_RE.finditer(execution_text)))
+    if director_jargon_terms:
+        issues.append(
+            "- Prompt 残留导演调度口语："
+            + "、".join(director_jargon_terms[:5])
+            + "。请翻译成 Seedance 可见语言：明确镜头从谁到谁、景别、运动方向，以及低头/屏息/肩膀收紧/眼神回避等可见反应。"
+        )
+    complex_camera_terms = sorted(set(match.group(0) for match in _COMPLEX_CAMERA_PHRASE_RE.finditer(execution_text)))
+    if complex_camera_terms:
+        issues.append(
+            "- Prompt 残留复杂摄影字段："
+            + "、".join(complex_camera_terms[:5])
+            + "。请降级为 Seedance 稳定短句：一个主体焦点、一个景别、一个机位、最多一种运动；反应落点改为同侧切镜。"
         )
 
     space_section = _prompt_section(prompt, "空间与首帧总控")
@@ -386,7 +475,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         )
 
     has_reaction_beat = any(term in prompt for term in _REACTION_BEAT_TERMS)
-    has_explicit_reaction_cut = re.search(r"(?:镜头)?(?:切至|切到|切回)|反打至|反打镜头|→镜头", prompt)
+    has_explicit_reaction_cut = re.search(r"(?:镜头)?(?:切至|切到|切回)|反打至|反打镜头", prompt)
     if has_reaction_beat and not has_explicit_reaction_cut:
         issues.append('- 受击/反应落点缺少明确切镜：请写清"镜头切至谁、什么景别、什么机位、画面里保留谁/什么空间锚点"。')
 
@@ -408,7 +497,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         if _dialogue_payload_is_long(block_dialogues) and not _has_internal_dialogue_visual_coverage(body):
             issues.append(
                 f"- 时间轴第 {index} 个时间段让长台词/高压对白停留在单一画面：人物说话时严禁一个镜头、一个景别或一个机位说完整句；"
-                '请在对白内部加入"说话者起句 -> 镜头切至同侧听者反应或过肩 -> 后半句画外音/L-cut -> 必要时切回"的覆盖变化。'
+                '请在对白内部加入“说话者起句，切至同侧听者反应或过肩；镜头停留在听者脸部或过肩画面，说话者后半句在画外继续；若后续还有新动作或新信息点，必须另起新镜头承接”的覆盖变化。'
             )
             break
 
@@ -604,7 +693,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
     if silent_cut_blocks:
         seg_list = "、".join(str(i) for i in silent_cut_blocks[:3])
         issues.append(
-            f'- [PROMPT-CUT-BUDGET-001] 隐性切镜：时间段 {seg_list} 写了"同一机位继续"但紧接着引入新主体+新景别，'
+            f'- [PROMPT-NO-SAME-CAMERA-ABUSE-001] [PROMPT-CUT-BUDGET-001] 隐性切镜：时间段 {seg_list} 写了"同一机位继续"但紧接着引入新主体+新景别，'
             "实际等于一次硬切，模型会按切镜处理。请要么把后续描述改成同主体的延续动作/表情，"
             '要么显式拆成新时间段并写明"镜头切至 ..."。'
         )
@@ -709,6 +798,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         # NOTE: _spatial_geometry_contract_rules() 不注入 compiler，已由【空间几何字段翻译规则】替代。
         f"{_reaction_cut_and_action_path_rules()}\n"
         f"{_timeline_continuity_contract_rules()}\n"
+        f"{_director_jargon_translation_rules()}\n"
         "【片段连续性规则——替代旧的单主体僵化规则】\n"
         "1. 单个片段必须有清晰的主导主体与稳定空间轴线，但不等于全程只能看一个人。\n"
         "2. 如果上游资产明确给出 shots / sub_shots / reaction_plan，你可以在同一片段内自然承接炸点命中、受击落点、双人关系变化；但必须写出连续过渡，不能伪造剪辑软件式瞬切。\n"
@@ -792,6 +882,61 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         if reference_context.strip()
         else "本次未提供参考图；最终 Prompt 中严禁编造 @图片1、@图片2、@图片3 或任何参考图占位。\n\n"
     )
+    # --- v2 schema hard gate: reject legacy director segment ---
+    v2_gate_issues: list[str] = []
+    if current_director_segment_raw:
+        if not re.search(r"schema_version\s*:\s*" + _SCHEMA_VERSION_V2, current_director_segment_raw):
+            v2_gate_issues.append(
+                f"shot_director 缺少 schema_version: {_SCHEMA_VERSION_V2}，"
+                f"compiler 拒绝消费旧版镜头资产。"
+            )
+        for field in _V2_FRAGMENT_REQUIRED_FIELDS:
+            if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", current_director_segment_raw):
+                v2_gate_issues.append(f"shot_director 缺少 v2 fragment 字段 {field}。")
+        for legacy_field in _FORBIDDEN_LEGACY_FIELDS:
+            if re.search(rf"(?m)^\s*{re.escape(legacy_field)}\s*:", current_director_segment_raw):
+                v2_gate_issues.append(
+                    f"shot_director 包含旧字段 {legacy_field}，"
+                    f"compiler 拒绝编译旧版施工单。"
+                )
+        if re.search(r"(?m)^\s*main_shots\s*:", current_director_segment_raw):
+            v2_gate_issues.append("shot_director 仍在使用已禁用的 main_shots 旧结构。")
+
+        shot_blocks = _MAIN_SHOT_BLOCK_RE.findall(current_director_segment_raw)
+        if not shot_blocks:
+            v2_gate_issues.append("shot_director 当前片段没有任何合法 shot_id，无法编译。")
+        for shot_id_raw, shot_body in shot_blocks:
+            shot_id = shot_id_raw.strip()
+            for field in _V2_MAIN_SHOT_REQUIRED_FIELDS:
+                if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", shot_body):
+                    v2_gate_issues.append(f"{shot_id} 缺少 v2 主镜头字段 {field}。")
+
+            transition_type = _yaml_line_field(shot_body, "transition_type")
+            if transition_type and transition_type not in ("stay_on_A", "cut_to_B", "dolly_in_to_A", "scene_fixed"):
+                v2_gate_issues.append(
+                    f"{shot_id} 的 transition_type={transition_type} 非法；"
+                    "只允许 stay_on_A / cut_to_B / dolly_in_to_A / scene_fixed。"
+                )
+
+            tail_state_card = _yaml_line_field(shot_body, "tail_state_card")
+            if tail_state_card:
+                tail_keywords = ("站位", "接触", "道具", "门", "视线", "距离")
+                found = sum(1 for kw in tail_keywords if kw in tail_state_card)
+                if found < 3:
+                    v2_gate_issues.append(
+                        f"{shot_id} 的 tail_state_card 信息不足；"
+                        "至少要明确人物站位、接触/道具状态、视线或距离关系。"
+                    )
+    else:
+        v2_gate_issues.append("当前片段缺少镜头资产，无法编译。")
+
+    if v2_gate_issues:
+        raise RuntimeError(
+            "[PROMPT-COMPILER-V2-GATE] prompt_compiler 拒绝编译旧版 shot_director schema。\n"
+            + "\n".join(f"  - {issue}" for issue in v2_gate_issues)
+            + "\n请重新运行 shot_director 确保输出 v2 合同镜头资产。"
+        )
+
     user_prompt = (
         f"=== 当前片段压缩上下文 ===\n\n"
         f"{_runtime_context_contract_card()}\n\n"
@@ -827,7 +972,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "3. subject + size + camera 必须合成镜头行开头，例如【乔熙】中近景，右前方同侧过肩固定机位。\n"
         "4. action + dialogue 是镜头行主体；台词直接嵌入动作句中，OS/J-cut/L-cut 写成画外音或声音桥。\n"
         "5. must_carry 必须转译成画面里看得见的信息或反应，不能只放到约束里。\n"
-        "6. cut_point 必须放进括号，写成（动作顶点前→镜头2）、（台词断点切至乔熙反应→镜头4）、（文件内容看清后→镜头3）这类具体触发。\n"
+        "6. cut_point 必须放进括号，写成（动作顶点前切至镜头2）、（台词断点时切至乔熙反应镜头）、（文件内容看清后切至镜头3）这类自然中文触发句；禁止使用箭头式表达。\n"
         "7. continuity 必须落实到镜头行或【约束】里，保证人物左右关系、道具状态、动作路径和尾帧不跳变。\n"
         "8. 最终 prompt 禁止出现 fragment_task、must_carry、cut_point、continuity、shot_id、fragment_id 等内部字段名。\n\n"
         "如果镜头资产包含 coverage_role / cut_reason / companion_visibility / state_delta / tailframe_role，必须翻译进最终时间轴：\n"
@@ -836,7 +981,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "3. companion_visibility 必须写成可见画面语言，例如前景肩线轻虚、近侧侧影、边缘虚化、画外左侧/右侧仍为视线对象、已出画。\n"
         "4. state_delta 必须写进动作链，保持单向变化：松手后不再搭回，门关闭后保持关闭，退出人物不再回到画面。\n"
         "5. tailframe_role=tailframe_reset 时，最后 0.5-1 秒必须回到双人/多人关系景或明确空间状态，不能停在局部特写。\n"
-        "5a. dialogue_coverage 如果包含长台词、高压命令、质问或揭晓句，时间轴必须保留对白内部视觉覆盖变化：说话者起句、同侧听者反应/过肩、必要时切回；可以让后半句以画外音/OS/L-cut 砸在听者画面上，禁止单段反打。\n"
+        "5a. dialogue_coverage 如果包含长台词、高压命令、质问或揭晓句，时间轴必须保留对白内部视觉覆盖变化：说话者起句、同侧听者反应/过肩；镜头停留在听者脸部或过肩画面，说话者后半句在画外继续。若后续还有新动作、新信息点或新的主体重心，必须另起新镜头承接，禁止偷写成切回前一个已完成动作链的镜头，也禁止单段反打。\n"
         "5b. 严禁把一整句长压迫对白、一个完整问答、或两句以上往返对白放在同一个镜头/景别/机位里连续说完；即使时间段开头已经写\"镜头切至\"，对白开始后仍必须有新的切镜点、主体变化或景别变化。\n"
         "如果镜头资产还包含 blocking_plan / state_chain / event_coverage / duration_hint / action_phase，也必须落实进最终时间轴：\n"
         "6. blocking_plan 决定动作推进顺序：谁先动、谁承接、何时复位，时间轴不要写成散点句子。\n"
@@ -881,6 +1026,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"{_camera_task_selection_rules()}\n"
         f"{_reaction_cut_and_action_path_rules()}\n"
         f"{_timeline_continuity_contract_rules()}\n"
+        f"{_director_jargon_translation_rules()}\n"
         "【输出前强制自检】\n"
         "1. 标题行是否为 '片段N｜场景名｜关键词｜~秒数秒' 格式？\n"
         "2. 是否包含【风格锚点】【画幅锚点】【空间与首帧总控】【人物】【镜头序列】【约束】六个段落？\n"
@@ -910,6 +1056,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "25. 【空间方位词密度】每个时间段的空间方位词（前景/中景/后景/远端/近侧/边缘/侧边/画面左/画面右/前方/后方/左侧/右侧）是否超过3个？如果超过，只保留最必要的0-1个锚点。\n"
         "26. 【视角翻转铺垫】相邻两个时间段之间是否存在从正面突变为背面（或反之）的视角翻转？如果有，必须在文本中铺垫人物转身动作，或插入侧面过渡机位。\n"
         "27. 【内部字段泄漏】是否出现 fragment_task、must_carry、cut_point、continuity、shot_id、fragment_id 等字段名？如有必须改写成自然中文镜头语言。\n"
+        "28. 【导演口语翻译】镜头序列里是否还残留\"稳定器在同一运动里带到\"\"顺势带到\"\"受压反应\"\"权力压住\"\"压入\"\"卡断\"\"炸点\"\"钩子\"\"凝滞\"\"留白\"等导演调度口语？如有必须改成镜头从谁到谁、景别、运动方向、触发动作和低头/屏息/肩膀收紧/眼神回避等可见表演。\n"
         "全部通过后再输出。"
     )
     output = call_llm_with_mcp(system_prompt, user_prompt, server_type="filesystem", images_base64=None, agent_name="prompt_compiler")

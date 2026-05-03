@@ -9,8 +9,9 @@ from typing import Any
 import httpx
 import yaml
 
+from ..request_context import request_session_id
 from ..utils import COMFLY_BASE_URL, load_yaml_config
-from .types import AGENT_CONFIG_PARENTS, CONFIG_FILE, DEFAULT_LLM_MODEL, LLMSettings
+from .types import AGENT_CONFIG_PARENTS, CONFIG_FILE, DEFAULT_LLM_MODEL, LLMSettings, OUTPUT_DIR, SESSION_ID_RE
 
 
 def load_config() -> dict[str, Any]:
@@ -68,6 +69,72 @@ def _agent_config_layers(full_config: dict[str, Any], agent_name: str) -> list[t
     return layers
 
 
+def _normalise_session_id(session_id: str | None) -> str:
+    safe = SESSION_ID_RE.sub("", (session_id or "local").strip())[:80]
+    return safe or "local"
+
+
+def _load_session_model_profile() -> dict[str, Any]:
+    session_id = _normalise_session_id(request_session_id.get("local"))
+    state_path = os.path.join(OUTPUT_DIR, "sessions", session_id, "pipeline_state.json")
+    if not os.path.exists(state_path):
+        return {}
+    try:
+        with open(state_path, "r", encoding="utf-8-sig") as file:
+            state = json.load(file)
+    except Exception:
+        return {}
+    profile = state.get("model_profile_snapshot") if isinstance(state, dict) else {}
+    return profile if isinstance(profile, dict) else {}
+
+
+def _profile_global_layer(profile: dict[str, Any]) -> dict[str, Any]:
+    if not profile:
+        return {}
+    layer = {
+        "api_key": profile.get("api_key"),
+        "base_url": profile.get("base_url"),
+        "model": profile.get("model") or profile.get("default_model"),
+        "temperature": profile.get("temperature"),
+        "fallback_models": profile.get("fallback_models"),
+        "max_tokens": profile.get("max_tokens"),
+        "max_retries": profile.get("max_retries"),
+        "timeout_seconds": profile.get("timeout_seconds"),
+        "connect_timeout_seconds": profile.get("connect_timeout_seconds"),
+        "read_timeout_seconds": profile.get("read_timeout_seconds"),
+        "write_timeout_seconds": profile.get("write_timeout_seconds"),
+        "extra_params": profile.get("extra_params"),
+    }
+    return {key: value for key, value in layer.items() if value not in (None, "", [])}
+
+
+def _profile_agent_layers(profile: dict[str, Any], agent_name: str) -> list[tuple[str, dict[str, Any]]]:
+    if not profile or not agent_name:
+        return []
+    agent_models = _as_mapping(profile.get("agent_models")) or _as_mapping(profile.get("agents"))
+    layers: list[tuple[str, dict[str, Any]]] = []
+
+    def coerce_layer(value: Any) -> dict[str, Any]:
+        if isinstance(value, str):
+            return {"model": value}
+        if isinstance(value, dict):
+            result = dict(value)
+            if result.get("default_model") and not result.get("model"):
+                result["model"] = result["default_model"]
+            return result
+        return {}
+
+    parent_name = AGENT_CONFIG_PARENTS.get(agent_name)
+    if parent_name:
+        parent_layer = coerce_layer(agent_models.get(parent_name))
+        if parent_layer:
+            layers.append((parent_name, parent_layer))
+    agent_layer = coerce_layer(agent_models.get(agent_name))
+    if agent_layer:
+        layers.append((agent_name, agent_layer))
+    return layers
+
+
 def _apply_llm_config_layer(settings: dict[str, Any], layer: dict[str, Any]) -> None:
     if layer.get("api_key"):
         settings["api_key"] = layer["api_key"]
@@ -75,6 +142,8 @@ def _apply_llm_config_layer(settings: dict[str, Any], layer: dict[str, Any]) -> 
         settings["base_url"] = layer["base_url"]
     if layer.get("model"):
         settings["model"] = layer["model"]
+    if layer.get("default_model"):
+        settings["model"] = layer["default_model"]
     if "temperature" in layer:
         settings["temperature"] = layer["temperature"]
 
@@ -83,21 +152,21 @@ def resolve_llm_settings(agent_name: str = "", full_config: dict[str, Any] | Non
     config = load_config() if full_config is None else full_config
     llm_config = _as_mapping(config.get("llm"))
     raw_settings: dict[str, Any] = {
-        "api_key": llm_config.get("api_key", "") or "",
-        "base_url": llm_config.get("base_url") or COMFLY_BASE_URL,
-        "model": llm_config.get("model") or DEFAULT_LLM_MODEL,
-        "temperature": llm_config.get("temperature"),
+        "api_key": os.getenv("DIRECTOR_LLM_API_KEY") or "",
+        "base_url": os.getenv("DIRECTOR_LLM_BASE_URL") or COMFLY_BASE_URL,
+        "model": os.getenv("DIRECTOR_LLM_MODEL") or DEFAULT_LLM_MODEL,
+        "temperature": None,
     }
 
-    env_api_key = os.getenv("DIRECTOR_LLM_API_KEY")
-    env_model = os.getenv("DIRECTOR_LLM_MODEL")
-    if env_api_key:
-        raw_settings["api_key"] = env_api_key
-    if env_model:
-        raw_settings["model"] = env_model
+    _apply_llm_config_layer(raw_settings, llm_config)
 
     layers = _agent_config_layers(config, agent_name)
     for _layer_name, layer in layers:
+        _apply_llm_config_layer(raw_settings, layer)
+
+    profile = _load_session_model_profile()
+    _apply_llm_config_layer(raw_settings, _profile_global_layer(profile))
+    for _layer_name, layer in _profile_agent_layers(profile, agent_name):
         _apply_llm_config_layer(raw_settings, layer)
 
     return LLMSettings(
@@ -124,6 +193,15 @@ def _get_llm_extra_params(agent_name: str = "") -> dict[str, Any]:
         merged.update(global_extra)
 
     for _layer_name, layer in _agent_config_layers(full_config, agent_name):
+        agent_extra = layer.get("extra_params")
+        if isinstance(agent_extra, dict):
+            merged.update(agent_extra)
+
+    profile = _load_session_model_profile()
+    profile_extra = _profile_global_layer(profile).get("extra_params")
+    if isinstance(profile_extra, dict):
+        merged.update(profile_extra)
+    for _layer_name, layer in _profile_agent_layers(profile, agent_name):
         agent_extra = layer.get("extra_params")
         if isinstance(agent_extra, dict):
             merged.update(agent_extra)
@@ -157,6 +235,13 @@ def _get_llm_runtime_option(agent_name: str, key: str, default: Any) -> Any:
     for _layer_name, layer in _agent_config_layers(full_config, agent_name):
         if key in layer:
             value = layer[key]
+    profile = _load_session_model_profile()
+    profile_global = _profile_global_layer(profile)
+    if key in profile_global:
+        value = profile_global[key]
+    for _layer_name, layer in _profile_agent_layers(profile, agent_name):
+        if key in layer:
+            value = layer[key]
     return value
 
 
@@ -180,6 +265,13 @@ def _get_llm_fallback_models(agent_name: str = "") -> list[str]:
     full_config = load_config()
     value = _as_mapping(full_config.get("llm")).get("fallback_models", [])
     for _layer_name, layer in _agent_config_layers(full_config, agent_name):
+        if "fallback_models" in layer:
+            value = layer["fallback_models"]
+    profile = _load_session_model_profile()
+    profile_global = _profile_global_layer(profile)
+    if "fallback_models" in profile_global:
+        value = profile_global["fallback_models"]
+    for _layer_name, layer in _profile_agent_layers(profile, agent_name):
         if "fallback_models" in layer:
             value = layer["fallback_models"]
     return _normalise_model_list(value)

@@ -19,7 +19,8 @@ except ImportError:
     _HAS_BM25S = False
 from typing import Dict, List, Any
 
-from .utils import COMFLY_BASE_URL, get_config_path, get_knowledge_dir, get_cache_dir, load_yaml_config
+from .request_context import request_session_id
+from .utils import COMFLY_BASE_URL, get_config_path, get_knowledge_dir, get_cache_dir, get_output_dir, load_yaml_config
 
 
 def load_config():
@@ -44,6 +45,20 @@ def load_config():
 _embed_clients: dict[tuple[str, str], OpenAI] = {}
 
 
+def _load_session_model_profile() -> dict[str, Any]:
+    session_id = re.sub(r"[^A-Za-z0-9_-]", "", request_session_id.get("local") or "local")[:80] or "local"
+    state_path = os.path.join(get_output_dir(), "sessions", session_id, "pipeline_state.json")
+    if not os.path.exists(state_path):
+        return {}
+    try:
+        with open(state_path, "r", encoding="utf-8-sig") as file:
+            state = json.load(file)
+    except Exception:
+        return {}
+    profile = state.get("model_profile_snapshot") if isinstance(state, dict) else {}
+    return profile if isinstance(profile, dict) else {}
+
+
 def _get_embed_client() -> OpenAI:
     """获取 OpenAI 兼容 Embedding 客户端，按 key/base_url 隔离缓存。
 
@@ -52,8 +67,9 @@ def _get_embed_client() -> OpenAI:
     """
     config = load_config() or {}
     vdb_config = config.get("vectordb") or {}
-    api_key = vdb_config.get("api_key") or ""
-    base_url = vdb_config.get("base_url") or COMFLY_BASE_URL
+    profile = _load_session_model_profile()
+    api_key = profile.get("vectordb_api_key") or profile.get("api_key") or vdb_config.get("api_key") or ""
+    base_url = profile.get("vectordb_base_url") or vdb_config.get("base_url") or COMFLY_BASE_URL
     if not api_key:
         raise RuntimeError("vectordb.api_key 未配置，无法创建 Embedding 客户端。")
     cache_key = (api_key, base_url)
@@ -62,19 +78,52 @@ def _get_embed_client() -> OpenAI:
     return _embed_clients[cache_key]
 
 
+def _embedding_vectors_from_response(resp: Any) -> list[list[float]]:
+    """兼容标准 SDK 对象、dict 以及 JSON 字符串形态的 embedding 响应。"""
+    parsed = resp
+    if isinstance(parsed, str):
+        try:
+            parsed = json.loads(parsed)
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(
+                f"Embedding API 返回了字符串而非标准对象，且不是合法 JSON: {parsed[:200]}"
+            ) from exc
+
+    data = getattr(parsed, "data", None)
+    if data is None and isinstance(parsed, dict):
+        data = parsed.get("data")
+
+    if not isinstance(data, list):
+        raise RuntimeError(
+            "Embedding API 响应缺少 data 列表，无法解析向量；"
+            f"实际类型={type(resp).__name__}"
+        )
+
+    vectors: list[list[float]] = []
+    for item in data:
+        embedding = getattr(item, "embedding", None)
+        if embedding is None and isinstance(item, dict):
+            embedding = item.get("embedding")
+        if not isinstance(embedding, list):
+            raise RuntimeError("Embedding API 响应项缺少 embedding 向量列表")
+        vectors.append(embedding)
+    return vectors
+
+
+
 def _embed_texts(texts: list[str], model: str = None, batch_size: int = 20) -> list[list[float]]:
     """调用在线 API 获取文本 Embedding 向量"""
     if model is None:
         config = load_config()
-        model = config["vectordb"]["embedding_model"]
+        profile = _load_session_model_profile()
+        model = profile.get("embedding_model") or config["vectordb"]["embedding_model"]
     client = _get_embed_client()
     # OpenAI embedding API 单次最多 2048 条，按批处理
     all_embeddings = []
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
         resp = client.embeddings.create(input=batch, model=model)
-        for item in resp.data:
-            all_embeddings.append(item.embedding)
+        all_embeddings.extend(_embedding_vectors_from_response(resp))
     return all_embeddings
 
 
@@ -242,6 +291,7 @@ AGENT_KNOWLEDGE_MAP = {
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
         "28_全场景分镜与转场案例库.md",
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",
     ],
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",
@@ -251,6 +301,7 @@ AGENT_KNOWLEDGE_MAP = {
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
         "28_全场景分镜与转场案例库.md",
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",
     ],
     "shot_director_blocking": [
         "26_动作调度与受击覆盖规则.md",
@@ -260,6 +311,7 @@ AGENT_KNOWLEDGE_MAP = {
         "18_情绪锚点与逐段交互与仰拍限制补丁.md",
         "21_镜头调用规则与多机位模板.md",
         "28_全场景分镜与转场案例库.md",
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",
     ],
     "shot_director_guard": [
         "27_规则守门与最小修复规则.md",
@@ -272,6 +324,11 @@ AGENT_KNOWLEDGE_MAP = {
     "prompt_compiler": [
         "06_连续性与安全规则.md",
         "07_Seedance输出词典与模型适配.md",
+        "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",
+        "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",
+        "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",
+        "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",
+        "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",
     ],
     "quality_inspector": [
         "03_镜头切换与推进规则.md",
@@ -285,6 +342,11 @@ AGENT_KNOWLEDGE_MAP = {
         "20_镜头库与机位库.md",
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
+        "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",
+        "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",
+        "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",
+        "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",
+        "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",
     ],
 }
 
@@ -306,6 +368,7 @@ CRITICAL_KNOWLEDGE_MAP = {
         "04_对白与表演镜头规则.md",       # 对白覆盖与反应切镜
         "06_连续性与安全规则.md",          # 安全约束必须全文
         "21_镜头调用规则与多机位模板.md",  # 机位调用与执行模板
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # Seedance 稳定短句降级
     ],
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",   # 一号机位摆位导演的职责合同
@@ -313,12 +376,14 @@ CRITICAL_KNOWLEDGE_MAP = {
         "04_对白与表演镜头规则.md",       # 发言单元覆盖蓝图
         "06_连续性与安全规则.md",          # 接缝与状态安全
         "21_镜头调用规则与多机位模板.md",  # 主镜头骨架模板
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 单任务镜头基底
     ],
     "shot_director_blocking": [
         "26_动作调度与受击覆盖规则.md",   # 二号动作调度导演的职责合同
         "06_连续性与安全规则.md",          # 受击接续需要连续性保障
         "14_动作描述精细化控制规则.md",   # 动作描述精度
         "04_对白与表演镜头规则.md",       # 对白落点规则
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 禁止复杂摆尾运镜
     ],
     "shot_director_guard": [
         "27_规则守门与最小修复规则.md",   # 三号守门导演的职责合同
@@ -331,6 +396,13 @@ CRITICAL_KNOWLEDGE_MAP = {
         "06_连续性与安全规则.md",          # 状态合同翻译与禁止项
         "07_Seedance输出词典与模型适配.md",  # 输出模板，必须全文
         "rules/prompt_compiler/PROMPT-HARD-CONSTRAINT-DEDUP-001.md",  # 约束集中，禁止污染时间轴
+        "rules/prompt_compiler/PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md",  # 导演口语转可见画面语言
+        "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",  # 时间切片继承上游，不得重切
+        "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",  # 主体变化时准确选衔接词
+        "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",  # 禁止滥用同一机位继续
+        "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",  # 抽象情绪转身体语言
+        "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",  # 小动作优先与动作拆链
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 复杂运镜降级
     ],
     "quality_inspector": [
         "17_结果质检与回溯修正规则.md",    # 质检核心文件
@@ -338,6 +410,11 @@ CRITICAL_KNOWLEDGE_MAP = {
         "06_连续性与安全规则.md",          # 连续性与禁忌校验
         "24_戏剧微粒识别与节奏触发规则.md",  # 戏剧微粒与 Hook 回查
         "rules/quality_inspector/QC-PACING-SAFETY-CHECKLIST-001.md",  # 节奏质检清单
+        "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",  # 校验时间继承
+        "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",  # 校验衔接词准确性
+        "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",  # 校验同一机位滥用
+        "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",  # 校验抽象情绪降级
+        "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",  # 校验动作拆链与单任务运镜
     ],
 }
 
@@ -534,6 +611,9 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
     global _vectordb_cache
     config = load_config()
     vdb_config = config["vectordb"]
+    profile = _load_session_model_profile()
+    embedding_model = profile.get("embedding_model") or vdb_config["embedding_model"]
+    embedding_base_url = profile.get("vectordb_base_url") or vdb_config.get("base_url", "")
 
     if knowledge_dir is None:
         knowledge_dir = get_knowledge_dir()
@@ -548,7 +628,7 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
     print("[INFO] 开始构建向量知识库...")
     print(f"  knowledge dir: {knowledge_dir}")
     print(f"  persist dir:   {persist_dir}")
-    print(f"  embedding:     {vdb_config['embedding_model']} via {vdb_config.get('base_url', '')}")
+    print(f"  embedding:     {embedding_model} via {embedding_base_url}")
 
     # 构建文件 → Agent 反向映射；Obsidian 规则卡优先使用 frontmatter.agent_scope。
     file_to_agents = {}
@@ -597,7 +677,7 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
 
     # 调用在线 API 获取所有片段的 Embedding
     print(f"\n[INFO] 正在获取 {len(all_documents)} 个片段的 Embedding...")
-    all_embeddings = _embed_texts(all_documents, model=vdb_config["embedding_model"])
+    all_embeddings = _embed_texts(all_documents, model=embedding_model)
     print(f"  [OK] Embedding 维度: {len(all_embeddings[0])}")
 
     # 持久化到 JSON 文件

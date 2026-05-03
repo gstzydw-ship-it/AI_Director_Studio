@@ -85,6 +85,15 @@ def _invoke_runner_graph(input_value: Any, thread_id: str) -> Any:
     return _invoke_graph(input_value, thread_id)
 
 
+_SCHEMA_VERSION_V2 = "shot_director_v2"
+
+
+def _has_v2_shot_director_output(state: dict[str, Any]) -> bool:
+    outputs = _agent_outputs(state)
+    shot_director_output = str(outputs.get("shot_director") or "")
+    return bool(shot_director_output and f"schema_version: {_SCHEMA_VERSION_V2}" in shot_director_output)
+
+
 def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
     from .nodes import shot_director_node  # late import so test monkeypatches take effect
 
@@ -205,6 +214,8 @@ def run_phase_1_planning(
     reference_image_b64s: list[str] | None = None,
     reference_image_manifest: list[dict[str, str]] | None = None,
     speed_mode: bool = False,
+    model_profile_snapshot: dict[str, Any] | None = None,
+    asset_selection: dict[str, Any] | None = None,
 ) -> Any:
     reference_image_b64s = reference_image_b64s or []
     reference_image_manifest = reference_image_manifest or []
@@ -228,6 +239,12 @@ def run_phase_1_planning(
         "reference_image_b64s": stored_reference_images,
         "reference_image_count": reference_image_count,
         "reference_image_manifest": reference_image_manifest,
+        "model_profile_snapshot": model_profile_snapshot or {},
+        "asset_selection": asset_selection or {},
+        "director_review_required": False,
+        "director_edits_by_segment": {},
+        "shot_director_original_by_segment": {},
+        "shot_director_approved_by_segment": {},
         "knowledge_metadata": {},
         "agent_outputs": {},
         "current_segment_index": 1,
@@ -273,6 +290,8 @@ def run_full_pipeline(
     reference_image_b64s: list[str] | None = None,
     reference_image_manifest: list[dict[str, str]] | None = None,
     speed_mode: bool = False,
+    model_profile_snapshot: dict[str, Any] | None = None,
+    asset_selection: dict[str, Any] | None = None,
 ) -> Any:
     return run_phase_1_planning(
         script=script,
@@ -281,6 +300,8 @@ def run_full_pipeline(
         reference_image_b64s=reference_image_b64s,
         reference_image_manifest=reference_image_manifest,
         speed_mode=speed_mode,
+        model_profile_snapshot=model_profile_snapshot,
+        asset_selection=asset_selection,
     )
 
 

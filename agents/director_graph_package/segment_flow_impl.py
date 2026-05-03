@@ -92,6 +92,7 @@ def segment_complete_node(state: DirectorState) -> DirectorState:
                 "current_segment_index": next_segment,
                 "result": combined,
                 "agent_outputs": outputs,
+                "director_review_required": False,
             },
         )
 
@@ -99,11 +100,12 @@ def segment_complete_node(state: DirectorState) -> DirectorState:
         state,
         {
             "status": "waiting_for_user_input",
-            "step": "step_5_inspect",
-            "message": f"第 {segment_index} 段完成，等待尾帧后生成第 {next_segment} 段。",
+            "step": "step_3_direct",
+            "message": f"第 {segment_index} 段完成，等待确认第 {next_segment} 段导演修改后再进入 Prompt 编译。",
             "current_segment_index": next_segment,
             "result": combined,
             "agent_outputs": outputs,
+            "director_review_required": True,
         },
     )
 

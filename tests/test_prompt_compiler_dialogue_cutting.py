@@ -95,6 +95,33 @@ def test_guard_accepts_pressure_dialogue_with_listener_reaction_cut_inside_line(
     assert "对白内部加入" not in report
 
 
+def test_guard_rejects_same_camera_continue_wording_even_before_hidden_subject_switch():
+    prompt = """片段1｜电梯口｜冲入+失衡｜~10秒
+【时间轴】
+0-5秒：乔熙半身中景，摄影机位于乔熙右前方30度、固定机位。乔熙冲到电梯门口，停在门缝前，视线盯住门内，句尾仍站在门旁。
+5-10秒：同一机位继续，严飞胸部以上中近景，摄影机位于严飞左前方30度。严飞低头，肩膀收紧，停在电梯侧边。
+【约束】
+禁止字幕。"""
+
+    report = _compiler_guard_report(prompt, "", "", "shots:\n- shot_id: F01-S01")
+
+    assert "PROMPT-NO-SAME-CAMERA-ABUSE-001" in report
+    assert "隐性切镜" in report
+
+
+def test_guard_flags_abstract_director_words_for_visible_body_language_translation():
+    prompt = """片段1｜办公室｜压迫对峙｜~8秒
+【时间轴】
+0-4秒：商北琛胸部以上中近景，摄影机位于商北琛右前方30度、固定机位。商北琛说完后，空气收紧，压迫感压在乔熙脸上，句尾两人仍隔桌对峙。
+4-8秒：镜头切至乔熙胸部以上中近景，摄影机位于乔熙左前方30度、固定机位。乔熙嘴唇停住，下颌收紧，仍站在桌前。
+【约束】
+禁止字幕。"""
+
+    report = _compiler_guard_report(prompt, "", "", "shots:\n- shot_id: F01-S01")
+
+    assert "不可生成的抽象情绪判断" in report
+
+
 def test_shot_director_validator_rejects_long_dialogue_without_coverage_design():
     director_output = """- fragment_id: F01
   fragment_intent: office pressure

@@ -268,14 +268,73 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                 "- story_planner 似乎把完整发言/动作单元压成单条笼统事件，需更清楚标出片段覆盖事件。"
             )
 
-    if director_segment and not re.search(r"shots\s*:", director_segment):
-        qc_issues.append("- shot_director 未给出当前片段的 shots。")
-    if director_segment and not re.search(r"(fragment_task|reaction_coverage)\s*:", director_segment):
-        qc_issues.append("- shot_director 未说明当前片段的 fragment_task/reaction_coverage。")
-    if director_segment and re.search(r"(?m)^\s*shots\s*:", director_segment) and not re.search(r"(?m)^\s*cut_point\s*:", director_segment):
-        qc_issues.append("- shot_director 的施工单缺少 cut_point，无法判断切镜触发点。")
-    if director_segment and re.search(r"sub_shots\s*:", director_segment) and not re.search(r"parent_shot_id\s*:", director_segment):
-        qc_issues.append("- shot_director 的 sub_shots 没有挂靠 parent_shot_id。")
+    # === shot_director v2 schema hard validation ===
+    if director_segment:
+        # v2 必填字段检查
+        if not re.search(r"schema_version\s*:\s*shot_director_v2", director_segment):
+            qc_issues.append("- shot_director 缺少 schema_version: shot_director_v2，必须使用 v2 合同。")
+        if not re.search(r"fragment_intent\s*:", director_segment):
+            qc_issues.append("- shot_director 未说明当前片段的 fragment_intent（v2 新字段）。")
+        if not re.search(r"reaction_coverage\s*:", director_segment):
+            qc_issues.append("- shot_director 未说明当前片段的 reaction_coverage。")
+        if not re.search(r"continuity_anchor\s*:", director_segment):
+            qc_issues.append("- shot_director 未说明当前片段的 continuity_anchor（v2 新字段）。")
+        if not re.search(r"shots\s*:", director_segment):
+            qc_issues.append("- shot_director 未给出当前片段的 shots。")
+        # v2 主镜头必填字段检查
+        if re.search(r"shots\s*:", director_segment):
+            shot_blocks = re.findall(
+                r"(?ms)^\s*-\s*shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
+                director_segment,
+            )
+            for shot_id_raw, shot_body in shot_blocks:
+                shot_id = shot_id_raw.strip()
+                for field in (
+                    "coverage_role",
+                    "cut_reason",
+                    "companion_visibility",
+                    "tailframe_role",
+                    "dialogue_coverage",
+                    "transition_type",
+                    "tail_state_card",
+                ):
+                    if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", shot_body):
+                        qc_issues.append(f"- {shot_id} 缺少 v2 字段 {field}。")
+
+                transition_type = _yaml_line_field(shot_body, "transition_type")
+                if transition_type and transition_type not in ("stay_on_A", "cut_to_B", "dolly_in_to_A", "scene_fixed"):
+                    qc_issues.append(
+                        f"- {shot_id} 的 transition_type={transition_type} 非法；"
+                        "只允许 stay_on_A / cut_to_B / dolly_in_to_A / scene_fixed。"
+                    )
+
+                tail_state_card = _yaml_line_field(shot_body, "tail_state_card")
+                if tail_state_card:
+                    tail_keywords = ("站位", "接触", "道具", "门", "视线", "距离")
+                    found = sum(1 for kw in tail_keywords if kw in tail_state_card)
+                    if found < 3:
+                        qc_issues.append(
+                            f"- {shot_id} 的 tail_state_card 信息不足；"
+                            "至少要明确人物站位、接触/道具状态、视线或距离关系。"
+                        )
+        # v2 sub_shot 必填字段检查
+        if re.search(r"sub_shots\s*:", director_segment):
+            sub_blocks = re.findall(
+                r"(?ms)^\s*-\s*parent_shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*parent_shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
+                director_segment,
+            )
+            for parent_shot_id, sub_body in sub_blocks:
+                for field in ("trigger", "beat_purpose", "emotion_anchor", "duration_hint", "action_phase"):
+                    if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", sub_body):
+                        qc_issues.append(f"- sub_shot({parent_shot_id.strip()}) 缺少字段 {field}。")
+
+        # 旧字段一旦出现，直接硬失败
+        for legacy_field in ("fragment_task", "must_carry", "duration", "task", "continuity", "cut_point"):
+            if re.search(rf"(?m)^\s*{re.escape(legacy_field)}\s*:", director_segment):
+                qc_issues.append(f"- shot_director 包含已禁用旧字段 {legacy_field}，运行时只允许 v2 合同。")
+        # main_shots 旧结构禁用
+        if re.search(r"(?m)^\s*main_shots\s*:", director_segment):
+            qc_issues.append("- shot_director 仍在使用已禁用的 main_shots 旧结构，必须改为 shots。")
 
     has_legacy_structure = re.search(
         r"【风格锚点】[\s\S]*【画幅锚点】[\s\S]*"
@@ -297,6 +356,25 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
         r"受击|反应|表情|眼神|嘴唇|下颌|呼吸|停顿", prompt
     ):
         qc_issues.append("- 当前片段规划要求片段内承受到击/反应，但 prompt 未写出可见落点。")
+
+    if "同一机位继续" in prompt:
+        qc_issues.append(
+            '- [PROMPT-NO-SAME-CAMERA-ABUSE-001] prompt 仍使用"同一机位继续"：应改成"镜头保持在A身上"、"固定机位保持在某空间锚点"、"镜头切至B"或"镜头切近至/拉开至A"。'
+        )
+
+    if re.search(r"压迫感|张力|炸点|钩子|气口|留白|情绪顶点|受压反应|空气收紧|前慢后碎|稳慢压", prompt):
+        qc_issues.append(
+            "- [PROMPT-VISIBLE-BODY-LANGUAGE-001] prompt 仍残留抽象导演词：必须翻译成停顿时长、视线方向、肩膀收紧、下颌收紧、嘴唇停住、身体距离或门/道具状态等可见画面。"
+        )
+
+    timeline_blocks = _timeline_blocks(prompt)
+    for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(timeline_blocks[1:], start=2):
+        prefix = blk_body[:120]
+        if not re.search(r"镜头保持在|固定机位保持|镜头切至|镜头切到|镜头切近至|镜头拉开至|切至|切到|切近至|拉开至", prefix):
+            qc_issues.append(
+                f"- [PROMPT-SHOT-TRANSITION-VERB-001] 时间轴第 {block_idx} 个时间段缺少精确衔接词：必须明确写同主体保持、固定机位保持、主体切镜或同主体景别变化。"
+            )
+            break
 
     # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段反打硬失败 — 检查编译后 prompt ===
     if _REVERSE_SHOT_INSIDE_SEGMENT_RE.search(prompt):

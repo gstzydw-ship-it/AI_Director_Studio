@@ -51,6 +51,67 @@ _GENERIC_SELECTION_REASON_RE = re.compile(
 _DIALOGUE_COVERAGE_TERMS_RE = re.compile(
     r"(反应|受击|听者|对手|对方|过肩|肩线|反打|视线|切回|切至|切到|切出|台词断点|画外音|OS|L-cut|J-cut|景别递进)"
 )
+# =============================================================================
+# shot_director v2 schema contract — 硬性版本切换
+# =============================================================================
+_SCHEMA_VERSION_V2 = "shot_director_v2"
+
+# V2 fragment 层必填字段（新增 fragment_intent / reaction_coverage / continuity_anchor 替代旧 fragment_task）
+_SHOT_DIRECTOR_V2_FRAGMENT_REQUIRED: tuple[str, ...] = (
+    "fragment_intent",
+    "reaction_coverage",
+    "continuity_anchor",
+    "shots",
+)
+
+# V2 main_shot 层必填字段（新增 coverage_role / cut_reason / companion_visibility / tailframe_role / dialogue_coverage）
+_SHOT_DIRECTOR_V2_MAIN_SHOT_REQUIRED: tuple[str, ...] = (
+    "shot_id",
+    "subject",
+    "shot_size",
+    "camera_height",
+    "angle",
+    "movement",
+    "lens",
+    "depth",
+    "coverage_role",
+    "cut_reason",
+    "companion_visibility",
+    "tailframe_role",
+    "dialogue_coverage",
+)
+
+# V2 blocking 层可选但必须一致（如果有 blocking_plan / state_chain / event_coverage）
+_SHOT_DIRECTOR_V2_BLOCKING_OPTIONAL: tuple[str, ...] = (
+    "blocking_plan",
+    "state_chain",
+    "event_coverage",
+    "reaction_coverage",
+)
+
+# V2 sub_shot 层必填字段
+_SHOT_DIRECTOR_V2_SUB_SHOT_REQUIRED: tuple[str, ...] = (
+    "parent_shot_id",
+    "trigger",
+    "beat_purpose",
+    "emotion_anchor",
+    "duration_hint",
+    "action_phase",
+)
+
+# 禁止出现的旧字段（一旦出现直接 fail）
+_FORBIDDEN_LEGACY_FIELDS: tuple[str, ...] = (
+    "fragment_task",
+    "must_carry",
+    "duration",      # 旧 shot-level 字段
+    "task",          # 旧 shot-level 字段
+    "continuity",    # 旧 shot-level 字段（非 continuity_anchor）
+    "cut_point",     # 旧 shot-level 字段
+)
+
+# =============================================================================
+# 向后兼容旧常量（仅测试 fixture 使用，生产代码不再依赖）
+# =============================================================================
 _SHOT_CONSTRUCTION_FRAGMENT_FIELDS: tuple[str, ...] = ("fragment_task", "rhythm", "shots")
 _SHOT_CONSTRUCTION_REQUIRED_FIELDS: tuple[str, ...] = (
     "shot_id",
@@ -85,8 +146,42 @@ _SHOT_DURATION_RE = re.compile(r"^\s*[\"']?(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*
 _SHOT_CUT_TRIGGER_RE = re.compile(
     r"(动作顶点|台词(?:断点|落下|结束)?|反应(?:出现|落点)?|信息(?:看清|揭示)|看清|停住|完成|命中|落桌|撞上|尾帧|切出|切至|切到|→)"
 )
-  
-  
+
+# ------------------------------------------------------------------
+# Priority B: 镜头衔接类型 FSM — 禁止自由文本，只允许以下四种枚举
+# ------------------------------------------------------------------
+_TRANSITION_TYPE_FSM: tuple[str, ...] = (
+    "stay_on_A",      # 保持在A（同一主体继续，景别可变化）
+    "cut_to_B",       # 切至B（主体变化或机位大跳）
+    "dolly_in_to_A",  # 切近/拉开至A（同一主体景别变化）
+    "scene_fixed",    # 固定机位保持（场景固定机位，不跟人）
+)
+_TRANSITION_TYPE_HUMAN: dict[str, str] = {
+    "stay_on_A":   "镜头保持在A身上 / 同一机位继续",
+    "cut_to_B":    "镜头切至B / 镜头切近至B / 镜头拉开至B",
+    "dolly_in_to_A": "镜头切近至A / 镜头拉开至A / 镜头切远至A",
+    "scene_fixed": "固定机位保持在某空间锚点",
+}
+_TRANSITION_TYPE_NATURAL_RE = re.compile(
+    r"("
+    r"镜头保持在|同一机位继续|同一主体继续|镜头切至|镜头切到|镜头切近至|镜头拉开至|镜头切远至|"
+    r"切至|切到|切近至|拉开至|切远至|"
+    r"固定机位保持|固定机位保持在"
+    r")",
+    re.IGNORECASE,
+)
+
+# ------------------------------------------------------------------
+# Priority B: 尾态显式化 — 每个镜头必须产出 tail_state_card
+# ------------------------------------------------------------------
+_TAIL_STATE_CARD_SUBSHOTS: tuple[str, ...] = (
+    "人物站位",
+    "接触关系",
+    "道具/门/车门状态",
+    "视线朝向",
+    "距离关系",
+)
+
 def _shot_director_workflow_contract() -> str:
     return (
         "【shot_director 显式工作流】\n"
@@ -266,30 +361,33 @@ def _spatial_geometry_contract_rules() -> str:
 def _camera_execution_rules() -> str:
     return (
         "【机位与运镜可执行硬规则】\n"
-        "1. 每个时间段第一句必须写清：主体+景别+简洁机位+镜头高度+运镜方式；人物朝向只在动作需要时补一句。\n"
-        "2. 摄影机位置优先使用大模型更稳的短词：正面、左前方、右前方、左侧、右侧、背后、左后方、右后方。只有空间易混淆时才补 0度/45度/90度/180度，不要每段都写数字角度。\n"
-        "3. 镜头高度必须写成眼平高度、低机位仰拍、高机位俯拍之一；不要只写\"平视侧前方\"\"平视三分之四角度\"。\n"
-        "4. 运镜必须写成固定机位、轨道前推 dolly-in、轨道后拉 dolly-out、稳定器跟拍 tracking shot、稳定器在人物前方同速后退、稳定器在人物背后同速前进、横移 truck left/right、摇镜 pan left/right 之一。\n"
-        "5. 如果写\"跟随\"，必须说明摄影机在人物前方/背后/左侧/右侧，以及它是同速后退、同速前进还是平行横移；禁止写\"轻微前推跟随\"。\n"
-        "6. 禁止使用模糊机位词：三分之四角度、斜侧、斜前方、轻微前推、轻微前推跟随、缓慢靠近、背影轻压。\n"
-        "7. 禁止抽象判断句。不要写\"沉默就是回应\"\"权力关系锁住\"\"空气收紧\"\"命令落地即见效\"\"形成清晰钩子\"。必须改写成可见动作：停顿几秒、谁看向谁、谁后退半步、谁让出通道、电梯门停在什么开合状态。\n"
-        "8. 可以使用专业术语，但最终 prompt 只保留可执行短句；例如\"商北琛半身中景，正面眼平，稳定器在他前方同速后退\"。\n"
+        "1. 内部镜头设计必须保留完整镜头语法：主体+主体景别、焦段、景深、机位高度、拍摄角度、唯一运镜、动作/表演、光源；不得因为最终要给 Seedance 就提前丢掉焦段/景深/高度/角度判断。\n"
+        "2. 每个 shot 只能有一个主体焦点、一个景别基底、一个主导运镜；景别可以在子分镜内递进，但不能写成\"纵深中全景到半身中景\"这种单字段混合景别。\n"
+        "3. 机位高度从仰拍、平视、俯拍、顶拍、虫眼中选择；普通关系/对白可用平视，权力压制可用仰拍，弱势/群体散开可用俯拍。最终 prompt 可把\"平视\"译成自然短句，避免机械写\"眼平高度\"。\n"
+        "4. 拍摄角度从正面、斜侧面、正侧面、背面、过肩、荷兰角、POV 中选择；POV 必须先有建立镜头说明谁在看，禁止直接跳 POV。\n"
+        "5. 运镜从推镜、拉镜、横移、横摇、垂直摇、升降、变焦、稳定器跟拍、手持、固定机位中选唯一主导运镜；禁止在一个 shot 内同时推近、横移、摇摄、再回主位。\n"
+        "6. 运镜必须服务镜头目的：推近/切近/转特写只能服务信息逼近、情绪暴露、压迫上升、受击反应变重要、道具或局部动作成为焦点；禁止把慢推近当通用情绪模板。\n"
+        "7. 反应落点优先按层级处理：主分镜负责主体关系和空间重心，子分镜负责受击、表情重音、局部动作；不要把\"同一运动里带到反应再回主位\"写成一个复杂主镜头。\n"
+        "8. 禁止复合景别/复合机位：不要写\"纵深中全景到半身中景\"\"中景转电梯口关系景\"\"右后方中景转固定机位\"\"同轴线偏右侧\"\"前后景关系\"。改成结构化字段：shot_size=MS/MCU，angle=正面/斜侧面/背面，movement=固定/跟拍。\n"
+        "9. 禁止使用模糊机位词：三分之四角度、斜侧、斜前方、轻微前推、轻微前推跟随、缓慢靠近、背影轻压。\n"
+        "10. 禁止抽象判断句。不要写\"沉默就是回应\"\"权力关系锁住\"\"空气收紧\"\"命令落地即见效\"\"形成清晰钩子\"。必须改写成可见动作：停顿几秒、谁看向谁、谁后退半步、谁让出通道、电梯门停在什么开合状态。\n"
+        "11. 内部可以技术化，最终编译必须感知化：85mm浅景深可译为\"背景虚化、主体突出\"，深景深可译为\"前后景都清楚\"，不得把\"电影感/高级感\"写成空壳标签。\n"
     )
 
 def _camera_task_selection_rules() -> str:
     return (
         "【镜头任务到机位选择硬规则】\n"
-        "1. 先判断当前 shot 的 task，再决定 camera 与 size；不要先挑一个好听的机位，再把动作硬塞进去。\n"
-        "2. 发言承载、正面施压、冷处理对峙：单段只能从 正前方0度、左前方30度/45度、右前方30度/45度 三类中**选一类并贯穿全段**——同段不得同时出现\"左前方\"和\"右前方\"这种 180° 跨轴。前提是人物朝向稳定，且没有转身、穿门、进电梯这类阈值动作。\n"
-        "3. 听者受击、视线撞上、回神、表情冻结：受击者机位必须落在第 2 条选定的同侧；并保留对手肩线、门框、桌边或人物边缘虚化作为空间锚点。\n"
-        "4. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先 左侧90度、右侧90度、左后方135度、右后方135度，或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定一侧。\n"
-        "5. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先 背后180度、左后方135度、右后方135度，或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
-        "6. 双人关系复位、群体关系复位、尾帧交接：优先 双人半身关系景 或 scene_fixed 关系景，重新交代距离、站位、轴线和谁仍在画内。\n"
-        "7. **机内连续运动不计为切镜**：稳机推近 dolly-in、稳机后拉 dolly-out、上摇 tilt-up、下摇 tilt-down、横移 truck、跟拍 tracking 都属于同一镜头内部的镜头细分；优先用机内运动承担景别变化，而不是硬切。\n"
-        "8. 同段切换只能发生在选定一侧内部（例如全段右前方，可以从右前方半身→右前方过肩→右前方双人关系景）；跨到另一侧本段不得擅自跨。\n"
-        "9. 只有在 单一主体 + 单一动作 + 没有说话者切换 + 没有受击反应 + 没有进门/进电梯/过阈值 时，才允许单一主机位持续承担整段。\n"
-        "10. 每次硬切都必须由 cut_point 解释，例如台词断点、动作顶点、信息看清、反应出现、space_reset、tailframe_reset；禁止 cut_point 写 axis_flip / reverse_angle / 反打。\n"
-        "11. 如果一个 fragment 里有多个 shots，禁止所有 shot 都重复同一套 camera + size 直到片段结束。\n"
+        "1. 先判断当前 main_shot 的 coverage_role 与 shot_intent，再决定 shot_size、camera_height、angle、movement、lens、depth；不要先挑一个好看的机位再硬套剧情。\n"
+        "2. 主分镜只在主体关系变化、场面权力关系变化、叙事重心变化、空间观察点变化、当前主镜头无法承载下一动作单元时新开；不要用主分镜机械对应每句台词。\n"
+        "3. 完整发言单元优先保持在同一主分镜内；长挑衅/揭晓/质问台词超过2秒时，用子分镜/L-cut 切受击者，让后半句以画外音落在反应上。\n"
+        "4. 听者受击、视线撞上、回神、表情冻结：优先挂到现有主镜头或新增 sub_shot；受击者机位必须落在同侧轴线内，并写 companion_visibility，不要靠横移摆尾带到反应。\n"
+        "5. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先正侧面、背面、斜侧面或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定轴线一侧。\n"
+        "6. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背面、斜侧面或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
+        "7. 9:16 主力景别为半身景/中景/MS，MCU 只用于压迫段或信息逼近中间层，CU 只用于信息炸点/受击反应/情绪顶点；禁止长期只在 MCU 与 CU 之间摆动。\n"
+        "8. 群体调度必须保留空间容量：群体四散、主管退让、员工让路不能用面部特写承接，优先中景关系、半身关系或 scene_fixed。\n"
+        "9. 每个 main_shot 必须有 cut_reason，回答为什么从上一主镜头切到这里；有效理由包括台词落点后切听者反应、动作中间态切接续、需要回关系景确认距离/门状态、tailframe_reset。\n"
+        "10. sub_shot 必须有 parent_shot_id、trigger、shot_size、cut_point、companion_visibility、state_delta、beat_purpose、emotion_anchor、duration_hint、action_phase；每个片段最多2个子分镜。\n"
+        "11. 如果一个 fragment 里有多个 main_shots，禁止所有 shot 都重复同一套 shot_size + angle + movement；但变化必须有叙事动机，禁止假丰富感。"
     )
 
 def _space_rules_contract_rules() -> str:
@@ -670,12 +768,13 @@ def _runtime_context_contract_card() -> str:
     )
 
 def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
-    """Validate the active shot construction-sheet schema.
+    """Validate the hard-switched shot_director v2 schema.
 
-    Current runtime output is intentionally lightweight, but it must be
-    executable by prompt_compiler: fragment_task/rhythm at fragment level and
-    duration/task/must_carry/cut_point/continuity at shot level. Legacy
-    main_shots are still tolerated for older saved states and guard fixtures.
+    规则：
+    1. 旧字段一旦出现，直接 fail；
+    2. main_shots 不再作为合法运行时出口；
+    3. fragment / main_shot / sub_shot 必须满足 v2 合同；
+    4. schema_version 缺失或错误，直接 fail。
     """
     issues: list[str] = []
     for segment_name in expected_segments:
@@ -691,17 +790,32 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             continue
         block = block_match.group(1)
 
-        # Legacy saved states/tests may still use main_shots. Keep that path
-        # readable, but enforce the new construction-sheet contract for shots.
-        if re.search(r"(?m)^\s*main_shots\s*:", block) and not re.search(r"(?m)^\s*shots\s*:", block):
-            for field in ["shot_id", "subject"]:
-                if not re.search(rf"^\s*-?\s*{field}\s*:", block, re.MULTILINE):
-                    issues.append(f"{fragment_id} 的 main_shots 缺少字段 {field}。")
-            continue
+        schema_version = _yaml_line_field(block, "schema_version")
+        if schema_version != _SCHEMA_VERSION_V2:
+            issues.append(
+                f"{fragment_id} 的 schema_version 必须为 {_SCHEMA_VERSION_V2}，当前为 {schema_version or '缺失'}。"
+            )
 
-        for field in _SHOT_CONSTRUCTION_FRAGMENT_FIELDS:
-            if not re.search(rf"(?m)^\s*{field}\s*:", block):
-                issues.append(f"{fragment_id} 缺少 {field} 字段。")
+        if re.search(r"(?m)^\s*main_shots\s*:", block):
+            issues.append(f"{fragment_id} 仍在使用已禁用的 main_shots 旧结构，必须改为 shots。")
+
+        for legacy_field in _FORBIDDEN_LEGACY_FIELDS:
+            if legacy_field == "continuity":
+                legacy_re = r"(?m)^\s*continuity\s*:"
+            elif legacy_field == "task":
+                legacy_re = r"(?m)^\s*task\s*:"
+            elif legacy_field == "duration":
+                legacy_re = r"(?m)^\s*duration\s*:"
+            elif legacy_field == "cut_point":
+                legacy_re = r"(?m)^\s*cut_point\s*:"
+            else:
+                legacy_re = rf"(?m)^\s*{re.escape(legacy_field)}\s*:"
+            if re.search(legacy_re, block):
+                issues.append(f"{fragment_id} 包含已禁用旧字段 {legacy_field}，运行时只允许 v2 合同。")
+
+        for field in _SHOT_DIRECTOR_V2_FRAGMENT_REQUIRED:
+            if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", block):
+                issues.append(f"{fragment_id} 缺少 v2 fragment 字段 {field}。")
 
         shot_blocks = _main_shot_blocks(block)
         if not shot_blocks:
@@ -709,20 +823,58 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             continue
 
         for shot_id, shot_block in shot_blocks:
-            for field in _SHOT_CONSTRUCTION_REQUIRED_FIELDS:
-                if not re.search(rf"(?m)^\s*-?\s*{field}\s*:", shot_block):
-                    issues.append(f"{shot_id} 缺少字段 {field}。")
+            for field in _SHOT_DIRECTOR_V2_MAIN_SHOT_REQUIRED:
+                if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_block):
+                    issues.append(f"{shot_id} 缺少 v2 主镜头字段 {field}。")
 
-            duration = _yaml_line_field(shot_block, "duration")
-            if duration and not _SHOT_DURATION_RE.search(duration):
-                issues.append(f"{shot_id} 的 duration 必须写成 '0-2秒' 或 '2秒' 这种秒数格式。")
+            # Priority B: FSM transition_type 枚举校验
+            transition_type = _yaml_line_field(shot_block, "transition_type")
+            if not transition_type:
+                issues.append(f"{shot_id} 缺少 transition_type（镜头衔接类型 FS M枚举：stay_on_A / cut_to_B / dolly_in_to_A / scene_fixed）。")
+            elif transition_type not in _TRANSITION_TYPE_FSM:
+                issues.append(
+                    f"{shot_id} 的 transition_type='{transition_type}' 不是合法枚举值。"
+                    f"允许值：{', '.join(_TRANSITION_TYPE_FSM)}。"
+                    f"禁止写'同一机位继续'等自由文本。"
+                )
 
-            cut_point = _yaml_line_field(shot_block, "cut_point")
-            if cut_point:
-                if re.fullmatch(r"[\"']?(?:切出|切到下个镜头|下个镜头)[\"']?", cut_point.strip()):
-                    issues.append(f"{shot_id} 的 cut_point 过于空泛，必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。")
-                elif not _SHOT_CUT_TRIGGER_RE.search(cut_point):
-                    issues.append(f"{shot_id} 的 cut_point 缺少可执行切镜触发点。")
+            cut_reason = _yaml_line_field(shot_block, "cut_reason")
+            if cut_reason and not _SHOT_CUT_TRIGGER_RE.search(cut_reason):
+                issues.append(f"{shot_id} 的 cut_reason 过于空泛，必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。")
+
+            # Priority B: tail_state_card 尾态卡校验
+            tail_state_card_match = re.search(
+                r"(?ms)^\s*tail_state_card\s*:\s*([\s\S]*?)$",
+                shot_block,
+            )
+            if not tail_state_card_match:
+                issues.append(
+                    f"{shot_id} 缺少 tail_state_card（尾态卡必须包含：人物站位、接触关系、"
+                    f"道具/门/车门状态、视线朝向、距离关系）。"
+                )
+            else:
+                tail_card_text = tail_state_card_match.group(1)
+                # 宽松检查：至少包含 3 个关键词
+                card_keywords = ["站位", "接触", "道具", "门", "视线", "距离"]
+                found = sum(1 for kw in card_keywords if kw in tail_card_text)
+                if found < 3:
+                    issues.append(
+                        f"{shot_id} 的 tail_state_card 内容不足（找到 {found}/5 个必需子项）。"
+                        f"必须包含：人物站位、接触关系、道具/门/车门状态、视线朝向、距离关系。"
+                    )
+
+        if re.search(r"(?m)^\s*sub_shots\s*:", block) and not re.search(r"(?m)^\s*sub_shots\s*:\s*\[\s*\]\s*$", block):
+            sub_blocks = re.findall(
+                r"(?ms)^\s*-\s*parent_shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*parent_shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
+                block,
+            )
+            if not sub_blocks:
+                issues.append(f"{fragment_id} 声明了 sub_shots，但没有任何 parent_shot_id 子镜头。")
+            for parent_shot_id, sub_tail in sub_blocks:
+                sub_block = f"parent_shot_id: {parent_shot_id}\n{sub_tail}"
+                for field in _SHOT_DIRECTOR_V2_SUB_SHOT_REQUIRED:
+                    if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", sub_block):
+                        issues.append(f"{fragment_id} 的 sub_shot({parent_shot_id.strip()}) 缺少字段 {field}。")
 
     return issues
 
@@ -1292,35 +1444,56 @@ def _call_stage_split_by_fragment(
     aspect_ratio: str,
     contract_output: str,
     prompt_builder: Callable[[str, str, str], str],
+    progress_callback: Callable[[str, str, dict[str, Any]], None] | None = None,
+    resume_fragment_outputs: dict[str, str] | None = None,
+    resume_fragment_runtime: dict[str, dict[str, Any]] | None = None,
 ) -> tuple[str, dict[str, Any]]:
     planner_sections = _sections_by_fragment(planner_output)
     contract_sections = _sections_by_fragment(contract_output)
+    resume_fragment_outputs = resume_fragment_outputs or {}
+    resume_fragment_runtime = resume_fragment_runtime or {}
     started_at = time.time()
     outputs: list[str] = []
     fragment_runtimes: list[dict[str, Any]] = []
     for segment_name in expected_segments:
         fragment_id = _segment_name_to_fragment_id(segment_name)
+        fragment_stage_name = f"fragment_{fragment_id}"
         fragment_context = _fragment_compact_context(planner_sections, fragment_id, aspect_ratio)
         fragment_contract = contract_sections.get(fragment_id, "")
         if not fragment_contract:
             # Fall back to the full contract instead of silently dropping a fragment.
             fragment_contract = contract_output
         fragment_started_at = time.time()
-        fragment_output = call_llm(
-            system_prompt=system_prompt,
-            user_prompt=prompt_builder(fragment_id, fragment_context, fragment_contract),
-            agent_name=stage_key,
-            images_base64=None,
+        resumed_output = (
+            resume_fragment_outputs.get(fragment_stage_name)
+            or resume_fragment_outputs.get(fragment_id)
+            or ""
         )
-        cleaned = _clean_shot_director_output(fragment_output)
-        outputs.append(cleaned)
-        fragment_runtimes.append(
-            {
+        if resumed_output.strip():
+            cleaned = _clean_shot_director_output(resumed_output)
+            fragment_runtime = dict(resume_fragment_runtime.get(fragment_stage_name) or {})
+            fragment_runtime.setdefault("fragment_id", fragment_id)
+            fragment_runtime.setdefault("elapsed_seconds", 0)
+            fragment_runtime.setdefault("output_chars", len(cleaned))
+            fragment_runtime.setdefault("status", "reused")
+        else:
+            fragment_output = call_llm(
+                system_prompt=system_prompt,
+                user_prompt=prompt_builder(fragment_id, fragment_context, fragment_contract),
+                agent_name=stage_key,
+                images_base64=None,
+            )
+            cleaned = _clean_shot_director_output(fragment_output)
+            fragment_runtime = {
                 "fragment_id": fragment_id,
                 "elapsed_seconds": round(time.time() - fragment_started_at, 3),
                 "output_chars": len(cleaned),
+                "status": "success" if cleaned else "empty",
             }
-        )
+        outputs.append(cleaned)
+        fragment_runtimes.append(fragment_runtime)
+        if progress_callback:
+            progress_callback(fragment_stage_name, cleaned, fragment_runtime)
     combined_output = "\n\n".join(output.strip() for output in outputs if output.strip())
     return combined_output, {
         "agent_name": stage_key,
@@ -1530,6 +1703,10 @@ def _run_shot_director_single_pass_impl(
                     "Output YAML only."
                 )
 
+            def persist_fragment(fragment_stage_name: str, fragment_output: str, fragment_runtime: dict[str, Any]) -> None:
+                if stage_callback:
+                    stage_callback(fragment_stage_name, fragment_output, fragment_runtime, dict(stage_meta))
+
             final_output, final_runtime = _call_stage_split_by_fragment(
                 stage_key="shot_director",
                 system_prompt=system_prompt,
@@ -1538,6 +1715,9 @@ def _run_shot_director_single_pass_impl(
                 aspect_ratio=aspect_ratio,
                 contract_output="",
                 prompt_builder=build_fragment_prompt,
+                progress_callback=persist_fragment,
+                resume_fragment_outputs=resume_stage_outputs,
+                resume_fragment_runtime=resume_stage_runtime,
             )
         else:
             final_output, final_runtime = _call_shot_director_stage(
@@ -1707,10 +1887,16 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         derived_total, segment_names = _derive_segments_from_planner_output(planner_output)
         if not total_segments:
             total_segments = derived_total
-    # For single-pass schema, check for "final" output instead of layout/blocking/guard
-    resume_stage_outputs = {
-        "final": outputs.get("shot_director", "")
-    } if outputs.get("shot_director") else {}
+    # For single-pass schema, check for "final" output; for split runs, also
+    # keep completed fragment outputs so a restart resumes from the first
+    # unfinished fragment instead of rerunning every fragment.
+    resume_stage_outputs: dict[str, str] = {}
+    if outputs.get("shot_director"):
+        resume_stage_outputs["final"] = outputs.get("shot_director", "")
+    for key, value in outputs.items():
+        prefix = "shot_director_fragment_"
+        if key.startswith(prefix) and value:
+            resume_stage_outputs[key.removeprefix("shot_director_")] = value
     shot_meta = (state.get("knowledge_metadata") or {}).get("shot_director", {})
     resume_stage_runtime = shot_meta.get("runtime", {}) if isinstance(shot_meta, dict) else {}
     resume_stage_meta = shot_meta.get("stage_retrieval", {}) if isinstance(shot_meta, dict) else {}
@@ -1745,9 +1931,21 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         }
         knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta_snapshot
 
+        completed_fragment_index = 0
+        if stage_name.startswith("fragment_F"):
+            try:
+                completed_fragment_index = int(stage_name.rsplit("F", 1)[1])
+            except Exception:
+                completed_fragment_index = 0
+        active_index = completed_fragment_index or 1
         stage_messages = {
             "final": "镜头导演输出已完成，准备生成第 1 段 Prompt。",
         }
+        if completed_fragment_index:
+            stage_messages[stage_name] = (
+                f"镜头导演已完成 {stage_name.removeprefix('fragment_')} "
+                f"（{completed_fragment_index}/{total_segments}），正在继续下一个片段..."
+            )
         _persist_update(
             state,
             {
@@ -1758,7 +1956,8 @@ def shot_director_node(state: DirectorState) -> DirectorState:
                 "knowledge_metadata": knowledge_metadata,
                 "total_segments": total_segments,
                 "segment_names": segment_names,
-                "current_segment_index": 1,
+                "current_segment_index": active_index,
+                "active_segment_index": active_index,
             },
         )
 
@@ -1885,6 +2084,16 @@ def shot_director_node(state: DirectorState) -> DirectorState:
     # Single-pass schema: only "final" output
     outputs["shot_director_final"] = stage_outputs.get("final", "")
     outputs["shot_director"] = output
+    original_by_segment = dict(state.get("shot_director_original_by_segment") or {})
+    for idx in range(1, max(total_segments, 1) + 1):
+        fragment_id = f"F{idx:02d}"
+        match = re.search(
+            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+            output or "",
+        )
+        if match:
+            original_by_segment.setdefault(str(idx), match.group(1).strip())
     return _persist_update(
         state,
         {
@@ -1896,6 +2105,10 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             "total_segments": total_segments,
             "segment_names": segment_names,
             "current_segment_index": 1,
+            "director_review_required": True,
+            "director_edits_by_segment": dict(state.get("director_edits_by_segment") or {}),
+            "shot_director_original_by_segment": original_by_segment,
+            "shot_director_approved_by_segment": dict(state.get("shot_director_approved_by_segment") or {}),
         },
     )
 

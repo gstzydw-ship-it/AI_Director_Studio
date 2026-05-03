@@ -78,7 +78,7 @@
                                     </div>
                                 </div>
                                 <div class="setting-group">
-                                    <label>添加参考图（必传，可多次添加）</label>
+                                    <label>添加参考图（可选，可多次添加）</label>
                                     <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
                                         <select id="refLibrarySelect" style="flex: 1;" onchange="addReferenceFromLibrary(this.value); this.value='';">
                                             <option value="">-- 正在加载本地库... --</option>
@@ -86,7 +86,7 @@
                                         <span style="font-size: 12px; color: var(--text-muted);">或</span>
                                         <input type="file" id="refImageFiles" accept="image/png, image/jpeg, image/webp" multiple style="flex: 1; padding: 6px;">
                                     </div>
-                                    <small>已添加的图片会保留并生成 @图片 编号；建议至少包含主角人物、对手人物、场景空间，可继续添加位置关系图、服装道具图。单次最多 12 张，后端会自动压缩后再发给模型。</small>
+                                    <small>已添加的图片会保留并生成 @图片 编号；建议包含主角人物、对手人物、场景空间，也可继续添加位置关系图、服装道具图。单次最多 12 张，后端会自动压缩后再发给模型。</small>
                                     <div class="reference-toolbar">
                                         <span id="refImageCount">已添加 0 张</span>
                                         <button type="button" class="btn-small" onclick="clearReferenceImages()">清空参考图</button>
@@ -809,10 +809,6 @@
             const script = document.getElementById('scriptInput').value.trim();
             if (!script) {
                 showError('请先输入剧本内容！');
-                return;
-            }
-            if (referenceItems.length < 3) {
-                showError('请至少添加3张参考图：主角人物、对手人物、场景空间。');
                 return;
             }
             if (referenceItems.length > MAX_REFERENCE_IMAGES) {
