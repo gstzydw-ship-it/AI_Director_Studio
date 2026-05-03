@@ -12,6 +12,7 @@ import threading
 import traceback
 import re
 import shutil
+import hashlib
 from io import BytesIO
 from datetime import datetime
 from typing import Any
@@ -511,6 +512,30 @@ def _safe_filename(filename: str, fallback: str = "asset") -> str:
     safe_stem = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in stem).strip("._")
     safe_ext = "".join(ch for ch in ext.lower() if ch.isalnum() or ch == ".")
     return f"{safe_stem or fallback}{safe_ext or '.bin'}"
+
+def _file_sha256(content: bytes) -> str:
+    return hashlib.sha256(content).hexdigest()
+
+
+def _dedupe_asset_path(folder: str, original_filename: str, content: bytes) -> tuple[str, bool]:
+    safe_name = _safe_filename(original_filename)
+    stem, ext = os.path.splitext(safe_name)
+    digest = _file_sha256(content)
+
+    for existing in os.listdir(folder):
+        existing_path = os.path.join(folder, existing)
+        if not os.path.isfile(existing_path):
+            continue
+        try:
+            with open(existing_path, "rb") as f:
+                if _file_sha256(f.read()) == digest:
+                    return existing_path, True
+        except Exception:
+            continue
+
+    final_name = f"{stem}_{digest[:12]}{ext}"
+    return os.path.join(folder, final_name), False
+
 
 
 def _parse_tags(value: Any) -> list[str]:
@@ -1461,7 +1486,17 @@ async def api_projects_recent(include_archived: bool = False):
 @app.post("/api/projects/new")
 async def api_projects_new(payload: dict[str, Any] = Body(default={})):
     name = str((payload or {}).get("name") or "未命名项目").strip() or "未命名项目"
-    session_id = _normalise_session_id((payload or {}).get("session_id") or f"project_{datetime.now().strftime('%Y%m%d_%H%M%S')}")
+    requested_session_id = (payload or {}).get("session_id")
+    session_id = _normalise_session_id(requested_session_id or f"project_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}")
+    if not requested_session_id:
+        base_session_id = session_id
+        counter = 1
+        while os.path.exists(os.path.join(_session_output_dir(session_id), "pipeline_state.json")):
+            session_id = _normalise_session_id(f"{base_session_id}_{counter}")
+            counter += 1
+    _bump_task_generation(session_id)
+    with request_scope(session_id=session_id):
+        clear_state()
     state = _default_task_state()
     state["project_name"] = name
     state["created_at"] = datetime.now().isoformat(timespec="seconds")
@@ -1545,23 +1580,26 @@ async def api_assets_import(
 
     _ensure_asset_dirs()
     dirname = ASSET_TYPE_DIRS[asset_type]
-    filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_safe_filename(file.filename)}"
-    path = os.path.join(ASSET_LIBRARY_DIR, dirname, filename)
-    with open(path, "wb") as output:
-        output.write(content)
+    folder = os.path.join(ASSET_LIBRARY_DIR, dirname)
+    path, existed = _dedupe_asset_path(folder, file.filename or "asset", content)
 
-    meta = {
-        "id": f"{asset_type}:{filename}",
-        "type": asset_type,
-        "name": name.strip() or os.path.splitext(file.filename)[0],
-        "tags": _parse_tags(tags),
-        "description": description.strip(),
-        "purpose": purpose.strip(),
-        "created_at": datetime.now().isoformat(timespec="seconds"),
-    }
-    _write_asset_meta(path, meta)
+    if not existed:
+        filename = os.path.basename(path)
+        with open(path, "wb") as output:
+            output.write(content)
+        meta = {
+            "id": f"{asset_type}:{filename}",
+            "type": asset_type,
+            "name": name.strip() or os.path.splitext(file.filename)[0],
+            "tags": _parse_tags(tags),
+            "description": description.strip(),
+            "purpose": purpose.strip(),
+            "created_at": datetime.now().isoformat(timespec="seconds"),
+        }
+        _write_asset_meta(path, meta)
+
     asset = _asset_from_path(asset_type, path)
-    return JSONResponse({"success": True, "asset": asset})
+    return JSONResponse({"success": True, "asset": asset, "deduplicated": existed})
 
 
 @app.post("/api/assets/import_batch")
@@ -1575,7 +1613,9 @@ async def api_assets_import_batch(
     _ensure_asset_dirs()
     asset_type = _normalise_asset_type(asset_type)
     dirname = ASSET_TYPE_DIRS[asset_type]
+    folder = os.path.join(ASSET_LIBRARY_DIR, dirname)
     results: list[dict] = []
+    skipped = 0
     for file in files:
         if not file or not file.filename:
             continue
@@ -1586,8 +1626,12 @@ async def api_assets_import_batch(
         if not content:
             continue
         safe_name = os.path.splitext(file.filename)[0]
-        filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{_safe_filename(file.filename)}"
-        path = os.path.join(ASSET_LIBRARY_DIR, dirname, filename)
+        path, existed = _dedupe_asset_path(folder, file.filename or "asset", content)
+        if existed:
+            skipped += 1
+            results.append(_asset_from_path(asset_type, path))
+            continue
+        filename = os.path.basename(path)
         with open(path, "wb") as output:
             output.write(content)
         meta = {
@@ -1602,7 +1646,7 @@ async def api_assets_import_batch(
         _write_asset_meta(path, meta)
         asset = _asset_from_path(asset_type, path)
         results.append(asset)
-    return JSONResponse({"success": True, "assets": results, "count": len(results)})
+    return JSONResponse({"success": True, "assets": results, "count": len(results), "skipped": skipped})
 
 
 @app.post("/api/video/extract_frames")

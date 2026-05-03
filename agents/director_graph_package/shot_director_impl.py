@@ -48,6 +48,10 @@ _GENERIC_SELECTION_REASON_RE = re.compile(
     r"cinematic|looks good|more emotional|follow(?:s|ing)? rules|rule match|好看|高级|有电影感|符合规则|更有情绪",
     re.IGNORECASE,
 )
+_GENERIC_CUT_REASON_RE = re.compile(
+    r"更有电影感|更好看|想看表情|丰富画面|有张力|有压迫感|cinematic|looks good|more emotional",
+    re.IGNORECASE,
+)
 _DIALOGUE_COVERAGE_TERMS_RE = re.compile(
     r"(反应|受击|听者|对手|对方|过肩|肩线|反打|视线|切回|切至|切到|切出|台词断点|画外音|OS|L-cut|J-cut|景别递进)"
 )
@@ -478,6 +482,57 @@ def _shot_director_rhythm_match_rules() -> str:
         "9. 微细节镜头只用于关键信息，不用于堆砌存在感。手、嘴唇、眼角、袖口、鞋尖、发丝等局部如果不承载线索、动作前摇或受击结果，就不要单独给镜头。\n"
     )
 
+def _shortdrama_master_rules() -> str:
+    """6条短剧样片核心规则，来自94集短剧深度分析报告（RULE-SHORTDRAMA-* 系列）。"""
+    return (
+        "【RULE-SHORTDRAMA-MS-FIRST · 主骨架优先规则】\n"
+        "适用：9:16 竖屏短剧、对白场景、双人冲突、群体对峙、权力压迫。\n"
+        "执行：每个 fragment 的第一个镜头必须优先建立人物距离和空间方向，"
+        "默认使用 MS/半身/关系镜头作为主骨架，确认空间关系后再切近景。\n"
+        "禁止：禁止一上来就用整脸特写（ECU/CU）替代空间关系建立。\n"
+        "禁止：禁止连续 CU 承载完整对白，禁止让对手和空间在特写后消失。\n\n"
+
+        "【RULE-CU-MUST-BE-RELATION-WRAPPED · 特写包裹规则】\n"
+        "适用：信息炸点、受击反应、情绪顶点、短促震动。\n"
+        "执行：CU/ECU 前后至少有一个关系镜头（MS/中景/双人关系景）作为缓冲，"
+        "或在 CU 内明确 companion_visibility（前景肩线、门框、桌边、人物边缘）。\n"
+        "禁止：禁止连续 CU 承载完整对白，禁止让对手和空间在特写后消失。\n"
+        "禁止：禁止在一个 fragment 内出现超过 1 次无包裹的纯特写。\n\n"
+
+        "【RULE-CUT-REASON-INFORMATIONAL · 切镜信息理由规则】\n"
+        "适用：所有 main_shot 与 sub_shot 的 transition_type 切换。\n"
+        "执行：cut_reason 必须回答「为什么必须在这里切」，"
+        "有效理由包括：主体变化、动作顶点前、台词断点、信息看清、视线锚点、"
+        "空间复位、受击反应、尾帧交接。\n"
+        "禁止：禁止写「更有电影感」「更好看」「想看表情」「丰富画面」「有张力」「有压迫感」。\n"
+        "禁止：cut_reason 写成空泛形容词或情绪标签，必须是具体信息状态变化。\n\n"
+
+        "【RULE-ACTION-INSERT-BELONGS-TO-26 · 局部动作归属规则】\n"
+        "适用：手部、道具、按钮、门缝、衣角、法术、文件、手机、车门、电梯门。\n"
+        "执行：局部动作默认由 sub_shot 承担，必须绑定 parent_shot_id；"
+        "action_insert_slot 属于 sub_shot 范畴，不能独立于父镜头存在。\n"
+        "禁止：禁止把局部动作（手/门缝/按钮/文件）随意升级为平级 main_shot 的主体，"
+        "除非该道具本身就是当前剧本事件的唯一主体（如：展示文件的特写镜头）。\n"
+        "禁止：sub_shot 不能重新建场（不能写 space_rules 或 continuity_anchor）。\n\n"
+
+        "【RULE-THRESHOLD-STATE-CHAIN · 阈值状态单向链规则】\n"
+        "适用：电梯、门、车门、走廊、入口、上车下车、进入房间、离开通道。\n"
+        "执行：阈值动作必须建立单向状态链，状态只能单向推进，例如：\n"
+        "  「可进入 → 人进入 → 门开始合拢 → 门缝未闭合 → 门完全关闭」\n"
+        "每个状态变化必须在前一状态基础上推进，禁止跳跃。\n"
+        "禁止：禁止门关上又重新打开、人物切镜后跳位、前一镜头已完成动作后一镜头从头做。\n"
+        "禁止：电梯门状态不能写「门已关上」后又在下一镜头出现「门缝」。\n\n"
+
+        "【RULE-GROUP-BEAT-RELATION-RESET · 群体节拍关系复位规则】\n"
+        "适用：员工让路、主管散开、保镖包围、众人围观、多人施压。\n"
+        "执行：群体动作必须用关系镜头（MS/中景/双人关系景/场景固定机位）承接；"
+        "单人反应之后必须回到关系景确认站位变化和空间结果。\n"
+        "禁止：禁止用单人大头（ECU/CU）承接群体散开或空间变化。\n"
+        "禁止：群体让路后如果空间关系改变（如通道打开），必须有一个镜头展示整体关系，"
+        "不能停在单个人物特写上。\n"
+    )
+
+
 def _clean_shot_director_output(text: str) -> str:
     """Strip thinking/prose wrappers and keep the YAML payload."""
     if not text:
@@ -767,6 +822,10 @@ def _runtime_context_contract_card() -> str:
         "- 如果人物面朝电梯且镜头写正面，电梯门框只能是前景边缘/左右侧边缘，不能写成后景。"
     )
 
+def _is_local_insert_subject(value: str) -> bool:
+    return bool(re.search(r"手|手部|门缝|按钮|文件|手机|衣角|车门|电梯门|照片|道具", value or ""))
+
+
 def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
     """Validate the hard-switched shot_director v2 schema.
 
@@ -822,6 +881,14 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             issues.append(f"{fragment_id} 缺少 shots 字段或没有任何 shot_id。")
             continue
 
+        first_shot_id, first_shot_block = shot_blocks[0]
+        first_shot_size = _yaml_line_field(first_shot_block, "shot_size")
+        if _is_closeup_shot_size(first_shot_size):
+            issues.append(
+                f"{fragment_id} 的首镜头 {first_shot_id} 直接使用特写类景别。"
+                "短剧主骨架必须先用半身/中景/关系镜头建立人物距离和空间方向。"
+            )
+
         for shot_id, shot_block in shot_blocks:
             for field in _SHOT_DIRECTOR_V2_MAIN_SHOT_REQUIRED:
                 if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_block):
@@ -839,8 +906,19 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
                 )
 
             cut_reason = _yaml_line_field(shot_block, "cut_reason")
-            if cut_reason and not _SHOT_CUT_TRIGGER_RE.search(cut_reason):
+            if cut_reason and (
+                _GENERIC_CUT_REASON_RE.search(cut_reason)
+                or not _SHOT_CUT_TRIGGER_RE.search(cut_reason)
+            ):
                 issues.append(f"{shot_id} 的 cut_reason 过于空泛，必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。")
+
+            subject = _yaml_line_field(shot_block, "subject")
+            coverage_role = _yaml_line_field(shot_block, "coverage_role")
+            if _is_local_insert_subject(subject) and not re.search(r"唯一主体|文件内容|信息揭示|关键物|证据|屏幕|照片", coverage_role):
+                issues.append(
+                    f"{shot_id} 把局部动作/局部道具（{subject}）升级成了 main_shot 主体。"
+                    "手部、门缝、按钮、文件、手机等默认应作为 sub_shot 挂到父镜头下。"
+                )
 
             # Priority B: tail_state_card 尾态卡校验
             tail_state_card_match = re.search(
@@ -1209,6 +1287,7 @@ def _agent_runtime_trace(
 
 def _shot_director_rule_block(aspect_ratio: str) -> str:
     return (
+        f"{_shortdrama_master_rules()}\n"
         f"{_script_fidelity_rules()}\n"
         f"{_subject_framing_rules()}\n"
         f"{_shot_composition_task_selection_rules()}\n"
@@ -1219,7 +1298,8 @@ def _shot_director_rule_block(aspect_ratio: str) -> str:
         f"{_shot_director_source_event_rules()}\n"
         f"{_shot_director_rhythm_match_rules()}\n"
         f"{_rhythm_insert_continuity_rules()}\n"
-        f"【画幅】{aspect_ratio}\n\"        \"【防幻觉规则】\n"
+        f"【画幅】{aspect_ratio}\n"
+        "【防幻觉规则】\n"
         "1. 不新增剧情。\n"
         "2. 不新增人物。\n"
         "3. 不新增台词。\n"
@@ -1230,7 +1310,6 @@ def _shot_director_rule_block(aspect_ratio: str) -> str:
         "8. 所有 must_not_show 必须简短，不要展开描述。\n"
         "9. action 只写可见动作，不写心理解释。\n"
         "10. 如果字段冲突，优先保留 continuity、space_rules、shots.action。\n"
-
     )
 
 def _indent_level(line: str) -> int:
