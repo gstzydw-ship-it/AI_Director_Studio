@@ -56,65 +56,7 @@ _DIALOGUE_COVERAGE_TERMS_RE = re.compile(
     r"(反应|受击|听者|对手|对方|过肩|肩线|反打|视线|切回|切至|切到|切出|台词断点|画外音|OS|L-cut|J-cut|景别递进)"
 )
 # =============================================================================
-# shot_director v2 schema contract — 硬性版本切换
-# =============================================================================
-_SCHEMA_VERSION_V2 = "shot_director_v2"
-
-# V2 fragment 层必填字段（新增 fragment_intent / reaction_coverage / continuity_anchor 替代旧 fragment_task）
-_SHOT_DIRECTOR_V2_FRAGMENT_REQUIRED: tuple[str, ...] = (
-    "fragment_intent",
-    "reaction_coverage",
-    "continuity_anchor",
-    "shots",
-)
-
-# V2 main_shot 层必填字段（新增 coverage_role / cut_reason / companion_visibility / tailframe_role / dialogue_coverage）
-_SHOT_DIRECTOR_V2_MAIN_SHOT_REQUIRED: tuple[str, ...] = (
-    "shot_id",
-    "subject",
-    "shot_size",
-    "camera_height",
-    "angle",
-    "movement",
-    "lens",
-    "depth",
-    "coverage_role",
-    "cut_reason",
-    "companion_visibility",
-    "tailframe_role",
-    "dialogue_coverage",
-)
-
-# V2 blocking 层可选但必须一致（如果有 blocking_plan / state_chain / event_coverage）
-_SHOT_DIRECTOR_V2_BLOCKING_OPTIONAL: tuple[str, ...] = (
-    "blocking_plan",
-    "state_chain",
-    "event_coverage",
-    "reaction_coverage",
-)
-
-# V2 sub_shot 层必填字段
-_SHOT_DIRECTOR_V2_SUB_SHOT_REQUIRED: tuple[str, ...] = (
-    "parent_shot_id",
-    "trigger",
-    "beat_purpose",
-    "emotion_anchor",
-    "duration_hint",
-    "action_phase",
-)
-
-# 禁止出现的旧字段（一旦出现直接 fail）
-_FORBIDDEN_LEGACY_FIELDS: tuple[str, ...] = (
-    "fragment_task",
-    "must_carry",
-    "duration",      # 旧 shot-level 字段
-    "task",          # 旧 shot-level 字段
-    "continuity",    # 旧 shot-level 字段（非 continuity_anchor）
-    "cut_point",     # 旧 shot-level 字段
-)
-
-# =============================================================================
-# 向后兼容旧常量（仅测试 fixture 使用，生产代码不再依赖）
+# shot_director v1 schema contract — 镜头导演字段
 # =============================================================================
 _SHOT_CONSTRUCTION_FRAGMENT_FIELDS: tuple[str, ...] = ("fragment_task", "rhythm", "shots")
 _SHOT_CONSTRUCTION_REQUIRED_FIELDS: tuple[str, ...] = (
@@ -149,41 +91,6 @@ _SHOT_DIRECTOR_WORKFLOW_STAGES: tuple[str, ...] = (
 _SHOT_DURATION_RE = re.compile(r"^\s*[\"']?(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*秒[\"']?\s*$")
 _SHOT_CUT_TRIGGER_RE = re.compile(
     r"(动作顶点|台词(?:断点|落下|结束)?|反应(?:出现|落点)?|信息(?:看清|揭示)|看清|停住|完成|命中|落桌|撞上|尾帧|切出|切至|切到|→)"
-)
-
-# ------------------------------------------------------------------
-# Priority B: 镜头衔接类型 FSM — 禁止自由文本，只允许以下四种枚举
-# ------------------------------------------------------------------
-_TRANSITION_TYPE_FSM: tuple[str, ...] = (
-    "stay_on_A",      # 保持在A（同一主体继续，景别可变化）
-    "cut_to_B",       # 切至B（主体变化或机位大跳）
-    "dolly_in_to_A",  # 切近/拉开至A（同一主体景别变化）
-    "scene_fixed",    # 固定机位保持（场景固定机位，不跟人）
-)
-_TRANSITION_TYPE_HUMAN: dict[str, str] = {
-    "stay_on_A":   "镜头保持在A身上 / 同一机位继续",
-    "cut_to_B":    "镜头切至B / 镜头切近至B / 镜头拉开至B",
-    "dolly_in_to_A": "镜头切近至A / 镜头拉开至A / 镜头切远至A",
-    "scene_fixed": "固定机位保持在某空间锚点",
-}
-_TRANSITION_TYPE_NATURAL_RE = re.compile(
-    r"("
-    r"镜头保持在|同一机位继续|同一主体继续|镜头切至|镜头切到|镜头切近至|镜头拉开至|镜头切远至|"
-    r"切至|切到|切近至|拉开至|切远至|"
-    r"固定机位保持|固定机位保持在"
-    r")",
-    re.IGNORECASE,
-)
-
-# ------------------------------------------------------------------
-# Priority B: 尾态显式化 — 每个镜头必须产出 tail_state_card
-# ------------------------------------------------------------------
-_TAIL_STATE_CARD_SUBSHOTS: tuple[str, ...] = (
-    "人物站位",
-    "接触关系",
-    "道具/门/车门状态",
-    "视线朝向",
-    "距离关系",
 )
 
 def _shot_director_workflow_contract() -> str:
@@ -883,13 +790,13 @@ def _is_local_insert_subject(value: str) -> bool:
 
 
 def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
-    """Validate the hard-switched shot_director v2 schema.
+    """Validate shot_director v1 schema.
 
-    规则：
-    1. 旧字段一旦出现，直接 fail；
-    2. main_shots 不再作为合法运行时出口；
-    3. fragment / main_shot / sub_shot 必须满足 v2 合同；
-    4. schema_version 缺失或错误，直接 fail。
+    V1 规则：
+    1. fragment 必须有 fragment_task、rhythm、shots
+    2. 每个 shot 必须有 shot_id、duration、task、subject、camera、size、action、dialogue、must_carry、cut_point、continuity
+    3. 可选字段 type、audio 只在需要时写
+    4. 首镜头不能用特写类景别建立空间
     """
     issues: list[str] = []
     for segment_name in expected_segments:
@@ -905,32 +812,10 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             continue
         block = block_match.group(1)
 
-        schema_version = _yaml_line_field(block, "schema_version")
-        if schema_version != _SCHEMA_VERSION_V2:
-            issues.append(
-                f"{fragment_id} 的 schema_version 必须为 {_SCHEMA_VERSION_V2}，当前为 {schema_version or '缺失'}。"
-            )
-
-        if re.search(r"(?m)^\s*main_shots\s*:", block):
-            issues.append(f"{fragment_id} 仍在使用已禁用的 main_shots 旧结构，必须改为 shots。")
-
-        for legacy_field in _FORBIDDEN_LEGACY_FIELDS:
-            if legacy_field == "continuity":
-                legacy_re = r"(?m)^\s*continuity\s*:"
-            elif legacy_field == "task":
-                legacy_re = r"(?m)^\s*task\s*:"
-            elif legacy_field == "duration":
-                legacy_re = r"(?m)^\s*duration\s*:"
-            elif legacy_field == "cut_point":
-                legacy_re = r"(?m)^\s*cut_point\s*:"
-            else:
-                legacy_re = rf"(?m)^\s*{re.escape(legacy_field)}\s*:"
-            if re.search(legacy_re, block):
-                issues.append(f"{fragment_id} 包含已禁用旧字段 {legacy_field}，运行时只允许 v2 合同。")
-
-        for field in _SHOT_DIRECTOR_V2_FRAGMENT_REQUIRED:
+        # V1 fragment 必填字段
+        for field in _SHOT_CONSTRUCTION_FRAGMENT_FIELDS:
             if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", block):
-                issues.append(f"{fragment_id} 缺少 v2 fragment 字段 {field}。")
+                issues.append(f"{fragment_id} 缺少 fragment 字段 {field}。")
 
         shot_blocks = _main_shot_blocks(block)
         if not shot_blocks:
@@ -938,7 +823,7 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             continue
 
         first_shot_id, first_shot_block = shot_blocks[0]
-        first_shot_size = _yaml_line_field(first_shot_block, "shot_size")
+        first_shot_size = _yaml_line_field(first_shot_block, "size") or _yaml_line_field(first_shot_block, "shot_size")
         if _is_closeup_shot_size(first_shot_size):
             issues.append(
                 f"{fragment_id} 的首镜头 {first_shot_id} 直接使用特写类景别。"
@@ -946,69 +831,24 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             )
 
         for shot_id, shot_block in shot_blocks:
-            for field in _SHOT_DIRECTOR_V2_MAIN_SHOT_REQUIRED:
+            for field in _SHOT_CONSTRUCTION_REQUIRED_FIELDS:
                 if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_block):
-                    issues.append(f"{shot_id} 缺少 v2 主镜头字段 {field}。")
+                    issues.append(f"{shot_id} 缺少必要字段 {field}。")
 
-            # Priority B: FSM transition_type 枚举校验
-            transition_type = _yaml_line_field(shot_block, "transition_type")
-            if not transition_type:
-                issues.append(f"{shot_id} 缺少 transition_type（镜头衔接类型 FS M枚举：stay_on_A / cut_to_B / dolly_in_to_A / scene_fixed）。")
-            elif transition_type not in _TRANSITION_TYPE_FSM:
-                issues.append(
-                    f"{shot_id} 的 transition_type='{transition_type}' 不是合法枚举值。"
-                    f"允许值：{', '.join(_TRANSITION_TYPE_FSM)}。"
-                    f"禁止写'同一机位继续'等自由文本。"
-                )
-
-            cut_reason = _yaml_line_field(shot_block, "cut_reason")
-            if cut_reason and (
-                _GENERIC_CUT_REASON_RE.search(cut_reason)
-                or not _SHOT_CUT_TRIGGER_RE.search(cut_reason)
+            cut_point = _yaml_line_field(shot_block, "cut_point")
+            if cut_point and (
+                _GENERIC_CUT_REASON_RE.search(cut_point)
+                or not _SHOT_CUT_TRIGGER_RE.search(cut_point)
             ):
-                issues.append(f"{shot_id} 的 cut_reason 过于空泛，必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。")
+                issues.append(f"{shot_id} 的 cut_point 过于空泛，必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。")
 
             subject = _yaml_line_field(shot_block, "subject")
-            coverage_role = _yaml_line_field(shot_block, "coverage_role")
-            if _is_local_insert_subject(subject) and not re.search(r"唯一主体|文件内容|信息揭示|关键物|证据|屏幕|照片", coverage_role):
+            task = _yaml_line_field(shot_block, "task")
+            if _is_local_insert_subject(subject) and not re.search(r"唯一主体|文件内容|信息揭示|关键物|证据|屏幕|照片", task):
                 issues.append(
-                    f"{shot_id} 把局部动作/局部道具（{subject}）升级成了 main_shot 主体。"
-                    "手部、门缝、按钮、文件、手机等默认应作为 sub_shot 挂到父镜头下。"
+                    f"{shot_id} 把局部动作/局部道具（{subject}）升级成了主镜头主体。"
+                    "手部、门缝、按钮、文件、手机等默认应作为 insert/reaction 子镜头。"
                 )
-
-            # Priority B: tail_state_card 尾态卡校验
-            tail_state_card_match = re.search(
-                r"(?ms)^\s*tail_state_card\s*:\s*([\s\S]*?)$",
-                shot_block,
-            )
-            if not tail_state_card_match:
-                issues.append(
-                    f"{shot_id} 缺少 tail_state_card（尾态卡必须包含：人物站位、接触关系、"
-                    f"道具/门/车门状态、视线朝向、距离关系）。"
-                )
-            else:
-                tail_card_text = tail_state_card_match.group(1)
-                # 宽松检查：至少包含 3 个关键词
-                card_keywords = ["站位", "接触", "道具", "门", "视线", "距离"]
-                found = sum(1 for kw in card_keywords if kw in tail_card_text)
-                if found < 3:
-                    issues.append(
-                        f"{shot_id} 的 tail_state_card 内容不足（找到 {found}/5 个必需子项）。"
-                        f"必须包含：人物站位、接触关系、道具/门/车门状态、视线朝向、距离关系。"
-                    )
-
-        if re.search(r"(?m)^\s*sub_shots\s*:", block) and not re.search(r"(?m)^\s*sub_shots\s*:\s*\[\s*\]\s*$", block):
-            sub_blocks = re.findall(
-                r"(?ms)^\s*-\s*parent_shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*parent_shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
-                block,
-            )
-            if not sub_blocks:
-                issues.append(f"{fragment_id} 声明了 sub_shots，但没有任何 parent_shot_id 子镜头。")
-            for parent_shot_id, sub_tail in sub_blocks:
-                sub_block = f"parent_shot_id: {parent_shot_id}\n{sub_tail}"
-                for field in _SHOT_DIRECTOR_V2_SUB_SHOT_REQUIRED:
-                    if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", sub_block):
-                        issues.append(f"{fragment_id} 的 sub_shot({parent_shot_id.strip()}) 缺少字段 {field}。")
 
     return issues
 
@@ -1752,12 +1592,11 @@ def _run_shot_director_single_pass_impl(
             "- audio — 只在需要 OS / J-cut / L-cut / 画外音时写。\n\n"
             "【镜头设计原则】\n"
             "1. 事实红线高于一切：不新增剧本外的人物、台词、动作、道具或情节。\n"
-            "2. 节奏施工指令是创作节奏主控；镜头导演只负责把它合法施工成主体、景别、机位、时长和切点。\n"
+            "2. 节奏施工指令是创作节奏主控；镜头导演只负责把它合法施工成 duration、task、subject、camera、size、action、dialogue、must_carry、cut_point 与 continuity。\n"
             "3. 长台词或高压命令必须拆出视觉覆盖：说话者起句、同侧听者反应/过肩、必要时后半句以 OS/J-cut/L-cut 落到反应上。\n"
-            "4. 时长按戏剧任务分配，不平均切：建立关系 1-2秒，信息插入 0.5-1.5秒，对白/动作推进 2-4秒，反应/停顿 1-2秒，尾帧钩子 0.5-2秒。\n"
-            "5. cut_point 不许只写“切出”，必须写清触发物，例如“动作顶点前→镜头2”“台词断点切至乔熙反应”“文件内容看清后切出”。\n"
-            "6. fragment_id 必须沿用拆片方案的 F01/F02/F03...，不得改名合并跳号。\n"
-            f"7. 画幅：{aspect_ratio}",
+            "4. cut_point 不许只写\"切出/继续/增强情绪\"，必须写清触发物，例如动作顶点、台词断点、信息看清、反应出现、门关闭完成、尾帧状态稳定。\n"
+            "5. fragment_id 必须沿用拆片方案的 F01/F02/F03...，不得改名合并跳号。\n"
+            f"6. 画幅：{aspect_ratio}",
             "shot_director",
             context_hint=hint,
         )
@@ -1765,36 +1604,38 @@ def _run_shot_director_single_pass_impl(
         if director_brief_block:
             system_prompt = system_prompt + "\n\n" + director_brief_block
         user_prompt = (
-            "基于以下素材，为每个片段设计镜头序列，输出 YAML 格式。\n\n"
+            "基于以下素材，为每个片段设计时间轴上的镜头序列，输出 YAML 格式。\n\n"
             f"{workflow_contract}\n"
             f"{downstream_context}\n\n"
             "【输出 YAML 结构】\n"
-            "- fragment_id: (F01, F02, ...)\n"
-            "  fragment_task: (本片段剧情施工任务)\n"
-            "  rhythm: (压缩/放慢/停顿/卡断/短促泄压等)\n"
+            "- fragment_id: F01\n"
+            "  fragment_task: 本片段的剧情施工任务\n"
+            "  rhythm: 服从 rhythm supervisor 的节奏指令\n"
             "  shots:\n"
-            "    - shot_id: (F01-S01, F01-S02, ...)\n"
-            "      duration: (0-2秒, 2-5秒... 必须连续)\n"
-            "      task: (建立关系/承载对白/动作推进/信息揭示/反应落点/尾帧承接)\n"
-            "      subject: (人物名或道具)\n"
-            "      camera: (机位、角度、运镜)\n"
-            "      size: (全景/中景/半身/中近景/特写等)\n"
-            "      action: (可见动作描述)\n"
-            "      dialogue: (原剧本台词 或 ~)\n"
-            "      must_carry: (本镜头必须承载的剧情信息/动作/反应)\n"
-            "      cut_point: (动作顶点/台词断点/信息看清/反应出现/尾帧完成等具体触发)\n"
-            "      continuity: (动作、道具、站位、轴线、尾帧如何继承)\n"
-            "      type: (可选：reaction / insert / cutaway)\n\n"
+            "    - shot_id: F01-S01\n"
+            "      duration: 0-2秒\n"
+            "      task: 建立关系/承载对白/动作推进/信息揭示/反应落点/尾帧承接\n"
+            "      subject: 人物名/双人关系/剧本已有道具\n"
+            "      camera: 机位、角度、运镜（必须可执行）\n"
+            "      size: 全景/中景/半身/中近景/特写等\n"
+            "      action: 可见动作，不写心理\n"
+            "      dialogue: 原剧本台词/OS/画外音或 ~\n"
+            "      must_carry: 这个镜头必须承载的剧情信息或表演落点\n"
+            "      cut_point: 动作顶点/台词断点/信息看清/反应出现/状态完成/尾帧\n"
+            "      continuity: 动作、道具、人物左右关系、轴线或尾帧状态如何继承\n"
+            "      type: reaction/insert/cutaway（非标准镜头时写）\n"
+            "      audio: OS/J-cut/L-cut/画外音（需要时写）\n\n"
             "【关键要求】\n"
             "1. 必须覆盖拆片方案的所有 fragment_id。\n"
-            "2. 必须服从节奏总控施工指令，把快慢、停顿、卡断、反应归属落实到 duration/task/must_carry/cut_point。\n"
-            "3. 长台词或高压命令必须插入听者反应镜头，不能站桩正反打。\n"
+            "2. 必须服从节奏总控施工指令，把快慢、停顿、卡断、反应归属落实到 duration、task、action、cut_point、continuity。\n"
+            "3. 长台词或高压命令必须插入听者反应覆盖，不能站桩正反打。\n"
             "4. 保持 fragment_id 和 shot_id 稳定，遵循 F01/F02... 和 F01-S01/F01-S02... 格式。\n"
-            "5. dialogue 字段可写 ~，仅用原剧本文字或原剧本 OS。\n"
-            "6. 只有剧本已有信息载体才能写 insert；不要新增空镜、道具或环境信息。\n\n"
+            "5. dialogue 只能使用原剧本文字、原剧本 OS/J-cut/L-cut 或写 ~；不得新增台词。\n"
+            "6. 只有剧本已有信息载体才能成为 subject；不要新增空镜、道具或环境信息。\n"
+            "7. 每个镜头的时间段 duration 必须连续，前后衔接。\n\n"
             f"{_shot_director_coverage_contract_prompt()}\n"
             f"{rule_block}"
-            "请输出完整 YAML 镜头方案。"
+            "请只输出完整 YAML 镜头方案。"
         )
         # Simple check for whether to split by fragment
         if _shot_stage_should_split(expected_segments, downstream_context):
@@ -1809,8 +1650,10 @@ def _run_shot_director_single_pass_impl(
                     f"{_shot_director_coverage_contract_prompt()}\n"
                     f"{rhythm_shot_notes_prompt}"
                     "[Output YAML fields]\n"
+                    "- fragment_id\n"
                     "- fragment_task\n"
                     "- rhythm\n"
+                    "- shots\n"
                     "- shot_id\n"
                     "- duration\n"
                     "- task\n"
@@ -1822,19 +1665,15 @@ def _run_shot_director_single_pass_impl(
                     "- must_carry\n"
                     "- cut_point\n"
                     "- continuity\n"
-                    "- coverage_role\n"
-                    "- cut_reason\n"
-                    "- companion_visibility\n"
-                    "- state_delta\n"
-                    "- tailframe_role\n"
                     "- type (optional: reaction/insert/cutaway)\n"
-                    "- audio (optional: OS/J-cut/L-cut)\n\n"
+                    "- audio (optional: OS/J-cut/L-cut/画外音)\n\n"
                     "[Rules]\n"
                     "1. Output YAML for this fragment only, starting with '- fragment_id:'.\n"
                     "2. Keep shot_id stable, e.g. F01-S01, F01-S02.\n"
-                    "3. Duration must be continuous inside the fragment, e.g. 0-2秒, 2-5秒.\n"
-                    "4. Long dialogue needs listener reaction shots and concrete cut_point triggers.\n"
+                    "3. duration must be continuous time ranges within the fragment, e.g. 0-2s, 2-5s.\n"
+                    "4. Long dialogue needs listener reaction coverage and concrete cut_point triggers.\n"
                     "5. No script-external elements.\n"
+                    "6. Do not output v2 fields: schema_version, fragment_intent, reaction_coverage, continuity_anchor, shot_size, camera_height, angle, movement, lens, depth, coverage_role, cut_reason, companion_visibility, tailframe_role, dialogue_coverage, transition_type, tail_state_card.\n"
                     "Output YAML only."
                 )
 
@@ -1865,9 +1704,20 @@ def _run_shot_director_single_pass_impl(
         final_output = _repair_shot_director_output_contracts(final_output, script)
         final_runtime["auto_repair_applied"] = final_output != raw_final_output
 
-    # Validate output. Trust already split fragment outputs and repair only failed fragments.
+    # Validate output. In split-by-fragment mode, do not spend another large LLM
+    # call on final repair: all fragments have already been generated/reused and
+    # the timeout-prone repair pass can strand the pipeline after F05 with no
+    # persisted final output. Persist the deterministic merge first and let the
+    # later guard/report surface any issues without blocking progress.
     final_issues = _validate_shot_director_output(final_output, expected_segments)
-    if final_issues and not existing_final:
+    split_fragment_ids = [_segment_name_to_fragment_id(name) for name in expected_segments]
+    final_fragment_ids = [_extract_fragment_id(section) for section in _extract_yaml_sections(final_output or "")]
+    split_output_complete = bool(split_fragment_ids) and all(fragment_id in final_fragment_ids for fragment_id in split_fragment_ids)
+    if final_issues and split_output_complete:
+        final_runtime["repair_attempted"] = False
+        final_runtime["repair_skipped_reason"] = "split_fragments_complete_accept_deterministic_merge"
+        final_runtime["repair_validation_issues"] = final_issues
+    elif final_issues and not existing_final:
         failed_fragment_ids = _fragment_ids_from_validation_issues(final_issues, expected_segments)
         repair_target_output = _filter_yaml_sections_by_fragment_ids(final_output, failed_fragment_ids)
         if not repair_target_output:
@@ -1885,9 +1735,9 @@ def _run_shot_director_single_pass_impl(
             + "\n".join(f"- {issue}" for issue in final_issues)
             + "\n\n【关键原则】\n"
             "1. 优先信任已分片输出，只修失败/缺失的 fragment_id。\n"
-            "2. 每个返修 fragment 必须有 schema_version: shot_director_v2、fragment_intent、reaction_coverage、continuity_anchor、shots。\n"
-            "3. 每个 shot 必须有 v2 字段：shot_id、subject、shot_size、camera_height、angle、movement、lens、depth、coverage_role、cut_reason、companion_visibility、tailframe_role、dialogue_coverage、transition_type、tail_state_card。\n"
-            "4. cut_reason 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
+            "2. 每个返修 fragment 必须有 fragment_task、rhythm、shots。\n"
+            "3. 每个 shot 必须有字段：shot_id、duration、task、subject、camera、size、action、dialogue、must_carry、cut_point、continuity。\n"
+            "4. cut_point 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
             "5. 长台词必须插入听者反应镜头；不新增剧本外元素。\n\n"
             "【待修正 YAML（仅失败片段或定位失败时的完整 YAML）】\n"
             f"{repair_target_output}\n\n"
@@ -2149,71 +1999,85 @@ def shot_director_node(state: DirectorState) -> DirectorState:
     )
     primary_hard_issues = _hard_shot_director_issues(primary_issues)
     if primary_hard_issues:
-        failed_fragment_ids = _fragment_ids_from_validation_issues(primary_hard_issues, segment_names)
-        repair_target_output = _filter_yaml_sections_by_fragment_ids(primary_output, failed_fragment_ids)
-        if not repair_target_output:
-            repair_target_output = primary_output
-        final_repair_scope = (
-            f"只修复这些失败片段：{', '.join(failed_fragment_ids)}；"
-            "其他已分片输出优先视为可信，不要重写。"
-            if failed_fragment_ids
-            else "无法定位具体失败片段时，才允许修复完整 YAML。"
-        )
-        final_repair_prompt = (
-            "shot_director 最终 YAML 没有通过主校验。请只修正 YAML，不要解释。\n\n"
-            f"【返修范围】\n{final_repair_scope}\n\n"
-            "【必须修复的硬错误】\n"
-            + "\n".join(f"- {issue}" for issue in primary_hard_issues)
-            + "\n\n【修复原则】\n"
-            "1. 优先信任已分片输出，只修失败/缺失的 fragment_id。\n"
-            "2. 每个返修 fragment 必须有 schema_version: shot_director_v2、fragment_intent、reaction_coverage、continuity_anchor、shots。\n"
-            "3. 每个 shot 必须有 v2 字段：shot_id、subject、shot_size、camera_height、angle、movement、lens、depth、coverage_role、cut_reason、companion_visibility、tailframe_role、dialogue_coverage、transition_type、tail_state_card。\n"
-            "4. cut_reason 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
-            "5. 长台词必须插入听者反应镜头；只能使用剧本里的人物和台词，不新增剧本外内容。\n\n"
-            "【原始剧本】\n"
-            f"{state.get('script', '')}\n\n"
-            "【拆片方案】\n"
-            f"{planner_output}\n\n"
-            "【待修正 YAML（仅失败片段或定位失败时的完整 YAML）】\n"
-            f"{repair_target_output}\n\n"
-            "请只输出返修范围内的 YAML 片段。"
-        )
-        repaired_fragment_output = call_llm(
-            "你是 shot_director 最终返修导演。只输出修正后的 YAML。",
-            final_repair_prompt,
-            agent_name="shot_director",
-            images_base64=None,
-        )
-        repaired_fragment_output = _clean_shot_director_output(repaired_fragment_output)
-        repaired_fragment_output = _repair_shot_director_output_contracts(repaired_fragment_output, state.get("script", ""))
-        repaired_primary = _merge_repaired_yaml_sections(primary_output, repaired_fragment_output, failed_fragment_ids)
-        repaired_issues = _collect_shot_director_issues(
-            repaired_primary,
-            expected_segments=segment_names,
-            script=state.get("script", ""),
-            planner_output=planner_output,
-            aspect_ratio=state.get("aspect_ratio", ""),
-        )
-        repaired_hard_issues = _hard_shot_director_issues(repaired_issues)
-        shot_runtime["final_guard_repair"] = {
-            "attempted": True,
-            "scope": "failed_fragments" if failed_fragment_ids else "full_yaml",
-            "fragment_ids": failed_fragment_ids,
-            "output_chars": len(repaired_primary),
-            "initial_hard_issues": primary_hard_issues,
-            "remaining_hard_issues": repaired_hard_issues,
-        }
-        if repaired_hard_issues:
+        split_fragment_ids = [_segment_name_to_fragment_id(name) for name in segment_names]
+        primary_fragment_ids = [_extract_fragment_id(section) for section in _extract_yaml_sections(primary_output or "")]
+        split_output_complete = bool(split_fragment_ids) and all(fragment_id in primary_fragment_ids for fragment_id in split_fragment_ids)
+        if split_output_complete:
+            shot_runtime["final_guard_repair"] = {
+                "attempted": False,
+                "skipped_reason": "split_fragments_complete_avoid_timeout",
+                "initial_hard_issues": primary_hard_issues,
+                "remaining_hard_issues": primary_hard_issues,
+            }
             outputs["shot_director"] = primary_output
-            outputs["shot_director_guard_repair"] = repaired_primary
-            raise RuntimeError(
-                "shot_director primary output failed validation after final repair:\n"
-                + "\n".join(f"- {issue}" for issue in repaired_hard_issues)
+            output = primary_output
+            primary_hard_issues = []
+        else:
+            failed_fragment_ids = _fragment_ids_from_validation_issues(primary_hard_issues, segment_names)
+            repair_target_output = _filter_yaml_sections_by_fragment_ids(primary_output, failed_fragment_ids)
+            if not repair_target_output:
+                repair_target_output = primary_output
+            final_repair_scope = (
+                f"只修复这些失败片段：{', '.join(failed_fragment_ids)}；"
+                "其他已分片输出优先视为可信，不要重写。"
+                if failed_fragment_ids
+                else "无法定位具体失败片段时，才允许修复完整 YAML。"
             )
-        primary_output = repaired_primary
-        primary_issues = repaired_issues
-        primary_hard_issues = []
-        output = repaired_primary
+            final_repair_prompt = (
+                "shot_director 最终 YAML 没有通过主校验。请只修正 YAML，不要解释。\n\n"
+                f"【返修范围】\n{final_repair_scope}\n\n"
+                "【必须修复的硬错误】\n"
+                + "\n".join(f"- {issue}" for issue in primary_hard_issues)
+                + "\n\n【修复原则】\n"
+                "1. 优先信任已分片输出，只修失败/缺失的 fragment_id。\n"
+            "2. 每个返修 fragment 必须有 fragment_task、rhythm、shots。\n"
+            "3. 每个 shot 必须有字段：shot_id、duration、task、subject、camera、size、action、dialogue、must_carry、cut_point、continuity。\n"
+            "4. cut_point 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
+            "5. 长台词必须插入听者反应镜头；只能使用剧本里的人物和台词，不新增剧本外内容。\n\n"
+                "【原始剧本】\n"
+                f"{state.get('script', '')}\n\n"
+                "【拆片方案】\n"
+                f"{planner_output}\n\n"
+                "【待修正 YAML（仅失败片段或定位失败时的完整 YAML）】\n"
+                f"{repair_target_output}\n\n"
+                "请只输出返修范围内的 YAML 片段。"
+            )
+            repaired_fragment_output = call_llm(
+                "你是 shot_director 最终返修导演。只输出修正后的 YAML。",
+                final_repair_prompt,
+                agent_name="shot_director",
+                images_base64=None,
+            )
+            repaired_fragment_output = _clean_shot_director_output(repaired_fragment_output)
+            repaired_fragment_output = _repair_shot_director_output_contracts(repaired_fragment_output, state.get("script", ""))
+            repaired_primary = _merge_repaired_yaml_sections(primary_output, repaired_fragment_output, failed_fragment_ids)
+            repaired_issues = _collect_shot_director_issues(
+                repaired_primary,
+                expected_segments=segment_names,
+                script=state.get("script", ""),
+                planner_output=planner_output,
+                aspect_ratio=state.get("aspect_ratio", ""),
+            )
+            repaired_hard_issues = _hard_shot_director_issues(repaired_issues)
+            shot_runtime["final_guard_repair"] = {
+                "attempted": True,
+                "scope": "failed_fragments" if failed_fragment_ids else "full_yaml",
+                "fragment_ids": failed_fragment_ids,
+                "output_chars": len(repaired_primary),
+                "initial_hard_issues": primary_hard_issues,
+                "remaining_hard_issues": repaired_hard_issues,
+            }
+            if repaired_hard_issues:
+                outputs["shot_director"] = primary_output
+                outputs["shot_director_guard_repair"] = repaired_primary
+                raise RuntimeError(
+                    "shot_director primary output failed validation after final repair:\n"
+                    + "\n".join(f"- {issue}" for issue in repaired_hard_issues)
+                )
+            primary_output = repaired_primary
+            primary_issues = repaired_issues
+            primary_hard_issues = []
+            output = repaired_primary
 
     output, review_runtime, review_report = _run_shot_director_review_board(
         script=state.get("script", ""),

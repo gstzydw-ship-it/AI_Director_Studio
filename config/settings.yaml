@@ -37,8 +37,13 @@ agent_models:
     base_url: http://8.nat0.cn:49347/v1
     model: claude-opus-4-7
     temperature: 0.3
-    timeout_seconds: 180
-    max_retries: 1
+    timeout_seconds: 240
+    read_timeout_seconds: 240
+    write_timeout_seconds: 90
+    max_retries: 3
+    fallback_models:
+    - glm-5.1
+    - deepseek-v3.2
   story_planner:
     base_url: http://8.nat0.cn:49347/v1
     model: claude-opus-4-7

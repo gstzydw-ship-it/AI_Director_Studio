@@ -319,32 +319,41 @@ sub_shots: []
 
 def test_shot_director_requires_construction_sheet_fields():
     director_output = """- fragment_id: F01
-  fragment_task: "建立关系 + 反应落点"
-  rhythm: "压缩后停顿"
+  schema_version: shot_director_v2
+  fragment_intent: "建立关系 + 反应落点"
+  reaction_coverage: "乔熙被命令击中后的反讽反应必须可见"
+  continuity_anchor: "乔熙在桌前，商北琛在桌后，保持右前方同侧轴线与办公桌阻隔关系"
   shots:
     - shot_id: F01-S01
-      duration: "0-2秒"
-      task: "建立关系"
       subject: "乔熙、商北琛"
-      camera: "桌侧固定机位，右前方同侧轴线"
-      size: "双人中景"
-      action: "两人隔着办公桌对峙，乔熙停在桌前"
-      dialogue: ~
-      must_carry: "两人距离和办公桌阻隔关系"
-      cut_point: "关系建立后→镜头2"
-      continuity: "乔熙在桌前，商北琛在桌后，不越轴"
+      shot_size: "双人中景"
+      camera_height: "平视"
+      angle: "右前方45度"
+      movement: "固定"
+      lens: "35mm"
+      depth: "中景深"
+      coverage_role: "建立两人距离和办公桌阻隔关系"
+      cut_reason: "关系建立后，切到乔熙反应"
+      companion_visibility: "两人同画面，办公桌在中间"
+      tailframe_role: "把乔熙桌前站位交给下一镜"
+      dialogue_coverage: "无对白"
+      transition_type: stay_on_A
+      tail_state_card: "人物站位：乔熙桌前、商北琛桌后；接触关系：无；道具/门状态：办公桌阻隔；视线朝向：互看；距离关系：隔桌对峙"
     - shot_id: F01-S02
-      duration: "2-5秒"
-      task: "反应落点"
       subject: "乔熙"
-      camera: "同侧过肩固定机位"
-      size: "中近景"
-      action: "她听完后视线停住，手指攥紧工牌"
-      dialogue: "What's this? Trying to intimidate me?"
-      must_carry: "乔熙被命令击中后的反讽反应"
-      cut_point: "反问句落下后切出"
-      continuity: "保持商北琛肩线在前景边缘，工牌仍挂在乔熙胸前"
-      type: reaction
+      shot_size: "中近景"
+      camera_height: "平视"
+      angle: "同侧过肩"
+      movement: "固定"
+      lens: "50mm"
+      depth: "浅景深"
+      coverage_role: "承接乔熙听完后的受击反应"
+      cut_reason: "反问句落下后，停在乔熙受击反应尾帧"
+      companion_visibility: "商北琛肩线在前景边缘"
+      tailframe_role: "以乔熙视线停住作为尾帧"
+      dialogue_coverage: "乔熙原台词：What's this? Trying to intimidate me?"
+      transition_type: cut_to_B
+      tail_state_card: "人物站位：乔熙仍在桌前；接触关系：无；道具/门状态：工牌仍挂在胸前；视线朝向：看向商北琛；距离关系：隔桌"
 """
 
     issues = _validate_shot_director_output(director_output, ["F01"])
@@ -354,25 +363,31 @@ def test_shot_director_requires_construction_sheet_fields():
 
 def test_shot_director_rejects_vague_cut_point_in_construction_sheet():
     director_output = """- fragment_id: F01
-  fragment_task: "建立关系"
-  rhythm: "压缩"
+  schema_version: shot_director_v2
+  fragment_intent: "建立关系"
+  reaction_coverage: "无独立反应"
+  continuity_anchor: "保持左右关系"
   shots:
     - shot_id: F01-S01
-      duration: "0-2秒"
-      task: "建立关系"
       subject: "乔熙、商北琛"
-      camera: "桌侧固定机位"
-      size: "双人中景"
-      action: "两人对峙"
-      dialogue: ~
-      must_carry: "对峙关系"
-      cut_point: "切出"
-      continuity: "保持左右关系"
+      shot_size: "双人中景"
+      camera_height: "平视"
+      angle: "右前方45度"
+      movement: "固定"
+      lens: "35mm"
+      depth: "中景深"
+      coverage_role: "建立对峙关系"
+      cut_reason: "更有电影感"
+      companion_visibility: "两人同画面"
+      tailframe_role: "保持对峙尾帧"
+      dialogue_coverage: "无对白"
+      transition_type: stay_on_A
+      tail_state_card: "人物站位：两人对峙；接触关系：无；道具/门状态：无；视线朝向：互看；距离关系：隔桌"
 """
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
-    assert any("cut_point 过于空泛" in issue for issue in issues)
+    assert any("cut_reason 过于空泛" in issue for issue in issues)
 
 
 def test_shot_director_restart_rerun_uses_package_shot_director_node():
