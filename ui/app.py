@@ -228,6 +228,7 @@ _AGENT_KEY_MAP = {
     "场景分析师": "scene_analyst",
     "结构规划师": "story_planner",
     "镜头导演": "shot_director",
+    "分镜流程图设计师": "storyboard_designer",
     "Seedance编译师": "prompt_compiler",
     "质检导演": "quality_inspector",
 }
@@ -237,6 +238,7 @@ _AGENT_DISPLAY_NAMES = {
     "scene_analyst": "📋 场景分析",
     "story_planner": "🎬 结构规划",
     "shot_director": "🎥 镜头设计",
+    "storyboard_designer": "🎨 分镜流程图",
     "prompt_compiler": "✍️ Seedance Prompt",
     "quality_inspector": "🔍 质检报告",
 }
@@ -1450,6 +1452,21 @@ async def api_clear_segment(
             "state": _public_task_state(session_id),
         }
     )
+
+
+@app.get("/api/storyboard_image")
+async def api_storyboard_image(path: str = ""):
+    """返回分镜流程图图片文件"""
+    if not path:
+        return JSONResponse({"success": False, "error": "缺少路径参数"}, status_code=400)
+    # 安全检查：只允许访问 output/storyboards 目录下的文件
+    path = os.path.normpath(path)
+    allowed_dir = os.path.join(OUTPUT_DIR, "storyboards")
+    if not os.path.commonpath([allowed_dir, path]).startswith(os.path.commonpath([allowed_dir])):
+        return JSONResponse({"success": False, "error": "非法路径"}, status_code=403)
+    if not os.path.exists(path):
+        return JSONResponse({"success": False, "error": "文件不存在"}, status_code=404)
+    return FileResponse(path)
 
 
 @app.get("/api/config")

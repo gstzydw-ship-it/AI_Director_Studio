@@ -12,6 +12,7 @@ from .nodes import (
     segment_complete_node,
     shot_director_node,
     story_planner_node,
+    storyboard_designer_node,
     wait_for_segment_request_node,
 )
 from .runners import route_after_qc, route_after_segment
@@ -24,6 +25,7 @@ def create_director_graph():
     graph.add_node("scene_analyst", scene_analyst_node)
     graph.add_node("story_planner", story_planner_node)
     graph.add_node("shot_director", shot_director_node)
+    graph.add_node("storyboard_designer", storyboard_designer_node)
     graph.add_node("wait_for_segment_request", wait_for_segment_request_node)
     graph.add_node("prompt_compiler", prompt_compiler_node)
     graph.add_node("quality_inspector", quality_inspector_node)
@@ -37,7 +39,8 @@ def create_director_graph():
     graph.add_edge("director_showrunner", "scene_analyst")
     graph.add_edge("scene_analyst", "story_planner")
     graph.add_edge("story_planner", "shot_director")
-    graph.add_edge("shot_director", "wait_for_segment_request")
+    graph.add_edge("shot_director", "storyboard_designer")
+    graph.add_edge("storyboard_designer", "wait_for_segment_request")
     graph.add_edge("wait_for_segment_request", "prompt_compiler")
     graph.add_edge("prompt_compiler", "quality_inspector")
     graph.add_edge("quality_inspector", "qc_router")
