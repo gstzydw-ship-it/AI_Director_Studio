@@ -41,6 +41,7 @@ def __getattr__(name: str):
         "quality_inspector_node",
         "qc_router_node",
         "segment_complete_node",
+        "storyboard_designer_node",
     }:
         from . import nodes as _nodes
 
@@ -73,6 +74,7 @@ __all__ = [
     "quality_inspector_node",
     "qc_router_node",
     "segment_complete_node",
+    "storyboard_designer_node",
     # routers
     "route_after_qc",
     "route_after_segment",
@@ -82,8 +84,10 @@ __all__ = [
     "run_shot_director_resume_from_partial",
     "run_shot_director_restart_from_story_plan",
     "run_full_pipeline",
+    "generate_storyboard_for_segment",
     # core helpers
     "call_llm",
+    "storyboard_designer_node",
     "create_director_graph",
     "clear_state",
     "load_state",

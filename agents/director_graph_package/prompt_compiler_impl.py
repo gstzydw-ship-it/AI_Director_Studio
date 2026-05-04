@@ -10,30 +10,9 @@ from typing import Any
 from .types import DirectorState
 from . import legacy_impl as _legacy
 
-_SCHEMA_VERSION_V2 = "shot_director_v2"
-_FORBIDDEN_LEGACY_FIELDS: tuple[str, ...] = (
-    "fragment_task",
-    "must_carry",
-    "duration",
-    "task",
-    "continuity",
-    "cut_point",
-)
-_V2_FRAGMENT_REQUIRED_FIELDS: tuple[str, ...] = (
-    "fragment_intent",
-    "reaction_coverage",
-    "continuity_anchor",
-    "shots",
-)
-_V2_MAIN_SHOT_REQUIRED_FIELDS: tuple[str, ...] = (
-    "coverage_role",
-    "cut_reason",
-    "companion_visibility",
-    "tailframe_role",
-    "dialogue_coverage",
-    "transition_type",
-    "tail_state_card",
-)
+# V1 schema contract: shot_director outputs fragment_task/rhythm/shots
+# with shot fields: duration, task, subject, camera, size, action, dialogue, must_carry, cut_point, continuity
+# Optional: type, audio
 from .helpers import (
     _truncate_for_prompt,
     _runtime_context_contract_card,
@@ -882,59 +861,31 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         if reference_context.strip()
         else "本次未提供参考图；最终 Prompt 中严禁编造 @图片1、@图片2、@图片3 或任何参考图占位。\n\n"
     )
-    # --- v2 schema hard gate: reject legacy director segment ---
-    v2_gate_issues: list[str] = []
+    # --- v1 schema validation ---
+    v1_issues: list[str] = []
     if current_director_segment_raw:
-        if not re.search(r"schema_version\s*:\s*" + _SCHEMA_VERSION_V2, current_director_segment_raw):
-            v2_gate_issues.append(
-                f"shot_director 缺少 schema_version: {_SCHEMA_VERSION_V2}，"
-                f"compiler 拒绝消费旧版镜头资产。"
-            )
-        for field in _V2_FRAGMENT_REQUIRED_FIELDS:
+        for field in ("fragment_task", "rhythm", "shots"):
             if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", current_director_segment_raw):
-                v2_gate_issues.append(f"shot_director 缺少 v2 fragment 字段 {field}。")
-        for legacy_field in _FORBIDDEN_LEGACY_FIELDS:
-            if re.search(rf"(?m)^\s*{re.escape(legacy_field)}\s*:", current_director_segment_raw):
-                v2_gate_issues.append(
-                    f"shot_director 包含旧字段 {legacy_field}，"
-                    f"compiler 拒绝编译旧版施工单。"
-                )
-        if re.search(r"(?m)^\s*main_shots\s*:", current_director_segment_raw):
-            v2_gate_issues.append("shot_director 仍在使用已禁用的 main_shots 旧结构。")
-
+                v1_issues.append(f"shot_director 缺少 fragment 字段 {field}。")
+        for v2_field in ("schema_version", "fragment_intent", "reaction_coverage", "continuity_anchor"):
+            if re.search(rf"(?m)^\s*{re.escape(v2_field)}\s*:", current_director_segment_raw):
+                v1_issues.append(f"shot_director 残留 v2 字段 {v2_field}，必须用 v1 字段。")
         shot_blocks = _MAIN_SHOT_BLOCK_RE.findall(current_director_segment_raw)
         if not shot_blocks:
-            v2_gate_issues.append("shot_director 当前片段没有任何合法 shot_id，无法编译。")
+            v1_issues.append("shot_director 当前片段没有任何合法 shot_id，无法编译。")
         for shot_id_raw, shot_body in shot_blocks:
             shot_id = shot_id_raw.strip()
-            for field in _V2_MAIN_SHOT_REQUIRED_FIELDS:
-                if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", shot_body):
-                    v2_gate_issues.append(f"{shot_id} 缺少 v2 主镜头字段 {field}。")
-
-            transition_type = _yaml_line_field(shot_body, "transition_type")
-            if transition_type and transition_type not in ("stay_on_A", "cut_to_B", "dolly_in_to_A", "scene_fixed"):
-                v2_gate_issues.append(
-                    f"{shot_id} 的 transition_type={transition_type} 非法；"
-                    "只允许 stay_on_A / cut_to_B / dolly_in_to_A / scene_fixed。"
-                )
-
-            tail_state_card = _yaml_line_field(shot_body, "tail_state_card")
-            if tail_state_card:
-                tail_keywords = ("站位", "接触", "道具", "门", "视线", "距离")
-                found = sum(1 for kw in tail_keywords if kw in tail_state_card)
-                if found < 3:
-                    v2_gate_issues.append(
-                        f"{shot_id} 的 tail_state_card 信息不足；"
-                        "至少要明确人物站位、接触/道具状态、视线或距离关系。"
-                    )
+            for field in ("duration", "task", "subject", "camera", "size", "action", "dialogue", "must_carry", "cut_point", "continuity"):
+                if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_body):
+                    v1_issues.append(f"{shot_id} 缺少必要字段 {field}。")
     else:
-        v2_gate_issues.append("当前片段缺少镜头资产，无法编译。")
+        v1_issues.append("当前片段缺少镜头资产，无法编译。")
 
-    if v2_gate_issues:
+    if v1_issues:
         raise RuntimeError(
-            "[PROMPT-COMPILER-V2-GATE] prompt_compiler 拒绝编译旧版 shot_director schema。\n"
-            + "\n".join(f"  - {issue}" for issue in v2_gate_issues)
-            + "\n请重新运行 shot_director 确保输出 v2 合同镜头资产。"
+            "[PROMPT-COMPILER-V1-GATE] prompt_compiler 发现 shot_director 输出不符合 v1 schema。\n"
+            + "\n".join(f"  - {issue}" for issue in v1_issues)
+            + "\n请确保 shot_director 输出 v1 合同镜头资产（fragment_task/rhythm/duration/task/subject/camera/size/action/dialogue/must_carry/cut_point/continuity）。"
         )
 
     user_prompt = (
@@ -975,19 +926,6 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "6. cut_point 必须放进括号，写成（动作顶点前切至镜头2）、（台词断点时切至乔熙反应镜头）、（文件内容看清后切至镜头3）这类自然中文触发句；禁止使用箭头式表达。\n"
         "7. continuity 必须落实到镜头行或【约束】里，保证人物左右关系、道具状态、动作路径和尾帧不跳变。\n"
         "8. 最终 prompt 禁止出现 fragment_task、must_carry、cut_point、continuity、shot_id、fragment_id 等内部字段名。\n\n"
-        "如果镜头资产包含 coverage_role / cut_reason / companion_visibility / state_delta / tailframe_role，必须翻译进最终时间轴：\n"
-        "1. coverage_role 决定这一时间段的功能：施压者发言、同侧受击反应、双人关系复位、动作插入或尾帧复位。\n"
-        "2. cut_reason 决定切镜时机：台词落点后、抬头撞视线时、动作顶点前、状态完成后；不要机械按秒数平均切。\n"
-        "3. companion_visibility 必须写成可见画面语言，例如前景肩线轻虚、近侧侧影、边缘虚化、画外左侧/右侧仍为视线对象、已出画。\n"
-        "4. state_delta 必须写进动作链，保持单向变化：松手后不再搭回，门关闭后保持关闭，退出人物不再回到画面。\n"
-        "5. tailframe_role=tailframe_reset 时，最后 0.5-1 秒必须回到双人/多人关系景或明确空间状态，不能停在局部特写。\n"
-        "5a. dialogue_coverage 如果包含长台词、高压命令、质问或揭晓句，时间轴必须保留对白内部视觉覆盖变化：说话者起句、同侧听者反应/过肩；镜头停留在听者脸部或过肩画面，说话者后半句在画外继续。若后续还有新动作、新信息点或新的主体重心，必须另起新镜头承接，禁止偷写成切回前一个已完成动作链的镜头，也禁止单段反打。\n"
-        "5b. 严禁把一整句长压迫对白、一个完整问答、或两句以上往返对白放在同一个镜头/景别/机位里连续说完；即使时间段开头已经写\"镜头切至\"，对白开始后仍必须有新的切镜点、主体变化或景别变化。\n"
-        "如果镜头资产还包含 blocking_plan / state_chain / event_coverage / duration_hint / action_phase，也必须落实进最终时间轴：\n"
-        "6. blocking_plan 决定动作推进顺序：谁先动、谁承接、何时复位，时间轴不要写成散点句子。\n"
-        "7. state_chain 必须落实成可见单向链，尤其是手、门、道具、距离、站位，不得回跳。\n"
-        "8. event_coverage 要保证每条 source_script_events 都在时间轴里找到对应画面或动作落点，不能只在约束里提到。\n"
-        "9. sub_shot 的 duration_hint 说明它只是短重音而不是新主镜头；action_phase 决定切在预备、动作中段、命中、反应还是收束。\n\n"
         "【Seedance 2.0 场景简写与表演优先规则】\n"
         "1. 最终 Prompt 不要把场景空间写成说明书；空间只服务连续性，不承担戏剧表达。\n"
         "2. 【空间与首帧总控】最多2-3句，只写不可变硬锚点：场景类型、入口/门/电梯/桌边等关键节点、人物首帧站位、光线。\n"

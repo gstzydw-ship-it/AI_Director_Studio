@@ -17,6 +17,7 @@ from .types import (
     _REVERSE_SHOT_INSIDE_SEGMENT_RE,
 )
 from .state_store import _agent_outputs, _persist_update
+from .helpers import _yaml_line_field
 
 
 # ---------------------------------------------------------------------------
@@ -268,20 +269,24 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                 "- story_planner 似乎把完整发言/动作单元压成单条笼统事件，需更清楚标出片段覆盖事件。"
             )
 
-    # === shot_director v2 schema hard validation ===
+    # === shot_director v1 schema hard validation ===
     if director_segment:
-        # v2 必填字段检查
-        if not re.search(r"schema_version\s*:\s*shot_director_v2", director_segment):
-            qc_issues.append("- shot_director 缺少 schema_version: shot_director_v2，必须使用 v2 合同。")
-        if not re.search(r"fragment_intent\s*:", director_segment):
-            qc_issues.append("- shot_director 未说明当前片段的 fragment_intent（v2 新字段）。")
-        if not re.search(r"reaction_coverage\s*:", director_segment):
-            qc_issues.append("- shot_director 未说明当前片段的 reaction_coverage。")
-        if not re.search(r"continuity_anchor\s*:", director_segment):
-            qc_issues.append("- shot_director 未说明当前片段的 continuity_anchor（v2 新字段）。")
+        # v1 fragment 必填字段检查
+        if not re.search(r"fragment_task\s*:", director_segment):
+            qc_issues.append("- shot_director 缺少 fragment_task 字段（v1 片段任务描述）。")
+        if not re.search(r"rhythm\s*:", director_segment):
+            qc_issues.append("- shot_director 缺少 rhythm 字段（v1 节奏指令）。")
+        if re.search(r"schema_version\s*:", director_segment):
+            qc_issues.append("- shot_director 残留 v2 字段 schema_version，必须使用 v1 字段。")
+        if re.search(r"fragment_intent\s*:", director_segment):
+            qc_issues.append("- shot_director 残留 v2 字段 fragment_intent，必须使用 v1 字段。")
+        if re.search(r"reaction_coverage\s*:", director_segment):
+            qc_issues.append("- shot_director 残留 v2 字段 reaction_coverage，必须使用 v1 字段。")
+        if re.search(r"continuity_anchor\s*:", director_segment):
+            qc_issues.append("- shot_director 残留 v2 字段 continuity_anchor，必须使用 v1 字段。")
         if not re.search(r"shots\s*:", director_segment):
             qc_issues.append("- shot_director 未给出当前片段的 shots。")
-        # v2 主镜头必填字段检查
+        # v1 shot 必填字段检查
         if re.search(r"shots\s*:", director_segment):
             shot_blocks = re.findall(
                 r"(?ms)^\s*-\s*shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
@@ -290,48 +295,40 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
             for shot_id_raw, shot_body in shot_blocks:
                 shot_id = shot_id_raw.strip()
                 for field in (
-                    "coverage_role",
-                    "cut_reason",
-                    "companion_visibility",
-                    "tailframe_role",
-                    "dialogue_coverage",
-                    "transition_type",
-                    "tail_state_card",
+                    "duration",
+                    "task",
+                    "subject",
+                    "camera",
+                    "size",
+                    "action",
+                    "dialogue",
+                    "must_carry",
+                    "cut_point",
+                    "continuity",
                 ):
-                    if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", shot_body):
-                        qc_issues.append(f"- {shot_id} 缺少 v2 字段 {field}。")
+                    if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_body):
+                        qc_issues.append(f"- {shot_id} 缺少 v1 字段 {field}。")
 
-                transition_type = _yaml_line_field(shot_body, "transition_type")
-                if transition_type and transition_type not in ("stay_on_A", "cut_to_B", "dolly_in_to_A", "scene_fixed"):
-                    qc_issues.append(
-                        f"- {shot_id} 的 transition_type={transition_type} 非法；"
-                        "只允许 stay_on_A / cut_to_B / dolly_in_to_A / scene_fixed。"
-                    )
-
-                tail_state_card = _yaml_line_field(shot_body, "tail_state_card")
-                if tail_state_card:
-                    tail_keywords = ("站位", "接触", "道具", "门", "视线", "距离")
-                    found = sum(1 for kw in tail_keywords if kw in tail_state_card)
-                    if found < 3:
+                duration = _yaml_line_field(shot_body, "duration")
+                if duration:
+                    if not re.search(r"(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*秒", duration):
                         qc_issues.append(
-                            f"- {shot_id} 的 tail_state_card 信息不足；"
-                            "至少要明确人物站位、接触/道具状态、视线或距离关系。"
+                            f"- {shot_id} 的 duration 格式非法（{duration}）；"
+                            "应为连续时间段格式，例如 0-2秒、2-5秒。"
                         )
-        # v2 sub_shot 必填字段检查
-        if re.search(r"sub_shots\s*:", director_segment):
-            sub_blocks = re.findall(
-                r"(?ms)^\s*-\s*parent_shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*parent_shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
-                director_segment,
-            )
-            for parent_shot_id, sub_body in sub_blocks:
-                for field in ("trigger", "beat_purpose", "emotion_anchor", "duration_hint", "action_phase"):
-                    if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", sub_body):
-                        qc_issues.append(f"- sub_shot({parent_shot_id.strip()}) 缺少字段 {field}。")
 
-        # 旧字段一旦出现，直接硬失败
-        for legacy_field in ("fragment_task", "must_carry", "duration", "task", "continuity", "cut_point"):
-            if re.search(rf"(?m)^\s*{re.escape(legacy_field)}\s*:", director_segment):
-                qc_issues.append(f"- shot_director 包含已禁用旧字段 {legacy_field}，运行时只允许 v2 合同。")
+                cut_point = _yaml_line_field(shot_body, "cut_point")
+                if cut_point and len(cut_point) < 6:
+                    qc_issues.append(
+                        f"- {shot_id} 的 cut_point 过于简短；"
+                        "必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。"
+                    )
+        # v2 字段残留检查
+        for v2_field in ("coverage_role", "cut_reason", "companion_visibility", "tailframe_role",
+                         "dialogue_coverage", "transition_type", "tail_state_card",
+                         "shot_size", "camera_height", "angle", "movement", "lens", "depth"):
+            if re.search(rf"(?m)^\s*-?\s*{re.escape(v2_field)}\s*:", director_segment):
+                qc_issues.append(f"- shot_director 残留 v2 字段 {v2_field}，必须使用 v1 字段。")
         # main_shots 旧结构禁用
         if re.search(r"(?m)^\s*main_shots\s*:", director_segment):
             qc_issues.append("- shot_director 仍在使用已禁用的 main_shots 旧结构，必须改为 shots。")

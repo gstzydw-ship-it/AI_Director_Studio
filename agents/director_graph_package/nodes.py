@@ -10,6 +10,7 @@ from . import shot_director_impl as _shot_director_impl
 from . import rhythm_rewrite_impl as _rhythm_rewrite_impl
 from . import planning_context_impl as _planning_context_impl
 from . import segment_flow_impl as _segment_flow_impl
+from . import storyboard_designer_impl as _storyboard_designer_impl
 
 
 def rhythm_rewrite_director_node(state: Any) -> Any:
@@ -52,7 +53,12 @@ def segment_complete_node(state: Any) -> Any:
     return _segment_flow_impl.segment_complete_node(state)
 
 
+def storyboard_designer_node(state: Any) -> Any:
+    return _storyboard_designer_impl.storyboard_designer_node(state)
+
+
 __all__ = [
+    "storyboard_designer_node",
     "rhythm_rewrite_director_node",
     "director_showrunner_node",
     "scene_analyst_node",

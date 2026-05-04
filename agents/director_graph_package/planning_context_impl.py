@@ -312,8 +312,11 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
     except Exception as exc:
         if ref_images:
             raise
-        print(f"  [scene_analyst] primary text model failed, retrying via prompt_compiler channel: {exc}")
-        output = call_llm(system_prompt, user_prompt, images_base64=None, agent_name="prompt_compiler", max_retries=1)
+        print(f"  [scene_analyst] primary text model failed, retrying via story_planner channel: {exc}")
+        # Keep text-only scene analysis away from the prompt_compiler channel.
+        # prompt_compiler may be configured for heavier final prompt models, which
+        # has caused Phase 1 to fail on upstream read timeouts before planning starts.
+        output = call_llm(system_prompt, user_prompt, images_base64=None, agent_name="story_planner", max_retries=1)
     outputs["scene_analyst"] = output
     return _persist_update(
         state,

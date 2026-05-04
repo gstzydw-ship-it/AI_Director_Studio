@@ -242,6 +242,15 @@ def _get_llm_runtime_option(agent_name: str, key: str, default: Any) -> Any:
     for _layer_name, layer in _profile_agent_layers(profile, agent_name):
         if key in layer:
             value = layer[key]
+
+    # Shot director prompts are usually the longest and the upstream gateway often
+    # drops long-running responses before completion.  UI model profiles commonly
+    # store a global max_retries=1/2, which used to silently override the safer
+    # config/settings.yaml value and caused "已重试 1 次" failures.  Keep a
+    # conservative floor for this agent unless the caller explicitly passes a
+    # max_retries argument to call_llm().
+    if agent_name == "shot_director" and key == "max_retries":
+        value = max(_coerce_int(value, 3, minimum=1), 3)
     return value
 
 
@@ -277,6 +286,36 @@ def _get_llm_fallback_models(agent_name: str = "") -> list[str]:
     return _normalise_model_list(value)
 
 
+def _llm_failure_context(
+    *,
+    agent_name: str,
+    model: str,
+    max_retries: int,
+    images_base64: list[str] | None,
+    attempted_models: list[str],
+    timeout_seconds: float | None = None,
+    connect_timeout_seconds: float | None = None,
+    read_timeout_seconds: float | None = None,
+    write_timeout_seconds: float | None = None,
+    bypass_proxy: bool = True,
+) -> str:
+    image_count = len(images_base64 or [])
+    attempted_note = f"；尝试模型: {', '.join(attempted_models)}" if attempted_models else ""
+    timeout_parts: list[str] = []
+    if timeout_seconds is not None:
+        timeout_parts.append(f"total={timeout_seconds:g}s")
+    if connect_timeout_seconds is not None:
+        timeout_parts.append(f"connect={connect_timeout_seconds:g}s")
+    if read_timeout_seconds is not None:
+        timeout_parts.append(f"read={read_timeout_seconds:g}s")
+    if write_timeout_seconds is not None:
+        timeout_parts.append(f"write={write_timeout_seconds:g}s")
+    timeout_note = f"；timeout: {', '.join(timeout_parts)}" if timeout_parts else ""
+    proxy_note = "；环境代理: 已绕开" if bypass_proxy else "；环境代理: 使用系统环境"
+    image_note = f"；参考图: {image_count} 张" if image_count else "；参考图: 未发送"
+    return f"agent={agent_name or '?'}, model={model}，已重试 {max_retries} 次{attempted_note}{image_note}{timeout_note}{proxy_note}"
+
+
 def _raise_llm_failure(
     last_exc: Exception | None,
     *,
@@ -285,26 +324,41 @@ def _raise_llm_failure(
     max_retries: int,
     images_base64: list[str] | None,
     attempted_models: list[str],
+    timeout_seconds: float | None = None,
+    connect_timeout_seconds: float | None = None,
+    read_timeout_seconds: float | None = None,
+    write_timeout_seconds: float | None = None,
+    bypass_proxy: bool = True,
 ) -> None:
-    attempted_note = f"；尝试模型: {', '.join(attempted_models)}" if attempted_models else ""
+    context = _llm_failure_context(
+        agent_name=agent_name,
+        model=model,
+        max_retries=max_retries,
+        images_base64=images_base64,
+        attempted_models=attempted_models,
+        timeout_seconds=timeout_seconds,
+        connect_timeout_seconds=connect_timeout_seconds,
+        read_timeout_seconds=read_timeout_seconds,
+        write_timeout_seconds=write_timeout_seconds,
+        bypass_proxy=bypass_proxy,
+    )
+    image_count = len(images_base64 or [])
+    image_hint = (
+        f"本次请求发送了 {image_count} 张参考图；如果它们很大，可能导致上传/读取超时，可先压缩或减少参考图。"
+        if image_count
+        else "本次请求未发送参考图；不要按“参考图过大”排查，优先检查上游模型网关、模型排队、提示词过长或网络读超时。"
+    )
     if isinstance(last_exc, httpx.RemoteProtocolError):
-        cause_hint = (
-            "常见原因是参考图过大、上游代理超时或模型网关临时中断，请压缩参考图后重试。"
-            if images_base64
-            else "常见原因是上游模型网关临时断流或代理超时；本次请求未发送参考图。"
-        )
         raise RuntimeError(
-            f"LLM 服务在返回前断开连接（agent={agent_name or '?'}, model={model}，已重试 {max_retries} 次{attempted_note}）。"
-            f"{cause_hint}"
+            f"LLM 服务在返回前断开连接（{context}）。{image_hint} 原始错误: {last_exc}"
         ) from last_exc
     if isinstance(last_exc, httpx.ConnectError):
         raise RuntimeError(
-            f"LLM 网络连接失败（已重试 {max_retries} 次{attempted_note}）。"
-            "已默认绕开环境代理；如果仍失败，通常是上游网关 TLS 抖动或本机网络中断，请稍后重试。"
+            f"LLM 网络连接失败（{context}）。通常是上游网关不可达、TLS 抖动、本机网络中断或代理配置问题。原始错误: {last_exc}"
         ) from last_exc
     if isinstance(last_exc, httpx.TimeoutException):
         raise RuntimeError(
-            f"LLM 服务响应超时（已重试 {max_retries} 次{attempted_note}）。请减少参考图数量或稍后重试。"
+            f"LLM 服务响应超时（{context}）。{image_hint} 原始错误: {last_exc}"
         ) from last_exc
     if isinstance(last_exc, httpx.HTTPStatusError):
         if last_exc.response is not None:
@@ -317,9 +371,9 @@ def _raise_llm_failure(
             detail = ""
             status_code = "unknown"
         raise RuntimeError(
-            f"LLM 接口返回 HTTP {status_code}（agent={agent_name or '?'}, model={model}，已重试 {max_retries} 次{attempted_note}）: {detail}"
+            f"LLM 接口返回 HTTP {status_code}（{context}）: {detail}"
         ) from last_exc
-    raise RuntimeError(f"LLM 调用失败（已重试 {max_retries} 次{attempted_note}）: {last_exc}") from last_exc
+    raise RuntimeError(f"LLM 调用失败（{context}）: {last_exc}") from last_exc
 
 
 def _default_llm_timeout_seconds(model: str, extra_params: dict[str, Any]) -> float:
@@ -513,4 +567,9 @@ def call_llm(
         max_retries=max_retries,
         images_base64=images_base64,
         attempted_models=attempted_models,
+        timeout_seconds=request_timeout if "request_timeout" in locals() else None,
+        connect_timeout_seconds=connect_timeout if "connect_timeout" in locals() else None,
+        read_timeout_seconds=read_timeout if "read_timeout" in locals() else None,
+        write_timeout_seconds=write_timeout if "write_timeout" in locals() else None,
+        bypass_proxy=bypass_proxy,
     )

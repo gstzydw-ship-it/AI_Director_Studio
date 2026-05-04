@@ -311,6 +311,103 @@ def test_call_llm_uses_longer_default_timeout_for_thinking_models(monkeypatch):
     assert captured == {"timeout": 240.0, "connect": 30.0, "read": 240.0, "write": 60.0}
 
 
+def test_call_llm_timeout_error_reports_no_reference_images_when_none_sent(monkeypatch):
+    _patch_llm_settings(monkeypatch)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        director_graph,
+        "load_config",
+        lambda: {
+            "llm": {
+                "api_key": "test-key",
+                "base_url": "https://example.test/v1",
+                "model": "test-model",
+                "timeout_seconds": 45,
+                "connect_timeout_seconds": 6,
+                "read_timeout_seconds": 50,
+                "write_timeout_seconds": 11,
+                "max_retries": 1,
+            }
+        },
+    )
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            raise httpx.ReadTimeout("read timed out")
+
+    monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
+
+    try:
+        director_graph.call_llm("system", "user", agent_name="shot_director", max_retries=1)
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected timeout to raise RuntimeError")
+
+    assert "agent=shot_director" in message
+    assert "model=test-model" in message
+    assert "参考图: 未发送" in message
+    assert "本次请求未发送参考图" in message
+    assert "不要按“参考图过大”排查" in message
+    assert "timeout: total=45s, connect=6s, read=50s, write=11s" in message
+    assert "环境代理: 已绕开" in message
+    assert "read timed out" in message
+
+
+def test_call_llm_timeout_error_reports_reference_image_count_when_sent(monkeypatch):
+    _patch_llm_settings(monkeypatch)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        director_graph,
+        "load_config",
+        lambda: {
+            "llm": {
+                "api_key": "test-key",
+                "base_url": "https://example.test/v1",
+                "model": "test-model",
+                "timeout_seconds": 45,
+                "max_retries": 1,
+            }
+        },
+    )
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            raise httpx.ReadTimeout("read timed out")
+
+    monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
+
+    try:
+        director_graph.call_llm("system", "user", images_base64=["aaa", "bbb"], agent_name="scene_vision_analyst", max_retries=1)
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected timeout to raise RuntimeError")
+
+    assert "agent=scene_vision_analyst" in message
+    assert "参考图: 2 张" in message
+    assert "本次请求发送了 2 张参考图" in message
+    assert "压缩或减少参考图" in message
+
+
 def test_call_llm_forwards_max_tokens_and_expands_for_thinking_budget(monkeypatch):
     monkeypatch.setattr(
         director_graph,

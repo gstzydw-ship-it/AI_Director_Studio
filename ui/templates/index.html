@@ -160,6 +160,15 @@
                                         <div class="step-status">等待</div>
                                     </div>
                                     <div class="step-arrow">→</div>
+                                    <div class="step" id="step-storyboard">
+                                        <div class="step-icon">🎨</div>
+                                        <div class="step-info">
+                                            <div class="step-name">分镜流程图</div>
+                                            <div class="step-desc">可视化设计</div>
+                                        </div>
+                                        <div class="step-status">等待</div>
+                                    </div>
+                                    <div class="step-arrow">→</div>
                                     <div class="step" id="step-compile">
                                         <div class="step-icon">✍️</div>
                                         <div class="step-info">
@@ -191,6 +200,8 @@
                                 <div class="result-tabs" id="resultTabs" style="display:none;">
                                     <button class="result-tab active" data-agent="prompt_compiler"
                                         onclick="switchResultTab(this)">✍️ Seedance编译</button>
+                                    <button class="result-tab" data-agent="storyboard_designer"
+                                        onclick="switchResultTab(this)">🎨 分镜流程图</button>
                                     <button class="result-tab" data-agent="rhythm_rewrite_director"
                                         onclick="switchResultTab(this)">🎼 节奏策略</button>
                                     <button class="result-tab" data-agent="scene_analyst"
@@ -1024,14 +1035,15 @@
         }
 
         // 进度条只以 /api/status 返回的后端状态为准。
-        const STEP_ORDER = ['rhythm', 'analyze', 'plan', 'direct', 'compile', 'inspect'];
+        const STEP_ORDER = ['rhythm', 'analyze', 'plan', 'direct', 'storyboard', 'compile', 'inspect'];
         const STEP_KEY_MAP = {
             'step_0_rhythm': 0,
             'step_1_analyze': 1,
             'step_2_plan': 2,
             'step_3_direct': 3,
-            'step_4_compile': 4,
-            'step_5_inspect': 5,
+            'step_4_storyboard': 4,
+            'step_5_compile': 5,
+            'step_6_inspect': 6,
         };
 
         function latestShotDirectorOutput(outputs = {}) {
@@ -1052,6 +1064,10 @@
                 || Object.keys(outputs).some(key => /^quality_inspector_segment_\d+$/.test(key));
         }
 
+        function hasStoryboardOutput(outputs = {}) {
+            return Object.keys(outputs).some(key => /^storyboard_image_seg\d+$/.test(key));
+        }
+
         function inferCompletedStepIndex(state = {}) {
             const outputs = state.agent_outputs || {};
             let doneIdx = -1;
@@ -1059,8 +1075,9 @@
             if (outputs.scene_analyst) doneIdx = Math.max(doneIdx, 1);
             if (outputs.story_planner) doneIdx = Math.max(doneIdx, 2);
             if (latestShotDirectorOutput(outputs)) doneIdx = Math.max(doneIdx, 3);
-            if (hasCompiledPrompt(outputs, state)) doneIdx = Math.max(doneIdx, 4);
-            if (hasQualityOutput(outputs)) doneIdx = Math.max(doneIdx, 5);
+            if (hasStoryboardOutput(outputs)) doneIdx = Math.max(doneIdx, 4);
+            if (hasCompiledPrompt(outputs, state)) doneIdx = Math.max(doneIdx, 5);
+            if (hasQualityOutput(outputs)) doneIdx = Math.max(doneIdx, 6);
             if (state.status === 'done') doneIdx = STEP_ORDER.length - 1;
             return doneIdx;
         }
@@ -1071,17 +1088,20 @@
 
             const outputs = state.agent_outputs || {};
             const message = `${state.message || ''} ${state.error || ''}`;
-            if (/质检|quality|inspect/i.test(message)) return 5;
-            if (/Seedance|编译|Prompt|compile/i.test(message)) return 4;
-            if (/镜头导演|分镜|动作调度|守门|shot_director|blocking|layout|guard/i.test(message)) return 3;
+            if (/质检|quality|inspect/i.test(message)) return 6;
+            if (/Seedance|编译|Prompt|compile/i.test(message)) return 5;
+            if (/分镜流程图|storyboard/i.test(message)) return 4;
+            if (/镜头导演|动作调度|守门|shot_director|blocking|layout|guard/i.test(message)) return 3;
             if (/结构规划|拆片|story_planner|plan/i.test(message)) return 2;
             if (/场景分析|节奏|scene_analyst|rhythm/i.test(message)) return 0;
 
+            if (hasQualityOutput(outputs)) return 6;
             if (hasCompiledPrompt(outputs, state)) return 5;
-            if (latestShotDirectorOutput(outputs)) return 4;
-            if (outputs.story_planner) return 3;
-            if (outputs.scene_analyst) return 2;
-            if (outputs.rhythm_rewrite_director) return 1;
+            if (hasStoryboardOutput(outputs)) return 4;
+            if (latestShotDirectorOutput(outputs)) return 3;
+            if (outputs.story_planner) return 2;
+            if (outputs.scene_analyst) return 1;
+            if (outputs.rhythm_rewrite_director) return 0;
             return 0;
         }
 
@@ -1331,6 +1351,50 @@
                 '<div class="placeholder-text">暂无可展示输出。</div>';
         }
 
+        function renderStoryboardImages(outputs = {}) {
+            const entries = Object.keys(outputs)
+                .filter(key => /^storyboard_image_seg\d+$/.test(key))
+                .map(key => {
+                    const match = key.match(/^storyboard_image_seg(\d+)$/);
+                    return { segIndex: match ? Number(match[1]) : 0, path: outputs[key], key };
+                })
+                .filter(item => item.path)
+                .sort((a, b) => a.segIndex - b.segIndex);
+
+            if (entries.length === 0) {
+                return '<div class="placeholder-text">暂无分镜流程图</div>';
+            }
+
+            const promptEntries = Object.keys(outputs)
+                .filter(key => /^storyboard_prompt_seg\d+$/.test(key))
+                .map(key => {
+                    const match = key.match(/^storyboard_prompt_seg(\d+)$/);
+                    return { segIndex: match ? Number(match[1]) : 0, text: outputs[key] };
+                });
+            const promptMap = new Map(promptEntries.map(p => [p.segIndex, p.text]));
+
+            return entries.map(item => {
+                const promptText = promptMap.get(item.segIndex) || '';
+                return `
+                    <div class="storyboard-card">
+                        <div class="storyboard-card-header">
+                            <span class="storyboard-title">片段 ${item.segIndex} 分镜流程图</span>
+                        </div>
+                        <div class="storyboard-image-wrap">
+                            <img src="/api/storyboard_image?path=${encodeURIComponent(item.path)}" 
+                                 alt="片段 ${item.segIndex} 分镜流程图"
+                                 class="storyboard-image"
+                                 onerror="this.parentElement.innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">
+                        </div>
+                        ${promptText ? `<div class="storyboard-prompt-toggle">
+                            <button class="btn-small" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.textContent = this.nextElementSibling.style.display === 'none' ? '显示生成Prompt' : '隐藏生成Prompt';">显示生成Prompt</button>
+                            <pre class="result-text" style="display:none; margin-top:8px;">${escapeHtml(promptText)}</pre>
+                        </div>` : ''}
+                    </div>
+                `;
+            }).join('');
+        }
+
         function switchResultTab(btn) {
             document.querySelectorAll('.result-tab').forEach(t => t.classList.remove('active'));
             btn.classList.add('active');
@@ -1339,6 +1403,11 @@
 
             if (agent === 'prompt_compiler') {
                 output.innerHTML = renderCompiledSegments(agentOutputs, currentPublicState);
+                return;
+            }
+
+            if (agent === 'storyboard_designer') {
+                output.innerHTML = renderStoryboardImages(agentOutputs);
                 return;
             }
 

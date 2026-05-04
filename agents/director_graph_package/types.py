@@ -135,3 +135,4 @@ class DirectorState(TypedDict, total=False):
     system_guard_report: str
     last_qc_status: str
     result: str
+    storyboard_images_by_segment: dict[str, str]

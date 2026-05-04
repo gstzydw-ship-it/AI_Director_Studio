@@ -905,6 +905,62 @@ select option {
     margin-bottom: 6px;
 }
 
+/* === 分镜流程图展示 === */
+.storyboard-card {
+    background: var(--bg-card);
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius);
+    overflow: hidden;
+    margin-bottom: 16px;
+    transition: var(--transition);
+}
+
+.storyboard-card:hover {
+    border-color: var(--border-glow);
+    box-shadow: var(--shadow-glow);
+}
+
+.storyboard-card-header {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    background: rgba(99, 102, 241, 0.05);
+}
+
+.storyboard-title {
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--text-primary);
+}
+
+.storyboard-image-wrap {
+    padding: 12px;
+    display: flex;
+    justify-content: center;
+    background: var(--bg-secondary);
+}
+
+.storyboard-image {
+    max-width: 100%;
+    max-height: 600px;
+    border-radius: var(--radius-sm);
+    object-fit: contain;
+}
+
+.storyboard-prompt-toggle {
+    padding: 8px 16px 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+.storyboard-prompt-toggle pre {
+    background: var(--bg-secondary);
+    padding: 12px;
+    border-radius: var(--radius-sm);
+    font-size: 12px;
+    line-height: 1.5;
+    max-height: 300px;
+    overflow: auto;
+}
+
 /* === 状态消息 === */
 .status-msg {
     font-size: 13px;

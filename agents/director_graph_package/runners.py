@@ -85,15 +85,6 @@ def _invoke_runner_graph(input_value: Any, thread_id: str) -> Any:
     return _invoke_graph(input_value, thread_id)
 
 
-_SCHEMA_VERSION_V2 = "shot_director_v2"
-
-
-def _has_v2_shot_director_output(state: dict[str, Any]) -> bool:
-    outputs = _agent_outputs(state)
-    shot_director_output = str(outputs.get("shot_director") or "")
-    return bool(shot_director_output and f"schema_version: {_SCHEMA_VERSION_V2}" in shot_director_output)
-
-
 def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
     from .nodes import shot_director_node  # late import so test monkeypatches take effect
 
