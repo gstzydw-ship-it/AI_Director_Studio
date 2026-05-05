@@ -2197,37 +2197,13 @@ def _run_story_planner_with_schema_repair(
 
 
 def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
-    """Simplified validation for lean shot director schema.
-
-    Required fields per fragment: shots
-    Required fields per shot: shot_id, subject, camera, size, action, intent
-    Optional fields per shot: dialogue, type
-    """
-    issues: list[str] = []
-    for segment_name in expected_segments:
-        segment_num = re.sub(r"\D", "", segment_name)
-        fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
-        block_match = re.search(
-            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
-            director_output,
-        )
-        if not block_match:
-            issues.append(f"shot_director 缺少 {fragment_id} 的镜头设计。")
-            continue
-        block = block_match.group(1)
-
-        # Check for required top-level field: shots
-        if not re.search(r"shots\s*:", block):
-            issues.append(f"{fragment_id} 缺少 shots 字段。")
-            continue
-
-        # Check each shot for required fields
-        for field in ["shot_id", "subject", "camera", "size", "action", "intent"]:
-            if not re.search(rf"^\s*-?\s*{field}\s*:", block, re.MULTILINE):
-                issues.append(f"{fragment_id} 的 shots 缺少字段 {field}。")
-
-    return issues
+    return _collect_shot_director_issues(
+        director_output,
+        expected_segments=expected_segments,
+        script="",
+        planner_output="",
+        aspect_ratio="",
+    )
 
 
 _MAIN_SHOT_BLOCK_RE = re.compile(
@@ -4394,6 +4370,83 @@ def _validate_shot_layout_output(layout_output: str, expected_segments: list[str
     return issues
 
 
+_CONSTRUCTION_SHEET_SHOT_FIELDS = [
+    "shot_id",
+    "subject",
+    "shot_size",
+    "camera_height",
+    "angle",
+    "movement",
+    "lens",
+    "depth",
+    "coverage_role",
+    "cut_reason",
+    "companion_visibility",
+    "tailframe_role",
+    "dialogue_coverage",
+    "transition_type",
+    "tail_state_card",
+]
+
+_CONSTRUCTION_SHEET_TRANSITIONS = {
+    "stay_on_A",
+    "cut_to_B",
+    "cut_back_to_A",
+    "scene_fixed",
+    "insert",
+    "cutaway",
+    "tailframe_reset",
+}
+
+
+def _uses_construction_sheet_schema(output: str) -> bool:
+    return bool(
+        re.search(r"(?m)^\s*schema_version\s*:\s*shot_director_v2\b", output or "")
+        or re.search(r"(?m)^\s*fragment_intent\s*:", output or "")
+        or re.search(r"(?m)^\s*tail_state_card\s*:", output or "")
+        or re.search(r"(?m)^\s*transition_type\s*:", output or "")
+    )
+
+
+def _validate_shot_director_construction_sheet(output: str, expected_segments: list[str]) -> list[str]:
+    issues: list[str] = []
+    vague_cut_reason_re = re.compile(
+        r"更有电影感|更有電影感|cinematic|looks good|more cinematic|高级|好看|氛围更强|情绪更强|杩囦簬绌烘硾|鐢靛奖鎰?",
+        re.IGNORECASE,
+    )
+    for segment_name in expected_segments:
+        segment_num = re.sub(r"\D", "", segment_name)
+        fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
+        block_match = re.search(
+            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+            output or "",
+        )
+        if not block_match:
+            issues.append(f"shot_director 缺少 {fragment_id} 的镜头设计。")
+            continue
+        fragment_block = block_match.group(1)
+        for field in ["fragment_intent", "reaction_coverage", "continuity_anchor", "shots"]:
+            if not re.search(rf"(?m)^\s*{field}\s*:", fragment_block):
+                issues.append(f"{fragment_id} 缺少 construction sheet 字段 {field}。")
+
+        shot_blocks = _main_shot_blocks(fragment_block)
+        if not shot_blocks:
+            issues.append(f"{fragment_id} 缺少 shots 明细。")
+            continue
+        for shot_id, shot_block in shot_blocks:
+            for field in _CONSTRUCTION_SHEET_SHOT_FIELDS:
+                if not re.search(rf"(?m)^\s*{field}\s*:", shot_block):
+                    issues.append(f"{shot_id} 缺少 construction sheet 字段 {field}。")
+            transition_type = _yaml_scalar_field(shot_block, "transition_type").strip().strip('"\'')
+            if transition_type and transition_type not in _CONSTRUCTION_SHEET_TRANSITIONS:
+                issues.append(f"{shot_id} transition_type 非法：{transition_type}。")
+            cut_reason = _yaml_line_field(shot_block, "cut_reason")
+            if vague_cut_reason_re.search(cut_reason or ""):
+                issues.append(f"{shot_id} cut_reason 杩囦簬绌烘硾，必须绑定信息、反应、动作路径、空间复位或尾帧交接。")
+    return issues
+
+
 def _collect_shot_director_issues(
     output: str,
     *,
@@ -4402,18 +4455,16 @@ def _collect_shot_director_issues(
     planner_output: str,
     aspect_ratio: str,
 ) -> list[str]:
-    """Simplified validation for lean schema.
-
-    Checks:
-    1. Basic structure validation (all fragments present, shots have required fields)
-    2. Script fidelity (no new characters/dialogue)
-    3. Source event coverage (dialogue handling)
-    """
-    issues = _validate_shot_director_output(output, expected_segments)
-    # Keep only essential validations - script fidelity and dialogue coverage
+    """Validate staged shot-director construction-sheet output."""
+    issues: list[str] = []
+    if _uses_construction_sheet_schema(output):
+        issues.extend(_validate_shot_director_construction_sheet(output, expected_segments))
+    else:
+        issues.extend(_validate_shot_layout_output(output, expected_segments))
     issues.extend(_validate_shot_director_script_fidelity(output, script))
     issues.extend(_validate_shot_director_dialogue_coverage(output))
-    issues.extend(_validate_shot_director_source_event_coverage(output, planner_output))
+    if planner_output:
+        issues.extend(_validate_shot_director_source_event_coverage(output, planner_output))
     return issues
 
 
@@ -4773,6 +4824,122 @@ def _shot_director_stage_images(stage_key: str, images_base64: list[str] | None)
     return images_base64
 
 
+def _run_shot_director_three_stage_legacy(
+    *,
+    script: str,
+    planner_output: str,
+    atmosphere_strategy: str,
+    aspect_ratio: str,
+    expected_segments: list[str],
+    images_base64: list[str] | None,
+    director_hint: str,
+    director_brief: str = "",
+    stage_callback: Callable[[str, str, dict[str, Any], dict[str, dict[str, Any]]], None] | None = None,
+    resume_stage_outputs: dict[str, str] | None = None,
+    resume_stage_runtime: dict[str, dict[str, Any]] | None = None,
+    resume_stage_meta: dict[str, dict[str, Any]] | None = None,
+) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
+    """Restored staged shot-director workflow: layout -> blocking -> guard."""
+    resume_stage_outputs = resume_stage_outputs or {}
+    resume_stage_runtime = resume_stage_runtime or {}
+    stage_meta: dict[str, dict[str, Any]] = dict(resume_stage_meta or {})
+    stage_outputs: dict[str, str] = {}
+    runtimes: dict[str, Any] = {}
+
+    shared_context = _shot_director_shared_context(script, planner_output, atmosphere_strategy)
+    downstream_context = _shot_director_downstream_context(planner_output, atmosphere_strategy, aspect_ratio)
+    director_brief_block = _director_brief_prompt_block(director_brief)
+    if director_brief_block:
+        shared_context = director_brief_block + "\n" + shared_context
+        downstream_context = director_brief_block + "\n" + downstream_context
+
+    def persist(stage_name: str, output: str, runtime: dict[str, Any], retrieval_meta: dict[str, Any]) -> None:
+        stage_outputs[stage_name] = output
+        runtimes[stage_name] = runtime
+        stage_meta[stage_name] = retrieval_meta
+        if stage_callback:
+            stage_callback(stage_name, output, runtime, dict(stage_meta))
+
+    def run_stage(
+        stage_name: str,
+        role_description: str,
+        context_hint: str,
+        prompt_builder: Callable[[str], str],
+        contract_output: str,
+    ) -> str:
+        existing = (resume_stage_outputs.get(stage_name) or "").strip()
+        if existing:
+            output = _clean_shot_director_output(existing)
+            runtime = dict(resume_stage_runtime.get(stage_name) or {})
+            runtime.update({"agent_name": f"shot_director_{stage_name}", "mode": "resume", "status": "reused"})
+            retrieval_meta = stage_meta.get(stage_name) or {"retrieval_mode": "reused_from_pipeline_state"}
+            persist(stage_name, output, runtime, retrieval_meta)
+            return output
+
+        system_prompt, retrieval_meta = build_system_prompt(role_description, f"shot_director_{stage_name}", context_hint=context_hint)
+        stage_meta[stage_name] = retrieval_meta
+        if _shot_stage_should_split(expected_segments, contract_output):
+            output, runtime = _call_stage_split_by_fragment(
+                stage_key=f"shot_director_{stage_name}",
+                system_prompt=system_prompt,
+                expected_segments=expected_segments,
+                planner_output=planner_output,
+                aspect_ratio=aspect_ratio,
+                contract_output=contract_output,
+                prompt_builder=lambda fragment_id, fragment_context, fragment_contract: prompt_builder(
+                    f"{fragment_context}\n[Fragment Contract]\n{fragment_contract}\n\n只处理 {fragment_id}。"
+                ),
+            )
+        else:
+            output, runtime = _call_shot_director_stage(
+                stage_key=f"shot_director_{stage_name}",
+                system_prompt=system_prompt,
+                user_prompt=prompt_builder(contract_output),
+                images_base64=_shot_director_stage_images(f"shot_director_{stage_name}", images_base64),
+            )
+        persist(stage_name, output, runtime, retrieval_meta)
+        return output
+
+    layout_output = run_stage(
+        "layout",
+        _shot_director_layout_rule_block(aspect_ratio),
+        f"{director_hint} layout coverage camera skeleton space_rules",
+        lambda contract: (
+            f"{shared_context}\n{_shot_director_layout_context(planner_output, aspect_ratio)}\n\n"
+            "只输出 layout 阶段结果：space_rules + main_shot camera skeleton。"
+        ),
+        planner_output,
+    )
+    layout_output = _repair_shot_layout_output(layout_output)
+    persist("layout", layout_output, runtimes["layout"], stage_meta["layout"])
+
+    blocking_output = run_stage(
+        "blocking",
+        _shot_director_blocking_rule_block(aspect_ratio),
+        f"{director_hint} blocking reaction coverage action path second main shot",
+        lambda contract: (
+            f"{downstream_context}[Layout Output]\n{contract}\n\n"
+            "执行 blocking：补 reaction_coverage、event_coverage、state_chain、sub_shots，必要时补第二个 main_shot。"
+        ),
+        layout_output,
+    )
+
+    final_output = run_stage(
+        "final",
+        _shot_director_rule_block(aspect_ratio),
+        f"{director_hint} final guard continuity cut reasons dialogue coverage",
+        lambda contract: (
+            f"{downstream_context}[Blocking Output]\n{contract}\n\n"
+            "执行最终 guard：只做最小修正，确保空间、对白覆盖、切镜理由、动作路径、tailframe 交接成立。输出最终 YAML。"
+        ),
+        blocking_output,
+    )
+    final_output = _repair_shot_director_output_contracts(final_output, script)
+    persist("final", final_output, runtimes["final"], stage_meta["final"])
+    runtimes["final_source"] = "final"
+    return final_output, runtimes, stage_meta, stage_outputs
+
+
 def _run_shot_director_single_pass(
     *,
     script: str,
@@ -5013,10 +5180,15 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         derived_total, segment_names = _derive_segments_from_planner_output(planner_output)
         if not total_segments:
             total_segments = derived_total
-    # For single-pass schema, check for "final" output instead of layout/blocking/guard
-    resume_stage_outputs = {
-        "final": outputs.get("shot_director", "")
-    } if outputs.get("shot_director") else {}
+    resume_stage_outputs = {}
+    if outputs.get("shot_director_layout"):
+        resume_stage_outputs["layout"] = outputs.get("shot_director_layout", "")
+    if outputs.get("shot_director_blocking"):
+        resume_stage_outputs["blocking"] = outputs.get("shot_director_blocking", "")
+    if outputs.get("shot_director_final"):
+        resume_stage_outputs["final"] = outputs.get("shot_director_final", "")
+    elif outputs.get("shot_director"):
+        resume_stage_outputs["final"] = outputs.get("shot_director", "")
     shot_meta = (state.get("knowledge_metadata") or {}).get("shot_director", {})
     resume_stage_runtime = shot_meta.get("runtime", {}) if isinstance(shot_meta, dict) else {}
     resume_stage_meta = shot_meta.get("stage_retrieval", {}) if isinstance(shot_meta, dict) else {}
@@ -5068,7 +5240,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             },
         )
 
-    output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_single_pass(
+    output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_three_stage_legacy(
         script=state.get("script", ""),
         planner_output=planner_output,
         atmosphere_strategy=state.get("atmosphere_strategy", ""),

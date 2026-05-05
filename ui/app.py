@@ -271,6 +271,7 @@ from agents.director_graph import (
     save_state,
     _normalise_compiled_prompt,
 )
+from agents.director_graph_package.storyboard_designer_impl import generate_storyboard_for_segment
 
 
 def _save_task_state_for_session(
@@ -979,6 +980,54 @@ def _resume_shot_director_in_thread(
         _unregister_task_thread(session_id)
 
 
+def _generate_storyboard_in_thread(
+    segment_index: int,
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Generate storyboard only for a single segment without compiling prompts."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+    try:
+        with request_scope(session_id=session_id):
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state["status"] = "running_phase_1"
+            task_state["step"] = "step_4_storyboard"
+            task_state["message"] = f"🎨 正在生成片段 {segment_index} 分镜流程图..."
+            task_state["error"] = ""
+            task_state["active_segment_index"] = segment_index
+            task_state["current_segment_index"] = segment_index
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+
+            latest_state = load_state() or {}
+            merged_state = dict(latest_state)
+            merged_state.update(task_state)
+            result = generate_storyboard_for_segment(merged_state, segment_index=segment_index)
+
+            refreshed = load_state() or {}
+            task_state.update(refreshed)
+            task_state["status"] = "waiting_for_user_input"
+            task_state["step"] = "step_4_storyboard"
+            task_state["message"] = f"🎨 片段 {segment_index} 分镜流程图已生成，请上传参考图后生成 Prompt"
+            if result.get("image_path"):
+                task_state["message"] += f"（图片：{result['image_path']}）"
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        task_state["status"] = "error"
+        task_state["step"] = "error"
+        task_state["message"] = f"🎨 分镜流程图生成失败: {str(e)}"
+        task_state["error"] = traceback.format_exc()
+        _save_task_state_for_session(session_id, task_state)
+    finally:
+        _unregister_task_thread(session_id)
+
+
 def _restart_shot_director_from_planner_in_thread(
     task_generation: int = 0,
     session_id: str = DEFAULT_SESSION_ID,
@@ -1352,6 +1401,48 @@ async def api_retry_shot_director(
             ),
         }
     )
+
+
+@app.post("/api/generate_storyboard")
+async def api_generate_storyboard(
+    segment_index: int = Form(...),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+):
+    """Generate storyboard flowchart for the current segment only."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    outputs = task_state.get("agent_outputs") or {}
+    if not outputs.get("shot_director"):
+        return JSONResponse({"success": False, "error": "镜头导演输出尚未完成，无法生成分镜流程图。"})
+
+    total_segments = int(task_state.get("total_segments") or 0)
+    if segment_index < 1 or (total_segments and segment_index > total_segments):
+        return JSONResponse({"success": False, "error": f"片段 {segment_index} 超出有效范围。"})
+
+    task_generation = _bump_task_generation(session_id)
+    now = _now_iso()
+    task_state["status"] = "running_phase_1"
+    task_state["step"] = "step_4_storyboard"
+    task_state["message"] = f"🎨 正在生成片段 {segment_index} 分镜流程图..."
+    task_state["error"] = ""
+    task_state["active_segment_index"] = segment_index
+    task_state["current_segment_index"] = segment_index
+    task_state["started_at"] = now
+    _touch_task_progress(task_state, now)
+    _save_task_state_for_session(session_id, task_state)
+
+    thread = threading.Thread(
+        target=_generate_storyboard_in_thread,
+        args=(segment_index, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": f"🎨 片段 {segment_index} 分镜流程图已加入队列。"})
 
 
 @app.post("/api/abort")

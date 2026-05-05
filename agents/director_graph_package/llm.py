@@ -286,6 +286,27 @@ def _get_llm_fallback_models(agent_name: str = "") -> list[str]:
     return _normalise_model_list(value)
 
 
+def _effective_retry_budget(agent_name: str, max_retries: int) -> int:
+    if agent_name == "story_planner":
+        return max(1, min(max_retries, 1))
+    return max_retries
+
+
+def _effective_timeout_settings(
+    agent_name: str,
+    request_timeout: float,
+    connect_timeout: float,
+    read_timeout: float,
+    write_timeout: float,
+) -> tuple[float, float, float, float]:
+    if agent_name == "story_planner":
+        request_timeout = min(request_timeout, 120.0)
+        connect_timeout = min(connect_timeout, 20.0)
+        read_timeout = min(read_timeout, 120.0)
+        write_timeout = min(write_timeout, 45.0)
+    return request_timeout, connect_timeout, read_timeout, write_timeout
+
+
 def _llm_failure_context(
     *,
     agent_name: str,
@@ -480,6 +501,7 @@ def call_llm(
         max_retries = _coerce_int(_get_llm_runtime_option(agent_name, "max_retries", 2), 2, minimum=1)
     else:
         max_retries = max(1, int(max_retries))
+    max_retries = _effective_retry_budget(agent_name, max_retries)
 
     trust_env = not bypass_proxy
     last_exc: Exception | None = None
@@ -516,6 +538,13 @@ def call_llm(
             _get_llm_runtime_option(agent_name, "write_timeout_seconds", min(60.0, request_timeout)),
             min(60.0, request_timeout),
             minimum=10.0,
+        )
+        request_timeout, connect_timeout, read_timeout, write_timeout = _effective_timeout_settings(
+            agent_name,
+            request_timeout,
+            connect_timeout,
+            read_timeout,
+            write_timeout,
         )
         timeout = httpx.Timeout(request_timeout, connect=connect_timeout, read=read_timeout, write=write_timeout)
 

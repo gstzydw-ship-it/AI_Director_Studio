@@ -589,7 +589,8 @@ def story_planner_node(state: DirectorState) -> DirectorState:
     scene_output = outputs.get("scene_analyst", "")
     scene_memory = _scene_memory_card(scene_output, 1800)
     rhythm_guidance = state.get("atmosphere_strategy", "") or outputs.get("rhythm_rewrite_director", "")
-    planner_hint = f"剧本拆分 15秒片段规划 多机位分镜 节奏控制 镜头切换 {state['script'][:200]}"
+    truncated_script = _truncate_for_prompt(state.get("script", ""), 12000)
+    planner_hint = f"剧本拆分 15秒片段规划 多机位分镜 节奏控制 镜头切换 {truncated_script[:200]}"
     system_prompt, retrieval_meta = build_system_prompt(
         "你是一位短剧结构规划师。你的核心任务是把剧本拆成可拍的视频片段施工单："
         "只决定每段从哪到哪、谁在场、连续性如何交接、反应归属哪里。"
@@ -600,7 +601,7 @@ def story_planner_node(state: DirectorState) -> DirectorState:
     user_prompt = (
         f"{director_brief_block}\n"
         f"基于以下【原始剧本】与【场景空间记忆卡】，制定严格拆片方案。\n\n"
-        f"【原始剧本】\n{state['script']}\n\n"
+        f"【原始剧本】\n{truncated_script}\n\n"
         f"【场景空间记忆卡】\n{scene_memory}\n\n"
         "【输出结构硬约束】\n"
         "你必须输出 YAML 列表；每个片段只保留轻量施工单字段：\n"

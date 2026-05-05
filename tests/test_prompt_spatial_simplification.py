@@ -147,7 +147,7 @@ def test_prompt_compiler_prompt_teaches_successful_shot_chain(monkeypatch):
         "script": "商北琛进入大堂。严飞：Welcome, Mr. Pierce.",
         "agent_outputs": {
             "story_planner": "fragment_id: F01\nsource_script_events:\n- 商北琛进入大堂。\n- 严飞：Welcome, Mr. Pierce.\nreaction_plan: 冷处理问候。",
-            "shot_director": "fragment_id: F01\nmain_shots:\n- shot_id: F01-S01\n  subject: 商北琛\n  camera_basis: subject_relative\n  camera_scene_position: lobby_axis\n  camera_looks_toward: elevator\n  subject_position: lobby_axis\n  subject_facing: toward_elevator\n  visible_landmarks: employee_lines\n  dialogue_coverage: none",
+            "shot_director": "fragment_id: F01\nfragment_task: 商北琛权威入场，严飞冷处理问候，建立权力关系与空间轴线\nrhythm: 稳慢压，命令前铺垫\nshots:\n- shot_id: F01-S01\n  duration: 4秒\n  task: 建立商北琛入场，扫视两侧\n  subject: 商北琛\n  camera: 大堂中轴右侧平视，稳定器后退跟拍\n  size: 多人全身关系景\n  action: 商北琛沿中轴走向电梯，视线淡淡扫过两侧人群\n  dialogue: ''\n  must_carry: 员工迎接站位、大堂纵深空间\n  cut_point: 严飞迎接完成后切至镜头2\n  continuity: 商北琛从大堂入口走向电梯，脚步不停\n- shot_id: F01-S02\n  duration: 2秒\n  task: 商北琛无视问候，直接下令\n  subject: 商北琛\n  camera: 延续上一镜右侧轴线，固定机位\n  size: 半身中景\n  action: 商北琛没有回应严飞，眉头微皱，视线越过严飞看向电梯方向，脚步不停\n  dialogue: \"Meeting in ten minutes. Directors and above, be there.\"\n  must_carry: 权力冷处理、命令语气\n  cut_point: 命令说完后切至镜头3\n  continuity: 商北琛已越过严飞，严飞停在通道侧边",
         },
     }
 

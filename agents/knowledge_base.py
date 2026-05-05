@@ -8,6 +8,7 @@
 import os
 import re
 import json
+import warnings
 import numpy as np
 import yaml
 from openai import OpenAI
@@ -296,7 +297,6 @@ AGENT_KNOWLEDGE_MAP = {
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",
         "02_焦段景深与景别画幅策略.md",
-        "04_对白与表演镜头规则.md",
         "06_连续性与安全规则.md",
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
@@ -373,7 +373,6 @@ CRITICAL_KNOWLEDGE_MAP = {
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",   # 一号机位摆位导演的职责合同
         "02_焦段景深与景别画幅策略.md",   # 景别/焦段/画幅主规则
-        "04_对白与表演镜头规则.md",       # 发言单元覆盖蓝图
         "06_连续性与安全规则.md",          # 接缝与状态安全
         "21_镜头调用规则与多机位模板.md",  # 主镜头骨架模板
         "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 单任务镜头基底
@@ -597,7 +596,41 @@ def _load_vectordb() -> dict:
         )
 
     # 将 embedding 转为 numpy 数组以加速检索
-    data["embeddings"] = np.array(data["embeddings"], dtype=np.float32)
+    embeddings = np.array(data["embeddings"], dtype=np.float32)
+    data["embeddings"] = embeddings
+    data["embedding_dim"] = embeddings.shape[1]
+    # 记录构建时的 embedding 模型，便于维度漂移排查
+    data["embedding_model"] = data.get("embedding_model", "")
+
+    # 提前检查：embedding 模型/维度与当前配置是否一致
+    try:
+        cfg = load_config() or {}
+        vdb_cfg = cfg.get("vectordb") or {}
+        current_model = vdb_cfg.get("embedding_model", "")
+        if current_model and data.get("embedding_model") and data["embedding_model"] != current_model:
+            warnings.warn(
+                f"[Vectordb] embedding_model 不匹配: 向量库由 '{data['embedding_model']}' 构建, "
+                f"当前配置为 '{current_model}'。请执行 `python main.py build-db --rebuild` 重建向量库。",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+        # 用一个小样本请求验证当前模型返回的维度是否与库存一致
+        # 只在缓存首次加载时执行一次，避免每次查询都发请求
+        if current_model:
+            sample_emb = _embed_texts(["维度校验"], model=current_model, batch_size=1)
+            actual_dim = len(sample_emb[0])
+            if actual_dim != data["embedding_dim"]:
+                warnings.warn(
+                    f"[Vectordb] embedding_dim 不匹配: 向量库存储维度={data['embedding_dim']}, "
+                    f"当前模型 '{current_model}' 返回维度={actual_dim}。"
+                    f"请执行 `python main.py build-db --rebuild` 重建向量库。",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+    except Exception:
+        # 配置可能不完整或网络不通，不阻断加载
+        pass
+
     _vectordb_cache = data
     return data
 
@@ -680,12 +713,14 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
     all_embeddings = _embed_texts(all_documents, model=embedding_model)
     print(f"  [OK] Embedding 维度: {len(all_embeddings[0])}")
 
-    # 持久化到 JSON 文件
+    # 持久化到 JSON 文件（含维度/模型元数据，便于后续一致性检查）
     os.makedirs(persist_dir, exist_ok=True)
     db_data = {
         "documents": all_documents,
         "metadatas": all_metadatas,
         "embeddings": [list(e) for e in all_embeddings],
+        "embedding_model": embedding_model,
+        "embedding_dim": len(all_embeddings[0]),
     }
     with open(db_path, "w", encoding="utf-8") as f:
         json.dump(db_data, f, ensure_ascii=False)
@@ -708,6 +743,16 @@ def query_knowledge(
 
     # 获取查询向量
     query_emb = np.array(_embed_texts([query])[0], dtype=np.float32)
+
+    # 维度一致性检查 —— 提前暴露 embedding 模型切换导致的维度漂移
+    stored_dim = db.get("embedding_dim", db["embeddings"].shape[1])
+    if query_emb.shape[0] != stored_dim:
+        raise RuntimeError(
+            f"Embedding 维度不匹配: 向量库存储维度={stored_dim}, "
+            f"查询向量维度={query_emb.shape[0]}。"
+            f"当前模型返回维度与向量库构建时使用的模型不一致。"
+            f"请执行 python main.py build-db --rebuild 重建向量库。"
+        )
 
     # 计算 cosine similarity
     embeddings = db["embeddings"]
@@ -1140,6 +1185,7 @@ def query_knowledge_hybrid(
 
     # ---- 向量路 ----
     vector_results = []
+    vector_error = None
     try:
         vector_results = query_knowledge(
             query,
@@ -1147,8 +1193,15 @@ def query_knowledge_hybrid(
             n_results=vector_k,
             preferred_sources=preferred_source_names,
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        vector_error = exc
+        # 不静默吞掉：明确记录 vector 路失败原因，同时保留 BM25 兜底通道
+        warnings.warn(
+            f"[query_knowledge_hybrid] Vector search failed: {exc}. "
+            f"Falling back to BM25-only results for this query.",
+            RuntimeWarning,
+            stacklevel=2,
+        )
 
     # ---- RRF 融合 ----
     # 用 text 内容作为去重 key

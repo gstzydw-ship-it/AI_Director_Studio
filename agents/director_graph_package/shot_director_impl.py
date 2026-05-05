@@ -798,6 +798,9 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
     3. 可选字段 type、audio 只在需要时写
     4. 首镜头不能用特写类景别建立空间
     """
+    if _uses_construction_sheet_schema(director_output):
+        return _validate_shot_director_construction_sheet(director_output, expected_segments)
+
     issues: list[str] = []
     for segment_name in expected_segments:
         segment_num = re.sub(r"\D", "", segment_name)
@@ -850,6 +853,83 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
                     "手部、门缝、按钮、文件、手机等默认应作为 insert/reaction 子镜头。"
                 )
 
+    return issues
+
+
+_CONSTRUCTION_SHEET_SHOT_FIELDS = (
+    "shot_id",
+    "subject",
+    "shot_size",
+    "camera_height",
+    "angle",
+    "movement",
+    "lens",
+    "depth",
+    "coverage_role",
+    "cut_reason",
+    "companion_visibility",
+    "tailframe_role",
+    "dialogue_coverage",
+    "transition_type",
+    "tail_state_card",
+)
+
+_CONSTRUCTION_SHEET_TRANSITIONS = {
+    "stay_on_A",
+    "cut_to_B",
+    "cut_back_to_A",
+    "scene_fixed",
+    "insert",
+    "cutaway",
+    "tailframe_reset",
+}
+
+
+def _uses_construction_sheet_schema(output: str) -> bool:
+    return bool(
+        re.search(r"(?m)^\s*schema_version\s*:\s*shot_director_v2\b", output or "")
+        or re.search(r"(?m)^\s*fragment_intent\s*:", output or "")
+        or re.search(r"(?m)^\s*tail_state_card\s*:", output or "")
+        or re.search(r"(?m)^\s*transition_type\s*:", output or "")
+    )
+
+
+def _validate_shot_director_construction_sheet(director_output: str, expected_segments: list[str]) -> list[str]:
+    issues: list[str] = []
+    vague_cut_reason_re = re.compile(
+        r"更有电影感|更有電影感|cinematic|looks good|more cinematic|高级|好看|氛围更强|情绪更强|鐢靛奖鎰?",
+        re.IGNORECASE,
+    )
+    for segment_name in expected_segments:
+        segment_num = re.sub(r"\D", "", segment_name)
+        fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
+        block_match = re.search(
+            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+            director_output or "",
+        )
+        if not block_match:
+            issues.append(f"shot_director 缺少 {fragment_id} 的镜头设计。")
+            continue
+        fragment_block = block_match.group(1)
+        for field in ("fragment_intent", "reaction_coverage", "continuity_anchor", "shots"):
+            if not re.search(rf"(?m)^\s*{field}\s*:", fragment_block):
+                issues.append(f"{fragment_id} 缺少 construction sheet 字段 {field}。")
+
+        shot_blocks = _main_shot_blocks(fragment_block)
+        if not shot_blocks:
+            issues.append(f"{fragment_id} 缺少 shots 字段或没有任何 shot_id。")
+            continue
+        for shot_id, shot_block in shot_blocks:
+            for field in _CONSTRUCTION_SHEET_SHOT_FIELDS:
+                if not re.search(rf"(?m)^\s*-?\s*{field}\s*:", shot_block):
+                    issues.append(f"{shot_id} 缺少 construction sheet 字段 {field}。")
+            transition_type = _yaml_line_field(shot_block, "transition_type").strip().strip('"\'')
+            if transition_type and transition_type not in _CONSTRUCTION_SHEET_TRANSITIONS:
+                issues.append(f"{shot_id} transition_type 非法：{transition_type}。")
+            cut_reason = _yaml_line_field(shot_block, "cut_reason")
+            if vague_cut_reason_re.search(cut_reason or ""):
+                issues.append(f"{shot_id} cut_reason 过于空泛，必须绑定信息、反应、动作路径、空间复位或尾帧交接。")
     return issues
 
 def _yaml_scalar_field(block: str, field: str) -> str:
