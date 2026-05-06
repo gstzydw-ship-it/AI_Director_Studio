@@ -4,22 +4,45 @@ title: 门状态单调推进
 doc_type: rule_card
 rule_type: continuity
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- cont-door-monotonic-001
+- signals.action_coverage
+- signals.continuity_lock
+- events.door_state
+- risks.door_state_jump
+- scene_types.elevator
+- scene_types.action
+applies_when:
+- 电梯门
+- 门缝
+- 阈值动作
+avoid_when: []
+signals:
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- action
+events:
+- door_state
+risks:
+- door_state_jump
+applies_to:
+- 电梯门
+- 门缝
+- 阈值动作
 source_files:
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 电梯门
-  - 门缝
-  - 阈值动作
 ---
 
 # 门状态单调推进

@@ -4,19 +4,37 @@ title: 参考图先绑定职责再进入时间轴
 doc_type: rule_card
 rule_type: reference_control
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-reference-binding-001
+- signals.reference_binding
+- events.reference_binding
+- risks.axis_confusion
+- risks.reference_misuse
+applies_when:
+- 参考图
+- 人物身份
+- 场景参考
+avoid_when: []
+signals:
+- reference_binding
+events:
+- reference_binding
+risks:
+- axis_confusion
+- reference_misuse
+applies_to:
+- 参考图
+- 人物身份
+- 场景参考
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 参考图
-  - 人物身份
-  - 场景参考
 ---
 
 # 参考图先绑定职责再进入时间轴

@@ -4,22 +4,68 @@ title: 复杂分镜必须降维成视频模型可执行动作
 doc_type: rule_card
 rule_type: prompt_compiler_translation
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-cinematic-downtranslation-002
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.reaction
+- events.cut
+- events.tailframe
+- risks.reference_misuse
+- risks.privacy_body
+- risks.blood_avoidance
+- dialogue_types.argument_escalation
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+- scene_types.suspense
+- scene_types.intimacy_privacy
+applies_when:
+- seedance_prompt
+- prompt_compiler
+- main_shots
+avoid_when: []
+signals:
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- suspense
+- intimacy_privacy
+events:
+- collision
+- reaction
+- cut
+- tailframe
+risks:
+- reference_misuse
+- privacy_body
+- blood_avoidance
+dialogue_types:
+- argument_escalation
+- reaction_beat
+applies_to:
+- seedance_prompt
+- prompt_compiler
+- main_shots
+- sub_shots
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
-  - knowledge/19_Gold_Standard_Prompt范例.md
-  - knowledge/28_全场景分镜与转场案例库.md
+- knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/19_Gold_Standard_Prompt范例.md
+- knowledge/28_全场景分镜与转场案例库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - seedance_prompt
-  - prompt_compiler
-  - main_shots
-  - sub_shots
 ---
 
 # 复杂分镜必须降维成视频模型可执行动作

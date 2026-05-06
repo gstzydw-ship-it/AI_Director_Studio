@@ -1,23 +1,57 @@
-﻿---
+---
 rule_id: PROMPT-CONSTRAINT-POLARITY-001
 title: 约束集中写入且时间轴正向表达
 doc_type: rule_card
 rule_type: prompt_constraint
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-constraint-polarity-001
+- signals.dialogue_coverage
+- signals.continuity_lock
+- events.waist_support
+- events.door_state
+- risks.door_state_jump
+- risks.romanticize_collision
+- risks.axis_confusion
+- dialogue_types.argument_escalation
+- scene_types.elevator
+- scene_types.dialogue
+- scene_types.intimacy_privacy
+applies_when:
+- 硬约束
+- 时间轴
+- 否定词污染
+avoid_when: []
+signals:
+- dialogue_coverage
+- continuity_lock
+scene_types:
+- elevator
+- dialogue
+- intimacy_privacy
+events:
+- waist_support
+- door_state
+risks:
+- door_state_jump
+- romanticize_collision
+- axis_confusion
+dialogue_types:
+- argument_escalation
+applies_to:
+- 硬约束
+- 时间轴
+- 否定词污染
+- 禁止字幕
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 硬约束
-  - 时间轴
-  - 否定词污染
-  - 禁止字幕
 ---
 
 # 约束集中写入且时间轴正向表达

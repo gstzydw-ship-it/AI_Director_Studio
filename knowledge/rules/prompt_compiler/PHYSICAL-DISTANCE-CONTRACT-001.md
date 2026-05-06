@@ -1,13 +1,38 @@
 ---
 rule_id: PHYSICAL-DISTANCE-CONTRACT-001
-title: "物理距离与亲密接触冲突消解规则"
+title: 物理距离与亲密接触冲突消解规则
+doc_type: rule_card
+rule_type: prompt_compilation
+agent_scope:
+- prompt_compiler
+- quality_inspector
 priority: P0
-agent_scope: [prompt_compiler]
+status: active
 runtime_retrieval: true
-applies_when: "处理包含“零亲密接触”或“物理距离”等距离契约的片段"
-instruction: "如果约束要求“零亲密接触”或“保持距离”，编译器必须自动过滤或替换时间轴内可能产生歧义的亲密接触词汇。"
-avoid_when: ""
+retrieval_key:
+- physical-distance-contract-001
+- signals.continuity_lock
+- events.waist_support
+- risks.romanticize_collision
+- dialogue_types.argument_escalation
+- scene_types.intimacy_privacy
+applies_when: 处理包含“零亲密接触”或“物理距离”等距离契约的片段
+avoid_when: ''
+signals:
+- continuity_lock
+scene_types:
+- intimacy_privacy
+events:
+- waist_support
+risks:
+- romanticize_collision
+dialogue_types:
+- argument_escalation
+conflicts_with: []
+supersedes: []
+instruction: 如果约束要求“零亲密接触”或“保持距离”，编译器必须自动过滤或替换时间轴内可能产生歧义的亲密接触词汇。
 ---
+
 # 物理距离与亲密接触冲突消解规则
 
 ## 核心规则

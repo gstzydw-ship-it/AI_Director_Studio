@@ -1,3 +1,51 @@
+---
+rule_id: PROMPT-TIME-INHERIT-UPSTREAM-001
+title: PROMPT-TIME-INHERIT-UPSTREAM-001
+doc_type: rule_card
+rule_type: prompt_compilation
+agent_scope:
+- prompt_compiler
+- quality_inspector
+priority: P3
+status: active
+runtime_retrieval: true
+retrieval_key:
+- prompt-time-inherit-upstream-001
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.reaction
+- events.cut
+- events.tailframe
+- risks.script_invention_risk
+- risks.reference_misuse
+- dialogue_types.argument_escalation
+- dialogue_types.reaction_beat
+- scene_types.action
+applies_when: []
+avoid_when: []
+signals:
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- action
+events:
+- reaction
+- cut
+- tailframe
+risks:
+- script_invention_risk
+- reference_misuse
+dialogue_types:
+- argument_escalation
+- reaction_beat
+conflicts_with: []
+supersedes: []
+---
+
 # PROMPT-TIME-INHERIT-UPSTREAM-001
 
 ## 规则标题

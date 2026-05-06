@@ -1,13 +1,37 @@
 ---
 rule_id: SCREEN-POSITION-NAMED-SUBJECT-001
-title: "屏幕位置具名化与方位规则"
+title: 屏幕位置具名化与方位规则
+doc_type: rule_card
+rule_type: prompt_compilation
+agent_scope:
+- prompt_compiler
+- shot_director
+- quality_inspector
 priority: P0
-agent_scope: [prompt_compiler, shot_director]
+status: active
 runtime_retrieval: true
-applies_when: "描述人物在画面中的相对位置和朝向"
-instruction: "屏幕位置必须用“角色名 + 画面位置 + 朝向对象 + 距离”结构，禁止使用无主语的抽象描述。"
-avoid_when: ""
+retrieval_key:
+- screen-position-named-subject-001
+- signals.action_coverage
+- risks.privacy_body
+- scene_types.elevator
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when: 描述人物在画面中的相对位置和朝向
+avoid_when: ''
+signals:
+- action_coverage
+scene_types:
+- elevator
+- action
+- intimacy_privacy
+risks:
+- privacy_body
+conflicts_with: []
+supersedes: []
+instruction: 屏幕位置必须用“角色名 + 画面位置 + 朝向对象 + 距离”结构，禁止使用无主语的抽象描述。
 ---
+
 # 屏幕位置具名化与方位规则
 
 ## 核心规则

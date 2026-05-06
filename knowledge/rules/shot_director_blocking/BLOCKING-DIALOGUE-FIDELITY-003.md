@@ -1,15 +1,38 @@
 ---
 rule_id: BLOCKING-DIALOGUE-FIDELITY-003
 title: 对白只允许引用原剧本，不得补写
+doc_type: rule_card
 rule_type: hard_constraint
 agent_scope:
-  - shot_director_blocking
+- shot_director_blocking
+- quality_inspector
 priority: P1
 status: active
 runtime_retrieval: true
+retrieval_key:
+- blocking-dialogue-fidelity-003
+- signals.dialogue_coverage
+- signals.action_coverage
+- risks.script_invention_risk
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- dialogue_coverage
+- 剧本忠实度
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+scene_types:
+- dialogue
+- action
+risks:
+- script_invention_risk
 applies_to:
-  - dialogue_coverage
-  - 剧本忠实度
+- dialogue_coverage
+- 剧本忠实度
+conflicts_with: []
+supersedes: []
 ---
 
 # BLOCKING-DIALOGUE-FIDELITY-003：对白只允许引用原剧本，不得补写

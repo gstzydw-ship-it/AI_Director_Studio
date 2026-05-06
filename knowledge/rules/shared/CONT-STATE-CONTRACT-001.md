@@ -4,22 +4,60 @@ title: 状态合同优先
 doc_type: rule_card
 rule_type: continuity
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+- shared
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- cont-state-contract-001
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.door_state
+- events.reaction
+- events.tailframe
+- risks.axis_confusion
+- risks.reference_misuse
+- risks.privacy_body
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- active_cast
+- offscreen_cast
+- state_contract
+avoid_when: []
+signals:
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- door_state
+- reaction
+- tailframe
+risks:
+- axis_confusion
+- reference_misuse
+- privacy_body
+applies_to:
+- active_cast
+- offscreen_cast
+- state_contract
 source_files:
-  - knowledge/05_剧本拆分与15秒片段规划规则.md
-  - knowledge/06_连续性与安全规则.md
+- knowledge/05_剧本拆分与15秒片段规划规则.md
+- knowledge/06_连续性与安全规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - active_cast
-  - offscreen_cast
-  - state_contract
 ---
 
 # 状态合同优先

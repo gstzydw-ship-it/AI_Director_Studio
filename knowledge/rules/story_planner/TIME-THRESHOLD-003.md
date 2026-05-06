@@ -4,22 +4,53 @@ title: 阈值段主动做减法
 doc_type: rule_card
 rule_type: segment_planning
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- time-threshold-003
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- events.rush_in
+- events.collision
+- events.door_state
+- events.reaction
+- events.tailframe
+- risks.reference_misuse
+- scene_types.action
+applies_when:
+- 电梯
+- 门口
+- 新人物冲入
+avoid_when: []
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+scene_types:
+- action
+events:
+- rush_in
+- collision
+- door_state
+- reaction
+- tailframe
+risks:
+- reference_misuse
+applies_to:
+- 电梯
+- 门口
+- 新人物冲入
+- 尾帧续接
 source_files:
-  - knowledge/05_剧本拆分与15秒片段规划规则.md
+- knowledge/05_剧本拆分与15秒片段规划规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 电梯
-  - 门口
-  - 新人物冲入
-  - 尾帧续接
 ---
 
 # 阈值段主动做减法

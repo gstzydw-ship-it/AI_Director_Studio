@@ -4,22 +4,59 @@ title: 尾帧可见人物不等于当前戏份人物
 doc_type: rule_card
 rule_type: cast_continuity
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- cont-cast-active-001
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.reference_binding
+- events.rush_in
+- events.door_state
+- events.tailframe
+- events.reference_binding
+- risks.door_state_jump
+- risks.reference_misuse
+- scene_types.elevator
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 尾帧人物
+- 当前戏份
+- offscreen_cast
+avoid_when: []
+signals:
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+- reference_binding
+scene_types:
+- elevator
+- dialogue
+- action
+events:
+- rush_in
+- door_state
+- tailframe
+- reference_binding
+risks:
+- door_state_jump
+- reference_misuse
+applies_to:
+- 尾帧人物
+- 当前戏份
+- offscreen_cast
 source_files:
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 尾帧人物
-  - 当前戏份
-  - offscreen_cast
 ---
 
 # 尾帧可见人物不等于当前戏份人物

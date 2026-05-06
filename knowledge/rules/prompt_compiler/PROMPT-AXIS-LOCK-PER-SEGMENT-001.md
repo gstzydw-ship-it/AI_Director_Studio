@@ -4,26 +4,53 @@ title: 单片段内摄影机必须始终在轴线同侧
 doc_type: rule_card
 rule_type: prompt_compilation
 agent_scope:
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-axis-lock-per-segment-001
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- events.tailframe
+- risks.axis_confusion
+- risks.reference_misuse
+- scene_types.elevator
+- scene_types.action
+applies_when:
+- 180度轴线
+- 跨轴
+- 反打
+avoid_when: []
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- action
+events:
+- tailframe
+risks:
+- axis_confusion
+- reference_misuse
+applies_to:
+- 180度轴线
+- 跨轴
+- 反打
+- 左前方
+- 右前方
+- 单片段机位
 source_files:
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/07_Seedance输出词典与模型适配.md
-  - knowledge/21_镜头调用规则与多机位模板.md
-  - knowledge/rules/scene_analyst/SCENE-CONSISTENCY-LOCK-001.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/21_镜头调用规则与多机位模板.md
+- knowledge/rules/scene_analyst/SCENE-CONSISTENCY-LOCK-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 180度轴线
-  - 跨轴
-  - 反打
-  - 左前方
-  - 右前方
-  - 单片段机位
 ---
 
 # 单片段内摄影机必须始终在轴线同侧

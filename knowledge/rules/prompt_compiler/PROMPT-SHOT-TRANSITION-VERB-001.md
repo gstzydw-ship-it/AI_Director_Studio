@@ -1,3 +1,40 @@
+---
+rule_id: PROMPT-SHOT-TRANSITION-VERB-001
+title: PROMPT-SHOT-TRANSITION-VERB-001
+doc_type: rule_card
+rule_type: prompt_compilation
+agent_scope:
+- prompt_compiler
+- quality_inspector
+priority: P3
+status: active
+runtime_retrieval: true
+retrieval_key:
+- prompt-shot-transition-verb-001
+- signals.action_coverage
+- events.rush_in
+- events.door_state
+- events.cut
+- risks.door_state_jump
+- scene_types.elevator
+- scene_types.action
+applies_when: []
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- elevator
+- action
+events:
+- rush_in
+- door_state
+- cut
+risks:
+- door_state_jump
+conflicts_with: []
+supersedes: []
+---
+
 # PROMPT-SHOT-TRANSITION-VERB-001
 
 ## 规则标题

@@ -4,25 +4,58 @@ title: 场景分析九层输入卡必填
 doc_type: rule_card
 rule_type: scene_analysis
 agent_scope:
-  - scene_analyst
-  - story_planner
-priority: hard
+- scene_analyst
+- story_planner
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- scene-input-card-001
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- signals.reference_binding
+- events.cut
+- events.tailframe
+- events.reference_binding
+- risks.privacy_body
+- scene_types.action
+- scene_types.suspense
+- scene_types.intimacy_privacy
+applies_when:
+- 任务层
+- 戏剧层
+- 动作层
+avoid_when: []
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+- reference_binding
+scene_types:
+- action
+- suspense
+- intimacy_privacy
+events:
+- cut
+- tailframe
+- reference_binding
+risks:
+- privacy_body
+applies_to:
+- 任务层
+- 戏剧层
+- 动作层
+- 运镜层
+- 空间层
+- 状态层
+- 光线与风格层
+- 参考资产层
+- 约束层
 source_files:
-  - knowledge/11_场景分析输入卡与导演意图提取.md
+- knowledge/11_场景分析输入卡与导演意图提取.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 任务层
-  - 戏剧层
-  - 动作层
-  - 运镜层
-  - 空间层
-  - 状态层
-  - 光线与风格层
-  - 参考资产层
-  - 约束层
 ---
 
 # 场景分析九层输入卡必填

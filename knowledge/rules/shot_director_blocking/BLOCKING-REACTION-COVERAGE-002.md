@@ -1,15 +1,39 @@
 ---
 rule_id: BLOCKING-REACTION-COVERAGE-002
 title: reaction_coverage 必须明确落到主镜头或子镜头
+doc_type: rule_card
 rule_type: hard_constraint
 agent_scope:
-  - shot_director_blocking
+- shot_director_blocking
+- quality_inspector
 priority: P2
 status: active
 runtime_retrieval: true
+retrieval_key:
+- blocking-reaction-coverage-002
+- signals.action_coverage
+- events.collision
+- events.reaction
+- risks.blood_avoidance
+- scene_types.action
+applies_when:
+- reaction_coverage
+- 受击落点
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- action
+events:
+- collision
+- reaction
+risks:
+- blood_avoidance
 applies_to:
-  - reaction_coverage
-  - 受击落点
+- reaction_coverage
+- 受击落点
+conflicts_with: []
+supersedes: []
 ---
 
 # BLOCKING-REACTION-COVERAGE-002：reaction_coverage 必须明确落到主镜头或子镜头

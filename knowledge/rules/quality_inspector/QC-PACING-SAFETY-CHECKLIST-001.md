@@ -4,23 +4,63 @@ title: 节奏与物理安全质检清单
 doc_type: rule_card
 rule_type: quality_control
 agent_scope:
-  - quality_inspector
-priority: hard
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- qc-pacing-safety-checklist-001
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.reaction
+- events.tailframe
+- risks.reference_misuse
+- risks.blood_avoidance
+- dialogue_types.argument_escalation
+- dialogue_types.long_dialogue_compression
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 质检
+- 节奏拖沓
+- Hook
+avoid_when: []
+signals:
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+events:
+- collision
+- reaction
+- tailframe
+risks:
+- reference_misuse
+- blood_avoidance
+dialogue_types:
+- argument_escalation
+- long_dialogue_compression
+- reaction_beat
+applies_to:
+- 质检
+- 节奏拖沓
+- Hook
+- 对白忠实
+- 复杂动作
+- prompt合规
 source_files:
-  - knowledge/17_结果质检与回溯修正规则.md
-  - knowledge/15_故事节奏控制规则.md
-  - knowledge/24_戏剧微粒识别与节奏触发规则.md
+- knowledge/17_结果质检与回溯修正规则.md
+- knowledge/15_故事节奏控制规则.md
+- knowledge/24_戏剧微粒识别与节奏触发规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 质检
-  - 节奏拖沓
-  - Hook
-  - 对白忠实
-  - 复杂动作
-  - prompt合规
 ---
 
 # 节奏与物理安全质检清单

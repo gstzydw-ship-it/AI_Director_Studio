@@ -1,16 +1,47 @@
 ---
 rule_id: GUARD-FIDELITY-VERTICAL-003
 title: 优先修复剧本忠实度与竖屏纪律
+doc_type: rule_card
 rule_type: hard_constraint
 agent_scope:
-  - shot_director_guard
+- shot_director_guard
+- quality_inspector
 priority: P1
 status: active
 runtime_retrieval: true
+retrieval_key:
+- guard-fidelity-vertical-003
+- signals.vertical_framing
+- signals.dialogue_coverage
+- signals.action_coverage
+- risks.vertical_closeup_overuse
+- risks.script_invention_risk
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 剧本忠实度
+- 竖屏纪律
+- 9:16 特写限频
+avoid_when: []
+signals:
+- vertical_framing
+- dialogue_coverage
+- action_coverage
+scene_types:
+- dialogue
+- action
+risks:
+- vertical_closeup_overuse
+- script_invention_risk
+aspect_ratios:
+- '9:16'
+- '16:9'
 applies_to:
-  - 剧本忠实度
-  - 竖屏纪律
-  - 9:16 特写限频
+- 剧本忠实度
+- 竖屏纪律
+- 9:16 特写限频
+conflicts_with: []
+supersedes: []
 ---
 
 # GUARD-FIDELITY-VERTICAL-003：优先修复剧本忠实度与竖屏纪律

@@ -64,8 +64,7 @@ _SHOT_CONSTRUCTION_REQUIRED_FIELDS: tuple[str, ...] = (
     "duration",
     "task",
     "subject",
-    "camera",
-    "size",
+    "shot",
     "action",
     "dialogue",
     "must_carry",
@@ -261,12 +260,12 @@ def _subject_framing_rules() -> str:
 def _spatial_geometry_contract_rules() -> str:
     return (
         "【空间几何合同硬规则】\n"
-        "1. 当前轻量施工单不再输出 camera_basis 等内部字段；空间几何必须翻译进 camera 与 continuity。\n"
-        "2. camera 必须写清摄影机相对人物或场景的位置，例如正前方、左前方45度、右侧90度、背后、桌侧固定机位、电梯门外固定机位。\n"
+        "1. 当前轻量施工单不再输出 camera_basis 等内部字段；空间几何必须翻译进 shot 与 continuity。\n"
+        "2. shot 只写【视角+景别】，例如过肩视角半身以上中景、侧面视角双人中景、背后视角半身中景；不要写复杂机位坐标或运镜说明。\n"
         "3. continuity 必须写清人物站位、朝向、左右关系、道具位置和可继承尾帧；不能只写\"保持连续\"。\n"
         "4. 人物转身、穿门、进电梯/车门/房门等阈值动作，优先使用侧面、背后或场景固定机位；不要用人物正前方固定机位硬拍动作路径。\n"
         "5. 如果人物面朝电梯/门口且镜头拍正面，门框只能是前景或侧边锚点，不能写成后景。\n"
-        "6. 几何闭环优先于好听文案：camera、action、continuity 三者必须互相兼容。\n"
+        "6. 几何闭环优先于好听文案：shot、action、continuity 三者必须互相兼容。\n"
     )
 
 def _camera_execution_rules() -> str:
@@ -275,7 +274,7 @@ def _camera_execution_rules() -> str:
         "1. 内部镜头设计必须保留完整镜头语法：主体+主体景别、焦段、景深、机位高度、拍摄角度、唯一运镜、动作/表演、光源；不得因为最终要给 Seedance 就提前丢掉焦段/景深/高度/角度判断。\n"
         "2. 每个 shot 只能有一个主体焦点、一个景别基底、一个主导运镜；景别可以在子分镜内递进，但不能写成\"纵深中全景到半身中景\"这种单字段混合景别。\n"
         "3. 机位高度从仰拍、平视、俯拍、顶拍、虫眼中选择；普通关系/对白可用平视，权力压制可用仰拍，弱势/群体散开可用俯拍。最终 prompt 可把\"平视\"译成自然短句，避免机械写\"眼平高度\"。\n"
-        "4. 拍摄角度从正面、斜侧面、正侧面、背面、过肩、荷兰角、POV 中选择；POV 必须先有建立镜头说明谁在看，禁止直接跳 POV。\n"
+        "4. 拍摄角度从正面、左前方、右前方、左侧、右侧、背后、过肩、荷兰角、POV 中选择；POV 必须先有建立镜头说明谁在看，禁止直接跳 POV。\n"
         "5. 运镜从推镜、拉镜、横移、横摇、垂直摇、升降、变焦、稳定器跟拍、手持、固定机位中选唯一主导运镜；禁止在一个 shot 内同时推近、横移、摇摄、再回主位。\n"
         "6. 运镜必须服务镜头目的：推近/切近/转特写只能服务信息逼近、情绪暴露、压迫上升、受击反应变重要、道具或局部动作成为焦点；禁止把慢推近当通用情绪模板。\n"
         "7. 反应落点优先按层级处理：主分镜负责主体关系和空间重心，子分镜负责受击、表情重音、局部动作；不要把\"同一运动里带到反应再回主位\"写成一个复杂主镜头。\n"
@@ -292,7 +291,7 @@ def _camera_task_selection_rules() -> str:
         "2. 主分镜只在主体关系变化、场面权力关系变化、叙事重心变化、空间观察点变化、当前主镜头无法承载下一动作单元时新开；不要用主分镜机械对应每句台词。\n"
         "3. 完整发言单元优先保持在同一主分镜内；长挑衅/揭晓/质问台词超过2秒时，用子分镜/L-cut 切受击者，让后半句以画外音落在反应上。\n"
         "4. 听者受击、视线撞上、回神、表情冻结：优先挂到现有主镜头或新增 sub_shot；受击者机位必须落在同侧轴线内，并写 companion_visibility，不要靠横移摆尾带到反应。\n"
-        "5. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先正侧面、背面、斜侧面或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定轴线一侧。\n"
+        "5. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先左侧、右侧、左后方、右后方或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定轴线一侧。\n"
         "6. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背面、斜侧面或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
         "7. 9:16 主力景别为半身景/中景/MS，MCU 只用于压迫段或信息逼近中间层，CU 只用于信息炸点/受击反应/情绪顶点；禁止长期只在 MCU 与 CU 之间摆动。\n"
         "8. 群体调度必须保留空间容量：群体四散、主管退让、员工让路不能用面部特写承接，优先中景关系、半身关系或 scene_fixed。\n"
@@ -580,7 +579,7 @@ def _validate_shot_director_vertical_discipline(director_output: str, aspect_rat
     for section in _extract_yaml_sections(director_output):
         fragment_id = _extract_fragment_id(section) or "unknown"
         shot_sizes = re.findall(
-            r'(?mi)^\s*(?:shot_size|size)\s*:\s*["\']?([^"\n#]+?)["\']?\s*$',
+            r'(?mi)^\s*(?:shot|shot_size|size)\s*:\s*["\']?([^"\n#]+?)["\']?\s*$',
             section,
         )
         subjects = re.findall(
@@ -794,7 +793,7 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
 
     V1 规则：
     1. fragment 必须有 fragment_task、rhythm、shots
-    2. 每个 shot 必须有 shot_id、duration、task、subject、camera、size、action、dialogue、must_carry、cut_point、continuity
+    2. 每个 shot 必须有 shot_id、duration、task、subject、shot、action、dialogue、must_carry、cut_point、continuity
     3. 可选字段 type、audio 只在需要时写
     4. 首镜头不能用特写类景别建立空间
     """
@@ -826,7 +825,11 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
             continue
 
         first_shot_id, first_shot_block = shot_blocks[0]
-        first_shot_size = _yaml_line_field(first_shot_block, "size") or _yaml_line_field(first_shot_block, "shot_size")
+        first_shot_size = (
+            _yaml_line_field(first_shot_block, "shot")
+            or _yaml_line_field(first_shot_block, "size")
+            or _yaml_line_field(first_shot_block, "shot_size")
+        )
         if _is_closeup_shot_size(first_shot_size):
             issues.append(
                 f"{fragment_id} 的首镜头 {first_shot_id} 直接使用特写类景别。"
@@ -1596,6 +1599,43 @@ def _call_shot_director_stage(
         print(f"  [shot_director] {stage_key} 调用失败：{exc}")
         raise
 
+_SHOT_EVENT_TAG_HINTS = {
+    "collision": ("碰撞", "撞", "冲入", "受击", "压住"),
+    "rush_in": ("冲入", "闯入", "挤入", "跑进"),
+    "waist_support": ("扶腰", "腰侧", "搂住", "托住"),
+    "door_state": ("门", "电梯", "门缝", "关门", "开门"),
+    "reaction": ("反应", "停顿", "愣住", "回避", "屏住呼吸"),
+    "dialogue": ("对白", "台词", "OS", "J-cut", "L-cut"),
+}
+
+_SHOT_RISK_TAG_HINTS = {
+    "door_state_jump": ("门又开", "重新打开", "门状态", "电梯门", "门缝"),
+    "romanticize_collision": ("碰撞", "扶腰", "压住", "亲密", "暧昧"),
+    "axis_confusion": ("越轴", "轴线", "左右关系", "方向"),
+    "vertical_closeup_overuse": ("9:16", "竖屏", "特写", "近景"),
+    "script_invention_risk": ("新增", "剧本外", "不得发明", "忠实"),
+    "dialogue_integrity": ("对白", "台词", "不得新增台词"),
+}
+
+_SHOT_DIALOGUE_TAG_HINTS = {
+    "teasing": ("调侃", "打趣", "逗", "玩笑"),
+    "argument_escalation": ("争吵", "冲突", "质问", "爆发"),
+    "long_dialogue_compression": ("长对白", "高压命令", "访谈", "解释"),
+    "reaction_beat": ("反应", "停顿", "沉默", "回避"),
+}
+
+_SHOT_SIGNAL_TAG_HINTS = {
+    "tailframe": ("尾帧", "结束状态", "承接"),
+    "cut_point": ("切点", "cut_point", "切镜", "动作顶点"),
+    "continuity_lock": ("连续性", "承接", "状态", "位置"),
+    "vertical_framing": ("9:16", "竖屏", "画幅"),
+}
+
+
+def _infer_retrieval_tags(text: str, mapping: dict[str, tuple[str, ...]]) -> list[str]:
+    return [tag for tag, needles in mapping.items() if any(needle and needle in text for needle in needles)]
+
+
 def _run_shot_director_single_pass_impl(
     *,
     script: str,
@@ -1651,6 +1691,14 @@ def _run_shot_director_single_pass_impl(
             "信息冲击 动作接续 人物关系 场面总控 节奏 子分镜 戏剧微粒 权力反转 悬念揭示 "
             "误解错位 9:16 半身中景 特写限频 微细节镜头"
         )
+        hint = hint.replace("9:16", str(aspect_ratio or "aspect_ratio_unspecified"))
+        retrieval_profile = {
+            "aspect_ratio": aspect_ratio,
+            "events": _infer_retrieval_tags(downstream_context, _SHOT_EVENT_TAG_HINTS),
+            "risks": _infer_retrieval_tags(downstream_context, _SHOT_RISK_TAG_HINTS),
+            "dialogue_types": _infer_retrieval_tags(downstream_context, _SHOT_DIALOGUE_TAG_HINTS),
+            "signals": _infer_retrieval_tags(downstream_context, _SHOT_SIGNAL_TAG_HINTS),
+        }
         system_prompt, final_meta = build_system_prompt(
             "你是一位镜头导演。你的职责是为每个片段设计时间轴上的镜头序列。\n\n"
             "【每个片段必须交付】\n"
@@ -1660,25 +1708,25 @@ def _run_shot_director_single_pass_impl(
             "1. duration — 该镜头在片段内的时间段，必须连续，例如 0-2秒、2-5秒。\n"
             "2. task — 这个镜头负责什么：建立关系、承载对白、动作推进、信息揭示、反应落点、尾帧承接等。\n"
             "3. subject — 拍谁（人物名、双人关系或剧本已有道具）。\n"
-            "4. camera — 从哪拍（机位、角度、运镜，必须可执行）。\n"
-            "5. size — 多大景（全景/中景/半身/中近景/特写等）。\n"
-            "6. action — 在干嘛（可见动作，不写心理）。\n"
-            "7. dialogue — 原剧本台词、OS、画外音或 ~；不得新增台词。\n"
-            "8. must_carry — 这个镜头必须承载的剧情信息或表演落点。\n"
-            "9. cut_point — 具体切镜触发点，必须绑定动作顶点、台词断点、信息看清、反应出现、状态完成或尾帧。\n"
-            "10. continuity — 动作、道具、人物左右关系、轴线或尾帧状态如何继承。\n\n"
+            "4. shot — 镜头字段，只写【视角+景别】，例如过肩视角半身以上中景、侧面视角双人中景、背后视角半身中景。\n"
+            "5. action — 在干嘛（可见动作，不写心理）。\n"
+            "6. dialogue — 原剧本台词、OS、画外音或 ~；不得新增台词。\n"
+            "7. must_carry — 这个镜头必须承载的剧情信息或表演落点。\n"
+            "8. cut_point — 具体切镜触发点，必须绑定动作顶点、台词断点、信息看清、反应出现、状态完成或尾帧。\n"
+            "9. continuity — 动作、道具、人物左右关系、轴线或尾帧状态如何继承。\n\n"
             "【可选字段】\n"
             "- type — 只在非标准镜头时写：reaction（受击反应）、insert（道具/信息特写）、cutaway（切离镜头）。\n"
             "- audio — 只在需要 OS / J-cut / L-cut / 画外音时写。\n\n"
             "【镜头设计原则】\n"
             "1. 事实红线高于一切：不新增剧本外的人物、台词、动作、道具或情节。\n"
-            "2. 节奏施工指令是创作节奏主控；镜头导演只负责把它合法施工成 duration、task、subject、camera、size、action、dialogue、must_carry、cut_point 与 continuity。\n"
+            "2. 节奏施工指令是创作节奏主控；镜头导演只负责把它合法施工成 duration、task、subject、shot、action、dialogue、must_carry、cut_point 与 continuity。\n"
             "3. 长台词或高压命令必须拆出视觉覆盖：说话者起句、同侧听者反应/过肩、必要时后半句以 OS/J-cut/L-cut 落到反应上。\n"
             "4. cut_point 不许只写\"切出/继续/增强情绪\"，必须写清触发物，例如动作顶点、台词断点、信息看清、反应出现、门关闭完成、尾帧状态稳定。\n"
             "5. fragment_id 必须沿用拆片方案的 F01/F02/F03...，不得改名合并跳号。\n"
             f"6. 画幅：{aspect_ratio}",
             "shot_director",
             context_hint=hint,
+            retrieval_profile=retrieval_profile,
         )
         stage_meta["final"] = final_meta
         if director_brief_block:
@@ -1696,8 +1744,7 @@ def _run_shot_director_single_pass_impl(
             "      duration: 0-2秒\n"
             "      task: 建立关系/承载对白/动作推进/信息揭示/反应落点/尾帧承接\n"
             "      subject: 人物名/双人关系/剧本已有道具\n"
-            "      camera: 机位、角度、运镜（必须可执行）\n"
-            "      size: 全景/中景/半身/中近景/特写等\n"
+            "      shot: 视角+景别，例如过肩视角半身以上中景\n"
             "      action: 可见动作，不写心理\n"
             "      dialogue: 原剧本台词/OS/画外音或 ~\n"
             "      must_carry: 这个镜头必须承载的剧情信息或表演落点\n"
@@ -1738,8 +1785,7 @@ def _run_shot_director_single_pass_impl(
                     "- duration\n"
                     "- task\n"
                     "- subject\n"
-                    "- camera\n"
-                    "- size\n"
+                    "- shot\n"
                     "- action\n"
                     "- dialogue\n"
                     "- must_carry\n"
@@ -1816,7 +1862,7 @@ def _run_shot_director_single_pass_impl(
             + "\n\n【关键原则】\n"
             "1. 优先信任已分片输出，只修失败/缺失的 fragment_id。\n"
             "2. 每个返修 fragment 必须有 fragment_task、rhythm、shots。\n"
-            "3. 每个 shot 必须有字段：shot_id、duration、task、subject、camera、size、action、dialogue、must_carry、cut_point、continuity。\n"
+            "3. 每个 shot 必须有字段：shot_id、duration、task、subject、shot、action、dialogue、must_carry、cut_point、continuity。\n"
             "4. cut_point 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
             "5. 长台词必须插入听者反应镜头；不新增剧本外元素。\n\n"
             "【待修正 YAML（仅失败片段或定位失败时的完整 YAML）】\n"
@@ -2111,7 +2157,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
                 + "\n\n【修复原则】\n"
                 "1. 优先信任已分片输出，只修失败/缺失的 fragment_id。\n"
             "2. 每个返修 fragment 必须有 fragment_task、rhythm、shots。\n"
-            "3. 每个 shot 必须有字段：shot_id、duration、task、subject、camera、size、action、dialogue、must_carry、cut_point、continuity。\n"
+            "3. 每个 shot 必须有字段：shot_id、duration、task、subject、shot、action、dialogue、must_carry、cut_point、continuity。\n"
             "4. cut_point 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
             "5. 长台词必须插入听者反应镜头；只能使用剧本里的人物和台词，不新增剧本外内容。\n\n"
                 "【原始剧本】\n"

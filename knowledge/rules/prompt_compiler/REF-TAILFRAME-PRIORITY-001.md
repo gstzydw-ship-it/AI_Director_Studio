@@ -4,20 +4,47 @@ title: 尾帧图优先于文字复述
 doc_type: rule_card
 rule_type: reference_control
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- ref-tailframe-priority-001
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- signals.reference_binding
+- events.tailframe
+- events.reference_binding
+- risks.reference_misuse
+- scene_types.action
+applies_when:
+- 尾帧图
+- 参考图
+- 空间与首帧总控
+avoid_when: []
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+- reference_binding
+scene_types:
+- action
+events:
+- tailframe
+- reference_binding
+risks:
+- reference_misuse
+applies_to:
+- 尾帧图
+- 参考图
+- 空间与首帧总控
 source_files:
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 尾帧图
-  - 参考图
-  - 空间与首帧总控
 ---
 
 # 尾帧图优先于文字复述

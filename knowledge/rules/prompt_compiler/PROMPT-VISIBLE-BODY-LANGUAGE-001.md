@@ -1,3 +1,47 @@
+---
+rule_id: PROMPT-VISIBLE-BODY-LANGUAGE-001
+title: PROMPT-VISIBLE-BODY-LANGUAGE-001
+doc_type: rule_card
+rule_type: prompt_compilation
+agent_scope:
+- prompt_compiler
+- quality_inspector
+priority: P3
+status: active
+runtime_retrieval: true
+retrieval_key:
+- prompt-visible-body-language-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.reaction
+- events.cut
+- risks.privacy_body
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when: []
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- reaction
+- cut
+risks:
+- privacy_body
+dialogue_types:
+- reaction_beat
+conflicts_with: []
+supersedes: []
+---
+
 # PROMPT-VISIBLE-BODY-LANGUAGE-001
 
 ## 规则标题

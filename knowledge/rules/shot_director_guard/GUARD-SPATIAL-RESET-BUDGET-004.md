@@ -4,20 +4,53 @@ title: 必须修复空间重置和特写偷时间
 doc_type: rule_card
 rule_type: continuity_guard
 agent_scope:
-  - shot_director_guard
-priority: hard
+- shot_director_guard
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- guard-spatial-reset-budget-004
+- signals.vertical_framing
+- signals.dialogue_coverage
+- signals.action_coverage
+- events.reaction
+- risks.axis_confusion
+- risks.vertical_closeup_overuse
+- dialogue_types.long_dialogue_compression
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 空间连续
+- 9:16竖屏
+- 群体调度
+avoid_when: []
+signals:
+- vertical_framing
+- dialogue_coverage
+- action_coverage
+scene_types:
+- dialogue
+- action
+events:
+- reaction
+risks:
+- axis_confusion
+- vertical_closeup_overuse
+dialogue_types:
+- long_dialogue_compression
+aspect_ratios:
+- '9:16'
+applies_to:
+- 空间连续
+- 9:16竖屏
+- 群体调度
+- 切镜守门
 source_files:
-  - knowledge/27_规则守门与最小修复规则.md
-  - knowledge/28_全场景分镜与转场案例库.md
+- knowledge/27_规则守门与最小修复规则.md
+- knowledge/28_全场景分镜与转场案例库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 空间连续
-  - 9:16竖屏
-  - 群体调度
-  - 切镜守门
 ---
 
 # 必须修复空间重置和特写偷时间

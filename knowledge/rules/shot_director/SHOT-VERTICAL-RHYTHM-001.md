@@ -4,23 +4,48 @@ title: 竖屏景别节奏守则
 doc_type: rule_card
 rule_type: vertical_framing
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- shot-vertical-rhythm-001
+- signals.vertical_framing
+- signals.action_coverage
+- events.collision
+- risks.vertical_closeup_overuse
+- risks.blood_avoidance
+- scene_types.action
+applies_when:
+- 9:16竖屏
+- 景别节奏
+- 特写限频
+avoid_when: []
+signals:
+- vertical_framing
+- action_coverage
+scene_types:
+- action
+events:
+- collision
+risks:
+- vertical_closeup_overuse
+- blood_avoidance
+aspect_ratios:
+- '9:16'
+applies_to:
+- 9:16竖屏
+- 景别节奏
+- 特写限频
 source_files:
-  - D:/AI 导演系统工程文档规范.md
-  - knowledge/20_镜头库与机位库.md
-  - knowledge/02_焦段景深与景别画幅策略.md
+- D:/AI 导演系统工程文档规范.md
+- knowledge/20_镜头库与机位库.md
+- knowledge/02_焦段景深与景别画幅策略.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 9:16竖屏
-  - 景别节奏
-  - 特写限频
 ---
 
 # 竖屏景别节奏守则

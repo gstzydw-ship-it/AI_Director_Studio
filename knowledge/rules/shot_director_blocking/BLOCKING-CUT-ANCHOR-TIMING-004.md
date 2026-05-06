@@ -4,20 +4,53 @@ title: 子分镜切镜必须有动作或信息锚点
 doc_type: rule_card
 rule_type: blocking_cut_timing
 agent_scope:
-  - shot_director_blocking
-priority: hard
+- shot_director_blocking
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- blocking-cut-anchor-timing-004
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.reaction
+- events.cut
+- risks.script_invention_risk
+- dialogue_types.long_dialogue_compression
+- scene_types.dialogue
+- scene_types.action
+- scene_types.suspense
+applies_when:
+- sub_shots
+- reaction_coverage
+- dialogue_coverage
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- suspense
+events:
+- reaction
+- cut
+risks:
+- script_invention_risk
+dialogue_types:
+- long_dialogue_compression
+applies_to:
+- sub_shots
+- reaction_coverage
+- dialogue_coverage
+- match_on_action
 source_files:
-  - knowledge/26_动作调度与受击覆盖规则.md
-  - knowledge/28_全场景分镜与转场案例库.md
+- knowledge/26_动作调度与受击覆盖规则.md
+- knowledge/28_全场景分镜与转场案例库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - sub_shots
-  - reaction_coverage
-  - dialogue_coverage
-  - match_on_action
 ---
 
 # 子分镜切镜必须有动作或信息锚点

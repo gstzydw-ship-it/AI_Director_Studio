@@ -4,20 +4,36 @@ title: 竖屏摆位优先关系镜头而不是特写堆叠
 doc_type: rule_card
 rule_type: vertical_layout
 agent_scope:
-  - shot_director_layout
-priority: hard
+- shot_director_layout
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- layout-vertical-relation-first-001
+- signals.vertical_framing
+- risks.vertical_closeup_overuse
+applies_when:
+- 9:16竖屏
+- 主镜头摆位
+- 景别主力
+avoid_when: []
+signals:
+- vertical_framing
+risks:
+- vertical_closeup_overuse
+aspect_ratios:
+- '9:16'
+applies_to:
+- 9:16竖屏
+- 主镜头摆位
+- 景别主力
 source_files:
-  - knowledge/25_镜头摆位主分镜骨架规则.md
-  - knowledge/02_焦段景深与景别画幅策略.md
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- knowledge/25_镜头摆位主分镜骨架规则.md
+- knowledge/02_焦段景深与景别画幅策略.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 9:16竖屏
-  - 主镜头摆位
-  - 景别主力
 ---
 
 # 竖屏摆位优先关系镜头而不是特写堆叠

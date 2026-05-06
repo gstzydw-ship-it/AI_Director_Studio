@@ -4,20 +4,47 @@ title: 参考图职责边界必须严格
 doc_type: rule_card
 rule_type: reference_control
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- reference-role-strict-001
+- signals.tailframe_lock
+- signals.continuity_lock
+- signals.reference_binding
+- events.tailframe
+- events.reference_binding
+- risks.axis_confusion
+- risks.reference_misuse
+- dialogue_types.argument_escalation
+applies_when:
+- 参考图
+- 人物身份
+- 场景空间
+avoid_when: []
+signals:
+- tailframe_lock
+- continuity_lock
+- reference_binding
+events:
+- tailframe
+- reference_binding
+risks:
+- axis_confusion
+- reference_misuse
+dialogue_types:
+- argument_escalation
+applies_to:
+- 参考图
+- 人物身份
+- 场景空间
+- 尾帧
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 参考图
-  - 人物身份
-  - 场景空间
-  - 尾帧
 ---
 
 # 参考图职责边界必须严格

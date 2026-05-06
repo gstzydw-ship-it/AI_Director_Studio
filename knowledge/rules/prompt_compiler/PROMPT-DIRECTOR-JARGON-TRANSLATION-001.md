@@ -4,22 +4,72 @@ title: 导演调度口语必须翻译成可见画面语言
 doc_type: rule_card
 rule_type: prompt_language
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-director-jargon-translation-001
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.rush_in
+- events.collision
+- events.waist_support
+- events.reaction
+- events.cut
+- events.tailframe
+- risks.romanticize_collision
+- risks.axis_confusion
+- risks.reference_misuse
+- risks.privacy_body
+- dialogue_types.reaction_beat
+- scene_types.elevator
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- 导演调度
+- Seedance Prompt
+- 运镜
+avoid_when: []
+signals:
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- dialogue
+- action
+- intimacy_privacy
+events:
+- rush_in
+- collision
+- waist_support
+- reaction
+- cut
+- tailframe
+risks:
+- romanticize_collision
+- axis_confusion
+- reference_misuse
+- privacy_body
+dialogue_types:
+- reaction_beat
+applies_to:
+- 导演调度
+- Seedance Prompt
+- 运镜
+- 受击反应
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
-  - knowledge/rules/prompt_compiler/PROMPT-NATURAL-SENTENCE-001.md
-  - knowledge/rules/shot_director/MOTION-MODALITY-001.md
+- knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/rules/prompt_compiler/PROMPT-NATURAL-SENTENCE-001.md
+- knowledge/rules/shot_director/MOTION-MODALITY-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 导演调度
-  - Seedance Prompt
-  - 运镜
-  - 受击反应
 ---
 
 # 导演调度口语必须翻译成可见画面语言

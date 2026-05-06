@@ -4,20 +4,62 @@ title: 动作戏先保全貌再拆冲击
 doc_type: rule_card
 rule_type: shot_calling
 agent_scope:
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- shot-action-coverage-001
+- signals.vertical_framing
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.reaction
+- events.tailframe
+- risks.vertical_closeup_overuse
+- risks.reference_misuse
+- risks.privacy_body
+- dialogue_types.argument_escalation
+- dialogue_types.reaction_beat
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- 动作戏
+- 爆发戏
+- 竖屏动作
+avoid_when: []
+signals:
+- vertical_framing
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- action
+- intimacy_privacy
+events:
+- reaction
+- tailframe
+risks:
+- vertical_closeup_overuse
+- reference_misuse
+- privacy_body
+dialogue_types:
+- argument_escalation
+- reaction_beat
+aspect_ratios:
+- '9:16'
+applies_to:
+- 动作戏
+- 爆发戏
+- 竖屏动作
 source_files:
-  - knowledge/20_镜头库与机位库.md
+- knowledge/20_镜头库与机位库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 动作戏
-  - 爆发戏
-  - 竖屏动作
 ---
 
 # 动作戏先保全貌再拆冲击

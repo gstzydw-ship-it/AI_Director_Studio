@@ -11,7 +11,8 @@ from .types import DirectorState
 from . import legacy_impl as _legacy
 
 # V1 schema contract: shot_director outputs fragment_task/rhythm/shots
-# with shot fields: duration, task, subject, camera, size, action, dialogue, must_carry, cut_point, continuity
+# with shot fields: duration, task, subject, shot, action, dialogue, must_carry, cut_point, continuity
+# Legacy camera+size assets are still accepted at the compiler gate.
 # Optional: type, audio
 from .helpers import (
     _truncate_for_prompt,
@@ -755,7 +756,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "【镜头序列】\n"
         "镜头1【X秒】【主体】景别，机位/视角，动作从起点到落点；对白直接嵌入动作句中（具体切镜触发→镜头2）。\n\n"
         "镜头2【X秒】【主体】景别，机位/视角，承接上一镜动作/道具/轴线；必要时用 OS/J-cut/L-cut 把台词压到听者反应上（具体切镜触发→镜头3）。\n\n"
-        "每一行都必须来自上游 shot 的 duration、subject、size、camera、action、dialogue、must_carry、cut_point、continuity；不得泄漏这些字段名。\n\n"
+        "每一行都必须来自上游 shot 的 duration、subject、shot、action、dialogue、must_carry、cut_point、continuity；不得泄漏这些字段名。\n\n"
         "【约束】\n"
         "主体锁定、空间锁定、道具连续性、禁止项。简洁列出。\n\n"
         "片段N prompt 已输出。\n"
@@ -875,9 +876,15 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
             v1_issues.append("shot_director 当前片段没有任何合法 shot_id，无法编译。")
         for shot_id_raw, shot_body in shot_blocks:
             shot_id = shot_id_raw.strip()
-            for field in ("duration", "task", "subject", "camera", "size", "action", "dialogue", "must_carry", "cut_point", "continuity"):
+            for field in ("duration", "task", "subject", "action", "dialogue", "must_carry", "cut_point", "continuity"):
                 if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_body):
                     v1_issues.append(f"{shot_id} 缺少必要字段 {field}。")
+            has_merged_shot = re.search(r"(?m)^\s*-?\s*shot\s*:", shot_body)
+            has_legacy_camera_size = re.search(r"(?m)^\s*-?\s*camera\s*:", shot_body) and re.search(
+                r"(?m)^\s*-?\s*size\s*:", shot_body
+            )
+            if not (has_merged_shot or has_legacy_camera_size):
+                v1_issues.append(f"{shot_id} 缺少必要字段 shot（或旧版 camera+size）。")
     else:
         v1_issues.append("当前片段缺少镜头资产，无法编译。")
 
@@ -885,7 +892,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         raise RuntimeError(
             "[PROMPT-COMPILER-V1-GATE] prompt_compiler 发现 shot_director 输出不符合 v1 schema。\n"
             + "\n".join(f"  - {issue}" for issue in v1_issues)
-            + "\n请确保 shot_director 输出 v1 合同镜头资产（fragment_task/rhythm/duration/task/subject/camera/size/action/dialogue/must_carry/cut_point/continuity）。"
+            + "\n请确保 shot_director 输出 v1 合同镜头资产（fragment_task/rhythm/duration/task/subject/shot/action/dialogue/must_carry/cut_point/continuity）。"
         )
 
     user_prompt = (
@@ -920,7 +927,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，必须按下面方式编译成【镜头序列】：\n"
         "1. duration 只进入镜头编号后的秒数，例如 镜头1【4秒】；不要在最终 prompt 里写 duration 字段名。\n"
         "2. task 决定镜头功能，但最终只写成自然镜头动作，不要输出 task 字段名。\n"
-        "3. subject + size + camera 必须合成镜头行开头，例如【乔熙】中近景，右前方同侧过肩固定机位。\n"
+        "3. subject + shot 必须合成镜头行开头，例如【乔熙】过肩视角半身以上中景。若上游仍是旧版 size + camera，则先合并成同样的【视角+景别】短语。\n"
         "4. action + dialogue 是镜头行主体；台词直接嵌入动作句中，OS/J-cut/L-cut 写成画外音或声音桥。\n"
         "5. must_carry 必须转译成画面里看得见的信息或反应，不能只放到约束里。\n"
         "6. cut_point 必须放进括号，写成（动作顶点前切至镜头2）、（台词断点时切至乔熙反应镜头）、（文件内容看清后切至镜头3）这类自然中文触发句；禁止使用箭头式表达。\n"

@@ -1,15 +1,28 @@
 ---
 rule_id: GUARD-MINIMAL-REPAIR-001
 title: 只修硬伤，不重写方案
+doc_type: rule_card
 rule_type: hard_constraint
 agent_scope:
-  - shot_director_guard
+- shot_director_guard
+- quality_inspector
 priority: P2
 status: active
 runtime_retrieval: true
+retrieval_key:
+- guard-minimal-repair-001
+- risks.script_invention_risk
+applies_when:
+- 最小修复
+- 守门原则
+avoid_when: []
+risks:
+- script_invention_risk
 applies_to:
-  - 最小修复
-  - 守门原则
+- 最小修复
+- 守门原则
+conflicts_with: []
+supersedes: []
 ---
 
 # GUARD-MINIMAL-REPAIR-001：只修硬伤，不重写方案

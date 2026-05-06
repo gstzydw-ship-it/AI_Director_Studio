@@ -4,21 +4,38 @@ title: 画幅 9:16 刚性锁定
 doc_type: rule_card
 rule_type: global_constraint
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+- shared
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- global-aspect-001
+- signals.vertical_framing
+- risks.vertical_closeup_overuse
+applies_when:
+- 画幅
+- aspect_ratio
+- 竖屏
+avoid_when: []
+signals:
+- vertical_framing
+risks:
+- vertical_closeup_overuse
+aspect_ratios:
+- '9:16'
+- '16:9'
+applies_to:
+- 画幅
+- aspect_ratio
+- 竖屏
 source_files:
-  - "external:交付物六"
+- external:交付物六
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 画幅
-  - aspect_ratio
-  - 竖屏
 ---
 
 # 画幅 9:16 刚性锁定

@@ -4,19 +4,50 @@ title: 硬约束去重与集中收束
 doc_type: rule_card
 rule_type: prompt_constraint
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-hard-constraint-dedup-001
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- events.door_state
+- events.tailframe
+- risks.romanticize_collision
+- risks.axis_confusion
+- risks.reference_misuse
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- 硬约束
+- 时间轴
+- prompt清洗
+avoid_when: []
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+scene_types:
+- action
+- intimacy_privacy
+events:
+- door_state
+- tailframe
+risks:
+- romanticize_collision
+- axis_confusion
+- reference_misuse
+applies_to:
+- 硬约束
+- 时间轴
+- prompt清洗
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 硬约束
-  - 时间轴
-  - prompt清洗
 ---
 
 # 硬约束去重与集中收束

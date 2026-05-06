@@ -1,13 +1,48 @@
 ---
 rule_id: TIMELINE-EXECUTION-ONLY-001
-title: "时间轴纯净执行规则"
+title: 时间轴纯净执行规则
+doc_type: rule_card
+rule_type: prompt_compilation
+agent_scope:
+- prompt_compiler
+- quality_inspector
 priority: P0
-agent_scope: [prompt_compiler]
+status: active
 runtime_retrieval: true
-applies_when: "编写 Prompt 时间轴段落时"
-instruction: "时间轴内仅允许描写画面内的可见动作、运镜和调度，严禁混入任何幕后解释、禁忌强调或规则复读。"
-avoid_when: ""
+retrieval_key:
+- timeline-execution-only-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.cut
+- risks.romanticize_collision
+- risks.axis_confusion
+- dialogue_types.long_dialogue_compression
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when: 编写 Prompt 时间轴段落时
+avoid_when: ''
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- cut
+risks:
+- romanticize_collision
+- axis_confusion
+dialogue_types:
+- long_dialogue_compression
+conflicts_with: []
+supersedes: []
+instruction: 时间轴内仅允许描写画面内的可见动作、运镜和调度，严禁混入任何幕后解释、禁忌强调或规则复读。
 ---
+
 # 时间轴纯净执行规则
 
 ## 核心规则

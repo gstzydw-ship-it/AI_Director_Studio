@@ -4,21 +4,45 @@ title: 运镜介入服从节拍功能
 doc_type: rule_card
 rule_type: camera_movement
 agent_scope:
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: medium
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P3
 status: active
 runtime_retrieval: true
+retrieval_key:
+- shot-movement-beat-001
+- signals.action_coverage
+- events.collision
+- events.reaction
+- risks.blood_avoidance
+- dialogue_types.reaction_beat
+- scene_types.action
+applies_when:
+- 运镜
+- 节拍
+- 停顿
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- action
+events:
+- collision
+- reaction
+risks:
+- blood_avoidance
+dialogue_types:
+- reaction_beat
+applies_to:
+- 运镜
+- 节拍
+- 停顿
+- 炸点
 source_files:
-  - knowledge/20_镜头库与机位库.md
+- knowledge/20_镜头库与机位库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 运镜
-  - 节拍
-  - 停顿
-  - 炸点
 ---
 
 # 运镜介入服从节拍功能

@@ -1,13 +1,60 @@
 ---
-id: SHOT-DIRECTOR-STEPWISE-PIPELINE-001
+rule_id: SHOT-DIRECTOR-STEPWISE-PIPELINE-001
 title: Shot Director stepwise pipeline contract
+doc_type: rule_card
+rule_type: shot_calling
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
-  - shot_director_guard
+- shot_director
+- shot_director_layout
+- shot_director_blocking
+- shot_director_guard
+- prompt_compiler
+- quality_inspector
 priority: P0
+status: active
 runtime_retrieval: true
+retrieval_key:
+- shot-director-stepwise-pipeline-001
+- signals.vertical_framing
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.reaction
+- events.cut
+- risks.axis_confusion
+- risks.vertical_closeup_overuse
+- risks.script_invention_risk
+- dialogue_types.argument_escalation
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+- scene_types.suspense
+applies_when: []
+avoid_when: []
+signals:
+- vertical_framing
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- suspense
+events:
+- reaction
+- cut
+risks:
+- axis_confusion
+- vertical_closeup_overuse
+- script_invention_risk
+dialogue_types:
+- argument_escalation
+- reaction_beat
+aspect_ratios:
+- '9:16'
+conflicts_with: []
+supersedes: []
+id: SHOT-DIRECTOR-STEPWISE-PIPELINE-001
 ---
 
 # SHOT-DIRECTOR-STEPWISE-PIPELINE-001

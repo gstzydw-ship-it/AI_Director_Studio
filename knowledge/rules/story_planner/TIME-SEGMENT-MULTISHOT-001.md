@@ -4,25 +4,48 @@ title: 15秒片段是导演片段不是单分镜
 doc_type: rule_card
 rule_type: segment_planning
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- time-segment-multishot-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- events.reaction
+- events.cut
+- dialogue_types.reaction_beat
+- scene_types.action
+applies_when:
+- 15秒片段
+- 主分镜
+- 子分镜
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+scene_types:
+- action
+events:
+- reaction
+- cut
+dialogue_types:
+- reaction_beat
+applies_to:
+- 15秒片段
+- 主分镜
+- 子分镜
+- 多镜头变化
+- 同一时间窗
 source_files:
-  - knowledge/00_知识库优先级与冲突裁决规则.md
-  - knowledge/05_剧本拆分与15秒片段规划规则.md
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- knowledge/00_知识库优先级与冲突裁决规则.md
+- knowledge/05_剧本拆分与15秒片段规划规则.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 15秒片段
-  - 主分镜
-  - 子分镜
-  - 多镜头变化
-  - 同一时间窗
 ---
 
 # 15秒片段是导演片段不是单分镜

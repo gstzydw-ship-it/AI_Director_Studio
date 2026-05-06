@@ -4,26 +4,56 @@ title: 首帧锁必须含像素锚点（不只人物相对位置）
 doc_type: rule_card
 rule_type: prompt_compilation
 agent_scope:
-  - scene_analyst
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- scene_analyst
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-first-frame-pixel-lock-001
+- signals.vertical_framing
+- signals.tailframe_lock
+- events.door_state
+- events.tailframe
+- risks.door_state_jump
+- risks.vertical_closeup_overuse
+- risks.reference_misuse
+- scene_types.elevator
+applies_when:
+- 首帧锁定
+- 像素锚点
+- 空间与首帧总控
+avoid_when: []
+signals:
+- vertical_framing
+- tailframe_lock
+scene_types:
+- elevator
+events:
+- door_state
+- tailframe
+risks:
+- door_state_jump
+- vertical_closeup_overuse
+- reference_misuse
+aspect_ratios:
+- '9:16'
+- '16:9'
+applies_to:
+- 首帧锁定
+- 像素锚点
+- 空间与首帧总控
+- 段间承接
+- 尾帧像素一致
 source_files:
-  - knowledge/11_场景分析输入卡与导演意图提取.md
-  - knowledge/rules/scene_analyst/SCENE-CONSISTENCY-LOCK-001.md
-  - knowledge/rules/scene_analyst/SCENE-REF-MISSING-FALLBACK-001.md
-  - knowledge/rules/prompt_compiler/REF-TAILFRAME-PRIORITY-001.md
+- knowledge/11_场景分析输入卡与导演意图提取.md
+- knowledge/rules/scene_analyst/SCENE-CONSISTENCY-LOCK-001.md
+- knowledge/rules/scene_analyst/SCENE-REF-MISSING-FALLBACK-001.md
+- knowledge/rules/prompt_compiler/REF-TAILFRAME-PRIORITY-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 首帧锁定
-  - 像素锚点
-  - 空间与首帧总控
-  - 段间承接
-  - 尾帧像素一致
 ---
 
 # 首帧锁必须含像素锚点（不只人物相对位置）

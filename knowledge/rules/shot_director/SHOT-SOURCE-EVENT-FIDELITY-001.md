@@ -4,21 +4,54 @@ title: shot_director 只能继承 source_script_events
 doc_type: rule_card
 rule_type: fidelity
 agent_scope:
-  - shot_director
-  - quality_inspector
-priority: hard
+- shot_director
+- quality_inspector
+- prompt_compiler
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- shot-source-event-fidelity-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.door_state
+- risks.script_invention_risk
+- risks.blood_avoidance
+- dialogue_types.long_dialogue_compression
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 镜头设计
+- 剧本忠实度
+- 道具连续性
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+events:
+- collision
+- door_state
+risks:
+- script_invention_risk
+- blood_avoidance
+dialogue_types:
+- long_dialogue_compression
+applies_to:
+- 镜头设计
+- 剧本忠实度
+- 道具连续性
+- 低歧义画面
 source_files:
-  - knowledge/00_知识库优先级与冲突裁决规则.md
-  - knowledge/06_连续性与安全规则.md
+- knowledge/00_知识库优先级与冲突裁决规则.md
+- knowledge/06_连续性与安全规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 镜头设计
-  - 剧本忠实度
-  - 道具连续性
-  - 低歧义画面
 ---
 
 # shot_director 只能继承 source_script_events

@@ -4,19 +4,33 @@ title: 主分镜骨架必须先锁定稳定 shot_id
 doc_type: rule_card
 rule_type: shot_layout_identity
 agent_scope:
-  - shot_director_layout
-priority: hard
+- shot_director_layout
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- layout-shotid-stability-001
+- signals.action_coverage
+- scene_types.action
+applies_when:
+- shot_id
+- main_shots
+- 下游交接
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- action
+applies_to:
+- shot_id
+- main_shots
+- 下游交接
 source_files:
-  - knowledge/25_镜头摆位主分镜骨架规则.md
-  - knowledge/21_镜头调用规则与多机位模板.md
+- knowledge/25_镜头摆位主分镜骨架规则.md
+- knowledge/21_镜头调用规则与多机位模板.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - shot_id
-  - main_shots
-  - 下游交接
 ---
 
 # 主分镜骨架必须先锁定稳定 shot_id

@@ -4,23 +4,46 @@ title: 参考图缺失时的降级协议
 doc_type: rule_card
 rule_type: scene_analysis
 agent_scope:
-  - scene_analyst
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- scene_analyst
+- prompt_compiler
+- quality_inspector
+- story_planner
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- scene-ref-missing-fallback-001
+- signals.tailframe_lock
+- signals.reference_binding
+- events.collision
+- events.tailframe
+- events.reference_binding
+- risks.reference_misuse
+applies_when:
+- 无参考图
+- 身份描述降级
+- 风格锚点降级
+avoid_when: []
+signals:
+- tailframe_lock
+- reference_binding
+events:
+- collision
+- tailframe
+- reference_binding
+risks:
+- reference_misuse
+applies_to:
+- 无参考图
+- 身份描述降级
+- 风格锚点降级
+- 首帧锁定
 source_files:
-  - knowledge/11_场景分析输入卡与导演意图提取.md
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/rules/prompt_compiler/REFERENCE-ROLE-STRICT-001.md
+- knowledge/11_场景分析输入卡与导演意图提取.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/rules/prompt_compiler/REFERENCE-ROLE-STRICT-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 无参考图
-  - 身份描述降级
-  - 风格锚点降级
-  - 首帧锁定
 ---
 
 # 参考图缺失时的降级协议

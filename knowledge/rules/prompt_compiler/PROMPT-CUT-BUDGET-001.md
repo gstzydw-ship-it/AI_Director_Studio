@@ -4,26 +4,44 @@ title: 单片段切镜预算（含隐性切镜识别）
 doc_type: rule_card
 rule_type: prompt_compilation
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-cut-budget-001
+- signals.action_coverage
+- events.reaction
+- events.cut
+- scene_types.action
+applies_when:
+- 切镜预算
+- 隐性切镜
+- 同一机位继续
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- action
+events:
+- reaction
+- cut
+applies_to:
+- 切镜预算
+- 隐性切镜
+- 同一机位继续
+- segment 拆分
+- Seedance 单镜头限制
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
-  - knowledge/19_Gold_Standard_Prompt范例.md
-  - knowledge/rules/prompt_compiler/PROMPT-CINEMATIC-DOWNTRANSLATION-002.md
-  - knowledge/rules/prompt_compiler/PROMPT-MAIN-SUBSHOT-TIMELINE-001.md
+- knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/19_Gold_Standard_Prompt范例.md
+- knowledge/rules/prompt_compiler/PROMPT-CINEMATIC-DOWNTRANSLATION-002.md
+- knowledge/rules/prompt_compiler/PROMPT-MAIN-SUBSHOT-TIMELINE-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 切镜预算
-  - 隐性切镜
-  - 同一机位继续
-  - segment 拆分
-  - Seedance 单镜头限制
 ---
 
 # 单片段切镜预算（含隐性切镜识别）

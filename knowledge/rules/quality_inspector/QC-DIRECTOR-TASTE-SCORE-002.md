@@ -4,20 +4,57 @@ title: 质检必须评估镜头是否有导演选择
 doc_type: rule_card
 rule_type: director_taste_quality
 agent_scope:
-  - quality_inspector
-priority: hard
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- qc-director-taste-score-002
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- events.collision
+- events.reaction
+- events.tailframe
+- risks.axis_confusion
+- risks.reference_misuse
+- risks.privacy_body
+- risks.blood_avoidance
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- quality_review
+- shot_director
+- layout
+avoid_when: []
+signals:
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- collision
+- reaction
+- tailframe
+risks:
+- axis_confusion
+- reference_misuse
+- privacy_body
+- blood_avoidance
+applies_to:
+- quality_review
+- shot_director
+- layout
+- blocking
 source_files:
-  - knowledge/17_结果质检与回溯修正规则.md
-  - knowledge/28_全场景分镜与转场案例库.md
+- knowledge/17_结果质检与回溯修正规则.md
+- knowledge/28_全场景分镜与转场案例库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - quality_review
-  - shot_director
-  - layout
-  - blocking
 ---
 
 # 质检必须评估镜头是否有导演选择

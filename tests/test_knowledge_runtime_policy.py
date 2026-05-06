@@ -7,6 +7,7 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agents.knowledge_base import (  # noqa: E402
+    build_retrieval_profile_query,
     _runtime_retrieval_enabled,
     get_agent_knowledge_files,
     get_full_knowledge_for_agent,
@@ -169,6 +170,32 @@ def test_knowledge_policy_checker_has_no_errors():
     assert errors == []
 
 
+def test_rule_cards_have_profile_frontmatter():
+    required = {"agent_scope", "priority", "retrieval_key", "applies_when", "avoid_when"}
+    rule_files = list((KNOWLEDGE_DIR / "rules").rglob("*.md"))
+
+    assert len(rule_files) >= 70
+    for path in rule_files:
+        metadata = _frontmatter(path)
+        missing = {field for field in required if field not in metadata}
+        assert missing == set(), f"{path} missing {missing}"
+        assert str(metadata["priority"]).startswith("P")
+
+
+def test_case_cards_have_director_pattern_frontmatter():
+    case_files = [path for path in (KNOWLEDGE_DIR / "cases").rglob("*.md") if not path.name.startswith("_")]
+
+    assert len(case_files) >= 40
+    for path in case_files:
+        metadata = _frontmatter(path)
+        assert metadata.get("doc_type") == "case_card"
+        assert metadata.get("case_title")
+        assert metadata.get("served_agents")
+        assert metadata.get("scene_types")
+        assert metadata.get("events")
+        assert "aspect_ratio" in metadata
+
+
 def test_rule_registry_core_coverage_targets_are_satisfied():
     registry = yaml.safe_load((KNOWLEDGE_DIR / "rule_registry.yaml").read_text(encoding="utf-8"))
     rules = registry["rules"]
@@ -293,6 +320,203 @@ def test_smart_knowledge_passes_preferred_sources_to_hybrid(monkeypatch):
     assert source_21 in captured["preferred_sources"]
     assert source_21 in meta["registry_preferred_sources"]
     assert source_21 in meta["matched_sources"]
+
+
+def test_profiled_retrieval_reranks_with_rule_metadata(monkeypatch):
+    def fake_hybrid(query, agent_name, n_results, bm25_k, vector_k, preferred_sources=None, metadata_profile=False):
+        return [
+            {
+                "text": "generic camera language",
+                "source": "knowledge/21_镜头调用规则与多机位模板.md",
+                "title": "generic",
+                "relevance": 1.0,
+                "metadata": {"agent_scope": ["shot_director"], "priority": "P4"},
+            },
+            {
+                "text": "door state must move monotonically",
+                "source": "knowledge/rules/continuity/CONT-DOOR-MONOTONIC-001.md",
+                "title": "door",
+                "relevance": 0.8,
+                "metadata": {
+                    "agent_scope": ["shot_director"],
+                    "priority": "P0",
+                    "signals": ["电梯门", "门缝", "冲入"],
+                    "risks": ["door_state_jump"],
+                },
+            },
+        ]
+
+    monkeypatch.setattr(kb, "query_knowledge_hybrid", fake_hybrid)
+
+    results = kb.query_knowledge_profiled(
+        "电梯门 门缝 冲入 door_state_jump",
+        "shot_director",
+        n_results=2,
+    )
+
+    assert results[0]["title"] == "door"
+    assert results[0]["metadata_score"] > results[1]["metadata_score"]
+
+
+def test_retrieval_profile_query_adds_structured_tags():
+    query = build_retrieval_profile_query(
+        "shot director",
+        {
+            "scene_type": "elevator",
+            "events": ["rush_in", "collision"],
+            "risks": ["door_state_jump", "romanticize_collision"],
+            "dialogue_type": "teasing",
+            "aspect_ratio": "9:16",
+        },
+    )
+
+    assert "scene_types: elevator" in query
+    assert "events: rush_in collision" in query
+    assert "risks: door_state_jump romanticize_collision" in query
+    assert "dialogue_types: teasing" in query
+    assert "aspect_ratios: 9:16" in query
+
+
+def test_smart_knowledge_passes_structured_profile_to_profiled_search(monkeypatch):
+    captured = {}
+
+    def fake_load_config():
+        return {
+            "knowledge": {
+                "retrieval_mode": "profiled",
+                "final_top_k": 1,
+                "min_chunks_fallback": 0,
+                "registry_top_k": 1,
+                "bm25_top_k": 3,
+                "vector_top_k": 3,
+            },
+            "vectordb": {
+                "chunk_size": 800,
+                "chunk_overlap": 100,
+            },
+        }
+
+    def fake_registry(query, agent_name, n_results):
+        captured["registry_query"] = query
+        return "", []
+
+    def fake_profiled(**kwargs):
+        captured["profiled_query"] = kwargs["query"]
+        return [{
+            "text": "door rule",
+            "source": "rules/continuity/CONT-DOOR-MONOTONIC-001.md",
+            "title": "door",
+            "relevance": 1.0,
+        }]
+
+    monkeypatch.setattr(kb, "load_config", fake_load_config)
+    monkeypatch.setattr(kb, "get_rule_registry_context", fake_registry)
+    monkeypatch.setattr(kb, "query_knowledge_profiled", fake_profiled)
+
+    _text, meta = kb.get_smart_knowledge(
+        "shot_director",
+        "elevator scene",
+        retrieval_profile={
+            "scene_type": "elevator",
+            "events": ["rush_in", "collision", "waist_support"],
+            "risks": ["door_state_jump", "romanticize_collision"],
+            "dialogue_type": "teasing",
+            "aspect_ratio": "9:16",
+        },
+    )
+
+    assert "scene_types: elevator" in captured["registry_query"]
+    assert "events: rush_in collision waist_support" in captured["profiled_query"]
+    assert "risks: door_state_jump romanticize_collision" in captured["profiled_query"]
+    assert meta["retrieval_profile"]["scene_type"] == "elevator"
+
+
+def test_structured_aspect_ratio_query_does_not_force_vertical(monkeypatch):
+    captured = {}
+
+    def fake_load_config():
+        return {
+            "knowledge": {
+                "retrieval_mode": "hybrid",
+                "final_top_k": 1,
+                "min_chunks_fallback": 0,
+                "registry_top_k": 0,
+                "bm25_top_k": 3,
+                "vector_top_k": 3,
+            },
+            "vectordb": {
+                "chunk_size": 800,
+                "chunk_overlap": 100,
+            },
+        }
+
+    def fake_hybrid(query, agent_name, n_results, bm25_k, vector_k, preferred_sources=None):
+        captured["query"] = query
+        return [{
+            "text": "wide composition rule",
+            "source": "rules/shared/GLOBAL-ASPECT-001.md",
+            "title": "aspect",
+            "relevance": 1.0,
+        }]
+
+    monkeypatch.setattr(kb, "load_config", fake_load_config)
+    monkeypatch.setattr(kb, "query_knowledge_hybrid", fake_hybrid)
+
+    _text, meta = kb.get_smart_knowledge(
+        "shot_director",
+        "shot director composition",
+        retrieval_profile={"aspect_ratio": "16:9"},
+    )
+
+    assert "aspect_ratios: 16:9" in captured["query"]
+    assert "9:16" not in captured["query"]
+    assert meta["query_hint"] == captured["query"]
+
+
+def test_profiled_smart_knowledge_uses_critical_fallback_not_full(monkeypatch):
+    calls = []
+
+    def fake_load_config():
+        return {
+            "knowledge": {
+                "retrieval_mode": "profiled",
+                "final_top_k": 1,
+                "min_chunks_fallback": 3,
+                "registry_top_k": 0,
+                "bm25_top_k": 3,
+                "vector_top_k": 3,
+            },
+            "vectordb": {
+                "chunk_size": 800,
+                "chunk_overlap": 100,
+            },
+        }
+
+    def fake_profiled(**_kwargs):
+        return [{
+            "text": "profiled match",
+            "source": "rules/shot_director/SHOT-SOURCE-EVENT-FIDELITY-001.md",
+            "title": "fidelity",
+            "relevance": 1.0,
+        }]
+
+    def fake_full(agent_name, critical_only=False):
+        calls.append((agent_name, critical_only))
+        return "CRITICAL ONLY" if critical_only else "FULL SHOULD NOT BE USED"
+
+    monkeypatch.setattr(kb, "load_config", fake_load_config)
+    monkeypatch.setattr(kb, "query_knowledge_profiled", fake_profiled)
+    monkeypatch.setattr(kb, "get_full_knowledge_for_agent", fake_full)
+
+    text, meta = kb.get_smart_knowledge("shot_director", "电梯门冲入")
+
+    assert "profiled match" in text
+    assert "CRITICAL ONLY" in text
+    assert "FULL SHOULD NOT BE USED" not in text
+    assert meta["retrieval_mode"] == "profiled"
+    assert meta["used_full_fallback"] is False
+    assert meta["used_critical_fallback"] is True
+    assert calls == [("shot_director", True)]
 
 
 def test_shot_director_blocking_loads_blocking_scope_docs_and_rules():

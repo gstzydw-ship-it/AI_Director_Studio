@@ -4,30 +4,63 @@ title: 主分镜与子分镜是内部结构，最终输出只写单层时间轴
 doc_type: rule_card
 rule_type: prompt_compilation
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-main-subshot-timeline-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.door_state
+- events.reaction
+- risks.door_state_jump
+- risks.blood_avoidance
+- scene_types.elevator
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- Seedance Prompt
+- 时间轴
+- 主分镜
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- dialogue
+- action
+events:
+- collision
+- door_state
+- reaction
+risks:
+- door_state_jump
+- blood_avoidance
+applies_to:
+- Seedance Prompt
+- 时间轴
+- 主分镜
+- 子分镜
+- 机位库
+- 景别库
+- 景别切换
 source_files:
-  - knowledge/00_知识库优先级与冲突裁决规则.md
-  - knowledge/05_剧本拆分与15秒片段规划规则.md
-  - knowledge/21_镜头调用规则与多机位模板.md
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- knowledge/00_知识库优先级与冲突裁决规则.md
+- knowledge/05_剧本拆分与15秒片段规划规则.md
+- knowledge/21_镜头调用规则与多机位模板.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes:
-  - PROMPT-SINGLE-CAMERA-CONTINUOUS-001
-  - PROMPT-SUBSHOT-WINDOW-NESTING-001
-applies_to:
-  - Seedance Prompt
-  - 时间轴
-  - 主分镜
-  - 子分镜
-  - 机位库
-  - 景别库
-  - 景别切换
+- PROMPT-SINGLE-CAMERA-CONTINUOUS-001
+- PROMPT-SUBSHOT-WINDOW-NESTING-001
 ---
 
 # 主分镜与子分镜是内部结构，最终输出只写单层时间轴

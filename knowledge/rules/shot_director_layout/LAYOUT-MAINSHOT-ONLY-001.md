@@ -4,19 +4,46 @@ title: 主分镜骨架阶段只输出主镜头合同
 doc_type: rule_card
 rule_type: shot_layout_contract
 agent_scope:
-  - shot_director_layout
-priority: hard
+- shot_director_layout
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- layout-mainshot-only-001
+- signals.action_coverage
+- events.collision
+- events.reaction
+- risks.blood_avoidance
+- dialogue_types.long_dialogue_compression
+- dialogue_types.reaction_beat
+- scene_types.action
+applies_when:
+- 主分镜骨架
+- main_shots
+- 输出合同
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- action
+events:
+- collision
+- reaction
+risks:
+- blood_avoidance
+dialogue_types:
+- long_dialogue_compression
+- reaction_beat
+applies_to:
+- 主分镜骨架
+- main_shots
+- 输出合同
 source_files:
-  - knowledge/25_镜头摆位主分镜骨架规则.md
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- knowledge/25_镜头摆位主分镜骨架规则.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 主分镜骨架
-  - main_shots
-  - 输出合同
 ---
 
 # 主分镜骨架阶段只输出主镜头合同

@@ -1,20 +1,49 @@
 ---
+case_title: 视频拆片案例：镜头叙事_分别场景的七镜头电影感设计
+doc_type: case_card
+served_agents:
+- scene_analyst
+- story_planner
+- shot_director
+- shot_director_blocking
+- quality_inspector
+scene_types:
+- 告别离场
+- dialogue
+- action
+- intimacy_privacy
+events:
+- reaction
+- cut
+dialogue_types: []
+visual_constraints:
+- wide_shot
+- medium_shot
+- closeup
+- over_shoulder
+- shot_reverse_shot
+risks:
+- romanticize_collision
+reusable_pattern: CASE_镜头叙事_分别场景的七镜头电影感设计
+aspect_ratio: unspecified
+runtime_retrieval: true
+source_files: []
 rule_id: CASE-镜头叙事_分别场景的七镜头电影感设计
-title: "视频拆片案例：镜头叙事_分别场景的七镜头电影感设计"
-doc_type: case_library
+title: 视频拆片案例：镜头叙事_分别场景的七镜头电影感设计
 rule_type: shot_sequence_case
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
+- shot_director
+- shot_director_layout
+- shot_director_blocking
 priority: reference
 status: active
-runtime_retrieval: true
-scene_types:
-  - 告别离场
-source_video: "镜头叙事_分别场景的七镜头电影感设计.mp4"
-extraction_date: "2026-04-24"
-extraction_model: "gemini-3.1-pro-preview-thinking-high"
+source_video: 镜头叙事_分别场景的七镜头电影感设计.mp4
+extraction_date: '2026-04-24'
+extraction_model: gemini-3.1-pro-preview-thinking-high
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
 ---
 
 # 视频拆片案例：镜头叙事_分别场景的七镜头电影感设计

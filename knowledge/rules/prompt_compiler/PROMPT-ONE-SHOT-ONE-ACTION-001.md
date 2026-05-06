@@ -4,20 +4,43 @@ title: 一镜一主动作
 doc_type: rule_card
 rule_type: prompt_timeline
 agent_scope:
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-one-shot-one-action-001
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.reaction
+- risks.blood_avoidance
+- scene_types.action
+applies_when:
+- 时间轴
+- 动作描述
+- 可生成性
+avoid_when: []
+signals:
+- action_coverage
+- continuity_lock
+scene_types:
+- action
+events:
+- collision
+- reaction
+risks:
+- blood_avoidance
+applies_to:
+- 时间轴
+- 动作描述
+- 可生成性
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 时间轴
-  - 动作描述
-  - 可生成性
 ---
 
 # 一镜一主动作

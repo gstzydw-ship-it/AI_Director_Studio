@@ -1,3 +1,57 @@
+---
+rule_id: PROMPT-SMALL-ACTION-STABILITY-001
+title: PROMPT-SMALL-ACTION-STABILITY-001
+doc_type: rule_card
+rule_type: prompt_compilation
+agent_scope:
+- prompt_compiler
+- quality_inspector
+priority: P3
+status: active
+runtime_retrieval: true
+retrieval_key:
+- prompt-small-action-stability-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.rush_in
+- events.collision
+- events.waist_support
+- events.door_state
+- events.reaction
+- risks.door_state_jump
+- risks.privacy_body
+- dialogue_types.argument_escalation
+- scene_types.elevator
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when: []
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- dialogue
+- action
+- intimacy_privacy
+events:
+- rush_in
+- collision
+- waist_support
+- door_state
+- reaction
+risks:
+- door_state_jump
+- privacy_body
+dialogue_types:
+- argument_escalation
+conflicts_with: []
+supersedes: []
+---
+
 # PROMPT-SMALL-ACTION-STABILITY-001
 
 ## 规则标题

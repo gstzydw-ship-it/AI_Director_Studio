@@ -4,19 +4,50 @@ title: Hard规则违反必须阻断
 doc_type: rule_card
 rule_type: quality_control
 agent_scope:
-  - quality_inspector
-priority: hard
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- qc-hard-fail-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.door_state
+- risks.door_state_jump
+- risks.romanticize_collision
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- 质检
+- fail阻断
+- hard规则
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- collision
+- door_state
+risks:
+- door_state_jump
+- romanticize_collision
+applies_to:
+- 质检
+- fail阻断
+- hard规则
 source_files:
-  - knowledge/00_知识库优先级与冲突裁决规则.md
-  - knowledge/17_结果质检与回溯修正规则.md
+- knowledge/00_知识库优先级与冲突裁决规则.md
+- knowledge/17_结果质检与回溯修正规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 质检
-  - fail阻断
-  - hard规则
 ---
 
 # Hard规则违反必须阻断

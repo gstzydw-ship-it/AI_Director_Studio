@@ -1,13 +1,46 @@
 ---
 rule_id: TAILFRAME-RELATIONSHOT-001
-title: "尾帧连续性与空间关系收束规则"
+title: 尾帧连续性与空间关系收束规则
+doc_type: rule_card
+rule_type: prompt_compilation
+agent_scope:
+- prompt_compiler
+- shot_director
+- quality_inspector
 priority: P0
-agent_scope: [prompt_compiler, shot_director]
+status: active
 runtime_retrieval: true
-applies_when: "设计当前片段的最后一个镜头（尾帧）"
-instruction: "片段最终尾帧默认必须是双人/多人关系景，局部特写绝对不能作为尾帧，必须为下一片段留下可见的构图和场景锚点。"
-avoid_when: "除非下一段的剧本极其明确地要求从该局部特写（如特定道具、伤口特写）开始接续。"
+retrieval_key:
+- tailframe-relationshot-001
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- events.door_state
+- events.tailframe
+- risks.door_state_jump
+- risks.reference_misuse
+- scene_types.elevator
+- scene_types.action
+applies_when: 设计当前片段的最后一个镜头（尾帧）
+avoid_when: 除非下一段的剧本极其明确地要求从该局部特写（如特定道具、伤口特写）开始接续。
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- action
+events:
+- door_state
+- tailframe
+risks:
+- door_state_jump
+- reference_misuse
+conflicts_with: []
+supersedes: []
+instruction: 片段最终尾帧默认必须是双人/多人关系景，局部特写绝对不能作为尾帧，必须为下一片段留下可见的构图和场景锚点。
 ---
+
 # 尾帧连续性与空间关系收束规则
 
 ## 核心痛点

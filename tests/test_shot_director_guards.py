@@ -317,6 +317,28 @@ sub_shots: []
     assert not any("sub_shots" in issue for issue in issues)
 
 
+def test_shot_director_v1_uses_merged_shot_field():
+    director_output = """- fragment_id: F01
+  fragment_task: "建立关系"
+  rhythm: "稳慢压"
+  shots:
+    - shot_id: F01-S01
+      duration: "0-3秒"
+      task: "建立两人对峙关系"
+      subject: "乔熙、商北琛"
+      shot: "过肩视角半身以上中景"
+      action: "乔熙站在桌前看向商北琛，商北琛隔桌回看她。"
+      dialogue: "~"
+      must_carry: "两人隔桌对峙关系清楚。"
+      cut_point: "两人视线稳定对上、空间关系看清后切。"
+      continuity: "乔熙仍在桌前，商北琛仍在桌后，保持同侧轴线。"
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert issues == []
+
+
 def test_shot_director_requires_construction_sheet_fields():
     director_output = """- fragment_id: F01
   schema_version: shot_director_v2

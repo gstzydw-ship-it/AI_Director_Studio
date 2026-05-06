@@ -4,19 +4,35 @@ title: 时间段必须先立分镜基底
 doc_type: rule_card
 rule_type: prompt_timeline
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-timeline-shot-base-001
+- signals.action_coverage
+- events.reaction
+- scene_types.action
+applies_when:
+- 时间轴
+- 分镜基底
+- 景别显式化
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- action
+events:
+- reaction
+applies_to:
+- 时间轴
+- 分镜基底
+- 景别显式化
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 时间轴
-  - 分镜基底
-  - 景别显式化
 ---
 
 # 时间段必须先立分镜基底

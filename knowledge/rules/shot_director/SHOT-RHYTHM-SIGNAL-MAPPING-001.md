@@ -4,24 +4,65 @@ title: 戏剧微粒到镜头语言映射
 doc_type: rule_card
 rule_type: shot_calling
 agent_scope:
-  - shot_director
-  - quality_inspector
-priority: hard
+- shot_director
+- quality_inspector
+- prompt_compiler
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- shot-rhythm-signal-mapping-001
+- signals.vertical_framing
+- signals.dialogue_coverage
+- signals.action_coverage
+- events.collision
+- events.reaction
+- events.cut
+- risks.vertical_closeup_overuse
+- risks.blood_avoidance
+- dialogue_types.long_dialogue_compression
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+- scene_types.suspense
+applies_when:
+- rhythm_function
+- shot_language_reason
+- reaction_plan
+avoid_when: []
+signals:
+- vertical_framing
+- dialogue_coverage
+- action_coverage
+scene_types:
+- dialogue
+- action
+- suspense
+events:
+- collision
+- reaction
+- cut
+risks:
+- vertical_closeup_overuse
+- blood_avoidance
+dialogue_types:
+- long_dialogue_compression
+- reaction_beat
+aspect_ratios:
+- '9:16'
+applies_to:
+- rhythm_function
+- shot_language_reason
+- reaction_plan
+- pause_plan
 source_files:
-  - D:/AI 导演系统工程文档规范.md
-  - knowledge/24_戏剧微粒识别与节奏触发规则.md
-  - knowledge/15_故事节奏控制规则.md
-  - knowledge/21_镜头调用规则与多机位模板.md
-  - knowledge/17_结果质检与回溯修正规则.md
+- D:/AI 导演系统工程文档规范.md
+- knowledge/24_戏剧微粒识别与节奏触发规则.md
+- knowledge/15_故事节奏控制规则.md
+- knowledge/21_镜头调用规则与多机位模板.md
+- knowledge/17_结果质检与回溯修正规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - rhythm_function
-  - shot_language_reason
-  - reaction_plan
-  - pause_plan
 ---
 
 # 戏剧微粒到镜头语言映射

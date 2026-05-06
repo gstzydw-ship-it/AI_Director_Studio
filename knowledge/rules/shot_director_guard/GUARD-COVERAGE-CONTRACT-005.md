@@ -4,22 +4,43 @@ title: 最终镜头方案必须具备覆盖合同
 doc_type: rule_card
 rule_type: coverage_contract_guard
 agent_scope:
-  - shot_director_guard
-priority: hard
+- shot_director_guard
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- guard-coverage-contract-005
+- signals.tailframe_lock
+- signals.continuity_lock
+- events.cut
+- events.tailframe
+- risks.reference_misuse
+applies_when:
+- coverage_role
+- cut_reason
+- companion_visibility
+avoid_when: []
+signals:
+- tailframe_lock
+- continuity_lock
+events:
+- cut
+- tailframe
+risks:
+- reference_misuse
+applies_to:
+- coverage_role
+- cut_reason
+- companion_visibility
+- state_delta
+- tailframe_role
 source_files:
-  - knowledge/27_规则守门与最小修复规则.md
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/rules/prompt_compiler/TAILFRAME-RELATIONSHOT-001.md
+- knowledge/27_规则守门与最小修复规则.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/rules/prompt_compiler/TAILFRAME-RELATIONSHOT-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - coverage_role
-  - cut_reason
-  - companion_visibility
-  - state_delta
-  - tailframe_role
 ---
 
 # 最终镜头方案必须具备覆盖合同

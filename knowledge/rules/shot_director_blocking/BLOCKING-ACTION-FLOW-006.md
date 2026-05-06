@@ -4,22 +4,48 @@ title: 动作导演必须交付动作流程表与事件覆盖表
 doc_type: rule_card
 rule_type: blocking_flow_contract
 agent_scope:
-  - shot_director_blocking
-priority: hard
+- shot_director_blocking
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- blocking-action-flow-006
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- events.tailframe
+- risks.reference_misuse
+- scene_types.elevator
+- scene_types.action
+applies_when:
+- blocking_plan
+- state_chain
+- event_coverage
+avoid_when: []
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- action
+events:
+- tailframe
+risks:
+- reference_misuse
+applies_to:
+- blocking_plan
+- state_chain
+- event_coverage
+- duration_hint
+- action_phase
 source_files:
-  - knowledge/26_动作调度与受击覆盖规则.md
-  - knowledge/28_全场景分镜与转场案例库.md
-  - knowledge/06_连续性与安全规则.md
+- knowledge/26_动作调度与受击覆盖规则.md
+- knowledge/28_全场景分镜与转场案例库.md
+- knowledge/06_连续性与安全规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - blocking_plan
-  - state_chain
-  - event_coverage
-  - duration_hint
-  - action_phase
 ---
 
 # 动作导演必须交付动作流程表与事件覆盖表

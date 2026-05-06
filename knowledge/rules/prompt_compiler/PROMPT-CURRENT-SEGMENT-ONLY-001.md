@@ -4,19 +4,44 @@ title: Prompt只输出当前片段
 doc_type: rule_card
 rule_type: prompt_compilation
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-current-segment-only-001
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- events.tailframe
+- risks.axis_confusion
+- risks.reference_misuse
+- scene_types.action
+applies_when:
+- 多段流程
+- 当前片段
+- 历史片段污染
+avoid_when: []
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+scene_types:
+- action
+events:
+- tailframe
+risks:
+- axis_confusion
+- reference_misuse
+applies_to:
+- 多段流程
+- 当前片段
+- 历史片段污染
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 多段流程
-  - 当前片段
-  - 历史片段污染
 ---
 
 # Prompt只输出当前片段

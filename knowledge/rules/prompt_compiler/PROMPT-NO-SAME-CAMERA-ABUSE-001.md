@@ -1,3 +1,33 @@
+---
+rule_id: PROMPT-NO-SAME-CAMERA-ABUSE-001
+title: PROMPT-NO-SAME-CAMERA-ABUSE-001
+doc_type: rule_card
+rule_type: prompt_compilation
+agent_scope:
+- prompt_compiler
+- quality_inspector
+priority: P3
+status: active
+runtime_retrieval: true
+retrieval_key:
+- prompt-no-same-camera-abuse-001
+- signals.action_coverage
+- events.cut
+- scene_types.elevator
+- scene_types.action
+applies_when: []
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- elevator
+- action
+events:
+- cut
+conflicts_with: []
+supersedes: []
+---
+
 # PROMPT-NO-SAME-CAMERA-ABUSE-001
 
 ## 规则标题

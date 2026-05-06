@@ -4,26 +4,46 @@ title: 场景一致性锁写入 state_contract
 doc_type: rule_card
 rule_type: scene_analysis
 agent_scope:
-  - scene_analyst
-  - story_planner
-  - shot_director
-  - quality_inspector
-priority: hard
+- scene_analyst
+- story_planner
+- shot_director
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- scene-consistency-lock-001
+- signals.continuity_lock
+- signals.reference_binding
+- events.reference_binding
+- risks.axis_confusion
+- risks.reference_misuse
+applies_when:
+- 服装
+- 道具
+- 光线
+avoid_when: []
+signals:
+- continuity_lock
+- reference_binding
+events:
+- reference_binding
+risks:
+- axis_confusion
+- reference_misuse
+applies_to:
+- 服装
+- 道具
+- 光线
+- 时段
+- 轴线
+- 状态快照
 source_files:
-  - knowledge/11_场景分析输入卡与导演意图提取.md
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/rules/shared/CONT-STATE-CONTRACT-001.md
+- knowledge/11_场景分析输入卡与导演意图提取.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/rules/shared/CONT-STATE-CONTRACT-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 服装
-  - 道具
-  - 光线
-  - 时段
-  - 轴线
-  - 状态快照
 ---
 
 # 场景一致性锁写入 state_contract

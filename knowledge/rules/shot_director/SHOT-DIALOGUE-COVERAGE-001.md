@@ -4,20 +4,56 @@ title: 对话戏基础覆盖
 doc_type: rule_card
 rule_type: shot_calling
 agent_scope:
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: medium
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P3
 status: active
 runtime_retrieval: true
+retrieval_key:
+- shot-dialogue-coverage-001
+- signals.vertical_framing
+- signals.dialogue_coverage
+- signals.action_coverage
+- events.collision
+- events.reaction
+- risks.vertical_closeup_overuse
+- risks.blood_avoidance
+- dialogue_types.long_dialogue_compression
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 双人对话
+- OTS
+- 正反切
+avoid_when: []
+signals:
+- vertical_framing
+- dialogue_coverage
+- action_coverage
+scene_types:
+- dialogue
+- action
+events:
+- collision
+- reaction
+risks:
+- vertical_closeup_overuse
+- blood_avoidance
+dialogue_types:
+- long_dialogue_compression
+- reaction_beat
+aspect_ratios:
+- '9:16'
+applies_to:
+- 双人对话
+- OTS
+- 正反切
 source_files:
-  - knowledge/20_镜头库与机位库.md
+- knowledge/20_镜头库与机位库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 双人对话
-  - OTS
-  - 正反切
 ---
 
 # 对话戏基础覆盖

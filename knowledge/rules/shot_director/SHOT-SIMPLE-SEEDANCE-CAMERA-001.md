@@ -4,23 +4,55 @@ title: Seedance 镜头必须降级为单任务短句
 doc_type: rule_card
 rule_type: camera_language
 agent_scope:
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- shot-simple-seedance-camera-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.door_state
+- events.reaction
+- events.cut
+- risks.axis_confusion
+- dialogue_types.reaction_beat
+- scene_types.elevator
+- scene_types.action
+applies_when:
+- Seedance
+- 镜头导演
+- 运镜降级
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- action
+events:
+- door_state
+- reaction
+- cut
+risks:
+- axis_confusion
+dialogue_types:
+- reaction_beat
+applies_to:
+- Seedance
+- 镜头导演
+- 运镜降级
+- 轴线连续
 source_files:
-  - 电影分镜、镜头语言与剪辑深度学习报告.md
-  - knowledge/21_镜头调用规则与多机位模板.md
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- 电影分镜、镜头语言与剪辑深度学习报告.md
+- knowledge/21_镜头调用规则与多机位模板.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - Seedance
-  - 镜头导演
-  - 运镜降级
-  - 轴线连续
 ---
 
 # Seedance 镜头必须降级为单任务短句

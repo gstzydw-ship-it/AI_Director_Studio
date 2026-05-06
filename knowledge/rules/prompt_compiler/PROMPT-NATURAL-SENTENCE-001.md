@@ -4,19 +4,38 @@ title: 时间轴不是关键词串也不是表单
 doc_type: rule_card
 rule_type: prompt_language
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: medium
+- prompt_compiler
+- quality_inspector
+priority: P3
 status: active
 runtime_retrieval: true
+retrieval_key:
+- prompt-natural-sentence-001
+- signals.action_coverage
+- events.collision
+- risks.blood_avoidance
+- scene_types.action
+applies_when:
+- 时间轴
+- 自然中文
+- 表单化防止
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- action
+events:
+- collision
+risks:
+- blood_avoidance
+applies_to:
+- 时间轴
+- 自然中文
+- 表单化防止
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 时间轴
-  - 自然中文
-  - 表单化防止
 ---
 
 # 时间轴不是关键词串也不是表单

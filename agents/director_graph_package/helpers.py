@@ -478,11 +478,16 @@ def _critical_knowledge_block(agent_name: str) -> str:
     return "\n\n".join(f"--- {doc['filename']} (关键规则) ---\n{doc['content']}" for doc in critical_docs)
 
 
-def build_system_prompt(role_description: str, agent_name: str, context_hint: str = "") -> tuple[str, dict[str, Any]]:
+def build_system_prompt(
+    role_description: str,
+    agent_name: str,
+    context_hint: str = "",
+    retrieval_profile: dict[str, Any] | None = None,
+) -> tuple[str, dict[str, Any]]:
     critical_text = _critical_knowledge_block(agent_name)
     retrieval_meta: dict[str, Any] = {}
     try:
-        kb_text, retrieval_meta = get_smart_knowledge(agent_name, context_hint)
+        kb_text, retrieval_meta = get_smart_knowledge(agent_name, context_hint, retrieval_profile=retrieval_profile)
     except Exception:
         kb_text = get_full_knowledge_for_agent(agent_name)
         retrieval_meta = {
@@ -492,6 +497,7 @@ def build_system_prompt(role_description: str, agent_name: str, context_hint: st
             "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
             "result_count": 0,
             "context_hint": context_hint,
+            "retrieval_profile": retrieval_profile or {},
         }
 
     knowledge_sections = []
@@ -593,7 +599,7 @@ def _camera_execution_rules() -> str:
         "1. 内部镜头设计必须保留完整镜头语法：主体+主体景别、焦段、景深、机位高度、拍摄角度、唯一运镜、动作/表演、光源；不得因为最终要给 Seedance 就提前丢掉焦段/景深/高度/角度判断。\n"
         "2. 每个 shot 只能有一个主体焦点、一个景别基底、一个主导运镜；景别可以在子分镜内递进，但不能写成\"纵深中全景到半身中景\"这种单字段混合景别。\n"
         "3. 机位高度从仰拍、平视、俯拍、顶拍、虫眼中选择；普通关系/对白可用平视，权力压制可用仰拍，弱势/群体散开可用俯拍。最终 prompt 可把\"平视\"译成自然短句，避免机械写\"眼平高度\"。\n"
-        "4. 拍摄角度从正面、斜侧面、正侧面、背面、过肩、荷兰角、POV 中选择；POV 必须先有建立镜头说明谁在看，禁止直接跳 POV。\n"
+        "4. 拍摄角度从正面、左前方、右前方、左侧、右侧、背后、过肩、荷兰角、POV 中选择；POV 必须先有建立镜头说明谁在看，禁止直接跳 POV。不要每段都写数字角度。\n"
         "5. 运镜从推镜、拉镜、横移、横摇、垂直摇、升降、变焦、稳定器跟拍、手持、固定机位中选唯一主导运镜；禁止在一个 shot 内同时推近、横移、摇摄、再回主位。\n"
         "6. 运镜必须服务镜头目的：推近/切近/转特写只能服务信息逼近、情绪暴露、压迫上升、受击反应变重要、道具或局部动作成为焦点；禁止把慢推近当通用情绪模板。\n"
         "7. 反应落点优先按层级处理：主分镜负责主体关系和空间重心，子分镜负责受击、表情重音、局部动作；不要把\"同一运动里带到反应再回主位\"写成一个复杂主镜头。\n"
@@ -611,8 +617,8 @@ def _camera_task_selection_rules() -> str:
         "2. 主分镜只在主体关系变化、场面权力关系变化、叙事重心变化、空间观察点变化、当前主镜头无法承载下一动作单元时新开；不要用主分镜机械对应每句台词。\n"
         "3. 完整发言单元优先保持在同一主分镜内；长挑衅/揭晓/质问台词超过2秒时，用子分镜/L-cut 切受击者，让后半句以画外音落在反应上。\n"
         "4. 听者受击、视线撞上、回神、表情冻结：优先挂到现有主镜头或新增 sub_shot；受击者机位必须落在同侧轴线内，并写 companion_visibility，不要靠横移摆尾带到反应。\n"
-        "5. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先正侧面、背面、斜侧面或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定轴线一侧。\n"
-        "6. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背面、斜侧面或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
+        "5. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先左侧、右侧、左后方、右后方或 scene_fixed；目标是看清起点、路径、接触点和终点。同段切换只能发生在选定一侧内部，避免单一主机位持续承担整段。\n"
+        "6. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背后、左后方、右后方或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
         "7. 9:16 主力景别为半身景/中景/MS，MCU 只用于压迫段或信息逼近中间层，CU 只用于信息炸点/受击反应/情绪顶点；禁止长期只在 MCU 与 CU 之间摆动。\n"
         "8. 群体调度必须保留空间容量：群体四散、主管退让、员工让路不能用面部特写承接，优先中景关系、半身关系或 scene_fixed。\n"
         "9. 每个 main_shot 必须有 cut_reason，回答为什么从上一主镜头切到这里；有效理由包括台词落点后切听者反应、动作中间态切接续、需要回关系景确认距离/门状态、tailframe_reset。\n"

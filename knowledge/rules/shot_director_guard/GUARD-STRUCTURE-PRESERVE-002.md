@@ -1,16 +1,30 @@
 ---
 rule_id: GUARD-STRUCTURE-PRESERVE-002
 title: 优先保留主结构与编号
+doc_type: rule_card
 rule_type: hard_constraint
 agent_scope:
-  - shot_director_guard
+- shot_director_guard
+- quality_inspector
 priority: P2
 status: active
 runtime_retrieval: true
+retrieval_key:
+- guard-structure-preserve-002
+- dialogue_types.argument_escalation
+applies_when:
+- fragment_id
+- shot_id
+- main_shots 保留
+avoid_when: []
+dialogue_types:
+- argument_escalation
 applies_to:
-  - fragment_id
-  - shot_id
-  - main_shots 保留
+- fragment_id
+- shot_id
+- main_shots 保留
+conflicts_with: []
+supersedes: []
 ---
 
 # GUARD-STRUCTURE-PRESERVE-002：优先保留主结构与编号

@@ -52,3 +52,4 @@ tmp_*.py
 *_output*.txt
 debug_state.json
 .git_broken_backup_*/
+.gitnexus

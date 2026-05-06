@@ -1,15 +1,39 @@
 ---
 rule_id: BLOCKING-PARENT-SUBSHOT-001
 title: 子分镜必须挂靠 parent_shot_id
+doc_type: rule_card
 rule_type: hard_constraint
 agent_scope:
-  - shot_director_blocking
+- shot_director_blocking
+- quality_inspector
 priority: P2
 status: active
 runtime_retrieval: true
+retrieval_key:
+- blocking-parent-subshot-001
+- signals.action_coverage
+- events.collision
+- events.reaction
+- risks.blood_avoidance
+- scene_types.action
+applies_when:
+- sub_shots
+- parent_shot_id
+avoid_when: []
+signals:
+- action_coverage
+scene_types:
+- action
+events:
+- collision
+- reaction
+risks:
+- blood_avoidance
 applies_to:
-  - sub_shots
-  - parent_shot_id
+- sub_shots
+- parent_shot_id
+conflicts_with: []
+supersedes: []
 ---
 
 # BLOCKING-PARENT-SUBSHOT-001：子分镜必须挂靠 parent_shot_id

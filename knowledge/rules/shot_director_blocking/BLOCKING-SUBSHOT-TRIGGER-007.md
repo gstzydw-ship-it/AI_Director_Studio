@@ -4,22 +4,66 @@ title: 子镜头必须由信息增量触发
 doc_type: rule_card
 rule_type: subshot_trigger_strategy
 agent_scope:
-  - shot_director_blocking
-  - shot_director_guard
-  - quality_inspector
-priority: hard
+- shot_director_blocking
+- shot_director_guard
+- quality_inspector
+priority: P0
 status: active
 runtime_retrieval: true
+retrieval_key:
+- blocking-subshot-trigger-007
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.door_state
+- events.reaction
+- events.cut
+- risks.door_state_jump
+- risks.privacy_body
+- risks.blood_avoidance
+- dialogue_types.reaction_beat
+- scene_types.elevator
+- scene_types.dialogue
+- scene_types.action
+- scene_types.suspense
+- scene_types.intimacy_privacy
+applies_when:
+- sub_shots
+- reaction_coverage
+- action_insert_slot
+avoid_when: []
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- dialogue
+- action
+- suspense
+- intimacy_privacy
+events:
+- collision
+- door_state
+- reaction
+- cut
+risks:
+- door_state_jump
+- privacy_body
+- blood_avoidance
+dialogue_types:
+- reaction_beat
+applies_to:
+- sub_shots
+- reaction_coverage
+- action_insert_slot
+- information_reveal
 source_files:
-  - knowledge/28_全场景分镜与转场案例库.md
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- knowledge/28_全场景分镜与转场案例库.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - sub_shots
-  - reaction_coverage
-  - action_insert_slot
-  - information_reveal
 ---
 
 # 子镜头必须由信息增量触发

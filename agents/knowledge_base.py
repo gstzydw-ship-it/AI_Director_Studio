@@ -152,10 +152,121 @@ def _frontmatter_metadata(content: str) -> dict[str, Any]:
 
 def _normalise_agent_scope(value: Any) -> list[str]:
     if isinstance(value, str):
-        return [item.strip() for item in re.split(r"[,，]", value) if item.strip()]
+        return [item.strip() for item in re.split(r"[,，;；\n]+", value) if item.strip()]
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return []
+
+
+PROFILE_FIELDS = (
+    "retrieval_key",
+    "applies_when",
+    "avoid_when",
+    "signals",
+    "scene_types",
+    "events",
+    "risks",
+    "dialogue_types",
+    "aspect_ratios",
+    "tags",
+    "served_agents",
+    "visual_constraints",
+    "reusable_pattern",
+)
+
+
+def _normalise_frontmatter_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, list):
+        items: list[str] = []
+        for item in value:
+            items.extend(_normalise_frontmatter_list(item))
+        return items
+    if isinstance(value, dict):
+        return [f"{key}:{val}" for key, val in value.items()]
+    return [item.strip() for item in re.split(r"[,，\n]", str(value)) if item.strip()]
+
+
+def _canonical_priority(value: Any) -> str:
+    priority = str(value or "").strip()
+    aliases = {
+        "hard": "P0",
+        "critical": "P0",
+        "must": "P0",
+        "high": "P1",
+        "medium": "P3",
+        "normal": "P3",
+        "low": "P5",
+    }
+    return aliases.get(priority.lower(), priority)
+
+
+def _profile_value_text(value: Any) -> str:
+    return " ".join(_normalise_frontmatter_list(value))
+
+
+def build_retrieval_profile_query(context_hint: str = "", retrieval_profile: dict[str, Any] | None = None) -> str:
+    """Append structured task tags to the free-text retrieval hint."""
+    if not retrieval_profile:
+        return context_hint or ""
+
+    parts = [context_hint or ""]
+    for field in PROFILE_FIELDS:
+        text = _profile_value_text(retrieval_profile.get(field))
+        if text:
+            parts.append(f"{field}: {text}")
+
+    singular_aliases = {
+        "scene_type": "scene_types",
+        "event": "events",
+        "risk": "risks",
+        "dialogue_type": "dialogue_types",
+        "aspect_ratio": "aspect_ratios",
+    }
+    for singular, plural in singular_aliases.items():
+        text = _profile_value_text(retrieval_profile.get(singular))
+        if text:
+            parts.append(f"{plural}: {text}")
+
+    return "\n".join(part for part in parts if part.strip())
+
+
+def _metadata_signal_text(metadata: dict[str, Any]) -> str:
+    fields = (
+        "rule_id",
+        "id",
+        "title",
+        "doc_type",
+        "rule_type",
+        "priority",
+        "status",
+        "applies_to",
+        "applies_when",
+        "avoid_when",
+        "retrieval_key",
+        "signals",
+        "scene_types",
+        "events",
+        "risks",
+        "dialogue_types",
+        "aspect_ratios",
+        "aspect_ratio",
+        "tags",
+        "served_agents",
+        "case_title",
+        "visual_constraints",
+        "reusable_pattern",
+    )
+    parts: list[str] = []
+    for field in fields:
+        value = metadata.get(field)
+        if isinstance(value, (list, tuple, set)):
+            parts.extend(str(item) for item in value)
+        elif value:
+            parts.append(str(value))
+    parts.extend(_normalise_agent_scope(metadata.get("agent_scope")))
+    return "\n".join(parts)
 
 
 def _iter_knowledge_files(knowledge_dir: str | None = None):
@@ -227,7 +338,10 @@ GLOBAL_RULE_PRIORITIES = {"P0", "P1"}
 SOURCE_PREFERENCE_BM25_BOOST = 0.2
 SOURCE_PREFERENCE_VECTOR_BOOST = 0.06
 SOURCE_PREFERENCE_RRF_BOOST = 0.01
+PROFILED_METADATA_BOOST = 0.35
+PROFILED_AVOID_PENALTY = 0.7
 _rule_registry_cache: dict | None = None
+_source_runtime_retrieval_cache: dict[str, bool] = {}
 
 
 def load_rule_registry() -> dict:
@@ -528,7 +642,8 @@ def get_agent_knowledge_files(agent_name: str, critical_only: bool = False) -> l
         if not metadata or not _runtime_retrieval_enabled(content):
             continue
         scope = set(_normalise_agent_scope(metadata.get("agent_scope")))
-        if agent_name in scope or "shared" in scope:
+        served_agents = set(_normalise_agent_scope(metadata.get("served_agents")))
+        if agent_name in scope or agent_name in served_agents or "shared" in scope or "shared" in served_agents:
             files.append(relpath)
     return files
 
@@ -690,20 +805,30 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
             chunk_overlap=vdb_config["chunk_overlap"]
         )
 
-        agents = _normalise_agent_scope(metadata.get("agent_scope")) or file_to_agents.get(filename, ["all"])
+        agents = (
+            _normalise_agent_scope(metadata.get("agent_scope"))
+            or _normalise_agent_scope(metadata.get("served_agents"))
+            or file_to_agents.get(filename, ["all"])
+        )
 
         for i, chunk in enumerate(chunks):
-            all_documents.append(chunk["text"])
-            all_metadatas.append({
+            chunk_metadata = {
                 "source_file": filename,
                 "chunk_index": i,
                 "title": chunk["title"],
                 "agents": ",".join(agents),
+                "agent_scope": ",".join(_normalise_agent_scope(metadata.get("agent_scope"))),
                 "rule_id": str(metadata.get("rule_id", "")),
-                "priority": str(metadata.get("priority", "")),
+                "case_title": str(metadata.get("case_title", "")),
+                "priority": _canonical_priority(metadata.get("priority")),
                 "status": str(metadata.get("status", "")),
                 "rule_type": str(metadata.get("rule_type", "")),
-            })
+                "doc_type": str(metadata.get("doc_type", "")),
+            }
+            for field in PROFILE_FIELDS:
+                chunk_metadata[field] = ", ".join(_normalise_frontmatter_list(metadata.get(field)))
+            all_documents.append(chunk["text"])
+            all_metadatas.append(chunk_metadata)
 
         total_chunks += len(chunks)
         print(f"  [OK] {filename}: {len(chunks)} chunks -> Agent: {', '.join(agents)}")
@@ -807,6 +932,7 @@ def query_knowledge(
             "relevance": float(similarities[idx] + source_boost),
             "base_relevance": float(similarities[idx]),
             "source_boost": source_boost,
+            "metadata": dict(meta),
         })
 
     return knowledge_pieces
@@ -856,6 +982,32 @@ def _tokenize_chinese(text: str) -> list[str]:
     return tokens
 
 
+def _metadata_match_score(metadata: dict[str, Any], query_tokens: set[str], agent_name: str | None = None) -> float:
+    if not metadata or not query_tokens:
+        return 0.0
+
+    score = 0.0
+    scope = set(_normalise_agent_scope(metadata.get("agent_scope")))
+    served_agents = set(_normalise_agent_scope(metadata.get("served_agents")))
+    if agent_name and (agent_name in scope or agent_name in served_agents or "all" in scope or "all" in served_agents):
+        score += 0.45
+
+    priority_boosts = {"P0": 0.5, "P1": 0.4, "P2": 0.25, "P3": 0.15, "P4": 0.08, "P5": 0.04}
+    score += priority_boosts.get(_canonical_priority(metadata.get("priority")), 0.0)
+
+    searchable_tokens = set(_tokenize_chinese(_metadata_signal_text(metadata)))
+    overlap = query_tokens & searchable_tokens
+    if overlap:
+        score += min(0.5, len(overlap) / max(len(query_tokens), 1))
+
+    avoid_text = "\n".join(_normalise_frontmatter_list(metadata.get("avoid_when")))
+    avoid_tokens = set(_tokenize_chinese(avoid_text))
+    if avoid_tokens and query_tokens & avoid_tokens:
+        score -= PROFILED_AVOID_PENALTY
+
+    return score
+
+
 def _rule_search_text(rule: dict) -> str:
     fields = [
         "id",
@@ -889,13 +1041,20 @@ def _source_preference_boost(source: str, preferred_sources: set[str], amount: f
 
 
 def _source_runtime_retrieval_enabled(source: str) -> bool:
-    source_path = os.path.join(get_knowledge_dir(), os.path.basename(str(source)))
+    source_name = os.path.basename(str(source))
+    if source_name in _source_runtime_retrieval_cache:
+        return _source_runtime_retrieval_cache[source_name]
+
+    source_path = os.path.join(get_knowledge_dir(), source_name)
     if not os.path.exists(source_path):
+        _source_runtime_retrieval_cache[source_name] = False
         return False
 
     with open(source_path, "r", encoding="utf-8") as f:
         content = f.read()
-    return _runtime_retrieval_enabled(content)
+    enabled = _runtime_retrieval_enabled(content)
+    _source_runtime_retrieval_cache[source_name] = enabled
+    return enabled
 
 
 def preferred_sources_from_registry_results(registry_results: list[dict]) -> set[str]:
@@ -907,7 +1066,11 @@ def preferred_sources_from_registry_results(registry_results: list[dict]) -> set
     return sources
 
 
-def _rule_visible_to_agent(rule: dict, agent_name: str | None) -> bool:
+def _rule_visible_to_agent(
+    rule: dict,
+    agent_name: str | None,
+    agent_files: set[str] | None = None,
+) -> bool:
     if not agent_name:
         return True
 
@@ -920,11 +1083,17 @@ def _rule_visible_to_agent(rule: dict, agent_name: str | None) -> bool:
     if agent_name == "quality_inspector":
         return True
 
-    agent_files = set(get_agent_knowledge_files(agent_name))
+    if agent_files is None:
+        agent_files = set(get_agent_knowledge_files(agent_name))
     return bool(agent_files & _rule_source_basenames(rule))
 
 
-def _score_registry_rule(rule: dict, query_tokens: set[str], agent_name: str | None) -> float:
+def _score_registry_rule(
+    rule: dict,
+    query_tokens: set[str],
+    agent_name: str | None,
+    agent_files: set[str] | None = None,
+) -> float:
     rule_tokens = set(_tokenize_chinese(_rule_search_text(rule)))
     overlap = query_tokens & rule_tokens
     if not overlap:
@@ -948,7 +1117,8 @@ def _score_registry_rule(rule: dict, query_tokens: set[str], agent_name: str | N
         score += 0.25
 
     if agent_name:
-        agent_files = set(get_agent_knowledge_files(agent_name))
+        if agent_files is None:
+            agent_files = set(get_agent_knowledge_files(agent_name))
         if agent_files & _rule_source_basenames(rule):
             score += 0.2
 
@@ -984,14 +1154,15 @@ def query_rule_registry(
     if not isinstance(rules, list):
         return []
 
+    agent_files = set(get_agent_knowledge_files(agent_name)) if agent_name else set()
     scored_rules = []
     for rule in rules:
         if not isinstance(rule, dict):
             continue
-        if not _rule_visible_to_agent(rule, agent_name):
+        if not _rule_visible_to_agent(rule, agent_name, agent_files):
             continue
 
-        score = _score_registry_rule(rule, query_tokens, agent_name)
+        score = _score_registry_rule(rule, query_tokens, agent_name, agent_files)
         if score <= 0:
             continue
 
@@ -1060,12 +1231,14 @@ def build_bm25_index(agent_name: str):
             content = f.read()
         if not _runtime_retrieval_enabled(content):
             continue
+        metadata = _frontmatter_metadata(content)
         chunks = chunk_markdown(content, chunk_size=chunk_size, chunk_overlap=chunk_overlap)
         for chunk in chunks:
             all_chunks.append({
                 "text": chunk["text"],
                 "title": chunk.get("title", ""),
                 "source": filename,
+                "metadata": metadata,
             })
 
     if not all_chunks:
@@ -1103,6 +1276,7 @@ def query_knowledge_bm25(
     agent_name: str,
     n_results: int = 10,
     preferred_sources: list[str] | set[str] | tuple[str, ...] | None = None,
+    metadata_profile: bool = False,
 ) -> list[dict]:
     """
     BM25 关键词检索：返回与 query 最相关的知识片段。
@@ -1128,6 +1302,7 @@ def query_knowledge_bm25(
     tokenized_query = type(tokenized)(ids=[query_ids], vocab=vocab)
 
     preferred_source_names = _normalize_source_basenames(preferred_sources)
+    query_tokens_for_profile = set(_tokenize_chinese(query)) if metadata_profile else set()
     n = min(max(n_results, n_results * 3), len(chunks))
     results, scores = retriever.retrieve(tokenized_query, k=n)
 
@@ -1143,13 +1318,21 @@ def query_knowledge_bm25(
             preferred_source_names,
             SOURCE_PREFERENCE_BM25_BOOST,
         )
+        metadata_boost = (
+            _metadata_match_score(chunk.get("metadata", {}), query_tokens_for_profile, agent_name)
+            * PROFILED_METADATA_BOOST
+            if metadata_profile
+            else 0.0
+        )
         pieces.append({
             "text": chunk["text"],
             "source": chunk["source"],
             "title": chunk["title"],
-            "relevance": score + source_boost,
+            "relevance": score + source_boost + metadata_boost,
             "base_relevance": score,
             "source_boost": source_boost,
+            "metadata_boost": metadata_boost,
+            "metadata": chunk.get("metadata", {}),
         })
     pieces.sort(key=lambda item: item["relevance"], reverse=True)
     return pieces[:n_results]
@@ -1162,6 +1345,7 @@ def query_knowledge_hybrid(
     bm25_k: int = 10,
     vector_k: int = 10,
     preferred_sources: list[str] | set[str] | tuple[str, ...] | None = None,
+    metadata_profile: bool = False,
 ) -> list[dict]:
     """
     混合检索：BM25 关键词 + 向量语义 → RRF 融合排序。
@@ -1179,6 +1363,7 @@ def query_knowledge_hybrid(
                 agent_name,
                 n_results=bm25_k,
                 preferred_sources=preferred_source_names,
+                metadata_profile=metadata_profile,
             )
         except Exception:
             pass
@@ -1248,19 +1433,78 @@ def query_knowledge_hybrid(
                 preferred_source_names,
                 SOURCE_PREFERENCE_RRF_BOOST,
             ),
+            "metadata": meta.get("metadata", {}),
         })
     return results
 
 
-def get_smart_knowledge(agent_name: str, context_hint: str = "") -> str:
+def _profile_rerank_results(
+    results: list[dict],
+    query: str,
+    agent_name: str,
+    n_results: int,
+) -> list[dict]:
+    query_tokens = set(_tokenize_chinese(query))
+    reranked: list[dict] = []
+    for item in results:
+        metadata = item.get("metadata", {}) if isinstance(item.get("metadata"), dict) else {}
+        metadata_score = _metadata_match_score(metadata, query_tokens, agent_name)
+        source = item.get("source", "")
+        rule_card_bonus = 0.2 if "/rules/" in str(source).replace("\\", "/") or str(source).startswith("rules/") else 0.0
+        profiled_score = float(item.get("relevance", 0.0)) + metadata_score + rule_card_bonus
+        if metadata_score < -0.2:
+            continue
+        reranked.append({
+            **item,
+            "profiled_relevance": profiled_score,
+            "metadata_score": metadata_score,
+        })
+
+    reranked.sort(key=lambda item: item.get("profiled_relevance", item.get("relevance", 0)), reverse=True)
+    return reranked[:n_results]
+
+
+def query_knowledge_profiled(
+    query: str,
+    agent_name: str,
+    n_results: int = 8,
+    bm25_k: int = 12,
+    vector_k: int = 12,
+    preferred_sources: list[str] | set[str] | tuple[str, ...] | None = None,
+) -> list[dict]:
+    """Task-profiled retrieval for Obsidian-style rule cards.
+
+    This keeps the existing BM25/vector channels but reranks results with
+    frontmatter fields such as agent_scope, priority, applies_when, signals,
+    scene_types, risks and avoid_when.
+    """
+    candidates = query_knowledge_hybrid(
+        query=query,
+        agent_name=agent_name,
+        n_results=max(n_results * 3, n_results),
+        bm25_k=max(bm25_k, n_results * 2),
+        vector_k=max(vector_k, n_results * 2),
+        preferred_sources=preferred_sources,
+        metadata_profile=True,
+    )
+    return _profile_rerank_results(candidates, query, agent_name, n_results)
+
+
+def get_smart_knowledge(
+    agent_name: str,
+    context_hint: str = "",
+    retrieval_profile: dict[str, Any] | None = None,
+) -> str:
     """
     智能知识获取主接口。
     根据 config 中 retrieval_mode 决定检索策略：
       - full:   全文注入（现有行为）
       - bm25:   BM25 关键词检索
       - hybrid: BM25 + 向量混合检索（推荐）
+      - profiled: 先按任务信号/规则元数据路由，再混合检索
 
-    当检索结果不足 min_chunks_fallback 个时，自动 fallback 到全文注入。
+    旧模式下检索结果不足 min_chunks_fallback 个时，自动 fallback 到全文注入。
+    profiled 模式不全文回退，只补 critical 规则以避免大知识库污染。
     """
     config = load_config()
     kb_config = config.get("knowledge", {})
@@ -1268,9 +1512,11 @@ def get_smart_knowledge(agent_name: str, context_hint: str = "") -> str:
     final_top_k = kb_config.get("final_top_k", 8)
     min_fallback = kb_config.get("min_chunks_fallback", 3)
     registry_top_k = kb_config.get("registry_top_k", 4)
+    profiled_mode = mode == "profiled"
+    query_hint = build_retrieval_profile_query(context_hint, retrieval_profile)
 
     # 全文模式直接返回
-    if mode == "full" or not context_hint.strip():
+    if mode == "full" or (not query_hint.strip() and not profiled_mode):
         return get_full_knowledge_for_agent(agent_name), {
             "retrieval_mode": mode,
             "used_full_fallback": True,
@@ -1281,24 +1527,39 @@ def get_smart_knowledge(agent_name: str, context_hint: str = "") -> str:
             "registry_rule_ids": [],
             "registry_preferred_sources": [],
             "context_hint": context_hint,
+            "retrieval_profile": retrieval_profile or {},
         }
 
-    registry_text, registry_results = get_rule_registry_context(
-        query=context_hint,
-        agent_name=agent_name,
-        n_results=registry_top_k,
-    )
+    if registry_top_k > 0:
+        registry_text, registry_results = get_rule_registry_context(
+            query=query_hint,
+            agent_name=agent_name,
+            n_results=registry_top_k,
+        )
+    else:
+        registry_text, registry_results = "", []
     registry_rule_ids = [item.get("rule_id", "") for item in registry_results if item.get("rule_id")]
     registry_preferred_sources = sorted(preferred_sources_from_registry_results(registry_results))
 
     # 检索
     results = []
     try:
-        if mode == "hybrid":
+        if profiled_mode:
+            bm25_k = kb_config.get("bm25_top_k", 12)
+            vector_k = kb_config.get("vector_top_k", 12)
+            results = query_knowledge_profiled(
+                query=query_hint,
+                agent_name=agent_name,
+                n_results=final_top_k,
+                bm25_k=bm25_k,
+                vector_k=vector_k,
+                preferred_sources=registry_preferred_sources,
+            )
+        elif mode == "hybrid":
             bm25_k = kb_config.get("bm25_top_k", 10)
             vector_k = kb_config.get("vector_top_k", 10)
             results = query_knowledge_hybrid(
-                query=context_hint,
+                query=query_hint,
                 agent_name=agent_name,
                 n_results=final_top_k,
                 bm25_k=bm25_k,
@@ -1307,7 +1568,7 @@ def get_smart_knowledge(agent_name: str, context_hint: str = "") -> str:
             )
         elif mode == "bm25":
             results = query_knowledge_bm25(
-                query=context_hint,
+                query=query_hint,
                 agent_name=agent_name,
                 n_results=final_top_k,
                 preferred_sources=registry_preferred_sources,
@@ -1324,13 +1585,17 @@ def get_smart_knowledge(agent_name: str, context_hint: str = "") -> str:
                 "registry_rule_ids": registry_rule_ids,
                 "registry_preferred_sources": registry_preferred_sources,
                 "context_hint": context_hint,
+                "query_hint": query_hint,
+                "retrieval_profile": retrieval_profile or {},
             }
     except Exception as e:
-        print(f"[WARN] 知识检索失败 ({mode}): {e}，回退全文注入。")
-        full_text = get_full_knowledge_for_agent(agent_name)
+        fallback_kind = "critical_only" if profiled_mode else "full"
+        print(f"[WARN] 知识检索失败 ({mode}): {e}，回退 {fallback_kind} 注入。")
+        full_text = get_full_knowledge_for_agent(agent_name, critical_only=profiled_mode)
         return full_text, {
             "retrieval_mode": mode,
-            "used_full_fallback": True,
+            "used_full_fallback": not profiled_mode,
+            "used_critical_fallback": profiled_mode,
             "matched_sources": get_agent_knowledge_files(agent_name),
             "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
             "result_count": 0,
@@ -1338,11 +1603,13 @@ def get_smart_knowledge(agent_name: str, context_hint: str = "") -> str:
             "registry_rule_ids": registry_rule_ids,
             "registry_preferred_sources": registry_preferred_sources,
             "context_hint": context_hint,
+            "query_hint": query_hint,
+            "retrieval_profile": retrieval_profile or {},
             "error": str(e),
         }
 
     # 结果不足，fallback 全文
-    if len(results) < min_fallback:
+    if len(results) < min_fallback and not profiled_mode:
         print(f"[INFO] 检索结果仅 {len(results)} 条 < {min_fallback}，回退全文注入。")
         full_text = get_full_knowledge_for_agent(agent_name)
         return full_text, {
@@ -1355,6 +1622,8 @@ def get_smart_knowledge(agent_name: str, context_hint: str = "") -> str:
             "registry_rule_ids": registry_rule_ids,
             "registry_preferred_sources": registry_preferred_sources,
             "context_hint": context_hint,
+            "query_hint": query_hint,
+            "retrieval_profile": retrieval_profile or {},
         }
 
     # 拼接检索到的知识片段
@@ -1369,9 +1638,16 @@ def get_smart_knowledge(agent_name: str, context_hint: str = "") -> str:
             parts.append(f"--- {source} (精选片段) ---")
             seen_sources.add(source)
         parts.append(item["text"])
+    if profiled_mode and len(results) < min_fallback:
+        critical_text = get_full_knowledge_for_agent(agent_name, critical_only=True)
+        if critical_text:
+            parts.append("--- critical_rules (profiled fallback) ---")
+            parts.append(critical_text)
+            seen_sources.update(get_agent_knowledge_files(agent_name, critical_only=True))
     return "\n\n".join(parts), {
         "retrieval_mode": mode,
         "used_full_fallback": False,
+        "used_critical_fallback": bool(profiled_mode and len(results) < min_fallback),
         "matched_sources": sorted(seen_sources),
         "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
         "result_count": len(results),
@@ -1379,6 +1655,8 @@ def get_smart_knowledge(agent_name: str, context_hint: str = "") -> str:
         "registry_rule_ids": registry_rule_ids,
         "registry_preferred_sources": registry_preferred_sources,
         "context_hint": context_hint,
+        "query_hint": query_hint,
+        "retrieval_profile": retrieval_profile or {},
     }
 
 
