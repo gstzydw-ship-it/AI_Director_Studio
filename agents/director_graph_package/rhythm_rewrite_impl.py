@@ -148,6 +148,132 @@ def _validate_rhythm_insert_continuity(original_script: str, rewritten_script: s
     return issues
 
 
+def _rhythm_context_hint(state: DirectorState) -> str:
+    return (
+        "节奏总控 冲突诊断 戏剧冲突弱点 冲突增强分级 速度曲线 "
+        "动作密度 声音压力 道具阻碍 人物调度 时间压力 隐藏信息 情绪伤口 "
+        "下游施工指令 戏剧微粒 受击反应 停顿 卡断 尾帧承接 "
+        "禁止改写剧本 禁止新增事件 禁止重排台词 "
+        f"aspect_ratio {state.get('aspect_ratio', '16:9')}"
+    )
+
+
+def _rhythm_retrieval_profile(state: DirectorState) -> dict[str, Any]:
+    return {
+        "agent_scope": ["rhythm_rewrite_director"],
+        "rule_type": [
+            "rhythm_rewrite",
+            "dramatic_signal_rhythm",
+            "story_rhythm",
+            "conflict_diagnosis",
+            "speed_curve",
+        ],
+        "priority": ["P0", "P1", "hard"],
+        "signals": [
+            "dialogue_coverage",
+            "action_coverage",
+            "continuity_lock",
+            "reaction_beat",
+            "time_pressure",
+            "prop_pressure",
+            "sound_pressure",
+            "action_density",
+        ],
+        "scene_types": ["dialogue", "action", "suspense", "confrontation", "daily_rush"],
+        "events": [
+            "reaction",
+            "collision",
+            "power_reversal",
+            "suspense_reveal",
+            "conflict_escalation",
+            "speed_shift",
+        ],
+        "risks": [
+            "script_invention_risk",
+            "over_segmentation",
+            "rewriting_script_facts",
+            "weak_conflict",
+        ],
+        "dialogue_types": ["long_dialogue_compression", "reaction_beat", "power_confrontation"],
+        "aspect_ratios": [str(state.get("aspect_ratio", "16:9"))],
+        "registry_top_k": 3,
+        "max_chunks_per_source": 1,
+    }
+
+
+def _rhythm_user_director_intent(state: DirectorState) -> str:
+    candidate_keys = (
+        "director_intent",
+        "user_director_intent",
+        "user_notes",
+        "director_notes",
+        "creative_brief",
+        "requirements",
+        "visual_requirements",
+        "reference_images",
+    )
+    lines: list[str] = []
+    for key in candidate_keys:
+        value = state.get(key)
+        if not value:
+            continue
+        if isinstance(value, str):
+            text = value.strip()
+        else:
+            text = str(value).strip()
+        if text:
+            lines.append(f"{key}: {text}")
+    return "\n".join(lines)
+
+
+def _rhythm_supervisor_role_prompt() -> str:
+    return (
+        "你是一位短剧导演系统的节奏总控导演。你的任务不是改写剧本，"
+        "而是先诊断戏剧冲突，再把剧本和用户导演意图转成可执行的节奏调度方案。\n\n"
+        "核心职责：\n"
+        "1. 对任何剧本先做冲突诊断：主角目标、阻力、失败代价、时间压力、隐藏信息、情绪伤口、冲突弱点。\n"
+        "2. 如果冲突偏弱，必须给出冲突增强方案，但要分清权限边界。\n"
+        "3. 必须输出速度曲线：哪里起速、靠什么动作加速、哪里刹车、为什么慢、哪里再启动、爆点和钩子落点在哪里。\n"
+        "4. 必须把概括性动作翻译为可拍的动作密度，例如“手忙脚乱”“急匆匆”“气氛紧张”“列队等候”。\n"
+        "5. 必须给 story_planner 和 shot_director 下游施工指令，说明哪些是段内节拍、哪些需要拆片或卡断。\n\n"
+        "增强权限分级：\n"
+        "- L1_动作层增强：允许增加动作密度、声音压力、道具阻碍、时间压力、人物可见反应；不改剧情事实和台词。\n"
+        "- L2_调度层增强：允许调整人物进入方向、信息释放顺序、群体压迫、谁先看到谁；不改变事件结果。\n"
+        "- L3_剧情层增强：涉及新增事件、改变因果、增加误会或反转时，必须标为“需用户确认”，不能作为最终执行指令。\n\n"
+        "绝对禁止：\n"
+        "1. 不得输出改写后剧本。\n"
+        "2. 不得改写、补写、删除、调换任何台词、人物关系或剧情事实。\n"
+        "3. 不得把 L3 剧情层增强伪装成已确定剧情。\n"
+        "4. 不得把普通停顿、受击反应、信息揭示自动判定为独立片段。\n"
+        "5. 不得只写“节奏快/节奏慢”，快节奏必须写动作密度，慢节奏必须写停顿位置。\n\n"
+        "输出格式必须包含以下字段，字段名必须原样保留，便于下游读取：\n"
+        "- conflict_diagnosis：冲突诊断，包含目标、阻力、失败代价、时间压力、隐藏信息/情绪伤口、冲突弱点。\n"
+        "- conflict_enhancement_plan：冲突增强方案，按 L1/L2/L3 分级；L3 必须写“需用户确认”。\n"
+        "- speed_curve：速度曲线，按场次或片段写起速、加速动作、刹车点、慢拍原因、再启动点、爆点、钩子落点。\n"
+        "- rhythm_diagnosis：节奏诊断，说明哪里快、哪里慢、哪里停、哪里压缩、哪里卡断、哪里给反应。\n"
+        "- construction_notes：给 story_planner 的拆片施工指令，说明合并、拆分、卡断、尾帧承接。\n"
+        "- shot_director_notes：给 shot_director 的镜头施工指令，说明动作密度、反应归属、停顿位置、卡断落点和尾帧承接。\n\n"
+        "锚点归属必须写清楚：原文明确事实、概括动作可展开、用户指定导演意图、建议补强锚点、需用户确认剧情增强。"
+    )
+
+
+def _rhythm_supervisor_user_prompt(state: DirectorState) -> str:
+    user_intent = _rhythm_user_director_intent(state)
+    user_intent_block = user_intent or "无单独补充；只根据原始剧本做冲突诊断和节奏增强。"
+    return (
+        "请只做冲突诊断、节奏增强方案和下游施工指令，不要改写剧本。\n\n"
+        f"【原始剧本】\n{state['script']}\n\n"
+        f"【用户导演意图/补充要求】\n{user_intent_block}\n\n"
+        f"【画幅】{state.get('aspect_ratio', '16:9')}\n\n"
+        "【处理要求】\n"
+        "1. 如果原剧本冲突弱，先指出弱点，再用 L1/L2 增强动作、声音、道具、调度和信息释放。\n"
+        "2. 当原文只写概括词，如“忙乱、急匆匆、紧张、等待、愣住”，必须转成可拍节奏锚点。\n"
+        "3. 如果某个增强来自用户明确要求，标为“用户指定导演意图”，并优先传给下游。\n"
+        "4. 如果某个增强是你基于剧本推断，标为“建议补强锚点”，不能当作原文事实。\n"
+        "5. 如果增强会改变剧情因果或新增关键事件，放入 L3_剧情层增强，并标注“需用户确认”。\n"
+    )
+
+
 def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
     from .legacy_impl import (
         _agent_outputs,
@@ -172,43 +298,10 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
             },
         )
 
-    rhythm_hint = (
-        f"节奏总控 节奏诊断 下游施工指令 戏剧微粒 受击反应 停顿 卡断 尾帧承接 "
-        f"禁止改写剧本 禁止新增事件 禁止重排台词 aspect_ratio {state.get('aspect_ratio', '16:9')}"
-    )
-    rhythm_profile = {
-        "agent_scope": ["rhythm_rewrite_director"],
-        "rule_type": ["rhythm_rewrite", "dramatic_signal_rhythm", "story_rhythm"],
-        "priority": ["P0", "P1", "hard"],
-        "signals": [
-            "dialogue_coverage",
-            "action_coverage",
-            "continuity_lock",
-            "reaction_beat",
-        ],
-        "scene_types": ["dialogue", "action", "suspense", "confrontation"],
-        "events": ["reaction", "collision", "power_reversal", "suspense_reveal"],
-        "risks": ["script_invention_risk", "over_segmentation", "rewriting_script_facts"],
-        "dialogue_types": ["long_dialogue_compression", "reaction_beat", "power_confrontation"],
-        "aspect_ratios": [str(state.get("aspect_ratio", "16:9"))],
-        "registry_top_k": 2,
-        "max_chunks_per_source": 1,
-    }
+    rhythm_hint = _rhythm_context_hint(state)
+    rhythm_profile = _rhythm_retrieval_profile(state)
     system_prompt, retrieval_meta = build_system_prompt(
-        "你是一位短剧导演系统的节奏总控。你的任务不是改写剧本，而是诊断节奏并给下游拆片和镜头导演施工指令。\n\n"
-        "绝对禁止：\n"
-        "1. 不得输出改写后剧本。\n"
-        "2. 不得改写、补写、删除、调换任何台词、动作、道具、人物关系或剧情事实。\n"
-        "3. 不得把普通停顿、受击反应、信息揭示自动判定为独立片段。\n\n"
-        "你只输出以下内容：\n"
-        "- rhythm_diagnosis：哪里快、哪里慢、哪里需要停、哪里压缩、哪里卡断、哪里给反应。\n"
-        "- construction_notes：给 story_planner 的拆片施工指令，说明哪些内容应合并为 15 秒以内完整剧情任务，哪些明确需要卡断/钩子/尾帧承接。\n"
-        "- shot_director_notes：给 shot_director 的镜头施工指令，说明反应归属、停顿位置、卡断落点和尾帧承接。\n\n"
-        "判断规则：\n"
-        "1. 普通停顿、受击反应、信息揭示默认留在当前片段内部，由镜头导演处理。\n"
-        "2. 只有明确出现卡断、钩子、尾帧、下一段承接、重大反转落点时，才允许建议拆短片段。\n"
-        "3. 单段拆片目标是适配 Seedance 2.0 的 15 秒以内完整剧情任务，推荐 4-8 条原文事件。\n"
-        "4. 超过 8 条原文事件应建议拆开；少于 4 条通常建议合并，除非是明确钩子、卡断或重大反转落点。\n",
+        _rhythm_supervisor_role_prompt(),
         "rhythm_rewrite_director",
         context_hint=rhythm_hint,
         retrieval_profile=rhythm_profile,
@@ -217,11 +310,7 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
         retrieval_mode="profiled",
     )
 
-    user_prompt = (
-        "请只做节奏诊断和施工指令，不要改写剧本。\n\n"
-        f"【原始剧本】\n{state['script']}\n\n"
-        f"【画幅】{state.get('aspect_ratio', '16:9')}\n"
-    )
+    user_prompt = _rhythm_supervisor_user_prompt(state)
     output = call_llm(system_prompt, user_prompt, agent_name="rhythm_rewrite_director")
     output = _cleanup_rhythm_abstract_language(output)
     knowledge_metadata = _record_knowledge_metadata(state, "rhythm_rewrite_director", rhythm_hint, retrieval_meta)
@@ -238,98 +327,3 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
             "knowledge_metadata": knowledge_metadata,
         },
     )
-
-    atmosphere_strategy = ""
-    rewritten_script = ""
-    strategy_markers = ["【氛围与调度指导", "atmosphere_strategy", "【调度指导】"]
-    split_found = False
-    for marker in strategy_markers:
-        if marker in output:
-            split_pos = output.index(marker)
-            atmosphere_strategy = _cleanup_rhythm_abstract_language(output[split_pos:], preserve_heading=True)
-            rewritten_script = _clean_rhythm_rewritten_script(output[:split_pos].strip())
-            split_found = True
-            break
-
-    if split_found:
-        rebuilt_output: list[str] = []
-        if rewritten_script:
-            rebuilt_output.append(f"【改写后剧本】\n{rewritten_script}")
-        if atmosphere_strategy:
-            rebuilt_output.append(atmosphere_strategy)
-        outputs["rhythm_rewrite_director"] = "\n\n".join(rebuilt_output).strip() or output
-    else:
-        outputs["rhythm_rewrite_director"] = output
-
-    if split_found and rewritten_script:
-        structure_ok, missing_lines = _validate_rhythm_structure_lock(state["script"], rewritten_script)
-        continuity_issues = _validate_rhythm_insert_continuity(state["script"], rewritten_script) if structure_ok else []
-        if not structure_ok or continuity_issues:
-            if not structure_ok:
-                print(f"  [Rhythm] WARN: 结构锁校验失败，尝试插入式修复。缺失原文行示例: {missing_lines[:3]}")
-            if continuity_issues:
-                print(f"  [Rhythm] WARN: 插入连续性校验失败，尝试插入式修复。问题示例: {continuity_issues[:3]}")
-            issue_examples = missing_lines[:5] if missing_lines else continuity_issues[:5]
-            repair_prompt = (
-                "你上一版改写越界了。请重新输出，必须采用\"原文保留 + 插入辅助反应\"的方式。\n\n"
-                "硬规则：\n"
-                "1. 原剧本所有非空原文必须逐字逐行保留，并按原顺序出现；不能补全括号、不能修正标点、不能润色原句。\n"
-                "2. 不得改名、改场景、改地点、改道具、改OS、改字幕、改音效、改闪回标记、改动作路径。\n"
-                "3. 允许的创造性只有一种：在原文行与行之间插入新的\"▲\"辅助反应行。\n"
-                "4. 插入行必须是当前场景内可拍动作，不承担新剧情因果。\n"
-                "5. 每个节奏点最多插入 1-2 行，不要堆特写，不要写抽象词。\n\n"
-                + _rhythm_insert_continuity_rules()
-                + "\n"
-                "可插入的例子：\n"
-                "- 在\"▲乔熙手忙脚乱地给小豆丁穿衣服，一边打电话。\"之后，可以插入\"小豆丁把袖子缩回去\"\"小豆丁蹬着一只没穿好的鞋往床边躲\"等调皮动作。\n"
-                "- 在\"▲天御集团门口，秘书和主管们列队等候，气氛紧张。\"之后，可以插入\"几名秘书和主管从大楼里快步跑出，在门口匆忙站成两列\"等紧张调度。\n\n"
-                "你上一版的问题示例：\n"
-                + "\n".join(f"- {line}" for line in issue_examples)
-                + "\n\n【必须保留的原始剧本】\n"
-                + state["script"]
-            )
-            repaired_output = call_llm(system_prompt, repair_prompt, agent_name="rhythm_rewrite_director")
-            repaired_output = _cleanup_rhythm_abstract_language(repaired_output)
-
-            repaired_script = ""
-            repaired_strategy = ""
-            repaired_split = False
-            for marker in strategy_markers:
-                if marker in repaired_output:
-                    split_pos = repaired_output.index(marker)
-                    repaired_strategy = _cleanup_rhythm_abstract_language(repaired_output[split_pos:], preserve_heading=True)
-                    repaired_script = _clean_rhythm_rewritten_script(repaired_output[:split_pos].strip())
-                    repaired_split = True
-                    break
-
-            if repaired_split and repaired_script:
-                repaired_ok, repaired_missing = _validate_rhythm_structure_lock(state["script"], repaired_script)
-                repaired_continuity_issues = (
-                    _validate_rhythm_insert_continuity(state["script"], repaired_script) if repaired_ok else []
-                )
-                if repaired_ok and not repaired_continuity_issues:
-                    outputs["rhythm_rewrite_director"] = (
-                        f"【改写后剧本】\n{repaired_script}\n\n{repaired_strategy}"
-                    )
-                    rewritten_script = repaired_script
-
-    persist_payload: dict[str, Any] = {
-        "status": "running_phase_1",
-        "step": "step_1_analyze",
-        "message": "节奏总控诊断完成，场景分析师正在分析...（1/6）",
-        "atmosphere_strategy": atmosphere_strategy,
-        "agent_outputs": outputs,
-    }
-
-    if split_found and rewritten_script:
-        persist_payload["script"] = rewritten_script
-    elif not split_found and output.strip():
-        cleaned = _cleanup_rhythm_abstract_language(output.strip())
-        for prefix in ["【改写后剧本】", "# 改写后剧本", "改写后剧本："]:
-            if cleaned.startswith(prefix):
-                cleaned = cleaned[len(prefix):].strip()
-        if cleaned and cleaned != state.get("script", ""):
-            persist_payload["script"] = cleaned
-        print("  [Rhythm] WARN: 未能识别改写/策略分隔标记，已把整段 LLM 输出作为改写剧本使用。")
-
-    return _persist_update(state, persist_payload)

@@ -408,7 +408,7 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
                     if task_state.get(key) is not None
                 }
         _recover_stale_running_state(session_id, disk_state)
-        if not has_live_task and not disk_state.get("thread_id") and disk_state.get("status") in BLOCKING_STATUSES:
+        if not has_live_task and not disk_state.get("thread_id") and disk_state.get("status") in RUNNING_STATUSES:
             disk_state["status"] = "idle"
             disk_state["step"] = ""
             disk_state["message"] = "检测到旧状态机残留记录，已切换为可重新启动状态。"
@@ -1334,12 +1334,17 @@ async def api_approve_agent_output(
 
     if _has_live_task(session_id):
         return JSONResponse({"success": False, "error": "已有任务正在执行，请等待当前步骤完成。"})
-    if task_state.get("status") != "waiting_for_user_input" or task_state.get("review_mode") != "agent_output":
+    has_review_payload = bool(task_state.get("review_agent") and task_state.get("review_output") is not None)
+    is_agent_review = task_state.get("review_mode") == "agent_output" or has_review_payload
+    if task_state.get("status") != "waiting_for_user_input" or not is_agent_review:
         return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
 
     review_agent = (agent_name or task_state.get("review_agent") or "").strip()
     if not review_agent:
         return JSONResponse({"success": False, "error": "缺少要审核的 Agent 名称。"})
+    if task_state.get("review_mode") != "agent_output":
+        task_state["review_mode"] = "agent_output"
+        _save_task_state_for_session(session_id, task_state)
 
     task_generation = _bump_task_generation(session_id)
     now = _now_iso()

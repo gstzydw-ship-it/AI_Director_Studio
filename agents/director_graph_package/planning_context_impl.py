@@ -1,6 +1,7 @@
 """Package-local planning context nodes (showrunner + scene analyst) extracted from legacy_impl."""
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from .helpers import build_system_prompt
@@ -15,6 +16,36 @@ from ..knowledge_base import (
     get_smart_knowledge,
     load_knowledge_documents,
 )
+
+
+_DIRECTOR_SHOWRUNNER_FIELD_LABELS = {
+    "film_tone": "影片气质",
+    "visual_style": "视觉风格",
+    "emotional_curve": "情绪曲线",
+    "scene_goal": "场景目标",
+    "shot_priority": "镜头优先级",
+    "must_have": "硬性要求",
+    "never_do": "禁止事项",
+    "handoff_notes": "下游交接",
+    "fallback_reason": "兜底原因",
+}
+
+_DIRECTOR_SHOWRUNNER_ROLE_LABELS = {
+    "scene_analyst": "场景分析师",
+    "story_planner": "结构规划师",
+    "shot_director": "镜头导演",
+    "prompt_compiler": "提示词编译器",
+    "quality_inspector": "质量检查员",
+}
+
+
+def _localize_director_showrunner_output(output: str) -> str:
+    text = output or ""
+    for field, label in _DIRECTOR_SHOWRUNNER_FIELD_LABELS.items():
+        text = re.sub(rf"(?m)^(\s*){re.escape(field)}\s*:", rf"\1{label}:", text)
+    for role, label in _DIRECTOR_SHOWRUNNER_ROLE_LABELS.items():
+        text = re.sub(rf"\b{re.escape(role)}\b", label, text)
+    return text.strip()
 
 
 def _record_knowledge_metadata(
@@ -81,29 +112,36 @@ def _director_brief_prompt_block(director_brief: str) -> str:
     if not director_brief:
         return ""
     return (
-        "[Director Showrunner Brief]\n"
-        "This brief is the top-level creative contract. Preserve script facts, "
-        "but use it to choose emphasis, shot priority, rhythm, and acceptable tradeoffs.\n"
+        "【总导演统筹简报】\n"
+        "这是下游 agent 必须遵守的最高层创作契约。必须保留剧本事实，"
+        "只用于确定表达重点、镜头优先级、节奏取舍和可接受的权衡。\n"
         f"{director_brief}\n"
     )
 
 
 def _fallback_director_brief(state: DirectorState | dict[str, object], reason: str = "") -> str:
-    reason_line = f"fallback_reason: {reason[:180]}\n" if reason else ""
+    reason_line = f"兜底原因: {reason[:180]}\n" if reason else ""
     return (
-        "film_tone: preserve the user's script tone; do not invent new plot facts\n"
-        "visual_style: clear, executable, continuity-first cinematic coverage\n"
-        "scene_goal: make every shot serve the script's current dramatic pressure\n"
-        "shot_priority:\n"
-        "  - preserve character motivation and source-script events\n"
-        "  - keep spatial continuity and tail-frame handoff readable\n"
-        "  - prefer executable camera choices over flashy camera moves\n"
-        "must_have:\n"
-        "  - every generated shot must protect script fidelity\n"
-        "  - every segment must leave a usable continuity state for the next segment\n"
-        "never_do:\n"
-        "  - do not add script-external people, dialogue, props, or story beats\n"
-        "  - do not choose a beautiful shot that breaks geography or action clarity\n"
+        "影片气质: 保留用户剧本原有气质，不新增剧情事实\n"
+        "视觉风格: 清晰、可执行、优先保证连续性的电影化覆盖\n"
+        "情绪曲线:\n"
+        "  - 根据原剧本压力逐步推进，不额外制造新冲突\n"
+        "  - 在关键受击点保留观众能读懂的反应空间\n"
+        "场景目标: 让每个镜头都服务当前剧本的戏剧压力\n"
+        "镜头优先级:\n"
+        "  - 保留人物动机和原剧本事件\n"
+        "  - 保持空间连续性和尾帧交接清晰\n"
+        "  - 优先选择可生成、可执行的镜头，而不是炫技运镜\n"
+        "硬性要求:\n"
+        "  - 每个生成镜头都必须保护剧本忠实度\n"
+        "  - 每个片段都必须给下一片段留下可继承的连续性状态\n"
+        "禁止事项:\n"
+        "  - 不新增剧本外人物、台词、道具或剧情节拍\n"
+        "  - 不为了好看选择破坏地理关系或动作清晰度的镜头\n"
+        "下游交接:\n"
+        "  场景分析: 只提取剧本和参考图里明确存在的空间、人物和约束\n"
+        "  结构规划: 按完整剧情任务拆分，不为普通停顿单独拆段\n"
+        "  镜头导演: 把节奏重点落实到可执行镜头，不重写剧本\n"
         f"{reason_line}"
     ).strip()
 
@@ -124,7 +162,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
 
     if bool(state.get("speed_mode", False)):
-        output = _fallback_director_brief(state, "speed_mode")
+        output = _localize_director_showrunner_output(_fallback_director_brief(state, "快速模式"))
         outputs["director_showrunner"] = output
         knowledge_metadata = _record_knowledge_metadata(
             state,
@@ -157,7 +195,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
             {
                 "status": "running_phase_1",
                 "step": "step_1_analyze",
-                "message": "Director showrunner brief ready; scene analyst is running...",
+                "message": "总导演统筹已完成，场景分析正在运行...",
                 "agent_outputs": outputs,
                 "knowledge_metadata": knowledge_metadata,
                 "director_brief": output,
@@ -165,45 +203,48 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         )
 
     showrunner_hint = (
-        "director showrunner style bible emotional curve shot priority "
-        f"script fidelity visual intent aspect_ratio {state.get('aspect_ratio', '16:9')}"
+        "总导演 统筹 风格基准 情绪曲线 镜头优先级 "
+        f"剧本忠实 视觉意图 画幅 {state.get('aspect_ratio', '16:9')}"
     )
     system_prompt, retrieval_meta = build_system_prompt(
-        "You are the Director Showrunner for an AI short-film pipeline.\n"
-        "Your job is not to design detailed shots. Your job is to define the "
-        "top-level creative contract that every downstream agent must obey.\n"
-        "Preserve all script facts. Do not add plot, dialogue, people, props, "
-        "or new story events. Turn the script and rhythm guidance into a clear "
-        "director brief for scene analysis, story planning, and shot direction.\n"
-        "Output YAML only.",
+        "你是 AI 短剧流水线里的总导演统筹。\n"
+        "你的职责不是设计具体镜头，而是给所有下游智能体制定必须遵守的最高层创作契约。\n"
+        "必须保留全部剧本事实，不得新增剧情、台词、人物、道具或故事事件。\n"
+        "请把原始剧本和节奏指导整理成清晰的总导演简报，供场景分析、结构规划和镜头导演执行。\n"
+        "输出必须是 YAML，字段名和说明内容全部使用中文；只有原剧本台词或专有名词可以保留原文。",
         "director_showrunner",
         context_hint=showrunner_hint,
     )
     user_prompt = (
-        "[Original Script]\n"
+        "【原始剧本】\n"
         f"{state.get('script', '')}\n\n"
-        "[Rhythm And Atmosphere Guidance]\n"
-        f"{state.get('atmosphere_strategy', '') or 'none'}\n\n"
-        "[Aspect Ratio]\n"
+        "【节奏与氛围指导】\n"
+        f"{state.get('atmosphere_strategy', '') or '无'}\n\n"
+        "【画幅】\n"
         f"{state.get('aspect_ratio', '16:9')}\n\n"
-        "[Required YAML Fields]\n"
-        "film_tone: one concise sentence\n"
-        "visual_style: one concise sentence\n"
-        "emotional_curve: ordered list of 3-6 beats\n"
-        "scene_goal: one sentence explaining what the audience must feel or understand\n"
-        "shot_priority: ordered list of 3-5 priorities\n"
-        "must_have: list of non-negotiable creative requirements\n"
-        "never_do: list of forbidden choices that would break the scene\n"
-        "handoff_notes: short notes for scene_analyst, story_planner, and shot_director\n\n"
-        "[Decision Boundary]\n"
-        "The brief may choose emphasis and taste, but it must not rewrite script facts.\n"
-        "Prefer executable, continuity-safe choices over beautiful but unstable shots.\n"
+        "【必须输出的 YAML 字段】\n"
+        "影片气质: 一句简洁判断\n"
+        "视觉风格: 一句简洁判断\n"
+        "情绪曲线: 按顺序列出 3-6 个情绪节拍\n"
+        "场景目标: 一句话说明观众必须感受到或理解什么\n"
+        "镜头优先级: 按顺序列出 3-5 条镜头取舍重点\n"
+        "硬性要求: 列出不可妥协的创作要求\n"
+        "禁止事项: 列出会破坏本场戏的禁用选择\n"
+        "下游交接:\n"
+        "  场景分析: 给场景分析师的简短交接\n"
+        "  结构规划: 给结构规划师的简短交接\n"
+        "  镜头导演: 给镜头导演的简短交接\n\n"
+        "【决策边界】\n"
+        "总导演简报可以选择表达重点和审美倾向，但不能改写剧本事实。\n"
+        "优先选择可执行、连续性安全的方案，不要选择漂亮但不稳定的镜头方向。\n"
+        "除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
     )
 
     started = time.perf_counter()
     try:
         output = call_llm(system_prompt, user_prompt, agent_name="director_showrunner")
         output = (output or "").strip() or _fallback_director_brief(state, "empty_showrunner_output")
+        output = _localize_director_showrunner_output(output)
         runtime = {
             "agent_name": "director_showrunner",
             "mode": "direct",
@@ -212,6 +253,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         }
     except Exception as exc:
         output = _fallback_director_brief(state, f"{type(exc).__name__}: {exc}")
+        output = _localize_director_showrunner_output(output)
         runtime = {
             "agent_name": "director_showrunner",
             "mode": "direct",
@@ -229,7 +271,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         {
             "status": "running_phase_1",
             "step": "step_1_analyze",
-            "message": "Director showrunner brief ready; scene analyst is running...",
+            "message": "总导演统筹已完成，场景分析正在运行...",
             "agent_outputs": outputs,
             "knowledge_metadata": knowledge_metadata,
             "director_brief": output,

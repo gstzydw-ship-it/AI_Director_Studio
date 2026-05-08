@@ -581,17 +581,20 @@
                 }
 
                 const bodyHtml = hasContent
-                    ? `<pre class="result-text segment-prompt">${escapeHtml(entry.text)}</pre>`
+                    ? `<div class="segment-prompt-card">
+                           <div class="segment-prompt-label">可直接用于 Seedance 的 Prompt</div>
+                           <pre class="result-text segment-prompt">${escapeHtml(entry.text)}</pre>
+                       </div>`
                     : `<div class="segment-empty">该段尚未生成 Prompt。</div>`;
 
                 // 只有已生成的片段才显示操作按钮（避免空段点了没意义）
                 const copyBtn = hasContent
                     ? `<button class="btn-small segment-copy-btn" type="button" data-copy-segment="${i}"
-                               onclick="event.stopPropagation(); copySegmentPrompt(${i}, this); return false;">📋 复制本段 Prompt</button>`
+                               onclick="event.stopPropagation(); copySegmentPrompt(${i}, this); return false;">复制本段</button>`
                     : '';
                 const rerunBtn = hasContent
                     ? `<button class="btn-small segment-rerun-btn" type="button" data-rerun-segment="${i}"
-                               onclick="event.stopPropagation(); rerunSegment(${i}, this); return false;">🔄 重跑此段</button>`
+                               onclick="event.stopPropagation(); rerunSegment(${i}, this); return false;">重跑此段</button>`
                     : '';
 
                 cards.push(`
@@ -613,13 +616,389 @@
 
         const REVIEW_AGENT_LABELS = {
             rhythm_rewrite_director: '节奏总控',
+            director_showrunner: '总导演统筹',
             scene_analyst: '场景分析',
             story_planner: '结构规划',
             shot_director: '三段镜头导演',
+            shot_director_layout: '镜头摆位骨架',
+            shot_director_blocking: '动作调度导演',
+            shot_director_guard: '规则守门导演',
             storyboard_designer: '分镜流程图',
             prompt_compiler: 'Seedance 编译',
             quality_inspector: '质检导演',
         };
+
+        const READABLE_FIELD_LABELS = {
+            conflict_diagnosis: '冲突诊断',
+            conflict_enhancement_plan: '冲突增强方案',
+            speed_curve: '速度曲线',
+            rhythm_diagnosis: '节奏诊断',
+            construction_notes: '拆片建议',
+            recommended_segmentation: '推荐拆分',
+            shot_director_notes: '镜头导演提示',
+            prompt_compiler_notes: '提示词编译提示',
+            film_tone: '影片气质',
+            visual_style: '视觉风格',
+            emotional_curve: '情绪曲线',
+            scene_goal: '场景目标',
+            shot_priority: '镜头优先级',
+            must_have: '必须保留',
+            never_do: '禁止事项',
+            fallback_reason: '兜底原因',
+            global_contract: '全局约束',
+            aspect_ratio: '画幅',
+            script_fidelity: '剧本保真',
+            director_brief_emphasis: '导演重点',
+            recommended_segments: '推荐片段',
+            reference_bindings: '参考图绑定',
+            no_reference_video_or_audio: '无参考视频/音频',
+            unresolved_global: '待确认问题',
+            segments: '片段列表',
+            segment: '片段',
+            segment_id: '片段 ID',
+            source_scene: '原始场景',
+            content_scope: '内容范围',
+            construction: '构建方式',
+            input_card: '输入卡',
+            task_layer: '任务层',
+            task_type: '任务类型',
+            mode: '模式',
+            dramatic_layer: '戏剧层',
+            dramatic_task: '戏剧任务',
+            primary_subject: '主要主体',
+            speaker: '说话人',
+            receiver: '承受者',
+            info_bombs: '信息点',
+            bomb_order: '信息顺序',
+            segment_function: '片段功能',
+            action_layer: '动作层',
+            primary_action: '主要动作',
+            action_completeness: '动作完整性',
+            must_keep_utterance: '必须保留台词',
+            shot_id: '镜头 ID',
+            shot: '镜头',
+            shot_type: '镜头类型',
+            shot_size: '景别',
+            camera: '机位',
+            camera_angle: '角度',
+            camera_movement: '运镜',
+            movement: '运镜',
+            duration: '时长',
+            action: '动作',
+            dialogue: '台词',
+            subject: '主体',
+            scene: '场景',
+            beat: '节奏点',
+            transition: '转场',
+            continuity: '连续性',
+            continuity_state: '连续性状态',
+            composition: '构图',
+            lighting: '光线',
+            emotion: '情绪',
+            performance: '表演',
+            blocking: '调度',
+            spatial_relation: '空间关系',
+            tail_frame_state: '尾帧状态',
+            first_frame: '首帧',
+            end_frame: '尾帧',
+            prompt: '提示词',
+            negative_prompt: '反向提示',
+            quality_check: '质量检查',
+            qc: '质检',
+            status: '状态',
+            pass: '是否通过',
+            issues: '问题',
+            revision_instruction: '返修指令',
+            overall: '整体判断',
+            fast_points: '快节奏点',
+            slow_points: '慢节奏点',
+            need_pause: '需要停顿',
+            need_compress: '需要压缩',
+            need_cut: '建议卡断',
+            reaction: '反应归属',
+            event: '事件',
+            event_count_guidance: '事件数量建议',
+            cut_policy: '拆分策略',
+            tail_bridge: '尾帧衔接',
+            general: '通用原则',
+            reaction_ownership: '反应归属',
+            pause_positions: '停顿位置',
+            cut_points: '卡断点',
+            tail_frame: '尾帧',
+            shot_director_note: '镜头导演提示',
+            source_events: '原文事件',
+            event_count: '事件数量',
+            task_focus: '任务重点',
+            hook: '钩子',
+            risk_point: '风险点',
+            next_task: '下一任务',
+            segment_name: '片段名',
+            output_format: '输出格式',
+            runtime_notes: '运行提示',
+            final_prompt: '最终提示词',
+            prompt_compiler: '提示词编译',
+            seedance_prompt: 'Seedance 提示词',
+        };
+
+        const STATUS_MESSAGE_REWRITES = [
+            [/Director showrunner brief ready; scene analyst is running/i, '总导演策略已完成，场景分析正在运行...'],
+            [/Seedance compiler is generating segment\s+(\d+)\s+prompt/i, 'Seedance 编译师正在生成片段 $1 Prompt...'],
+            [/scene analyst is running/i, '场景分析正在运行...'],
+            [/story planner is running/i, '结构规划正在运行...'],
+            [/shot director is running/i, '镜头导演正在运行...'],
+            [/quality inspector is running/i, '质检导演正在检查...'],
+            [/processing/i, '处理中...'],
+        ];
+
+        const DIALOGUE_FIELD_KEYS = new Set([
+            'dialogue',
+            'line',
+            'utterance',
+            'spoken_text',
+            'speaker_line',
+            'must_keep_utterance',
+        ]);
+
+        const READABLE_TEXT_REPLACEMENTS = [
+            [/\bEvent Count Guidance\b/g, '事件数量建议'],
+            [/\bCut Policy\b/g, '拆分策略'],
+            [/\bTail Bridge\b/g, '尾帧衔接'],
+            [/\bGeneral\b/g, '通用原则'],
+            [/\bReaction Ownership\b/g, '反应归属'],
+            [/\bPause Positions\b/g, '停顿位置'],
+            [/\bCut Points\b/g, '卡断点'],
+            [/\bTail Frame\b/g, '尾帧'],
+            [/\bSothebie[’']?s auction\b/ig, '苏富比拍卖会'],
+            [/\bSotheby[’']?s auction\b/ig, '苏富比拍卖会'],
+            [/\bauction\b/ig, '拍卖会'],
+            [/\bnecklace\b/ig, '项链'],
+            [/\bcliffhanger\b/ig, '悬念钩子'],
+            [/\bPrompt\b/g, '提示词'],
+            [/\bprompt\b/g, '提示词'],
+            [/\bsegment\b/g, '片段'],
+            [/\bSegment\b/g, '片段'],
+            [/\bevent\b/g, '事件'],
+            [/\bEvent\b/g, '事件'],
+            [/\breaction\b/g, '反应'],
+            [/\bReaction\b/g, '反应'],
+            [/\bcut point\b/ig, '卡断点'],
+            [/\btail frame\b/ig, '尾帧'],
+            [/\bbridge\b/ig, '衔接'],
+            [/\bpolicy\b/ig, '策略'],
+            [/\bguidance\b/ig, '建议'],
+            [/\bgeneral\b/ig, '通用原则'],
+            [/\bownership\b/ig, '归属'],
+            [/\bpositions\b/ig, '位置'],
+            [/\bpoints\b/ig, '点位'],
+        ];
+
+        function normaliseReadableKey(key) {
+            return String(key || '')
+                .trim()
+                .replace(/^[-\s]+/, '')
+                .replace(/:$/, '')
+                .replace(/([a-z0-9])([A-Z])/g, '$1_$2')
+                .replace(/[^A-Za-z0-9]+/g, '_')
+                .replace(/^_+|_+$/g, '')
+                .toLowerCase();
+        }
+
+        function isDialogueField(key) {
+            return DIALOGUE_FIELD_KEYS.has(normaliseReadableKey(key));
+        }
+
+        function looksLikeDialogue(text) {
+            const value = String(text || '').trim();
+            return /[?!。！？]$/.test(value)
+                || /^(Sunny|Mr\.|Mrs\.|Ms\.|Your|There|Double|Could|You|Sorry|Guess|Don't|If|I\b|I'm\b|What|Where|Why|How)\b/i.test(value)
+                || /\b(if|you|your|it'?s|don'?t|sorry|guess|got|wrong|leaving|important|coffee)\b/i.test(value);
+        }
+
+        function applyReadableTextReplacements(text) {
+            let output = String(text || '');
+            READABLE_TEXT_REPLACEMENTS.forEach(([pattern, replacement]) => {
+                output = output.replace(pattern, replacement);
+            });
+            return output;
+        }
+
+        function localizeReadableText(text, contextKey = '') {
+            const source = String(text || '');
+            if (!source || isDialogueField(contextKey)) return source;
+
+            let output = '';
+            let cursor = 0;
+            const quotedSpanPattern = /([‘“])([\s\S]*?)([’”])/g;
+            let match;
+            while ((match = quotedSpanPattern.exec(source)) !== null) {
+                output += applyReadableTextReplacements(source.slice(cursor, match.index));
+                const [, openQuote, quotedText, closeQuote] = match;
+                const nextText = looksLikeDialogue(quotedText)
+                    ? quotedText
+                    : applyReadableTextReplacements(quotedText);
+                output += openQuote + nextText + closeQuote;
+                cursor = match.index + match[0].length;
+            }
+            output += applyReadableTextReplacements(source.slice(cursor));
+            return output;
+        }
+
+        function readableAgentLabel(agent) {
+            return REVIEW_AGENT_LABELS[agent] || String(agent || 'Agent').replace(/_/g, ' ');
+        }
+
+        function readableStatusMessage(message) {
+            let text = String(message || '');
+            STATUS_MESSAGE_REWRITES.forEach(([pattern, replacement]) => {
+                text = text.replace(pattern, replacement);
+            });
+            return text;
+        }
+
+        function stripMarkdownFence(text) {
+            return String(text || '')
+                .replace(/^\s*```[a-zA-Z0-9_-]*\s*/u, '')
+                .replace(/\s*```\s*$/u, '')
+                .trim();
+        }
+
+        function readableFieldLabel(key) {
+            const cleanKey = String(key || '').trim().replace(/^[-\s]+/, '').replace(/:$/, '');
+            if (READABLE_FIELD_LABELS[cleanKey]) return READABLE_FIELD_LABELS[cleanKey];
+            const normalisedKey = normaliseReadableKey(cleanKey);
+            if (READABLE_FIELD_LABELS[normalisedKey]) return READABLE_FIELD_LABELS[normalisedKey];
+            return localizeReadableText(
+                cleanKey.replace(/_/g, ' ').replace(/\b\w/g, char => char.toUpperCase())
+            );
+        }
+
+        function cleanReadableValue(value, contextKey = '') {
+            const trimmed = String(value || '').trim().replace(/,$/, '');
+            if (trimmed === 'true') return '是';
+            if (trimmed === 'false') return '否';
+            if (trimmed === '[]') return '无';
+            if (
+                (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+                (trimmed.startsWith("'") && trimmed.endsWith("'"))
+            ) {
+                return localizeReadableText(trimmed.slice(1, -1), contextKey);
+            }
+            return localizeReadableText(trimmed, contextKey);
+        }
+
+        function renderReadableBody(text) {
+            const cleaned = stripMarkdownFence(text);
+            if (!cleaned) return '<div class="placeholder-text">暂无可展示输出。</div>';
+
+            const lines = cleaned.split(/\r?\n/);
+            let html = '';
+            let sectionOpen = false;
+            let listOpen = false;
+            let currentContextKey = '';
+
+            const closeList = () => {
+                if (!listOpen) return;
+                html += '</ul>';
+                listOpen = false;
+            };
+            const closeSection = () => {
+                closeList();
+                if (!sectionOpen) return;
+                html += '</section>';
+                sectionOpen = false;
+            };
+            const ensureSection = () => {
+                if (sectionOpen) return;
+                html += '<section class="readable-section">';
+                sectionOpen = true;
+            };
+
+            lines.forEach(rawLine => {
+                if (!rawLine.trim() || rawLine.trim().startsWith('```')) return;
+
+                const indent = (rawLine.match(/^\s*/) || [''])[0].length;
+                const line = rawLine.trim();
+                const keyValue = line.match(/^([A-Za-z0-9_.\/-]+)\s*[:：]\s*(.*)$/u);
+                const bullet = line.match(/^[-*]\s+(.+)$/u);
+
+                if (keyValue) {
+                    const [, rawKey, rawValue] = keyValue;
+                    const label = readableFieldLabel(rawKey);
+                    const value = cleanReadableValue(rawValue, rawKey);
+                    currentContextKey = rawKey;
+
+                    if (!value && indent <= 2) {
+                        closeSection();
+                        html += `<section class="readable-section"><h4>${escapeHtml(label)}</h4>`;
+                        sectionOpen = true;
+                        return;
+                    }
+
+                    ensureSection();
+                    closeList();
+                    if (!value) {
+                        html += `<div class="readable-subtitle depth-${Math.min(3, Math.floor(indent / 2))}">${escapeHtml(label)}</div>`;
+                        return;
+                    }
+                    html += `
+                        <div class="readable-row depth-${Math.min(3, Math.floor(indent / 2))}">
+                            <span>${escapeHtml(label)}</span>
+                            <p>${escapeHtml(value)}</p>
+                        </div>
+                    `;
+                    return;
+                }
+
+                if (bullet) {
+                    ensureSection();
+                    if (!listOpen) {
+                        html += '<ul class="readable-list">';
+                        listOpen = true;
+                    }
+                    html += `<li>${escapeHtml(cleanReadableValue(bullet[1], currentContextKey))}</li>`;
+                    return;
+                }
+
+                ensureSection();
+                closeList();
+                const plainLineLabel = readableFieldLabel(line);
+                if (normaliseReadableKey(plainLineLabel) !== normaliseReadableKey(line) && !line.includes(' ')) {
+                    currentContextKey = line;
+                    html += `<div class="readable-subtitle">${escapeHtml(plainLineLabel)}</div>`;
+                    return;
+                }
+                html += `<p class="readable-paragraph">${escapeHtml(localizeReadableText(line, currentContextKey))}</p>`;
+            });
+
+            closeSection();
+            return html || '<div class="placeholder-text">暂无可展示输出。</div>';
+        }
+
+        function renderReadableAgentOutput(agent, text, options = {}) {
+            const cleaned = stripMarkdownFence(text);
+            if (!cleaned) return '<div class="placeholder-text">该 Agent 暂无输出</div>';
+            const label = readableAgentLabel(agent);
+            const showRaw = options.showRaw === true;
+            const helperText = options.hideRaw
+                ? '中文字段速览，下面仍可直接编辑完整原文'
+                : (showRaw ? '已转成中文字段视图，原始内容保留在下方折叠区' : '每一步输出已转成中文字段视图');
+            const rawDetails = showRaw
+                ? `<details class="raw-output-details">
+                       <summary>查看原始文本 / 复制排查用</summary>
+                       <pre class="result-text">${escapeHtml(cleaned)}</pre>
+                   </details>`
+                : '';
+            return `
+                <div class="readable-output">
+                    <div class="readable-output-title">
+                        <span>${escapeHtml(label)}</span>
+                        <small>${escapeHtml(helperText)}</small>
+                    </div>
+                    ${renderReadableBody(cleaned)}
+                    ${rawDetails}
+                </div>
+            `;
+        }
 
         function reviewOutputText(state = {}) {
             const agent = state.review_agent || '';
@@ -648,14 +1027,32 @@
             selectResultTab(agent);
             document.getElementById('resultTabs').style.display = 'flex';
             document.getElementById('resultOutput').innerHTML = `
-                <div style="display:flex; flex-direction:column; gap:14px;">
-                    <div style="padding:14px 16px; border:1px solid rgba(34,211,238,.45); background:rgba(34,211,238,.08); border-radius:8px;">
-                        <div style="font-weight:700; color:var(--accent-info); margin-bottom:6px;">${escapeHtml(label)}已完成</div>
-                        <div style="color:var(--text-secondary); font-size:13px;">下面是这一步的输出。你可以直接修改，确认后系统会把修改后的内容交给下一个 Agent。</div>
+                <div class="agent-review-panel">
+                    <div class="agent-review-banner">
+                        <div>
+                            <strong>${escapeHtml(label)}已完成，等待你确认</strong>
+                            <span>先看中文速览；需要调整时，直接改下面的可编辑原文。</span>
+                        </div>
+                        <span class="review-badge">可修改</span>
                     </div>
-                    <textarea id="agentReviewEditor" style="width:100%; min-height:420px; resize:vertical; padding:14px; border-radius:8px; border:1px solid var(--border-color); background:rgba(15,23,42,.78); color:var(--text-primary); font-family:Consolas, Monaco, monospace; font-size:13px; line-height:1.65;">${escapeHtml(text)}</textarea>
-                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
-                        <button class="btn-primary" onclick="approveAgentOutput()">确认修改并继续</button>
+
+                    <div class="agent-review-actions">
+                        <button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存修改并继续下一步</button>
+                        <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
+                    </div>
+
+                    <div class="review-preview">
+                        ${renderReadableAgentOutput(agent, text, { hideRaw: true })}
+                    </div>
+
+                    <details class="review-editor-details">
+                        <summary>需要精修时展开原始结构文本</summary>
+                        <label class="review-editor-label" for="agentReviewEditor">原始结构文本</label>
+                        <textarea id="agentReviewEditor" class="agent-review-editor">${escapeHtml(text)}</textarea>
+                    </details>
+
+                    <div class="agent-review-actions bottom">
+                        <button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存修改并继续下一步</button>
                         <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
                     </div>
                 </div>
@@ -707,10 +1104,10 @@
         }
 
         function renderWaitingInputBox(state = {}) {
-            if (state.review_mode === 'agent_output') {
+            if (state.review_mode === 'agent_output' || state.review_agent || state.review_output) {
                 renderAgentReviewBox(state);
                 applyBackendProgress(state);
-                document.getElementById('pipelineMsg').textContent = state.message || '等待审核当前 Agent 输出';
+                document.getElementById('pipelineMsg').textContent = readableStatusMessage(state.message) || '等待审核当前 Agent 输出';
                 return;
             }
             const segIdx = Number(state.current_segment_index || 1);
@@ -1025,9 +1422,10 @@
                         return;
                     }
 
+                    const readableMessage = readableStatusMessage(state.message || '');
                     msgEl.textContent = isRunning
-                        ? `${state.message || '处理中...'} (已用时 ${timeStr})`
-                        : (state.message || '');
+                        ? `${readableMessage || '处理中...'} (已用时 ${timeStr})`
+                        : readableMessage;
                     applyBackendProgress(state);
 
                     if (state.status === 'done') {
@@ -1321,7 +1719,7 @@
             const title = isPhase2
                 ? `正在基于上一段视频生成片段 ${segIdx} / ${totalSegments}`
                 : 'Agent 团队正在处理';
-            const detail = state.message || '处理中...';
+            const detail = readableStatusMessage(state.message || '处理中...');
             const hasTailAnalysis = Boolean(state.tail_frame_analysis);
             const qcRetry = Number(state.qc_retry_count || 0);
             if (isPhase2 || compiledSegmentEntries(state.agent_outputs || {}).length > 0) {
@@ -1346,7 +1744,7 @@
                 `;
             }
             document.getElementById('interactiveBox').innerHTML = '';
-            updateAgentStatus('running', isPhase2 ? `生成片段 ${segIdx}` : (state.message || 'Agent 工作中'));
+            updateAgentStatus('running', isPhase2 ? `生成片段 ${segIdx}` : (detail || 'Agent 工作中'));
         }
 
         function resetBtn() {
@@ -1416,7 +1814,7 @@
 
         function updateAgentStatus(type, text) {
             document.getElementById('agentStatus').innerHTML =
-                `<div class="status-dot ${type}"></div><span>${text}</span>`;
+                `<div class="status-dot ${type}"></div><span>${escapeHtml(readableStatusMessage(text))}</span>`;
         }
 
         // === 构建向量库 ===
@@ -1524,8 +1922,7 @@
             if (availableEntry) {
                 const [availableAgent, text] = availableEntry;
                 selectResultTab(availableAgent);
-                document.getElementById('resultOutput').innerHTML =
-                    '<pre class="result-text">' + escapeHtml(text) + '</pre>';
+                document.getElementById('resultOutput').innerHTML = renderReadableAgentOutput(availableAgent, text);
                 return;
             }
 
@@ -1598,7 +1995,7 @@
                 ? latestShotDirectorOutput(agentOutputs)
                 : (agentOutputs[agent] || '');
             if (text) {
-                output.innerHTML = '<pre class="result-text">' + escapeHtml(text) + '</pre>';
+                output.innerHTML = renderReadableAgentOutput(agent, text);
             } else {
                 output.innerHTML = '<div class="placeholder-text">该 Agent 暂无输出</div>';
             }

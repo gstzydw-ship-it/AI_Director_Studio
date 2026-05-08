@@ -28,8 +28,15 @@ def test_director_showrunner_node_writes_brief(monkeypatch):
 
     def fake_call_llm(system_prompt, user_prompt, **kwargs):
         assert kwargs["agent_name"] == "director_showrunner"
-        assert "Required YAML Fields" in user_prompt
-        return "film_tone: restrained\nshot_priority:\n  - script fidelity\n"
+        assert "必须输出的 YAML 字段" in user_prompt
+        assert "英文字段名" in user_prompt
+        return (
+            "film_tone: 克制\n"
+            "shot_priority:\n"
+            "  - 剧本忠实\n"
+            "handoff_notes:\n"
+            "  scene_analyst: 保留事实\n"
+        )
 
     monkeypatch.setattr(pci, "call_llm", fake_call_llm)
 
@@ -43,7 +50,10 @@ def test_director_showrunner_node_writes_brief(monkeypatch):
         }
     )
 
-    assert result["director_brief"].startswith("film_tone: restrained")
+    assert result["director_brief"].startswith("影片气质: 克制")
+    assert "镜头优先级:" in result["director_brief"]
+    assert "下游交接:" in result["director_brief"]
+    assert "场景分析师:" in result["director_brief"]
     assert result["agent_outputs"]["director_showrunner"] == result["director_brief"]
 
 
