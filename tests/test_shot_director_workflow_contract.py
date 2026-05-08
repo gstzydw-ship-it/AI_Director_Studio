@@ -7,6 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from agents.director_graph_package.shot_director_impl import (  # noqa: E402
     _build_shot_director_workflow_trace,
     _extract_rhythm_shot_director_notes,
+    _planner_source_event_context,
     _reference_images,
     _rhythm_shot_director_notes_prompt,
     _shot_director_coverage_contract_prompt,
@@ -107,6 +108,23 @@ construction_notes: no split before the flashback.
     assert "[Rhythm Supervisor Shot Notes]" in context
     assert "reaction belongs to Qiao Xi" in context
     assert "[Atmosphere Excerpt]" in context
+
+
+def test_planner_source_event_context_keeps_only_selected_fragments():
+    planner_output = """- fragment_id: F01
+  source_script_events:
+    - "Qiao Xi reads the photo."
+  director_brief: "Protect the photo reveal."
+- fragment_id: F02
+  source_script_events:
+    - "Flashback begins under the ginkgo tree."
+"""
+
+    context = _planner_source_event_context(planner_output, ["F02"])
+
+    assert "F02 source_script_events" in context
+    assert "Flashback begins" in context
+    assert "Qiao Xi reads the photo" not in context
 
 
 def test_shot_director_does_not_upload_raw_reference_images():

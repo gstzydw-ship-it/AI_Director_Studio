@@ -27,6 +27,8 @@ from .helpers import (
     _dialogue_payload_is_long,
     _MAIN_SHOT_BLOCK_RE,
     _DIALOGUE_COVERAGE_TERMS_RE,
+    _fragment_id_for_segment_index,
+    _segment_block_by_fragment_id,
 )
 from .llm import call_llm
 from .prompting import build_system_prompt
@@ -34,7 +36,6 @@ from .state_store import _agent_outputs, _persist_update
 from ..mcp_llm import call_llm_with_mcp
 
 _record_knowledge_metadata = _legacy._record_knowledge_metadata
-_segment_block = _legacy._segment_block
 _scene_memory_card = _legacy._scene_memory_card
 _current_segment_event_card = _legacy._current_segment_event_card
 _reference_context = _legacy._reference_context
@@ -70,6 +71,12 @@ _AXIS_LEFT_RE = _legacy._AXIS_LEFT_RE
 _AXIS_RIGHT_RE = _legacy._AXIS_RIGHT_RE
 _SILENT_CUT_TRIGGER_RE = _legacy._SILENT_CUT_TRIGGER_RE
 _NEW_SUBJECT_FRAMING_RE = _legacy._NEW_SUBJECT_FRAMING_RE
+
+
+def _segment_block(text: str, segment_index: int, fragment_id: str | None = None) -> str:
+    """Extract the YAML block for one Fxx fragment."""
+    selected_fragment_id = fragment_id or _fragment_id_for_segment_index([], segment_index)
+    return _segment_block_by_fragment_id(text, selected_fragment_id)
 
 _INTERNAL_DIALOGUE_CUT_RE = re.compile(r"(镜头切至|镜头切到|切至|切到|切回|反打至|反打镜头|过肩|画外音|OS|L-cut|J-cut)")
 _LISTENER_COVERAGE_RE = re.compile(r"(听者|对手|对方|受击|反应|反打|过肩|视线|下颌|呼吸|停顿|画外音|OS|L-cut|J-cut)")
@@ -727,6 +734,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
     segment_index = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
     total_segments = int(state.get("total_segments") or 1)
     aspect_ratio = state.get("aspect_ratio", "16:9")
+    current_fragment_id = _fragment_id_for_segment_index(state.get("segment_names") or [], segment_index)
     aspect_label = "9:16竖屏" if "9:16" in aspect_ratio else "16:9横屏"
 
     compiler_hint = (
@@ -840,11 +848,14 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
             "请只输出修订后的当前片段 Prompt，不要解释修改过程。\n"
         )
 
-    current_planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index)
-    current_director_segment_raw = _segment_block(outputs.get("shot_director", ""), segment_index)
+    current_planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index, current_fragment_id)
+    current_director_segment_raw = _segment_block(outputs.get("shot_director", ""), segment_index, current_fragment_id)
     current_director_segment = _compress_director_for_compiler(current_director_segment_raw)
     scene_memory = _scene_memory_card(outputs.get("scene_analyst", ""), 1400)
     current_source_events = _current_segment_event_card(current_planner_segment, 1600)
+    current_script_context = "\n\n".join(
+        part for part in (current_source_events, current_planner_segment) if part
+    )
     tail_frame_memory = _truncate_for_prompt(state.get("tail_frame_analysis", ""), 1800)
     if tail_frame_memory:
         tail_frame_memory = (
@@ -1005,12 +1016,12 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "全部通过后再输出。"
     )
     output = call_llm_with_mcp(system_prompt, user_prompt, server_type="filesystem", images_base64=None, agent_name="prompt_compiler")
-    output = _normalise_compiled_prompt(output, segment_index, state.get("script", ""))
+    output = _normalise_compiled_prompt(output, segment_index, current_script_context)
     knowledge_metadata = _record_knowledge_metadata(state, "prompt_compiler", compiler_hint, retrieval_meta)
     try:
         compiler_guard_report = _compiler_guard_report(
             output,
-            state.get("script", ""),
+            current_script_context,
             current_planner_segment,
             current_director_segment_raw,
         )

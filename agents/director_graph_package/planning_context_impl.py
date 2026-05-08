@@ -166,7 +166,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
 
     showrunner_hint = (
         "director showrunner style bible emotional curve shot priority "
-        f"script fidelity visual intent {state.get('script', '')[:200]}"
+        f"script fidelity visual intent aspect_ratio {state.get('aspect_ratio', '16:9')}"
     )
     system_prompt, retrieval_meta = build_system_prompt(
         "You are the Director Showrunner for an AI short-film pipeline.\n"
@@ -279,7 +279,7 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
             },
         )
 
-    scene_hint = f"场景分析 剧本拆解 核心动作 炸点 约束 导演意图 {state['script'][:200]}"
+    scene_hint = f"场景分析 剧本拆解 核心动作 炸点 约束 导演意图 aspect_ratio {state.get('aspect_ratio', '16:9')}"
     system_prompt, retrieval_meta = build_system_prompt(
         "你是一位顶尖短剧场景分析师。你需要拆解用户提供的剧本，提取核心动作、炸点和约束。\n\n"
         "【绝对禁令】你只能提取剧本原文中明确存在的信息。\n"

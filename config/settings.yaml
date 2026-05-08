@@ -28,7 +28,7 @@ agent_models:
     read_timeout_seconds: 240
     max_retries: 3
     fallback_models:
-    - claude-opus-4-7
+      - claude-opus-4-7
   script_event_validator:
     base_url: http://8.nat0.cn:49347/v1
     model: deepseek-v3.2
@@ -42,8 +42,8 @@ agent_models:
     write_timeout_seconds: 90
     max_retries: 3
     fallback_models:
-    - glm-5.1
-    - deepseek-v3.2
+      - glm-5.1
+      - deepseek-v3.2
   story_planner:
     base_url: http://8.nat0.cn:49347/v1
     model: claude-opus-4-7
@@ -68,7 +68,7 @@ knowledge:
   retrieval_mode: hybrid
   vector_top_k: 10
 llm:
-  api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+  api_key: ${DIRECTOR_LLM_API_KEY}
   base_url: http://8.nat0.cn:49347/v1
   max_tokens: 8192
   max_retries: 2
@@ -92,15 +92,15 @@ mcp:
       enabled: false
       server_type: filesystem
   filesystem_roots:
-  - ./knowledge
-  - ./output/sessions
+    - ./knowledge
+    - ./output/sessions
 output:
   directory: ./output
 ui:
   host: 127.0.0.1
   port: 8686
 vectordb:
-  api_key: sk-7ofCCJBy2aNJU5ojZyl54nHT3RgEd1gByTOk44nTH6o8H67E
+  api_key: ${DIRECTOR_EMBEDDING_API_KEY}
   base_url: https://ai.comfly.chat/v1
   chunk_overlap: 100
   chunk_size: 800

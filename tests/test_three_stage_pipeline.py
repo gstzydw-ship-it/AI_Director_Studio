@@ -20,6 +20,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 import agents.director_graph as dg
+from agents.director_graph_package import legacy_impl, runners, shot_director_impl
 
 
 # ── lean schema stub 输出 ──────────────────────────────────────────
@@ -105,7 +106,7 @@ def _fake_llm_factory():
 
 def _patch_fast_prompt_builder(monkeypatch):
     """Keep these tests offline."""
-    def fake_build_system_prompt(base_system, agent_name, context_hint=""):
+    def fake_build_system_prompt(base_system, agent_name, context_hint="", **_kwargs):
         return base_system, {
             "retrieval_mode": "stub",
             "used_full_fallback": False,
@@ -210,8 +211,8 @@ def test_restart_shot_director_from_story_plan_clears_old_data(monkeypatch):
     saved_states: list[dict] = []
     captured_node_state: dict = {}
 
-    monkeypatch.setattr(dg, "load_state", lambda: state)
-    monkeypatch.setattr(dg, "save_state", lambda payload: saved_states.append(dict(payload)))
+    monkeypatch.setattr(legacy_impl, "load_state", lambda: state)
+    monkeypatch.setattr(legacy_impl, "save_state", lambda payload: saved_states.append(dict(payload)))
 
     def fake_shot_director_node(payload):
         captured_node_state.update(payload)
@@ -223,9 +224,9 @@ def test_restart_shot_director_from_story_plan_clears_old_data(monkeypatch):
         }
         return result
 
-    monkeypatch.setattr(dg, "shot_director_node", fake_shot_director_node)
+    monkeypatch.setattr(shot_director_impl, "shot_director_node", fake_shot_director_node)
 
-    result = dg.run_shot_director_restart_from_story_plan()
+    result = runners.run_shot_director_restart_from_story_plan()
 
     node_outputs = captured_node_state["agent_outputs"]
     assert "story_planner" in node_outputs

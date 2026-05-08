@@ -23,8 +23,9 @@ def test_teaching_case_library_belongs_to_shot_director_stages_not_compiler():
 
 
 def test_dialogue_performance_rules_are_available_to_camera_planning_stages():
-    for agent_name in ("shot_director", "shot_director_layout", "shot_director_blocking", "shot_director_guard"):
+    for agent_name in ("shot_director", "shot_director_blocking", "shot_director_guard"):
         assert "04_对白与表演镜头规则.md" in AGENT_KNOWLEDGE_MAP[agent_name]
+    assert "04_对白与表演镜头规则.md" not in AGENT_KNOWLEDGE_MAP["shot_director_layout"]
 
 
 def test_dialogue_performance_rules_are_critical_for_camera_planning_stages():

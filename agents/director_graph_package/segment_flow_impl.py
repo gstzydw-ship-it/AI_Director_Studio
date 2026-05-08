@@ -8,6 +8,7 @@ import sys
 from datetime import datetime
 from typing import Any, Callable, Literal
 
+from .helpers import _fragment_id_for_segment_index, _segment_block_by_fragment_id
 from .llm import call_llm
 from .state_store import _agent_outputs, _persist_update
 from .types import DirectorState, OUTPUT_DIR
@@ -127,9 +128,9 @@ def _combined_prompt(agent_outputs: dict[str, str]) -> str:
     return _impl(agent_outputs)
 
 
-def _segment_block(text: str, segment_index: int) -> str:
-    from .legacy_impl import _segment_block as _impl
-    return _impl(text, segment_index)
+def _segment_block(text: str, segment_index: int, fragment_id: str | None = None) -> str:
+    fragment_id = fragment_id or _fragment_id_for_segment_index([], segment_index)
+    return _segment_block_by_fragment_id(text, fragment_id)
 
 
 def _legacy_analyze_tail_frame() -> Callable[..., str]:
@@ -151,8 +152,9 @@ def _truncate_bridge_text(text: str, limit: int = 1800) -> str:
 
 def _next_segment_bridge_context(state: DirectorState, segment_index: int) -> str:
     outputs = dict(state.get("agent_outputs") or {})
-    planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index)
-    director_segment = _segment_block(outputs.get("shot_director", ""), segment_index)
+    fragment_id = _fragment_id_for_segment_index(state.get("segment_names") or [], segment_index)
+    planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index, fragment_id)
+    director_segment = _segment_block(outputs.get("shot_director", ""), segment_index, fragment_id)
     scene_memory = _truncate_bridge_text(outputs.get("scene_analyst", ""), 900)
 
     lines = [

@@ -1403,6 +1403,29 @@ def _sections_by_fragment(yaml_text: str) -> dict[str, str]:
             sections[fragment_id] = section.strip()
     return sections
 
+def _planner_source_event_context(
+    planner_output: str,
+    fragment_ids: list[str] | None = None,
+    *,
+    char_limit: int = 2400,
+) -> str:
+    sections_by_id = _sections_by_fragment(planner_output)
+    selected_ids = fragment_ids or list(sections_by_id)
+    chunks: list[str] = []
+    for fragment_id in selected_ids:
+        section = sections_by_id.get(fragment_id, "")
+        if not section:
+            continue
+        source_events = _source_script_events(section)
+        if source_events:
+            event_lines = "\n".join(f"- {event}" for event in source_events)
+            chunks.append(f"{fragment_id} source_script_events:\n{event_lines}")
+        else:
+            chunks.append(f"{fragment_id} planner_contract:\n{_truncate_for_prompt(section, 600)}")
+    if not chunks and planner_output:
+        chunks.append(_truncate_for_prompt(planner_output, char_limit))
+    return _truncate_for_prompt("\n\n".join(chunks), char_limit)
+
 def _extract_rhythm_shot_director_notes(atmosphere_strategy: str) -> str:
     """Extract rhythm supervisor notes that are explicitly addressed to shot_director."""
     text = (atmosphere_strategy or "").strip()
@@ -2025,7 +2048,18 @@ def shot_director_node(state: DirectorState) -> DirectorState:
     shot_meta = (state.get("knowledge_metadata") or {}).get("shot_director", {})
     resume_stage_runtime = shot_meta.get("runtime", {}) if isinstance(shot_meta, dict) else {}
     resume_stage_meta = shot_meta.get("stage_retrieval", {}) if isinstance(shot_meta, dict) else {}
-    director_hint = f"镜头导演 焦段景深 景别画幅 连续性 情绪锚点 仰拍限制 切镜 受击者 炸点 对白 信息冲击 动作接续 人物关系 场面总控 节奏 子分镜 戏剧微粒 权力反转 悬念揭示 误解错位 9:16 半身中景 特写限频 微细节镜头 {state['script'][:200]}"
+    segment_fragment_ids = [_segment_name_to_fragment_id(name) for name in segment_names]
+    planner_source_context = _planner_source_event_context(
+        planner_output,
+        segment_fragment_ids or None,
+        char_limit=1200,
+    )
+    director_hint = (
+        "shot_director 焦段景深 景别画幅 连续性 情绪锚点 仰拍限制 切镜 受击者 "
+        "炸点 对白 信息冲击 动作接续 人物关系 场面总控 节奏 子分镜 戏剧微粒 "
+        "权力反转 悬念揭示 误解错位 source_script_events "
+        f"{planner_source_context[:300]}"
+    )
     if director_brief_text:
         director_hint = f"{director_hint} director_showrunner {director_brief_text[:300]}"
     shot_runtime_started = time.perf_counter()
@@ -2149,6 +2183,11 @@ def shot_director_node(state: DirectorState) -> DirectorState:
                 if failed_fragment_ids
                 else "无法定位具体失败片段时，才允许修复完整 YAML。"
             )
+            failed_source_context = _planner_source_event_context(
+                planner_output,
+                failed_fragment_ids or None,
+                char_limit=2400,
+            )
             final_repair_prompt = (
                 "shot_director 最终 YAML 没有通过主校验。请只修正 YAML，不要解释。\n\n"
                 f"【返修范围】\n{final_repair_scope}\n\n"
@@ -2160,10 +2199,8 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             "3. 每个 shot 必须有字段：shot_id、duration、task、subject、shot、action、dialogue、must_carry、cut_point、continuity。\n"
             "4. cut_point 必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
             "5. 长台词必须插入听者反应镜头；只能使用剧本里的人物和台词，不新增剧本外内容。\n\n"
-                "【原始剧本】\n"
-                f"{state.get('script', '')}\n\n"
-                "【拆片方案】\n"
-                f"{planner_output}\n\n"
+                "【失败片段事件/契约】\n"
+                f"{failed_source_context}\n\n"
                 "【待修正 YAML（仅失败片段或定位失败时的完整 YAML）】\n"
                 f"{repair_target_output}\n\n"
                 "请只输出返修范围内的 YAML 片段。"

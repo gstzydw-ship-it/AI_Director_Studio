@@ -174,7 +174,7 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
 
     rhythm_hint = (
         f"节奏总控 剧本改写 动作增补 氛围渲染 微表情 死寂气口 蓄力泄压 "
-        f"受击反应 情绪曲线 竖屏压迫 {state['script'][:200]}"
+        f"受击反应 情绪曲线 竖屏压迫 aspect_ratio {state.get('aspect_ratio', '16:9')}"
     )
     system_prompt, retrieval_meta = build_system_prompt(
         "你是一位短剧导演系统的节奏总控。你的任务不是改写剧本，而是诊断节奏并给下游拆片和镜头导演施工指令。\n\n"

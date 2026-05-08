@@ -18,7 +18,7 @@ try:
 except ImportError:
     bm25s = None
     _HAS_BM25S = False
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Callable
 
 from .request_context import request_session_id
 from .utils import COMFLY_BASE_URL, get_config_path, get_knowledge_dir, get_cache_dir, get_output_dir, load_yaml_config
@@ -486,6 +486,7 @@ CRITICAL_KNOWLEDGE_MAP = {
     ],
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",   # 一号机位摆位导演的职责合同
+        "04_对白与表演镜头规则.md",       # 对白覆盖与表演落点
         "02_焦段景深与景别画幅策略.md",   # 景别/焦段/画幅主规则
         "06_连续性与安全规则.md",          # 接缝与状态安全
         "21_镜头调用规则与多机位模板.md",  # 主镜头骨架模板
@@ -542,6 +543,26 @@ for _files in CRITICAL_KNOWLEDGE_MAP.values():
             _files.insert(0, _common_file)
 
 
+def _append_runtime_rule_card(
+    files: list[str],
+    relpath: str,
+    filepath: str,
+    include: Callable[[str], bool] | None = None,
+) -> None:
+    if relpath in files:
+        return
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError:
+        return
+    if not _runtime_retrieval_enabled(content):
+        return
+    if include is not None and not include(content):
+        return
+    files.append(relpath)
+
+
 def get_agent_knowledge_files(agent_name: str, critical_only: bool = False) -> list[str]:
     source = CRITICAL_KNOWLEDGE_MAP if critical_only else AGENT_KNOWLEDGE_MAP
     files = list(source.get(agent_name, []))
@@ -555,30 +576,24 @@ def get_agent_knowledge_files(agent_name: str, critical_only: bool = False) -> l
         agent_rules_dir = os.path.join(knowledge_dir, "rules", agent_name)
         if os.path.isdir(agent_rules_dir):
             for fname in sorted(os.listdir(agent_rules_dir)):
-                relpath = f"rules/{agent_name}/{fname}"
-                if relpath not in files and fname.endswith(".md"):
-                    filepath = os.path.join(agent_rules_dir, fname)
-                    try:
-                        with open(filepath, "r", encoding="utf-8") as f:
-                            content = f.read()
-                        if _runtime_retrieval_enabled(content):
-                            files.append(relpath)
-                    except OSError:
-                        continue
+                if not fname.endswith(".md"):
+                    continue
+                _append_runtime_rule_card(
+                    files,
+                    f"rules/{agent_name}/{fname}",
+                    os.path.join(agent_rules_dir, fname),
+                )
         # Also include shared rule cards from rules/shared/
         shared_rules_dir = os.path.join(knowledge_dir, "rules", "shared")
         if os.path.isdir(shared_rules_dir):
             for fname in sorted(os.listdir(shared_rules_dir)):
-                relpath = f"rules/shared/{fname}"
-                if relpath not in files and fname.endswith(".md"):
-                    filepath = os.path.join(shared_rules_dir, fname)
-                    try:
-                        with open(filepath, "r", encoding="utf-8") as f:
-                            content = f.read()
-                        if _runtime_retrieval_enabled(content):
-                            files.append(relpath)
-                    except OSError:
-                        continue
+                if not fname.endswith(".md"):
+                    continue
+                _append_runtime_rule_card(
+                    files,
+                    f"rules/shared/{fname}",
+                    os.path.join(shared_rules_dir, fname),
+                )
 
         # Cross-folder critical injection by frontmatter agent_scope.
         # A rule card under rules/<owner>/ may declare agent_scope listing OTHER
@@ -586,6 +601,13 @@ def get_agent_knowledge_files(agent_name: str, critical_only: bool = False) -> l
         # also scopes shot_director and quality_inspector). Without this pass
         # those rules only land in the owner's critical knowledge, leaving
         # other in-scope agents to rely on RAG retrieval, which is unreliable.
+        def scoped_to_agent(content: str) -> bool:
+            metadata = _frontmatter_metadata(content)
+            if not metadata:
+                return False
+            scope = set(_normalise_agent_scope(metadata.get("agent_scope")))
+            return agent_name in scope
+
         rules_root = os.path.join(knowledge_dir, "rules")
         if os.path.isdir(rules_root):
             for sub in sorted(os.listdir(rules_root)):
@@ -599,22 +621,13 @@ def get_agent_knowledge_files(agent_name: str, critical_only: bool = False) -> l
                     if not fname.endswith(".md"):
                         continue
                     relpath = f"rules/{sub}/{fname}"
-                    if relpath in files:
-                        continue
-                    filepath = os.path.join(sub_dir, fname)
-                    try:
-                        with open(filepath, "r", encoding="utf-8") as f:
-                            content = f.read()
-                    except OSError:
-                        continue
-                    if not _runtime_retrieval_enabled(content):
-                        continue
-                    metadata = _frontmatter_metadata(content)
-                    if not metadata:
-                        continue
-                    scope = set(_normalise_agent_scope(metadata.get("agent_scope")))
-                    if agent_name in scope:
-                        files.append(relpath)
+
+                    _append_runtime_rule_card(
+                        files,
+                        relpath,
+                        os.path.join(sub_dir, fname),
+                        include=scoped_to_agent,
+                    )
         return files
 
     knowledge_dir = get_knowledge_dir()

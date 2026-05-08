@@ -18,7 +18,13 @@ import os
 import re
 from typing import Any
 
-from .helpers import _extract_fragment_id, _extract_yaml_sections, _truncate_for_prompt
+from .helpers import (
+    _extract_fragment_id,
+    _extract_yaml_sections,
+    _fragment_id_for_segment_index,
+    _segment_block_by_fragment_id,
+    _truncate_for_prompt,
+)
 from .llm import call_llm, resolve_llm_settings
 from .state_store import _agent_outputs, _persist_update
 from .types import DirectorState, OUTPUT_DIR
@@ -151,20 +157,15 @@ def _build_character_reference_notes(state: DirectorState) -> str:
     return "\n".join(notes)
 
 
-def _segment_block(text: str, segment_index: int) -> str:
+def _segment_block(text: str, segment_index: int, fragment_id: str | None = None) -> str:
     """Extract the YAML block for a single fragment by F{segment_index:02d}."""
-    fragment_id = f"F{segment_index:02d}"
-    match = re.search(
-        rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-        rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
-        text,
-    )
-    return match.group(1).strip() if match else ""
+    selected_fragment_id = fragment_id or _fragment_id_for_segment_index([], segment_index)
+    return _segment_block_by_fragment_id(text, selected_fragment_id)
 
 
-def _planner_segment_block(planner_output: str, segment_index: int) -> str:
+def _planner_segment_block(planner_output: str, segment_index: int, fragment_id: str | None = None) -> str:
     """Extract planner segment for additional context."""
-    return _segment_block(planner_output, segment_index)
+    return _segment_block(planner_output, segment_index, fragment_id)
 
 
 # ---------------------------------------------------------------------------
@@ -353,12 +354,14 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
     )
     total_segments = int(state.get("total_segments") or 1)
     outputs = _agent_outputs(state)
+    segment_names = state.get("segment_names") or []
+    current_fragment_id = _fragment_id_for_segment_index(segment_names, segment_index)
 
     # ------------------------------------------------------------------
     # 1. Extract segment-level assets
     # ------------------------------------------------------------------
     director_output = outputs.get("shot_director", "")
-    director_segment = _segment_block(director_output, segment_index)
+    director_segment = _segment_block(director_output, segment_index, current_fragment_id)
 
     if not director_segment:
         # If shot_director hasn't produced this segment yet, skip silently.
@@ -384,11 +387,10 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
 
     fragment_task, rhythm = _extract_fragment_task_and_rhythm(director_segment)
     planner_output = outputs.get("story_planner", "")
-    planner_context = _planner_segment_block(planner_output, segment_index)
+    planner_context = _planner_segment_block(planner_output, segment_index, current_fragment_id)
     reference_notes = _build_character_reference_notes(state)
     aspect_ratio = str(state.get("aspect_ratio") or "16:9")
 
-    segment_names = state.get("segment_names") or []
     segment_name = (
         segment_names[segment_index - 1]
         if 0 <= segment_index - 1 < len(segment_names)

@@ -95,7 +95,7 @@ def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
     outputs = _agent_outputs(state)
     if not outputs.get("story_planner"):
         raise RuntimeError("缺少 story_planner 输出，无法续跑镜头导演。")
-    if outputs.get("shot_director"):
+    if outputs.get("shot_director") and not clear_knowledge_metadata:
         return state
 
     for key in (

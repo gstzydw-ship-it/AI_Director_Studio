@@ -17,7 +17,7 @@ from .types import (
     _REVERSE_SHOT_INSIDE_SEGMENT_RE,
 )
 from .state_store import _agent_outputs, _persist_update
-from .helpers import _yaml_line_field
+from .helpers import _fragment_id_for_segment_index, _segment_block_by_fragment_id, _yaml_line_field
 
 
 # ---------------------------------------------------------------------------
@@ -30,14 +30,9 @@ def _agent_configured(agent_name: str) -> bool:
     return bool(agent_cfg.get("model") or agent_cfg.get("base_url"))
 
 
-def _segment_block(text: str, segment_index: int) -> str:
-    fragment_id = f"F{segment_index:02d}"
-    match = re.search(
-        rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-        rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
-        text,
-    )
-    return match.group(1).strip() if match else ""
+def _segment_block(text: str, segment_index: int, fragment_id: str | None = None) -> str:
+    selected_fragment_id = fragment_id or _fragment_id_for_segment_index([], segment_index)
+    return _segment_block_by_fragment_id(text, selected_fragment_id)
 
 
 def _timeline_blocks(prompt: str) -> list[tuple[float, float, str]]:
@@ -128,7 +123,7 @@ def _normalise_llm_quality_issues(status: str, issues: list[str]) -> list[str]:
 # Optional LLM depth inspection
 # ---------------------------------------------------------------------------
 def _run_llm_quality_inspector(
-    script: str,
+    segment_source: str,
     prompt: str,
     planner_segment: str,
     director_segment: str,
@@ -168,7 +163,7 @@ def _run_llm_quality_inspector(
             "不要输出任何其他文字。"
         )
         user_prompt = (
-            f"【原始剧本（节选）】\n{script[:1200]}\n\n"
+            f"【当前片段原文事件】\n{segment_source[:1200]}\n\n"
             f"【第 {segment_index} 段故事规划】\n{planner_segment[:1200]}\n\n"
             f"【第 {segment_index} 段分镜方案】\n{director_segment[:1200]}\n\n"
             f"【第 {segment_index} 段最终 Prompt】\n{prompt}\n\n"
@@ -248,8 +243,14 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
     segment_index = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
     prompt = outputs.get(f"compiled_segment_{segment_index}", "")
-    planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index)
-    director_segment = _segment_block(outputs.get("shot_director", ""), segment_index)
+    current_fragment_id = _fragment_id_for_segment_index(state.get("segment_names") or [], segment_index)
+    planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index, current_fragment_id)
+    director_segment = _segment_block(outputs.get("shot_director", ""), segment_index, current_fragment_id)
+    source_block = re.search(
+        r"source_script_events\s*:([\s\S]*?)(?=\n[a-z_]+\s*:|\Z)",
+        planner_segment,
+    )
+    segment_source = (source_block.group(1).strip() if source_block else planner_segment).strip()
     guard_report = state.get("system_guard_report") or ""
 
     qc_issues: list[str] = []
@@ -402,7 +403,7 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     llm_merged = ""
     try:
         llm_status, llm_issues, llm_merged = _run_llm_quality_inspector(
-            script=state.get("script", ""),
+            segment_source=segment_source,
             prompt=prompt,
             planner_segment=planner_segment,
             director_segment=director_segment,
