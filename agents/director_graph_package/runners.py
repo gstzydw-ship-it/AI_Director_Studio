@@ -29,6 +29,7 @@ _STATE_STORE_CLEAR_STATE = clear_state
 _RUNNER_INVOKE_GRAPH: Any | None = None
 
 HUMAN_REVIEW_NODES = [
+    "director_showrunner",
     "rhythm_rewrite_director",
     "scene_analyst",
     "story_planner",
@@ -39,6 +40,7 @@ HUMAN_REVIEW_NODES = [
 ]
 
 REVIEW_AGENT_LABELS = {
+    "director_showrunner": "剧情增强",
     "rhythm_rewrite_director": "节奏总控",
     "scene_analyst": "场景分析",
     "story_planner": "结构规划",
@@ -49,6 +51,7 @@ REVIEW_AGENT_LABELS = {
 }
 
 REVIEW_AGENT_STEPS = {
+    "director_showrunner": "step_0_enhance",
     "rhythm_rewrite_director": "step_0_rhythm",
     "scene_analyst": "step_1_analyze",
     "story_planner": "step_2_plan",
@@ -59,7 +62,8 @@ REVIEW_AGENT_STEPS = {
 }
 
 _NEXT_NODE_TO_REVIEW_AGENT = {
-    "director_showrunner": "rhythm_rewrite_director",
+    "rhythm_rewrite_director": "director_showrunner",
+    "scene_analyst": "rhythm_rewrite_director",
     "story_planner": "scene_analyst",
     "shot_director": "story_planner",
     "storyboard_designer": "shot_director",
@@ -274,7 +278,15 @@ def _apply_human_review_edit(
     edited = edited_output or ""
     outputs[agent] = edited
 
-    if agent == "rhythm_rewrite_director":
+    if agent == "director_showrunner":
+        from .planning_context_impl import _director_enhancement_contract, _extract_enhanced_script
+
+        source_script = str(state.get("original_script") or state.get("script") or "")
+        enhanced_script = _extract_enhanced_script(edited, source_script)
+        state["script"] = enhanced_script
+        state["enhanced_script"] = enhanced_script
+        state["director_brief"] = _director_enhancement_contract(edited, enhanced_script)
+    elif agent == "rhythm_rewrite_director":
         state["atmosphere_strategy"] = edited
     elif agent == "story_planner":
         from .story_planner_impl import _extract_segments
@@ -454,10 +466,11 @@ def run_phase_1_planning(
     initial_state = {
         "thread_id": thread_id,
         "status": "running_phase_1",
-        "step": "step_0_rhythm",
-        "message": "节奏总控导演正在改写剧本...（1/6）",
+        "step": "step_0_enhance",
+        "message": "剧情增强导演正在增强原剧本冲突...（1/6）",
         "script": script,
         "original_script": script,
+        "enhanced_script": "",
         "atmosphere_strategy": "",
         "director_brief": "",
         "aspect_ratio": aspect_ratio,

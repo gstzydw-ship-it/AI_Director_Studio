@@ -127,11 +127,20 @@
                             </div>
                             <div class="card-body">
                                 <div class="pipeline-steps">
+                                    <div class="step" id="step-enhance">
+                                        <div class="step-icon">📝</div>
+                                        <div class="step-info">
+                                            <div class="step-name">剧情增强</div>
+                                            <div class="step-desc">弱冲突可拍化</div>
+                                        </div>
+                                        <div class="step-status">等待</div>
+                                    </div>
+                                    <div class="step-arrow">→</div>
                                     <div class="step" id="step-rhythm">
                                         <div class="step-icon">🎼</div>
                                         <div class="step-info">
                                             <div class="step-name">节奏总控</div>
-                                            <div class="step-desc">改写+氛围策略</div>
+                                            <div class="step-desc">快慢/停顿/卡断</div>
                                         </div>
                                         <div class="step-status">等待</div>
                                     </div>
@@ -205,6 +214,8 @@
                                         onclick="switchResultTab(this)">✍️ Seedance编译</button>
                                     <button class="result-tab" data-agent="storyboard_designer"
                                         onclick="switchResultTab(this)">🎨 分镜流程图</button>
+                                    <button class="result-tab" data-agent="director_showrunner"
+                                        onclick="switchResultTab(this)">📝 剧情增强</button>
                                     <button class="result-tab" data-agent="rhythm_rewrite_director"
                                         onclick="switchResultTab(this)">🎼 节奏策略</button>
                                     <button class="result-tab" data-agent="scene_analyst"
@@ -615,8 +626,8 @@
         }
 
         const REVIEW_AGENT_LABELS = {
+            director_showrunner: '剧情增强',
             rhythm_rewrite_director: '节奏总控',
-            director_showrunner: '总导演统筹',
             scene_analyst: '场景分析',
             story_planner: '结构规划',
             shot_director: '三段镜头导演',
@@ -629,6 +640,12 @@
         };
 
         const READABLE_FIELD_LABELS = {
+            enhanced_script: '增强版剧本',
+            enhancement_basis: '增强依据',
+            mainline_protection: '主线保护',
+            rhythm_supervisor_handoff: '节奏总控交接',
+            needs_user_confirmation: '需用户确认',
+            forbidden_changes: '禁止改动',
             conflict_diagnosis: '冲突诊断',
             conflict_enhancement_plan: '冲突增强方案',
             speed_curve: '速度曲线',
@@ -741,7 +758,7 @@
         };
 
         const STATUS_MESSAGE_REWRITES = [
-            [/Director showrunner brief ready; scene analyst is running/i, '总导演策略已完成，场景分析正在运行...'],
+            [/Director showrunner brief ready; scene analyst is running/i, '剧情增强已完成，节奏总控正在运行...'],
             [/Seedance compiler is generating segment\s+(\d+)\s+prompt/i, 'Seedance 编译师正在生成片段 $1 Prompt...'],
             [/scene analyst is running/i, '场景分析正在运行...'],
             [/story planner is running/i, '结构规划正在运行...'],
@@ -1559,16 +1576,17 @@
         }
 
         // 进度条只以 /api/status 返回的后端状态为准。
-        const STEP_ORDER = ['rhythm', 'analyze', 'plan', 'direct', 'storyboard', 'compile', 'inspect'];
+        const STEP_ORDER = ['enhance', 'rhythm', 'analyze', 'plan', 'direct', 'storyboard', 'compile', 'inspect'];
         const STEP_KEY_MAP = {
-            'step_0_rhythm': 0,
-            'step_1_rhythm': 0,
-            'step_1_analyze': 1,
-            'step_2_plan': 2,
-            'step_3_direct': 3,
-            'step_4_storyboard': 4,
-            'step_5_compile': 5,
-            'step_6_inspect': 6,
+            'step_0_enhance': 0,
+            'step_0_rhythm': 1,
+            'step_1_rhythm': 1,
+            'step_1_analyze': 2,
+            'step_2_plan': 3,
+            'step_3_direct': 4,
+            'step_4_storyboard': 5,
+            'step_5_compile': 6,
+            'step_6_inspect': 7,
         };
 
         function latestShotDirectorOutput(outputs = {}) {
@@ -1596,13 +1614,14 @@
         function inferCompletedStepIndex(state = {}) {
             const outputs = state.agent_outputs || {};
             let doneIdx = -1;
-            if (outputs.rhythm_rewrite_director) doneIdx = Math.max(doneIdx, 0);
-            if (outputs.scene_analyst) doneIdx = Math.max(doneIdx, 1);
-            if (outputs.story_planner) doneIdx = Math.max(doneIdx, 2);
-            if (latestShotDirectorOutput(outputs)) doneIdx = Math.max(doneIdx, 3);
-            if (hasStoryboardOutput(outputs)) doneIdx = Math.max(doneIdx, 4);
-            if (hasCompiledPrompt(outputs, state)) doneIdx = Math.max(doneIdx, 5);
-            if (hasQualityOutput(outputs)) doneIdx = Math.max(doneIdx, 6);
+            if (outputs.director_showrunner) doneIdx = Math.max(doneIdx, 0);
+            if (outputs.rhythm_rewrite_director) doneIdx = Math.max(doneIdx, 1);
+            if (outputs.scene_analyst) doneIdx = Math.max(doneIdx, 2);
+            if (outputs.story_planner) doneIdx = Math.max(doneIdx, 3);
+            if (latestShotDirectorOutput(outputs)) doneIdx = Math.max(doneIdx, 4);
+            if (hasStoryboardOutput(outputs)) doneIdx = Math.max(doneIdx, 5);
+            if (hasCompiledPrompt(outputs, state)) doneIdx = Math.max(doneIdx, 6);
+            if (hasQualityOutput(outputs)) doneIdx = Math.max(doneIdx, 7);
             if (state.status === 'done') doneIdx = STEP_ORDER.length - 1;
             return doneIdx;
         }
@@ -1616,26 +1635,29 @@
                 && /节奏总控|rhythm/i.test(message)
                 && !/场景分析|scene_analyst/i.test(message)
             ) {
-                return 0;
+                return 1;
             }
 
             const stepIdx = STEP_KEY_MAP[state.step];
             if (stepIdx !== undefined) return stepIdx;
 
-            if (/质检|quality|inspect/i.test(message)) return 6;
-            if (/Seedance|编译|Prompt|compile/i.test(message)) return 5;
-            if (/分镜流程图|storyboard/i.test(message)) return 4;
-            if (/镜头导演|动作调度|守门|shot_director|blocking|layout|guard/i.test(message)) return 3;
-            if (/结构规划|拆片|story_planner|plan/i.test(message)) return 2;
-            if (/场景分析|节奏|scene_analyst|rhythm/i.test(message)) return 0;
+            if (/质检|quality|inspect/i.test(message)) return 7;
+            if (/Seedance|编译|Prompt|compile/i.test(message)) return 6;
+            if (/分镜流程图|storyboard/i.test(message)) return 5;
+            if (/镜头导演|动作调度|守门|shot_director|blocking|layout|guard/i.test(message)) return 4;
+            if (/结构规划|拆片|story_planner|plan/i.test(message)) return 3;
+            if (/场景分析|scene_analyst/i.test(message)) return 2;
+            if (/节奏总控|rhythm/i.test(message)) return 1;
+            if (/剧情增强|director_showrunner|enhance/i.test(message)) return 0;
 
-            if (hasQualityOutput(outputs)) return 6;
-            if (hasCompiledPrompt(outputs, state)) return 5;
-            if (hasStoryboardOutput(outputs)) return 4;
-            if (latestShotDirectorOutput(outputs)) return 3;
-            if (outputs.story_planner) return 2;
-            if (outputs.scene_analyst) return 1;
-            if (outputs.rhythm_rewrite_director) return 0;
+            if (hasQualityOutput(outputs)) return 7;
+            if (hasCompiledPrompt(outputs, state)) return 6;
+            if (hasStoryboardOutput(outputs)) return 5;
+            if (latestShotDirectorOutput(outputs)) return 4;
+            if (outputs.story_planner) return 3;
+            if (outputs.scene_analyst) return 2;
+            if (outputs.rhythm_rewrite_director) return 1;
+            if (outputs.director_showrunner) return 0;
             return 0;
         }
 
@@ -1916,6 +1938,7 @@
                 ['story_planner', agentOutputs.story_planner],
                 ['scene_analyst', agentOutputs.scene_analyst],
                 ['rhythm_rewrite_director', agentOutputs.rhythm_rewrite_director],
+                ['director_showrunner', agentOutputs.director_showrunner],
                 ['quality_inspector', agentOutputs.quality_inspector],
             ];
             const availableEntry = fallbackCandidates.find(([, text]) => Boolean(text));

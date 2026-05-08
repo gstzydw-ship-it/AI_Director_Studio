@@ -232,6 +232,8 @@ def _migrate_legacy_state_if_needed(session_id: str) -> bool:
 
 # Agent 角色名 → 存储 key 的映射
 _AGENT_KEY_MAP = {
+    "剧情增强导演": "director_showrunner",
+    "总导演统筹": "director_showrunner",
     "节奏总控导演": "rhythm_rewrite_director",
     "场景分析师": "scene_analyst",
     "结构规划师": "story_planner",
@@ -242,6 +244,7 @@ _AGENT_KEY_MAP = {
 }
 
 _AGENT_DISPLAY_NAMES = {
+    "director_showrunner": "📝 剧情增强",
     "rhythm_rewrite_director": "🎼 节奏改写",
     "scene_analyst": "📋 场景分析",
     "story_planner": "🎬 结构规划",

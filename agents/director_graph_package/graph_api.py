@@ -32,11 +32,11 @@ def create_director_graph():
     graph.add_node("qc_router", qc_router_node)
     graph.add_node("segment_complete", segment_complete_node)
 
-    # 节奏总控导演作为首节点，改写剧本后再送入场景分析
+    # 剧情增强先把弱冲突转成可拍文本，再交给节奏总控做快慢、卡断和反应归属。
     graph.add_node("rhythm_rewrite_director", rhythm_rewrite_director_node)
-    graph.add_edge(START, "rhythm_rewrite_director")
-    graph.add_edge("rhythm_rewrite_director", "director_showrunner")
-    graph.add_edge("director_showrunner", "scene_analyst")
+    graph.add_edge(START, "director_showrunner")
+    graph.add_edge("director_showrunner", "rhythm_rewrite_director")
+    graph.add_edge("rhythm_rewrite_director", "scene_analyst")
     graph.add_edge("scene_analyst", "story_planner")
     graph.add_edge("story_planner", "shot_director")
     graph.add_edge("shot_director", "storyboard_designer")

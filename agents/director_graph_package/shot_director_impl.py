@@ -2110,7 +2110,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             {
                 "status": "running_phase_1",
                 "step": "step_3_direct",
-                "message": stage_messages.get(stage_name, "镜头导演正在生成全局镜头方案...（4/6）"),
+                "message": stage_messages.get(stage_name, "镜头导演正在生成全局镜头方案...（5/6）"),
                 "agent_outputs": outputs,
                 "knowledge_metadata": knowledge_metadata,
                 "total_segments": total_segments,

@@ -259,14 +259,15 @@ def _rhythm_supervisor_role_prompt() -> str:
 
 def _rhythm_supervisor_user_prompt(state: DirectorState) -> str:
     user_intent = _rhythm_user_director_intent(state)
-    user_intent_block = user_intent or "无单独补充；只根据原始剧本做冲突诊断和节奏增强。"
+    user_intent_block = user_intent or "无单独补充；只根据当前施工剧本做冲突诊断和节奏增强。"
+    script_label = "当前施工剧本（已由剧情增强导演处理）" if state.get("enhanced_script") else "当前施工剧本"
     return (
         "请只做冲突诊断、节奏增强方案和下游施工指令，不要改写剧本。\n\n"
-        f"【原始剧本】\n{state['script']}\n\n"
+        f"【{script_label}】\n{state['script']}\n\n"
         f"【用户导演意图/补充要求】\n{user_intent_block}\n\n"
         f"【画幅】{state.get('aspect_ratio', '16:9')}\n\n"
         "【处理要求】\n"
-        "1. 如果原剧本冲突弱，先指出弱点，再用 L1/L2 增强动作、声音、道具、调度和信息释放。\n"
+        "1. 如果当前施工剧本仍有冲突弱点，先指出弱点，再用 L1/L2 增强动作、声音、道具、调度和信息释放。\n"
         "2. 当原文只写概括词，如“忙乱、急匆匆、紧张、等待、愣住”，必须转成可拍节奏锚点。\n"
         "3. 如果某个增强来自用户明确要求，标为“用户指定导演意图”，并优先传给下游。\n"
         "4. 如果某个增强是你基于剧本推断，标为“建议补强锚点”，不能当作原文事实。\n"
@@ -292,7 +293,7 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
             {
                 "status": "running_phase_1",
                 "step": "step_1_analyze",
-                "message": "快速模式：已跳过节奏改写，场景分析师正在分析...（2/6）",
+                "message": "快速模式：已跳过节奏总控，场景分析师正在分析...（3/6）",
                 "agent_outputs": outputs,
                 "atmosphere_strategy": "",
             },
@@ -321,7 +322,7 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
         {
             "status": "running_phase_1",
             "step": "step_1_analyze",
-            "message": "节奏总控诊断完成，场景分析师正在分析...（1/6）",
+            "message": "节奏总控诊断完成，场景分析师正在分析...（3/6）",
             "atmosphere_strategy": atmosphere_strategy,
             "agent_outputs": outputs,
             "knowledge_metadata": knowledge_metadata,

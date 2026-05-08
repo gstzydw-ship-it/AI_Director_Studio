@@ -659,7 +659,7 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         {
             "status": "running_phase_1",
             "step": "step_3_direct",
-            "message": "镜头导演正在设计全局分镜骨架...（4/6）",
+            "message": "镜头导演正在设计全局分镜骨架...（5/6）",
             "agent_outputs": outputs,
             "knowledge_metadata": knowledge_metadata,
             "director_review_report": state.get("director_review_report", ""),

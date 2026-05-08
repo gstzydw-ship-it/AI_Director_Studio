@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+import yaml
+
 from .helpers import build_system_prompt
 from .llm import _get_llm_settings, call_llm
 from .state_store import _agent_outputs, _persist_update
@@ -19,6 +21,12 @@ from ..knowledge_base import (
 
 
 _DIRECTOR_SHOWRUNNER_FIELD_LABELS = {
+    "enhanced_script": "增强版剧本",
+    "enhancement_basis": "增强依据",
+    "mainline_protection": "主线保护",
+    "rhythm_supervisor_handoff": "节奏总控交接",
+    "needs_user_confirmation": "需用户确认",
+    "forbidden_changes": "禁止改动",
     "film_tone": "影片气质",
     "visual_style": "视觉风格",
     "emotional_curve": "情绪曲线",
@@ -46,6 +54,89 @@ def _localize_director_showrunner_output(output: str) -> str:
     for role, label in _DIRECTOR_SHOWRUNNER_ROLE_LABELS.items():
         text = re.sub(rf"\b{re.escape(role)}\b", label, text)
     return text.strip()
+
+
+def _strip_yaml_fence(text: str) -> str:
+    text = (text or "").strip()
+    fence_match = re.search(r"(?is)```(?:yaml|yml)?\s*(.*?)\s*```", text)
+    return fence_match.group(1).strip() if fence_match else text
+
+
+def _parse_director_showrunner_yaml(output: str) -> dict[str, Any]:
+    text = _strip_yaml_fence(output)
+    try:
+        payload = yaml.safe_load(text)
+    except yaml.YAMLError:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def _extract_enhanced_script(output: str, fallback_script: str) -> str:
+    payload = _parse_director_showrunner_yaml(output)
+    for key in ("增强版剧本", "enhanced_script"):
+        value = payload.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    match = re.search(
+        r"(?ms)^\s*(?:增强版剧本|enhanced_script)\s*[：:]\s*(?:\|\s*)?\n?(.*?)(?=^\S[^：:\n]{0,40}[：:]|\Z)",
+        _strip_yaml_fence(output),
+    )
+    if match and match.group(1).strip():
+        return match.group(1).strip()
+    return (fallback_script or "").strip()
+
+
+def _director_enhancement_contract(output: str, enhanced_script: str, max_chars: int = 1800) -> str:
+    payload = _parse_director_showrunner_yaml(output)
+    if payload:
+        compact_payload = {
+            key: value
+            for key, value in payload.items()
+            if key not in {"增强版剧本", "enhanced_script"} and value not in (None, "", [], {})
+        }
+        if compact_payload:
+            contract = yaml.safe_dump(compact_payload, allow_unicode=True, sort_keys=False).strip()
+            return contract[:max_chars].strip()
+
+    text = _strip_yaml_fence(output)
+    text = re.sub(
+        r"(?ms)^\s*(?:增强版剧本|enhanced_script)\s*[：:]\s*(?:\|\s*)?\n?.*?(?=^\S[^：:\n]{0,40}[：:]|\Z)",
+        "",
+        text,
+    ).strip()
+    if text:
+        return text[:max_chars].strip()
+    return (
+        "增强原则:\n"
+        "  - 使用增强版剧本作为后续施工文本\n"
+        "  - 只增强原剧本内已有冲突，不改变主线剧情\n"
+        "节奏总控交接:\n"
+        "  - 基于增强版剧本重新判断快慢、停顿、卡断和反应归属"
+    )
+
+
+def _director_showrunner_user_intent(state: DirectorState) -> str:
+    candidate_keys = (
+        "director_intent",
+        "user_director_intent",
+        "user_notes",
+        "director_notes",
+        "creative_brief",
+        "requirements",
+        "visual_requirements",
+        "reference_images",
+    )
+    lines: list[str] = []
+    for key in candidate_keys:
+        value = state.get(key)
+        if not value:
+            continue
+        text = value if isinstance(value, str) else str(value)
+        text = text.strip()
+        if text:
+            lines.append(f"{key}: {text}")
+    return "\n".join(lines)
 
 
 def _record_knowledge_metadata(
@@ -112,9 +203,9 @@ def _director_brief_prompt_block(director_brief: str) -> str:
     if not director_brief:
         return ""
     return (
-        "【总导演统筹简报】\n"
-        "这是下游 agent 必须遵守的最高层创作契约。必须保留剧本事实，"
-        "只用于确定表达重点、镜头优先级、节奏取舍和可接受的权衡。\n"
+        "【剧情增强契约】\n"
+        "这是剧情增强导演给下游 agent 的施工边界。当前输入剧本可能已经做过冲突增强；"
+        "下游必须以当前剧本为施工文本，同时保护原始主线剧情，不得新增未确认的核心事件、人物关系或台词。\n"
         f"{director_brief}\n"
     )
 
@@ -122,26 +213,14 @@ def _director_brief_prompt_block(director_brief: str) -> str:
 def _fallback_director_brief(state: DirectorState | dict[str, object], reason: str = "") -> str:
     reason_line = f"兜底原因: {reason[:180]}\n" if reason else ""
     return (
-        "影片气质: 保留用户剧本原有气质，不新增剧情事实\n"
-        "视觉风格: 清晰、可执行、优先保证连续性的电影化覆盖\n"
-        "情绪曲线:\n"
-        "  - 根据原剧本压力逐步推进，不额外制造新冲突\n"
-        "  - 在关键受击点保留观众能读懂的反应空间\n"
-        "场景目标: 让每个镜头都服务当前剧本的戏剧压力\n"
-        "镜头优先级:\n"
-        "  - 保留人物动机和原剧本事件\n"
-        "  - 保持空间连续性和尾帧交接清晰\n"
-        "  - 优先选择可生成、可执行的镜头，而不是炫技运镜\n"
-        "硬性要求:\n"
-        "  - 每个生成镜头都必须保护剧本忠实度\n"
-        "  - 每个片段都必须给下一片段留下可继承的连续性状态\n"
-        "禁止事项:\n"
-        "  - 不新增剧本外人物、台词、道具或剧情节拍\n"
-        "  - 不为了好看选择破坏地理关系或动作清晰度的镜头\n"
-        "下游交接:\n"
-        "  场景分析: 只提取剧本和参考图里明确存在的空间、人物和约束\n"
-        "  结构规划: 按完整剧情任务拆分，不为普通停顿单独拆段\n"
-        "  镜头导演: 把节奏重点落实到可执行镜头，不重写剧本\n"
+        "主线保护:\n"
+        "  - 使用当前剧本继续施工，但不得改变人物关系、核心事件、台词和剧情结果\n"
+        "  - 只允许把原文已有的概括动作、静态说明和弱冲突转成可拍动作\n"
+        "可执行增强:\n"
+        "  - 动作密度、时间压力、声音压力、已有道具使用、已有角色调度可以增强\n"
+        "  - 新人物、新台词、新关键道具、新误会或新反转必须先进入需用户确认\n"
+        "节奏总控交接:\n"
+        "  - 基于增强后的当前剧本重新判断快慢、停顿、卡断、反应归属和尾帧承接\n"
         f"{reason_line}"
     ).strip()
 
@@ -160,6 +239,8 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
     import time
 
     outputs = _agent_outputs(state)
+    source_script = str(state.get("script") or "")
+    original_script = str(state.get("original_script") or source_script)
 
     if bool(state.get("speed_mode", False)):
         output = _localize_director_showrunner_output(_fallback_director_brief(state, "快速模式"))
@@ -194,50 +275,52 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
             state,
             {
                 "status": "running_phase_1",
-                "step": "step_1_analyze",
-                "message": "总导演统筹已完成，场景分析正在运行...",
+                "step": "step_0_rhythm",
+                "message": "快速模式：已跳过剧情增强，节奏总控导演正在运行...",
                 "agent_outputs": outputs,
                 "knowledge_metadata": knowledge_metadata,
                 "director_brief": output,
+                "enhanced_script": source_script,
+                "original_script": original_script,
             },
         )
 
     showrunner_hint = (
-        "总导演 统筹 风格基准 情绪曲线 镜头优先级 "
-        f"剧本忠实 视觉意图 画幅 {state.get('aspect_ratio', '16:9')}"
+        "剧情增强 冲突强化 弱冲突 可拍动作 动作密度 时间压力 声音压力 "
+        "人物调度 主线保护 禁止新增台词 禁止改主线 "
+        f"画幅 {state.get('aspect_ratio', '16:9')}"
     )
     system_prompt, retrieval_meta = build_system_prompt(
-        "你是 AI 短剧流水线里的总导演统筹。\n"
-        "你的职责不是设计具体镜头，而是给所有下游智能体制定必须遵守的最高层创作契约。\n"
-        "必须保留全部剧本事实，不得新增剧情、台词、人物、道具或故事事件。\n"
-        "请把原始剧本和节奏指导整理成清晰的总导演简报，供场景分析、结构规划和镜头导演执行。\n"
+        "你是 AI 短剧流水线里的剧情冲突增强导演。\n"
+        "你的职责是在不改变主线剧情的前提下，把原剧本里偏弱、偏概括、偏静态的冲突增强成可拍内容。\n"
+        "你不做拆片、不做具体镜头设计、不输出 shot 建议；你只交付增强版剧本和增强依据。\n"
+        "允许增强 L1 动作层与 L2 调度层：动作密度、时间压力、声音压力、已有道具阻碍、已有角色进入/拦住/停住/转身等可见调度。\n"
+        "禁止直接改动主线剧情、人物关系、剧情结果和原台词；禁止新增未确认的新人物、新台词、新关键道具、新误会或新反转。\n"
+        "如果某个想法属于剧情层新增，必须放入“需用户确认”，不能写进增强版剧本。\n"
         "输出必须是 YAML，字段名和说明内容全部使用中文；只有原剧本台词或专有名词可以保留原文。",
         "director_showrunner",
         context_hint=showrunner_hint,
     )
     user_prompt = (
         "【原始剧本】\n"
-        f"{state.get('script', '')}\n\n"
-        "【节奏与氛围指导】\n"
-        f"{state.get('atmosphere_strategy', '') or '无'}\n\n"
+        f"{source_script}\n\n"
+        "【用户导演意图/补充要求】\n"
+        f"{_director_showrunner_user_intent(state) or '无'}\n\n"
         "【画幅】\n"
         f"{state.get('aspect_ratio', '16:9')}\n\n"
         "【必须输出的 YAML 字段】\n"
-        "影片气质: 一句简洁判断\n"
-        "视觉风格: 一句简洁判断\n"
-        "情绪曲线: 按顺序列出 3-6 个情绪节拍\n"
-        "场景目标: 一句话说明观众必须感受到或理解什么\n"
-        "镜头优先级: 按顺序列出 3-5 条镜头取舍重点\n"
-        "硬性要求: 列出不可妥协的创作要求\n"
-        "禁止事项: 列出会破坏本场戏的禁用选择\n"
-        "下游交接:\n"
-        "  场景分析: 给场景分析师的简短交接\n"
-        "  结构规划: 给结构规划师的简短交接\n"
-        "  镜头导演: 给镜头导演的简短交接\n\n"
+        "增强版剧本: 使用 YAML 多行文本，输出完整可施工剧本；保留原台词原文，不翻译、不改写台词。\n"
+        "增强依据: 列表；每条包含 原文锚点 / 增强方式 / 权限级别 / 是否改动主线。\n"
+        "主线保护: 列出本次增强没有改变的核心剧情事实。\n"
+        "节奏总控交接: 给下一步节奏总控导演的简短说明，只写节奏关注点，不写拆片和镜头方案。\n"
+        "需用户确认: 只列 L3 剧情层新增想法；没有就写 无。\n\n"
         "【决策边界】\n"
-        "总导演简报可以选择表达重点和审美倾向，但不能改写剧本事实。\n"
-        "优先选择可执行、连续性安全的方案，不要选择漂亮但不稳定的镜头方向。\n"
-        "除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
+        "1. 可以把“忙乱、急匆匆、气氛紧张、愣住、等待、列队”等概括词展开成连续可见动作。\n"
+        "2. 可以把静态说明改成动态调度，例如已有主管/秘书从门内快速出来列队，已有朋友迎面拦住女主提醒。\n"
+        "3. 可以使用原剧本已有道具和环境强化阻力，例如闹钟、电话、水杯、书包、咖啡、公司大门、车辆声音。\n"
+        "4. 不得改变主线剧情：人物关系、公司易主、新老板到达、前夫揭示等核心事实不能变。\n"
+        "5. 不得新增台词；原台词必须原样保留。\n"
+        "6. 除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
     )
 
     started = time.perf_counter()
@@ -245,20 +328,26 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         output = call_llm(system_prompt, user_prompt, agent_name="director_showrunner")
         output = (output or "").strip() or _fallback_director_brief(state, "empty_showrunner_output")
         output = _localize_director_showrunner_output(output)
+        enhanced_script = _extract_enhanced_script(output, source_script)
+        director_brief = _director_enhancement_contract(output, enhanced_script)
         runtime = {
             "agent_name": "director_showrunner",
             "mode": "direct",
             "status": "success",
             "output_chars": len(output),
+            "enhanced_script_chars": len(enhanced_script),
         }
     except Exception as exc:
         output = _fallback_director_brief(state, f"{type(exc).__name__}: {exc}")
         output = _localize_director_showrunner_output(output)
+        enhanced_script = source_script
+        director_brief = output
         runtime = {
             "agent_name": "director_showrunner",
             "mode": "direct",
             "status": "fallback",
             "output_chars": len(output),
+            "enhanced_script_chars": len(enhanced_script),
             "error_type": type(exc).__name__,
             "error": str(exc)[:500],
         }
@@ -270,11 +359,14 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         state,
         {
             "status": "running_phase_1",
-            "step": "step_1_analyze",
-            "message": "总导演统筹已完成，场景分析正在运行...",
+            "step": "step_0_rhythm",
+            "message": "剧情增强完成，节奏总控导演正在分析增强版剧本...（2/6）",
+            "script": enhanced_script,
+            "original_script": original_script,
+            "enhanced_script": enhanced_script,
             "agent_outputs": outputs,
             "knowledge_metadata": knowledge_metadata,
-            "director_brief": output,
+            "director_brief": director_brief,
         },
     )
 
@@ -315,7 +407,7 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
             {
                 "status": "running_phase_1",
                 "step": "step_2_plan",
-                "message": "快速模式：已跳过场景分析LLM，结构规划师正在拆片...（3/6）",
+                "message": "快速模式：已跳过场景分析LLM，结构规划师正在拆片...（4/6）",
                 "agent_outputs": outputs,
                 "knowledge_metadata": knowledge_metadata,
             },
@@ -365,7 +457,7 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         {
             "status": "running_phase_1",
             "step": "step_2_plan",
-            "message": "结构规划师正在拆片规划...（3/6）",
+            "message": "结构规划师正在拆片规划...（4/6）",
             "agent_outputs": outputs,
             "knowledge_metadata": knowledge_metadata,
         },

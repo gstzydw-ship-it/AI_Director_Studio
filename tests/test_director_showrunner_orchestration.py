@@ -10,10 +10,11 @@ if ROOT not in sys.path:
 
 import agents.director_graph as dg
 from agents.director_graph_package import planning_context_impl as pci
+from agents.director_graph_package import runners
 from agents.director_graph_package import shot_director_impl as sdi
 
 
-def test_director_showrunner_node_writes_brief(monkeypatch):
+def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatch):
     monkeypatch.setattr(
         pci,
         "build_system_prompt",
@@ -28,14 +29,24 @@ def test_director_showrunner_node_writes_brief(monkeypatch):
 
     def fake_call_llm(system_prompt, user_prompt, **kwargs):
         assert kwargs["agent_name"] == "director_showrunner"
+        assert "剧情冲突增强导演" in system_prompt
         assert "必须输出的 YAML 字段" in user_prompt
-        assert "英文字段名" in user_prompt
+        assert "增强版剧本" in user_prompt
+        assert "不得新增台词" in user_prompt
         return (
-            "film_tone: 克制\n"
-            "shot_priority:\n"
-            "  - 剧本忠实\n"
-            "handoff_notes:\n"
-            "  scene_analyst: 保留事实\n"
+            "增强版剧本: |\n"
+            "  A rushes into the room.\n"
+            "  A: Hello.\n"
+            "增强依据:\n"
+            "  - 原文锚点: A enters the room.\n"
+            "    增强方式: 将进入改成急匆匆进入\n"
+            "    权限级别: L1_动作层增强\n"
+            "    是否改动主线: 否\n"
+            "主线保护:\n"
+            "  - 人物和台词不变\n"
+            "节奏总控交接:\n"
+            "  - 入口动作需要起速\n"
+            "需用户确认: 无\n"
         )
 
     monkeypatch.setattr(pci, "call_llm", fake_call_llm)
@@ -43,6 +54,7 @@ def test_director_showrunner_node_writes_brief(monkeypatch):
     result = pci.director_showrunner_node(
         {
             "script": "A enters the room.",
+            "original_script": "A enters the room.",
             "aspect_ratio": "9:16",
             "agent_outputs": {},
             "knowledge_metadata": {},
@@ -50,11 +62,13 @@ def test_director_showrunner_node_writes_brief(monkeypatch):
         }
     )
 
-    assert result["director_brief"].startswith("影片气质: 克制")
-    assert "镜头优先级:" in result["director_brief"]
-    assert "下游交接:" in result["director_brief"]
-    assert "场景分析师:" in result["director_brief"]
-    assert result["agent_outputs"]["director_showrunner"] == result["director_brief"]
+    assert result["script"].startswith("A rushes into the room.")
+    assert result["enhanced_script"] == result["script"]
+    assert result["original_script"] == "A enters the room."
+    assert "增强版剧本" in result["agent_outputs"]["director_showrunner"]
+    assert "增强版剧本" not in result["director_brief"]
+    assert "增强依据" in result["director_brief"]
+    assert "节奏总控交接" in result["director_brief"]
 
 
 def test_review_board_accepts_primary_output(monkeypatch):
@@ -123,3 +137,54 @@ def test_shot_director_node_runs_single_pass_and_stores_output(monkeypatch):
     assert captured["director_brief"] == "film_tone: restrained"
     assert "shot_director" in result["agent_outputs"]
     assert result["agent_outputs"]["shot_director"].startswith("- fragment_id: F01")
+
+
+def test_human_review_pauses_after_story_enhancement(monkeypatch):
+    saved: dict[str, object] = {}
+    monkeypatch.setattr(runners, "_save_runner_state", lambda state: saved.update(state))
+
+    state = runners._mark_human_review_state(
+        {
+            "agent_outputs": {"director_showrunner": "增强版剧本: |\n  A rushes in."},
+            "step": "step_0_enhance",
+        },
+        ("rhythm_rewrite_director",),
+    )
+
+    assert state["status"] == "waiting_for_user_input"
+    assert state["review_agent"] == "director_showrunner"
+    assert state["review_title"] == "剧情增强"
+    assert "A rushes in" in state["review_output"]
+    assert saved["review_agent"] == "director_showrunner"
+
+
+def test_story_enhancement_review_edit_updates_script():
+    edited = (
+        "增强版剧本: |\n"
+        "  乔熙急匆匆冲到公司门口。\n"
+        "  苏小可：Sunny, big news—the company's been bought out. New boss is coming!\n"
+        "增强依据:\n"
+        "  - 原文锚点: 主管们列队等候\n"
+        "    增强方式: 改成动态列队\n"
+        "主线保护:\n"
+        "  - 公司易主事实不变\n"
+        "节奏总控交接:\n"
+        "  - 公司门口段需要起速\n"
+        "需用户确认: 无\n"
+    )
+
+    state = runners._apply_human_review_edit(
+        {
+            "original_script": "苏小可：Sunny, big news—the company's been bought out. New boss is coming!",
+            "script": "old",
+            "agent_outputs": {},
+        },
+        "director_showrunner",
+        edited,
+    )
+
+    assert state["script"].startswith("乔熙急匆匆冲到公司门口。")
+    assert state["enhanced_script"] == state["script"]
+    assert "增强依据" in state["director_brief"]
+    assert "增强版剧本" not in state["director_brief"]
+    assert state["agent_outputs"]["director_showrunner"] == edited
