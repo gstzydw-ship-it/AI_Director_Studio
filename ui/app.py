@@ -63,6 +63,14 @@ SESSION_ID_RE = re.compile(r"[^A-Za-z0-9_-]")
 task_states: dict[str, dict] = {}
 active_task_generations: dict[str, int] = {}
 active_task_threads: dict[str, threading.Thread] = {}
+vectordb_build_lock = threading.Lock()
+vectordb_build_status: dict[str, str] = {
+    "status": "idle",
+    "message": "向量知识库尚未构建",
+    "error": "",
+    "started_at": "",
+    "finished_at": "",
+}
 
 RUNNING_STATUSES = {"running", "running_phase_1", "running_phase_2"}
 BLOCKING_STATUSES = RUNNING_STATUSES | {"waiting_for_user_input"}
@@ -264,6 +272,7 @@ from agents.director_graph import (
     clear_state,
     load_state,
     recover_repairable_pipeline_state,
+    resume_after_human_review,
     run_phase_1_planning,
     run_phase_2_compile_segment,
     run_shot_director_restart_from_story_plan,
@@ -821,7 +830,7 @@ def _run_pipeline_in_thread(
             task_state.clear()
             task_state.update(_default_task_state())
             task_state.update(preserved_inputs)
-            task_state["step"] = "step_1_analyze"
+            task_state["step"] = "step_0_rhythm"
             task_state["status"] = "running_phase_1"
             task_state["message"] = "🎼 节奏总控导演正在改写剧本...（1/6）"
             started_at = datetime.now().isoformat()
@@ -974,6 +983,45 @@ def _resume_shot_director_in_thread(
         task_state["status"] = "error"
         task_state["step"] = "error"
         task_state["message"] = f"执行失败: {str(e)}"
+        task_state["error"] = traceback.format_exc()
+        _save_task_state_for_session(session_id, task_state)
+    finally:
+        _unregister_task_thread(session_id)
+
+
+def _resume_after_human_review_in_thread(
+    edited_output: str,
+    review_agent: str,
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Resume the LangGraph pipeline after the user reviews an agent output."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+    try:
+        with request_scope(session_id=session_id):
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state["status"] = "running_phase_1"
+            if review_agent in {"prompt_compiler", "quality_inspector"}:
+                task_state["status"] = "running_phase_2"
+            task_state["message"] = "已接收修改内容，正在交给下一个 Agent..."
+            task_state["error"] = ""
+            _touch_task_progress(task_state)
+
+            state = resume_after_human_review(edited_output, review_agent)
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state.update(state)
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        task_state["status"] = "error"
+        task_state["step"] = "error"
+        task_state["message"] = f"人工审核继续失败: {str(e)}"
         task_state["error"] = traceback.format_exc()
         _save_task_state_for_session(session_id, task_state)
     finally:
@@ -1271,6 +1319,46 @@ async def api_resume(
     _register_task_thread(session_id, thread)
     thread.start()
     return JSONResponse({"success": True, "message": "已恢复执行编译步骤"})
+
+
+@app.post("/api/approve_agent_output")
+async def api_approve_agent_output(
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    agent_name: str = Form(""),
+    edited_output: str = Form(""),
+):
+    """Approve or edit the latest paused agent output, then feed it downstream."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行，请等待当前步骤完成。"})
+    if task_state.get("status") != "waiting_for_user_input" or task_state.get("review_mode") != "agent_output":
+        return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
+
+    review_agent = (agent_name or task_state.get("review_agent") or "").strip()
+    if not review_agent:
+        return JSONResponse({"success": False, "error": "缺少要审核的 Agent 名称。"})
+
+    task_generation = _bump_task_generation(session_id)
+    now = _now_iso()
+    task_state["status"] = "running_phase_1"
+    if review_agent in {"prompt_compiler", "quality_inspector"}:
+        task_state["status"] = "running_phase_2"
+    task_state["message"] = "已收到修改内容，正在继续流水线..."
+    task_state["error"] = ""
+    task_state["started_at"] = now
+    _touch_task_progress(task_state, now)
+
+    thread = threading.Thread(
+        target=_resume_after_human_review_in_thread,
+        args=(edited_output, review_agent, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": "已确认，正在继续执行。"})
 
 
 @app.post("/api/retry_shot_director")
@@ -1581,11 +1669,59 @@ async def api_get_config():
 async def api_build_vectordb(request: Request):
     if not _is_local_request(request):
         return JSONResponse({"success": False, "error": "知识库重建仅允许本机管理员执行。"})
-    try:
-        build_vectordb(force_rebuild=True)
-        return JSONResponse({"success": True, "message": "向量知识库已重建"})
-    except Exception as e:
-        return JSONResponse({"success": False, "error": str(e)})
+
+    with vectordb_build_lock:
+        if vectordb_build_status.get("status") == "running":
+            return JSONResponse({
+                "success": True,
+                "status": "running",
+                "message": vectordb_build_status.get("message", "向量知识库正在构建中"),
+            })
+
+        vectordb_build_status.update({
+            "status": "running",
+            "message": "向量知识库正在后台构建，请稍候...",
+            "error": "",
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "finished_at": "",
+        })
+
+    def _build_worker() -> None:
+        try:
+            build_vectordb(force_rebuild=True)
+            with vectordb_build_lock:
+                vectordb_build_status.update({
+                    "status": "done",
+                    "message": "向量知识库已重建",
+                    "error": "",
+                    "finished_at": datetime.now().isoformat(timespec="seconds"),
+                })
+        except Exception as e:
+            with vectordb_build_lock:
+                vectordb_build_status.update({
+                    "status": "error",
+                    "message": "向量知识库构建失败",
+                    "error": str(e),
+                    "finished_at": datetime.now().isoformat(timespec="seconds"),
+                })
+
+    thread = threading.Thread(target=_build_worker, name="vectordb-build", daemon=True)
+    thread.start()
+    return JSONResponse({
+        "success": True,
+        "status": "running",
+        "message": "向量知识库已开始后台构建",
+    })
+
+
+@app.get("/api/build_vectordb_status")
+async def api_build_vectordb_status(request: Request):
+    if not _is_local_request(request):
+        return JSONResponse({"success": False, "error": "知识库状态仅允许本机管理员查看。"})
+    with vectordb_build_lock:
+        status = dict(vectordb_build_status)
+    status["success"] = status.get("status") != "error"
+    return JSONResponse(status)
 
 
 def start_ui():

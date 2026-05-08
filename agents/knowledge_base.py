@@ -1087,18 +1087,12 @@ def _rule_visible_to_agent(
     if not agent_name:
         return True
 
-    if rule.get("owner_agent") == agent_name:
+    owner_agent = str(rule.get("owner_agent", "")).strip()
+    if owner_agent == agent_name:
         return True
 
-    if rule.get("priority") in GLOBAL_RULE_PRIORITIES:
-        return True
-
-    if agent_name == "quality_inspector":
-        return True
-
-    if agent_files is None:
-        agent_files = set(get_agent_knowledge_files(agent_name))
-    return bool(agent_files & _rule_source_basenames(rule))
+    agent_scope = set(_normalise_agent_scope(rule.get("agent_scope")))
+    return agent_name in agent_scope
 
 
 def _score_registry_rule(
@@ -1124,10 +1118,11 @@ def _score_registry_rule(
     }
     score += priority_boosts.get(priority, 0)
 
+    agent_scope = set(_normalise_agent_scope(rule.get("agent_scope")))
     if agent_name and rule.get("owner_agent") == agent_name:
         score += 0.75
-    elif priority in GLOBAL_RULE_PRIORITIES:
-        score += 0.25
+    elif agent_name and agent_name in agent_scope:
+        score += 0.55
 
     if agent_name:
         if agent_files is None:
@@ -1192,6 +1187,7 @@ def query_rule_registry(
             "relevance": score,
             "rule_id": rule.get("id", ""),
             "owner_agent": rule.get("owner_agent", ""),
+            "agent_scope": rule.get("agent_scope", []),
             "priority": rule.get("priority", ""),
             "source_files": rule.get("source_files", []),
         })
@@ -1503,10 +1499,22 @@ def query_knowledge_profiled(
     return _profile_rerank_results(candidates, query, agent_name, n_results)
 
 
+def _profile_int(value: Any, default: int, minimum: int = 1) -> int:
+    if value is None:
+        return default
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= minimum else default
+
+
 def get_smart_knowledge(
     agent_name: str,
     context_hint: str = "",
     retrieval_profile: dict[str, Any] | None = None,
+    retrieval_mode: str | None = None,
+    allow_critical_fallback: bool = True,
 ) -> str:
     """
     智能知识获取主接口。
@@ -1521,10 +1529,23 @@ def get_smart_knowledge(
     """
     config = load_config()
     kb_config = config.get("knowledge", {})
-    mode = kb_config.get("retrieval_mode", "full")
-    final_top_k = kb_config.get("final_top_k", 8)
-    min_fallback = kb_config.get("min_chunks_fallback", 3)
-    registry_top_k = kb_config.get("registry_top_k", 4)
+    profile_options = retrieval_profile or {}
+    mode = retrieval_mode or kb_config.get("retrieval_mode", "full")
+    final_top_k = _profile_int(
+        profile_options.get("final_top_k", profile_options.get("top_k")),
+        kb_config.get("final_top_k", 8),
+    )
+    min_fallback = _profile_int(
+        profile_options.get("min_chunks_fallback"),
+        kb_config.get("min_chunks_fallback", 3),
+        minimum=0,
+    )
+    registry_top_k = _profile_int(
+        profile_options.get("registry_top_k"),
+        kb_config.get("registry_top_k", 4),
+        minimum=0,
+    )
+    max_chunks_per_source = _profile_int(profile_options.get("max_chunks_per_source"), 0, minimum=0)
     profiled_mode = mode == "profiled"
     query_hint = build_retrieval_profile_query(context_hint, retrieval_profile)
 
@@ -1558,8 +1579,8 @@ def get_smart_knowledge(
     results = []
     try:
         if profiled_mode:
-            bm25_k = kb_config.get("bm25_top_k", 12)
-            vector_k = kb_config.get("vector_top_k", 12)
+            bm25_k = _profile_int(profile_options.get("bm25_top_k"), kb_config.get("bm25_top_k", 12))
+            vector_k = _profile_int(profile_options.get("vector_top_k"), kb_config.get("vector_top_k", 12))
             results = query_knowledge_profiled(
                 query=query_hint,
                 agent_name=agent_name,
@@ -1569,8 +1590,8 @@ def get_smart_knowledge(
                 preferred_sources=registry_preferred_sources,
             )
         elif mode == "hybrid":
-            bm25_k = kb_config.get("bm25_top_k", 10)
-            vector_k = kb_config.get("vector_top_k", 10)
+            bm25_k = _profile_int(profile_options.get("bm25_top_k"), kb_config.get("bm25_top_k", 10))
+            vector_k = _profile_int(profile_options.get("vector_top_k"), kb_config.get("vector_top_k", 10))
             results = query_knowledge_hybrid(
                 query=query_hint,
                 agent_name=agent_name,
@@ -1602,13 +1623,19 @@ def get_smart_knowledge(
                 "retrieval_profile": retrieval_profile or {},
             }
     except Exception as e:
-        fallback_kind = "critical_only" if profiled_mode else "full"
+        fallback_kind = "critical_only" if profiled_mode and allow_critical_fallback else "empty"
+        if not profiled_mode:
+            fallback_kind = "full"
         print(f"[WARN] 知识检索失败 ({mode}): {e}，回退 {fallback_kind} 注入。")
-        full_text = get_full_knowledge_for_agent(agent_name, critical_only=profiled_mode)
+        full_text = (
+            get_full_knowledge_for_agent(agent_name, critical_only=profiled_mode)
+            if (not profiled_mode or allow_critical_fallback)
+            else ""
+        )
         return full_text, {
             "retrieval_mode": mode,
             "used_full_fallback": not profiled_mode,
-            "used_critical_fallback": profiled_mode,
+            "used_critical_fallback": bool(profiled_mode and allow_critical_fallback),
             "matched_sources": get_agent_knowledge_files(agent_name),
             "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
             "result_count": 0,
@@ -1621,6 +1648,19 @@ def get_smart_knowledge(
             "error": str(e),
         }
 
+    raw_result_count = len(results)
+    if max_chunks_per_source > 0:
+        source_counts: dict[str, int] = {}
+        filtered_results = []
+        for index, item in enumerate(results):
+            source = item.get("source") or f"__unknown_{index}"
+            count = source_counts.get(source, 0)
+            if count >= max_chunks_per_source:
+                continue
+            source_counts[source] = count + 1
+            filtered_results.append(item)
+        results = filtered_results
+
     # 结果不足，fallback 全文
     if len(results) < min_fallback and not profiled_mode:
         print(f"[INFO] 检索结果仅 {len(results)} 条 < {min_fallback}，回退全文注入。")
@@ -1631,6 +1671,7 @@ def get_smart_knowledge(
             "matched_sources": sorted({item.get("source", "") for item in results if item.get("source")}),
             "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
             "result_count": len(results),
+            "raw_result_count": raw_result_count,
             "registry_result_count": len(registry_results),
             "registry_rule_ids": registry_rule_ids,
             "registry_preferred_sources": registry_preferred_sources,
@@ -1651,7 +1692,7 @@ def get_smart_knowledge(
             parts.append(f"--- {source} (精选片段) ---")
             seen_sources.add(source)
         parts.append(item["text"])
-    if profiled_mode and len(results) < min_fallback:
+    if profiled_mode and allow_critical_fallback and len(results) < min_fallback:
         critical_text = get_full_knowledge_for_agent(agent_name, critical_only=True)
         if critical_text:
             parts.append("--- critical_rules (profiled fallback) ---")
@@ -1660,10 +1701,11 @@ def get_smart_knowledge(
     return "\n\n".join(parts), {
         "retrieval_mode": mode,
         "used_full_fallback": False,
-        "used_critical_fallback": bool(profiled_mode and len(results) < min_fallback),
+        "used_critical_fallback": bool(profiled_mode and allow_critical_fallback and len(results) < min_fallback),
         "matched_sources": sorted(seen_sources),
         "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
         "result_count": len(results),
+        "raw_result_count": raw_result_count,
         "registry_result_count": len(registry_results),
         "registry_rule_ids": registry_rule_ids,
         "registry_preferred_sources": registry_preferred_sources,

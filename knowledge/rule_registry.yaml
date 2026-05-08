@@ -1073,7 +1073,6 @@ rules:
     avoid_when: "只是剪辑遮挡型听者补帧，可交由 shot_director 按 CUT-REACTION-001 缩短。"
     source_files:
       - "knowledge/15_故事节奏控制规则.md"
-      - "knowledge/21_镜头调用规则与多机位模板.md"
     source_rules:
       - "15:R-04"
       - "15:R-05"

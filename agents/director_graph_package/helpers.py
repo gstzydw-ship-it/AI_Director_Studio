@@ -17,7 +17,12 @@ from .types import (
     LLMSettings,
     STORY_PLANNER_MAX_SCHEMA_ATTEMPTS,
 )
-from ..knowledge_base import get_agent_knowledge_files, get_smart_knowledge, load_knowledge_documents
+from ..knowledge_base import (
+    get_agent_knowledge_files,
+    get_full_knowledge_for_agent,
+    get_smart_knowledge,
+    load_knowledge_documents,
+)
 from ..utils import COMFLY_BASE_URL, load_yaml_config
 
 
@@ -479,21 +484,32 @@ def build_system_prompt(
     agent_name: str,
     context_hint: str = "",
     retrieval_profile: dict[str, Any] | None = None,
+    include_critical_knowledge: bool = True,
+    fallback_to_full_knowledge: bool = True,
+    retrieval_mode: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
-    critical_text = _critical_knowledge_block(agent_name)
+    critical_text = _critical_knowledge_block(agent_name) if include_critical_knowledge else ""
     retrieval_meta: dict[str, Any] = {}
     try:
-        kb_text, retrieval_meta = get_smart_knowledge(agent_name, context_hint, retrieval_profile=retrieval_profile)
+        kb_text, retrieval_meta = get_smart_knowledge(
+            agent_name,
+            context_hint,
+            retrieval_profile=retrieval_profile,
+            retrieval_mode=retrieval_mode,
+            allow_critical_fallback=include_critical_knowledge,
+        )
     except Exception:
-        kb_text = get_full_knowledge_for_agent(agent_name)
+        kb_text = get_full_knowledge_for_agent(agent_name) if fallback_to_full_knowledge else ""
         retrieval_meta = {
             "retrieval_mode": "fallback",
-            "used_full_fallback": True,
+            "used_full_fallback": fallback_to_full_knowledge,
             "matched_sources": get_agent_knowledge_files(agent_name),
             "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
             "result_count": 0,
             "context_hint": context_hint,
             "retrieval_profile": retrieval_profile or {},
+            "include_critical_knowledge": include_critical_knowledge,
+            "fallback_to_full_knowledge": fallback_to_full_knowledge,
         }
 
     knowledge_sections = []

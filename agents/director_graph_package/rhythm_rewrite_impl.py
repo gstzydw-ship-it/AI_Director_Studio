@@ -153,9 +153,9 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
         _agent_outputs,
         _persist_update,
         _record_knowledge_metadata,
-        build_system_prompt,
         call_llm,
     )
+    from .helpers import build_system_prompt
 
     outputs = _agent_outputs(state)
 
@@ -173,9 +173,27 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
         )
 
     rhythm_hint = (
-        f"节奏总控 剧本改写 动作增补 氛围渲染 微表情 死寂气口 蓄力泄压 "
-        f"受击反应 情绪曲线 竖屏压迫 aspect_ratio {state.get('aspect_ratio', '16:9')}"
+        f"节奏总控 节奏诊断 下游施工指令 戏剧微粒 受击反应 停顿 卡断 尾帧承接 "
+        f"禁止改写剧本 禁止新增事件 禁止重排台词 aspect_ratio {state.get('aspect_ratio', '16:9')}"
     )
+    rhythm_profile = {
+        "agent_scope": ["rhythm_rewrite_director"],
+        "rule_type": ["rhythm_rewrite", "dramatic_signal_rhythm", "story_rhythm"],
+        "priority": ["P0", "P1", "hard"],
+        "signals": [
+            "dialogue_coverage",
+            "action_coverage",
+            "continuity_lock",
+            "reaction_beat",
+        ],
+        "scene_types": ["dialogue", "action", "suspense", "confrontation"],
+        "events": ["reaction", "collision", "power_reversal", "suspense_reveal"],
+        "risks": ["script_invention_risk", "over_segmentation", "rewriting_script_facts"],
+        "dialogue_types": ["long_dialogue_compression", "reaction_beat", "power_confrontation"],
+        "aspect_ratios": [str(state.get("aspect_ratio", "16:9"))],
+        "registry_top_k": 2,
+        "max_chunks_per_source": 1,
+    }
     system_prompt, retrieval_meta = build_system_prompt(
         "你是一位短剧导演系统的节奏总控。你的任务不是改写剧本，而是诊断节奏并给下游拆片和镜头导演施工指令。\n\n"
         "绝对禁止：\n"
@@ -193,6 +211,10 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
         "4. 超过 8 条原文事件应建议拆开；少于 4 条通常建议合并，除非是明确钩子、卡断或重大反转落点。\n",
         "rhythm_rewrite_director",
         context_hint=rhythm_hint,
+        retrieval_profile=rhythm_profile,
+        include_critical_knowledge=False,
+        fallback_to_full_knowledge=False,
+        retrieval_mode="profiled",
     )
 
     user_prompt = (

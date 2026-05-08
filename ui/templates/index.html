@@ -111,6 +111,9 @@
                             <button class="btn-clear" id="btnClearTask" onclick="clearPreviousSegment()">
                                 <span class="btn-icon">↩</span> 清除上一段
                             </button>
+                            <button class="btn-clear" id="btnNewTask" onclick="startBlankTask()">
+                                <span class="btn-icon">+</span> 新建空白任务
+                            </button>
                             <button class="btn-restore" id="btnRestoreTask" onclick="restoreLatestSessionManual()">
                                 <span class="btn-icon">↻</span> 恢复最近任务
                             </button>
@@ -286,11 +289,15 @@
         const MAX_REFERENCE_IMAGES = 12;
         const SESSION_STORAGE_KEY = 'director_session_id';
 
+        function createSessionId() {
+            const randomPart = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '');
+            return `web_${randomPart}`;
+        }
+
         function getSessionId() {
             let sessionId = localStorage.getItem(SESSION_STORAGE_KEY);
             if (!sessionId) {
-                const randomPart = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '');
-                sessionId = `web_${randomPart}`;
+                sessionId = createSessionId();
                 localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
             }
             return sessionId;
@@ -348,6 +355,25 @@
                 btn.innerHTML = originalHtml;
                 btn.disabled = false;
             }
+        }
+
+        async function startBlankTask() {
+            const confirmed = confirm('新建空白任务会清空当前页面输入与进度，但不会删除历史任务。确定继续吗？');
+            if (!confirmed) return;
+            if (pollingTimer) {
+                clearInterval(pollingTimer);
+                pollingTimer = null;
+            }
+            const sessionId = createSessionId();
+            localStorage.setItem(SESSION_STORAGE_KEY, sessionId);
+            try {
+                const formData = new FormData();
+                formData.append('session_id', sessionId);
+                await fetch('/api/reset', { method: 'POST', body: formData });
+            } catch (e) {
+                // A fresh session id isolates the next run even if reset fails.
+            }
+            window.location.reload();
         }
 
         const REFERENCE_PURPOSE_OPTIONS = [
@@ -585,7 +611,108 @@
             return cards.join('');
         }
 
+        const REVIEW_AGENT_LABELS = {
+            rhythm_rewrite_director: '节奏总控',
+            scene_analyst: '场景分析',
+            story_planner: '结构规划',
+            shot_director: '三段镜头导演',
+            storyboard_designer: '分镜流程图',
+            prompt_compiler: 'Seedance 编译',
+            quality_inspector: '质检导演',
+        };
+
+        function reviewOutputText(state = {}) {
+            const agent = state.review_agent || '';
+            const outputs = state.agent_outputs || {};
+            if (state.review_output) return String(state.review_output);
+            if (agent === 'shot_director') return latestShotDirectorOutput(outputs);
+            if (agent === 'prompt_compiler') {
+                const segIdx = Number(state.active_segment_index || state.current_segment_index || 1);
+                return outputs[`compiled_segment_${segIdx}`] || outputs.prompt_compiler || state.result || '';
+            }
+            if (agent === 'quality_inspector') {
+                const segIdx = Number(state.active_segment_index || state.current_segment_index || 1);
+                return outputs[`quality_inspector_segment_${segIdx}`] || outputs.quality_inspector || '';
+            }
+            if (agent === 'storyboard_designer') {
+                const segIdx = Number(state.active_segment_index || state.current_segment_index || 1);
+                return outputs[`storyboard_prompt_seg${segIdx}`] || outputs.storyboard_designer || '';
+            }
+            return outputs[agent] || '';
+        }
+
+        function renderAgentReviewBox(state = {}) {
+            const agent = state.review_agent || '';
+            const label = state.review_title || REVIEW_AGENT_LABELS[agent] || agent || 'Agent';
+            const text = reviewOutputText(state);
+            selectResultTab(agent);
+            document.getElementById('resultTabs').style.display = 'flex';
+            document.getElementById('resultOutput').innerHTML = `
+                <div style="display:flex; flex-direction:column; gap:14px;">
+                    <div style="padding:14px 16px; border:1px solid rgba(34,211,238,.45); background:rgba(34,211,238,.08); border-radius:8px;">
+                        <div style="font-weight:700; color:var(--accent-info); margin-bottom:6px;">${escapeHtml(label)}已完成</div>
+                        <div style="color:var(--text-secondary); font-size:13px;">下面是这一步的输出。你可以直接修改，确认后系统会把修改后的内容交给下一个 Agent。</div>
+                    </div>
+                    <textarea id="agentReviewEditor" style="width:100%; min-height:420px; resize:vertical; padding:14px; border-radius:8px; border:1px solid var(--border-color); background:rgba(15,23,42,.78); color:var(--text-primary); font-family:Consolas, Monaco, monospace; font-size:13px; line-height:1.65;">${escapeHtml(text)}</textarea>
+                    <div style="display:flex; gap:10px; flex-wrap:wrap;">
+                        <button class="btn-primary" onclick="approveAgentOutput()">确认修改并继续</button>
+                        <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
+                    </div>
+                </div>
+            `;
+            document.getElementById('interactiveBox').innerHTML = '';
+            updateAgentStatus('idle', `${label}等待审核`);
+            resetBtn();
+        }
+
+        async function approveAgentOutput() {
+            const editor = document.getElementById('agentReviewEditor');
+            const agent = currentPublicState.review_agent || '';
+            if (!editor || !agent) {
+                showError('当前没有可确认的 Agent 输出');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('session_id', getSessionId());
+            formData.append('agent_name', agent);
+            formData.append('edited_output', editor.value);
+            document.getElementById('pipelineMsg').textContent = '已提交修改，正在继续下一个 Agent...';
+            document.getElementById('interactiveBox').innerHTML = '';
+            updateAgentStatus('running', '继续执行中');
+            try {
+                const resp = await fetch('/api/approve_agent_output', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    showError(data.error || '确认失败');
+                    updateAgentStatus('error', '确认失败');
+                    return;
+                }
+                startPolling();
+            } catch (e) {
+                showError('确认失败: ' + e.message);
+                updateAgentStatus('error', '确认失败');
+            }
+        }
+
+        async function copyAgentReviewOutput() {
+            const editor = document.getElementById('agentReviewEditor');
+            if (!editor) return;
+            try {
+                await navigator.clipboard.writeText(editor.value);
+                document.getElementById('pipelineMsg').textContent = '已复制当前审核内容';
+            } catch (e) {
+                editor.select();
+                document.execCommand('copy');
+            }
+        }
+
         function renderWaitingInputBox(state = {}) {
+            if (state.review_mode === 'agent_output') {
+                renderAgentReviewBox(state);
+                applyBackendProgress(state);
+                document.getElementById('pipelineMsg').textContent = state.message || '等待审核当前 Agent 输出';
+                return;
+            }
             const segIdx = Number(state.current_segment_index || 1);
             const totalSegments = Number(state.total_segments || segIdx || 1);
             const completedSegment = Math.max(0, segIdx - 1);
@@ -733,7 +860,6 @@
             try {
                 const resp = await fetch(statusUrl());
                 let state = await resp.json();
-                state = await restoreLatestSessionIfBlank(state);
                 currentPublicState = state;
                 const hasOutputs = Object.keys(state.agent_outputs || {}).length > 0 || Boolean(state.result);
 
@@ -1038,6 +1164,7 @@
         const STEP_ORDER = ['rhythm', 'analyze', 'plan', 'direct', 'storyboard', 'compile', 'inspect'];
         const STEP_KEY_MAP = {
             'step_0_rhythm': 0,
+            'step_1_rhythm': 0,
             'step_1_analyze': 1,
             'step_2_plan': 2,
             'step_3_direct': 3,
@@ -1083,11 +1210,20 @@
         }
 
         function inferActiveStepIndex(state = {}) {
+            const outputs = state.agent_outputs || {};
+            const message = `${state.message || ''} ${state.error || ''}`;
+            if (
+                state.step === 'step_1_analyze'
+                && !outputs.rhythm_rewrite_director
+                && /节奏总控|rhythm/i.test(message)
+                && !/场景分析|scene_analyst/i.test(message)
+            ) {
+                return 0;
+            }
+
             const stepIdx = STEP_KEY_MAP[state.step];
             if (stepIdx !== undefined) return stepIdx;
 
-            const outputs = state.agent_outputs || {};
-            const message = `${state.message || ''} ${state.error || ''}`;
             if (/质检|quality|inspect/i.test(message)) return 6;
             if (/Seedance|编译|Prompt|compile/i.test(message)) return 5;
             if (/分镜流程图|storyboard/i.test(message)) return 4;
@@ -1284,21 +1420,68 @@
         }
 
         // === 构建向量库 ===
+        let vectorDbPollTimer = null;
+
+        function renderVectorDbStatus(data) {
+            const btn = document.getElementById('btnBuildDB');
+            const status = document.getElementById('dbStatus');
+            const state = data.status || (data.success ? 'done' : 'error');
+            if (state === 'running') {
+                status.textContent = '⏳ ' + (data.message || '向量知识库正在后台构建...');
+                status.className = 'status-msg info';
+                btn.disabled = true;
+                return;
+            }
+            if (state === 'done') {
+                status.textContent = '✅ ' + (data.message || '向量知识库已重建');
+                status.className = 'status-msg success';
+                btn.disabled = false;
+                return;
+            }
+            status.textContent = '❌ ' + (data.error || data.message || '向量知识库构建失败');
+            status.className = 'status-msg error';
+            btn.disabled = false;
+        }
+
+        function pollVectorDbStatus() {
+            if (vectorDbPollTimer) clearInterval(vectorDbPollTimer);
+            vectorDbPollTimer = setInterval(async () => {
+                try {
+                    const resp = await fetch('/api/build_vectordb_status');
+                    const data = await resp.json();
+                    renderVectorDbStatus(data);
+                    if (data.status !== 'running') {
+                        clearInterval(vectorDbPollTimer);
+                        vectorDbPollTimer = null;
+                    }
+                } catch (e) {
+                    clearInterval(vectorDbPollTimer);
+                    vectorDbPollTimer = null;
+                    const btn = document.getElementById('btnBuildDB');
+                    const status = document.getElementById('dbStatus');
+                    btn.disabled = false;
+                    status.textContent = '❌ 状态查询失败: ' + e.message;
+                    status.className = 'status-msg error';
+                }
+            }, 2000);
+        }
+
         async function buildVectorDB() {
             const btn = document.getElementById('btnBuildDB');
             const status = document.getElementById('dbStatus');
             btn.disabled = true;
-            status.textContent = '正在构建...';
+            status.textContent = '正在启动后台构建...';
             status.className = 'status-msg info';
             try {
                 const resp = await fetch('/api/build_vectordb', { method: 'POST' });
                 const data = await resp.json();
-                status.textContent = data.success ? ('✅ ' + data.message) : ('❌ ' + data.error);
-                status.className = 'status-msg ' + (data.success ? 'success' : 'error');
+                renderVectorDbStatus(data);
+                if (data.status === 'running') {
+                    pollVectorDbStatus();
+                }
             } catch (e) {
                 status.textContent = '❌ 网络错误: ' + e.message;
                 status.className = 'status-msg error';
-            } finally {
                 btn.disabled = false;
             }
         }

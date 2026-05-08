@@ -228,10 +228,18 @@ def test_rule_registry_routes_owner_specific_rules():
     assert "PROMPT-ACTION-006" not in shot_prompt_rule_ids
 
 
-def test_rule_registry_global_safety_rules_are_visible_cross_agent():
-    results = query_rule_registry("私密场景 身体部位 情绪 不看身体", "shot_director", n_results=5)
-    rule_ids = {item["rule_id"] for item in results}
-    assert "SAFETY-INTIMACY-001" in rule_ids
+def test_rule_registry_strictly_filters_by_owner_or_agent_scope():
+    shot_results = query_rule_registry("SAFETY INTIMACY private body emotion", "shot_director", n_results=5)
+    shot_rule_ids = {item["rule_id"] for item in shot_results}
+    assert "SAFETY-INTIMACY-001" not in shot_rule_ids
+
+    quality_results = query_rule_registry("SAFETY INTIMACY private body emotion", "quality_inspector", n_results=5)
+    quality_rule_ids = {item["rule_id"] for item in quality_results}
+    assert "SAFETY-INTIMACY-001" in quality_rule_ids
+
+    rhythm_results = query_rule_registry("PROMPT AXIS LOCK 180 reaction beat", "rhythm_rewrite_director", n_results=8)
+    assert all(item["owner_agent"] == "rhythm_rewrite_director" for item in rhythm_results)
+    assert "PROMPT-AXIS-LOCK-PER-SEGMENT-001" not in {item["rule_id"] for item in rhythm_results}
 
 
 def test_rule_registry_context_formats_cards():
@@ -429,6 +437,64 @@ def test_smart_knowledge_passes_structured_profile_to_profiled_search(monkeypatc
     assert "events: rush_in collision waist_support" in captured["profiled_query"]
     assert "risks: door_state_jump romanticize_collision" in captured["profiled_query"]
     assert meta["retrieval_profile"]["scene_type"] == "elevator"
+
+
+def test_smart_knowledge_uses_profile_retrieval_budget(monkeypatch):
+    captured = {}
+
+    def fake_load_config():
+        return {
+            "knowledge": {
+                "retrieval_mode": "profiled",
+                "final_top_k": 8,
+                "min_chunks_fallback": 0,
+                "registry_top_k": 4,
+                "bm25_top_k": 12,
+                "vector_top_k": 12,
+            },
+            "vectordb": {
+                "chunk_size": 800,
+                "chunk_overlap": 100,
+            },
+        }
+
+    def fake_registry(query, agent_name, n_results):
+        captured["registry_top_k"] = n_results
+        return "", []
+
+    def fake_profiled(**kwargs):
+        captured["final_top_k"] = kwargs["n_results"]
+        captured["bm25_top_k"] = kwargs["bm25_k"]
+        captured["vector_top_k"] = kwargs["vector_k"]
+        return [
+            {"text": "first rhythm chunk", "source": "15.md", "title": "a", "relevance": 1.0},
+            {"text": "duplicate rhythm chunk", "source": "15.md", "title": "b", "relevance": 0.9},
+            {"text": "signal chunk", "source": "24.md", "title": "c", "relevance": 0.8},
+        ]
+
+    monkeypatch.setattr(kb, "load_config", fake_load_config)
+    monkeypatch.setattr(kb, "get_rule_registry_context", fake_registry)
+    monkeypatch.setattr(kb, "query_knowledge_profiled", fake_profiled)
+
+    text, meta = kb.get_smart_knowledge(
+        "rhythm_rewrite_director",
+        "节奏总控",
+        retrieval_profile={
+            "registry_top_k": 2,
+            "final_top_k": 6,
+            "bm25_top_k": 7,
+            "vector_top_k": 8,
+            "max_chunks_per_source": 1,
+        },
+    )
+
+    assert captured["registry_top_k"] == 2
+    assert captured["final_top_k"] == 6
+    assert captured["bm25_top_k"] == 7
+    assert captured["vector_top_k"] == 8
+    assert "duplicate rhythm chunk" not in text
+    assert meta["raw_result_count"] == 3
+    assert meta["result_count"] == 2
 
 
 def test_structured_aspect_ratio_query_does_not_force_vertical(monkeypatch):
