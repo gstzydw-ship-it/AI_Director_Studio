@@ -12,11 +12,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.director_graph_package.storyboard_designer_impl import (
     _build_storyboard_user_prompt,
     _build_character_reference_notes,
+    _current_script_excerpt,
     _extract_fragment_task_and_rhythm,
     _extract_shots_from_director_segment,
     _format_shot_for_storyboard,
     _save_storyboard_image,
     _segment_block,
+    generate_storyboard_image_for_segment,
     generate_storyboard_for_segment,
     storyboard_designer_node,
 )
@@ -76,6 +78,23 @@ key_beats:
   - 乔熙抬头对峙
 """
 
+CHINESE_DIRECTOR_SEGMENT = """
+片段编号: F01
+片段任务: 建立权力关系
+节奏: 压抑-紧张
+镜头列表:
+  - 镜头编号: F01-S01
+    时长: 3秒
+    镜头任务: 建立空间
+    拍摄主体: 商北琛
+    镜头: 正前方中全景
+    画面动作: 商北琛走进大堂
+    台词: ~
+    必须承载: 空间关系
+    切镜点: 商北琛停住时切出
+    连续性: 保持纵深
+"""
+
 
 # ---------------------------------------------------------------------------
 # Internal helper tests
@@ -94,17 +113,40 @@ class TestShotExtraction:
         assert s0.get("duration") == "3秒"
         assert s0.get("camera") == "正前方固定机位"
 
+    def test_extract_shots_accepts_chinese_fields(self):
+        shots = _extract_shots_from_director_segment(CHINESE_DIRECTOR_SEGMENT)
+        assert len(shots) == 1
+        assert shots[0].get("shot_id") == "F01-S01"
+        assert shots[0].get("duration") == "3秒"
+        assert shots[0].get("subject") == "商北琛"
+        assert shots[0].get("action") == "商北琛走进大堂"
+        assert shots[0].get("cut_point") == "商北琛停住时切出"
+
     def test_extract_fragment_meta(self):
         task, rhythm = _extract_fragment_task_and_rhythm(SAMPLE_DIRECTOR_SEGMENT)
+        assert "权力关系" in task
+        assert "压抑" in rhythm
+
+    def test_extract_fragment_meta_accepts_chinese_fields(self):
+        task, rhythm = _extract_fragment_task_and_rhythm(CHINESE_DIRECTOR_SEGMENT)
         assert "权力关系" in task
         assert "压抑" in rhythm
 
     def test_format_shot(self):
         shots = _extract_shots_from_director_segment(SAMPLE_DIRECTOR_SEGMENT)
         formatted = _format_shot_for_storyboard(shots[0], 0)
-        assert "Panel 1" in formatted
+        assert "镜头 S01 首帧格" in formatted
         assert "商北琛" in formatted
         assert "中全景" in formatted
+        assert "不画完整动作过程" in formatted
+        assert "固定空间锁定" in formatted
+        assert "不得把道具移动到旁边台面、床头或新位置" in formatted
+
+    def test_format_shot_omits_dialogue_text(self):
+        shots = _extract_shots_from_director_segment(SAMPLE_DIRECTOR_SEGMENT)
+        formatted = _format_shot_for_storyboard(shots[1], 1)
+        assert "你来了" not in formatted
+        assert "首帧" in formatted
 
 
 class TestSegmentBlock:
@@ -122,6 +164,17 @@ class TestSegmentBlock:
     def test_segment_block_missing(self):
         block = _segment_block("", 1)
         assert block == ""
+
+    def test_current_script_excerpt_prefers_enhanced_segment(self):
+        state: DirectorState = {
+            "enhanced_script": (
+                "片段 1｜出门\n乔熙拿起背包，小豆丁站在门边。\n\n"
+                "片段 2｜到达\n乔熙进入办公室。"
+            )
+        }
+        excerpt = _current_script_excerpt(state, 1, "F01")
+        assert "乔熙拿起背包" in excerpt
+        assert "进入办公室" not in excerpt
 
 
 class TestReferenceNotes:
@@ -141,7 +194,9 @@ class TestReferenceNotes:
         # description takes priority over filename
         assert "男主角参考" in notes
         assert "办公室场景" in notes
-        assert "Maintain visual consistency" in notes
+        assert "【参考图使用规则】" in notes
+        assert "人物参考图只用于锁定" in notes
+        assert "固定空间锚点不得移动" in notes
 
 
 class TestPromptBuilder:
@@ -154,16 +209,25 @@ class TestPromptBuilder:
             rhythm="压抑",
             shots=shots,
             planner_context=SAMPLE_PLANNER_SEGMENT,
+            script_context="乔熙拿起背包，小豆丁站在门边。",
             reference_notes="[Ref] hero.jpg",
             aspect_ratio="9:16",
         )
-        assert "segment 1" in prompt.lower()
+        assert "生成片段 1" in prompt
         assert "9:16" in prompt
-        assert "Panel 1" in prompt
+        assert "整张分镜首帧图必须严格使用 9:16 比例" in prompt
+        assert "镜头1 / 镜头2 / 镜头3" in prompt
+        assert "镜头 S01 首帧格" in prompt
         assert "商北琛" in prompt
-        assert "Story Planner Context" in prompt
+        assert "【拆片规划上下文】" in prompt
         assert "hero.jpg" in prompt
-        assert "Output Contract" in prompt or "storyboard" in prompt.lower()
+        assert "【当前片段增强剧本参考】" in prompt
+        assert "只用它核对人物、道具、台词事实和动作起点" in prompt
+        assert "【分镜首帧图输出合同】" in prompt
+        assert "不出现台词文字" in prompt
+        assert "人物运动箭头" in prompt
+        assert "固定家具位置锁定" in prompt
+        assert "不能出现“旁边台面”“床头边缘”“另一个桌面”" in prompt
 
 
 class TestSaveStoryboardImage:
@@ -206,9 +270,7 @@ class TestStoryboardDesignerNode:
             "segment_names": ["片段01", "片段02", "片段03"],
         }
         result = storyboard_designer_node(state)
-        assert "skipped" in result.get("message", "").lower() or "skip" in result.get(
-            "message", ""
-        ).lower()
+        assert "已跳过" in result.get("message", "")
 
     def test_skips_when_no_parseable_shots(self, monkeypatch):
         state: DirectorState = {
@@ -220,9 +282,7 @@ class TestStoryboardDesignerNode:
             "segment_names": ["片段01"],
         }
         result = storyboard_designer_node(state)
-        assert "skipped" in result.get("message", "").lower() or "no parseable" in result.get(
-            "message", ""
-        ).lower()
+        assert "没有可识别的镜头列表" in result.get("message", "")
 
 
 class TestGraphIntegration:
@@ -258,14 +318,11 @@ class TestGenerateStoryboardForSegment:
             "segment_names": ["Test"],
             "aspect_ratio": "16:9",
         }
-        # Monkey-patch call_llm to avoid real network calls
-        call_count = [0]
+        agent_names = []
 
         def fake_call_llm(*args, **kwargs):
-            call_count[0] += 1
-            if call_count[0] == 1:
-                return "A storyboard prompt describing panels..."
-            return "https://example.com/fake_image.png"
+            agent_names.append(kwargs.get("agent_name"))
+            return "一张分镜首帧图，包含 3 个镜头格子。"
 
         monkeypatch.setattr(
             "agents.director_graph_package.storyboard_designer_impl.call_llm",
@@ -276,6 +333,40 @@ class TestGenerateStoryboardForSegment:
         assert "prompt" in result
         assert "image_path" in result
         assert result["prompt"] != ""
+        assert result["image_path"] == ""
+        assert agent_names == ["storyboard_prompt_designer"]
+
+    def test_generate_image_uses_existing_prompt(self, monkeypatch):
+        state: DirectorState = {
+            "active_segment_index": 1,
+            "agent_outputs": {
+                "storyboard_prompt_seg01": "一张分镜首帧图，包含 3 个镜头格子。",
+            },
+            "reference_image_b64s": ["fake-ref"],
+        }
+        calls = []
+
+        def fake_image_api(prompt, images_base64=None, agent_name="storyboard_designer"):
+            calls.append((prompt, images_base64, agent_name))
+            return "https://example.com/fake_image.png"
+
+        def fake_save(data, segment_index, session_id):
+            return f"saved-{segment_index}.png"
+
+        monkeypatch.setattr(
+            "agents.director_graph_package.storyboard_designer_impl._call_image_generation_api",
+            fake_image_api,
+        )
+        monkeypatch.setattr(
+            "agents.director_graph_package.storyboard_designer_impl._save_storyboard_image",
+            fake_save,
+        )
+
+        result = generate_storyboard_image_for_segment(state, segment_index=1)
+        assert result["image_path"] == "saved-1.png"
+        assert calls == [
+            ("一张分镜首帧图，包含 3 个镜头格子。", ["fake-ref"], "storyboard_designer")
+        ]
 
 
 if __name__ == "__main__":

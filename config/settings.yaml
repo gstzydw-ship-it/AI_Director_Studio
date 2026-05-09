@@ -31,13 +31,22 @@ agent_models:
     fallback_models:
       - claude-opus-4-7
   scene_vision_analyst:
-    api_key: ${SCENE_VISION_API_KEY}
+    api_key: ${DIRECTOR_STORYBOARD_IMAGE_API_KEY}
     base_url: https://ai.comfly.chat/v1
     model: gpt-5.5
     temperature: 0.1
     timeout_seconds: 240
     read_timeout_seconds: 240
     max_retries: 3
+  scene_card_designer:
+    api_key: ${DIRECTOR_STORYBOARD_IMAGE_API_KEY}
+    base_url: https://ai.comfly.chat/v1
+    model: gpt-image-2-all
+    temperature: 0.25
+    timeout_seconds: 180
+    read_timeout_seconds: 180
+    write_timeout_seconds: 60
+    max_retries: 2
   script_event_validator:
     base_url: http://8.nat0.cn:49347/v1
     model: deepseek-v3.2
@@ -58,9 +67,17 @@ agent_models:
     model: claude-opus-4-7
     temperature: 0.2
     timeout_seconds: 240
+  storyboard_prompt_designer:
+    api_key: ${DIRECTOR_STORYBOARD_IMAGE_API_KEY}
+    base_url: https://ai.comfly.chat/v1
+    model: gpt-5.5
+    temperature: 0.3
+    timeout_seconds: 180
+    max_retries: 2
   storyboard_designer:
-    base_url: http://8.nat0.cn:49347/v1
-    model: gpt-image-2
+    api_key: ${DIRECTOR_STORYBOARD_IMAGE_API_KEY}
+    base_url: https://ai.comfly.chat/v1
+    model: gpt-image-2-all
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 2

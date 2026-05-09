@@ -72,6 +72,9 @@ def recover_repairable_pipeline_state(state: dict[str, Any]) -> tuple[dict[str, 
 
     if repaired.get("status") in {"running", "running_phase_1", "running_phase_2"}:
         repaired["status"] = "idle"
+        repaired["step"] = ""
+        repaired["started_at"] = ""
+        repaired["last_progress_at"] = ""
         repaired["message"] = "检测到上次任务中断，已恢复为可重新启动状态。"
         changed = True
 

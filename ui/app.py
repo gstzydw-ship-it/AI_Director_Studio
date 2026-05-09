@@ -283,7 +283,10 @@ from agents.director_graph import (
     save_state,
     _normalise_compiled_prompt,
 )
-from agents.director_graph_package.storyboard_designer_impl import generate_storyboard_for_segment
+from agents.director_graph_package.storyboard_designer_impl import (
+    generate_storyboard_for_segment,
+    generate_storyboard_image_for_segment,
+)
 
 
 def _save_task_state_for_session(
@@ -609,7 +612,41 @@ def _clear_previous_segment_in_state(state: dict) -> tuple[bool, int, str]:
     return _clear_segment_and_downstream(state, previous_segment)
 
 
-def _infer_reference_purpose(index: int) -> str:
+_SCENE_REFERENCE_NAME_HINTS = (
+    "场景",
+    "空间",
+    "环境",
+    "地点",
+    "场地",
+    "公寓",
+    "客厅",
+    "卧室",
+    "厨房",
+    "餐厅",
+    "门口",
+    "大堂",
+    "公司",
+    "集团",
+    "办公室",
+    "会议室",
+    "小区",
+    "街道",
+    "走廊",
+    "电梯",
+    "酒店",
+    "医院",
+    "学校",
+    "房间",
+    "庭院",
+    "车库",
+    "停车场",
+)
+
+
+def _infer_reference_purpose(index: int, filename: str = "") -> str:
+    base_name = os.path.splitext(filename or "")[0]
+    if any(marker in base_name for marker in _SCENE_REFERENCE_NAME_HINTS):
+        return "场景空间、轴线、光线与首帧环境基底锁定"
     purposes = {
         1: "主角人物身份、五官、发型、身形与服装一致性锁定",
         2: "对手角色/第二核心角色身份、五官、发型、身形与服装一致性锁定",
@@ -700,7 +737,7 @@ async def _read_reference_uploads(
             continue
         index = len(image_data_urls) + 1
         override = manifest_overrides[index - 1] if index - 1 < len(manifest_overrides) else {}
-        purpose = override.get("purpose") or _infer_reference_purpose(index)
+        purpose = override.get("purpose") or _infer_reference_purpose(index, upload.filename)
         note = override.get("note") or ""
         if note:
             purpose = f"{purpose}；补充说明：{note}"
@@ -1062,7 +1099,53 @@ def _generate_storyboard_in_thread(
             task_state.update(refreshed)
             task_state["status"] = "waiting_for_user_input"
             task_state["step"] = "step_4_storyboard"
-            task_state["message"] = f"🎨 片段 {segment_index} 分镜流程图已生成，请上传参考图后生成 Prompt"
+            task_state["message"] = f"🎨 片段 {segment_index} 分镜首帧提示词已生成，请审核后手动生成图片"
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        task_state["status"] = "error"
+        task_state["step"] = "error"
+        task_state["message"] = f"🎨 分镜流程图生成失败: {str(e)}"
+        task_state["error"] = traceback.format_exc()
+        _save_task_state_for_session(session_id, task_state)
+    finally:
+        _unregister_task_thread(session_id)
+
+
+def _generate_storyboard_image_in_thread(
+    segment_index: int,
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Generate the storyboard image after the prompt has been reviewed."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+    try:
+        with request_scope(session_id=session_id):
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state["status"] = "running_phase_1"
+            task_state["step"] = "step_4_storyboard"
+            task_state["message"] = f"🎨 正在根据片段 {segment_index} 分镜提示词生成图片..."
+            task_state["error"] = ""
+            task_state["active_segment_index"] = segment_index
+            task_state["current_segment_index"] = segment_index
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+
+            latest_state = load_state() or {}
+            merged_state = dict(latest_state)
+            merged_state.update(task_state)
+            result = generate_storyboard_image_for_segment(merged_state, segment_index=segment_index)
+
+            refreshed = load_state() or {}
+            task_state.update(refreshed)
+            task_state["status"] = "waiting_for_user_input"
+            task_state["step"] = "step_4_storyboard"
+            task_state["message"] = f"🎨 片段 {segment_index} 分镜图片已生成"
             if result.get("image_path"):
                 task_state["message"] += f"（图片：{result['image_path']}）"
             _touch_task_progress(task_state)
@@ -1073,7 +1156,7 @@ def _generate_storyboard_in_thread(
         _merge_latest_disk_state_for_session(session_id, task_state)
         task_state["status"] = "error"
         task_state["step"] = "error"
-        task_state["message"] = f"🎨 分镜流程图生成失败: {str(e)}"
+        task_state["message"] = f"🎨 分镜图片生成失败: {str(e)}"
         task_state["error"] = traceback.format_exc()
         _save_task_state_for_session(session_id, task_state)
     finally:
@@ -1340,8 +1423,18 @@ async def api_approve_agent_output(
         return JSONResponse({"success": False, "error": "已有任务正在执行，请等待当前步骤完成。"})
     has_review_payload = bool(task_state.get("review_agent") and task_state.get("review_output") is not None)
     is_agent_review = task_state.get("review_mode") == "agent_output" or has_review_payload
-    if task_state.get("status") != "waiting_for_user_input" or not is_agent_review:
+    can_resume_failed_review = task_state.get("status") == "error" and is_agent_review
+    if task_state.get("status") != "waiting_for_user_input" and not can_resume_failed_review:
         return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
+    if not is_agent_review:
+        return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
+    if can_resume_failed_review:
+        task_state["status"] = "waiting_for_user_input"
+        task_state["step"] = task_state.get("step") if task_state.get("step") != "error" else ""
+        task_state["error"] = ""
+        task_state["started_at"] = ""
+        _touch_task_progress(task_state)
+        _save_task_state_for_session(session_id, task_state)
 
     review_agent = (agent_name or task_state.get("review_agent") or "").strip()
     if not review_agent:
@@ -1542,6 +1635,88 @@ async def api_generate_storyboard(
     return JSONResponse({"success": True, "message": f"🎨 片段 {segment_index} 分镜流程图已加入队列。"})
 
 
+@app.post("/api/generate_storyboard_image")
+async def api_generate_storyboard_image(
+    segment_index: int = Form(...),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+):
+    """Generate storyboard image from an already-reviewed storyboard prompt."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    outputs = task_state.get("agent_outputs") or {}
+    prompt = (
+        outputs.get(f"storyboard_prompt_seg{segment_index:02d}")
+        or outputs.get(f"storyboard_prompt_seg{segment_index}")
+        or outputs.get("storyboard_designer")
+    )
+    if not prompt:
+        return JSONResponse({"success": False, "error": "请先生成并审核分镜首帧提示词，再生成图片。"})
+
+    total_segments = int(task_state.get("total_segments") or 0)
+    if segment_index < 1 or (total_segments and segment_index > total_segments):
+        return JSONResponse({"success": False, "error": f"片段 {segment_index} 超出有效范围。"})
+
+    task_generation = _bump_task_generation(session_id)
+    now = _now_iso()
+    task_state["status"] = "running_phase_1"
+    task_state["step"] = "step_4_storyboard"
+    task_state["message"] = f"🎨 正在根据片段 {segment_index} 分镜提示词生成图片..."
+    task_state["error"] = ""
+    task_state["active_segment_index"] = segment_index
+    task_state["current_segment_index"] = segment_index
+    task_state["started_at"] = now
+    _touch_task_progress(task_state, now)
+    _save_task_state_for_session(session_id, task_state)
+
+    thread = threading.Thread(
+        target=_generate_storyboard_image_in_thread,
+        args=(segment_index, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": f"🎨 片段 {segment_index} 分镜图片已加入队列。"})
+
+
+@app.post("/api/save_storyboard_prompt")
+async def api_save_storyboard_prompt(
+    segment_index: int = Form(...),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    edited_output: str = Form(""),
+):
+    """Save edited storyboard image prompt without advancing the graph."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+    if segment_index < 1:
+        return JSONResponse({"success": False, "error": "片段编号必须 >= 1。"})
+
+    prompt = (edited_output or "").strip()
+    if not prompt:
+        return JSONResponse({"success": False, "error": "分镜生图提示词不能为空。"})
+
+    outputs = dict(task_state.get("agent_outputs") or {})
+    outputs[f"storyboard_prompt_seg{segment_index:02d}"] = prompt
+    task_state["agent_outputs"] = outputs
+    task_state["review_mode"] = "agent_output"
+    task_state["review_agent"] = "storyboard_designer"
+    task_state["review_title"] = "分镜流程图"
+    task_state["review_output"] = prompt
+    task_state["status"] = "waiting_for_user_input"
+    task_state["step"] = "step_4_storyboard"
+    task_state["message"] = "分镜生图提示词已保存，可以生成图片。"
+    task_state["error"] = ""
+    _touch_task_progress(task_state)
+    _save_task_state_for_session(session_id, task_state)
+    return JSONResponse({"success": True, "message": "分镜生图提示词已保存。"})
+
+
 @app.post("/api/abort")
 async def api_abort(session_id: str = Form(DEFAULT_SESSION_ID)):
     """中断当前运行的流水线"""
@@ -1647,14 +1822,36 @@ async def api_storyboard_image(path: str = ""):
     """返回分镜流程图图片文件"""
     if not path:
         return JSONResponse({"success": False, "error": "缺少路径参数"}, status_code=400)
-    # 安全检查：只允许访问 output/storyboards 目录下的文件
-    path = os.path.normpath(path)
-    allowed_dir = os.path.join(OUTPUT_DIR, "storyboards")
-    if not os.path.commonpath([allowed_dir, path]).startswith(os.path.commonpath([allowed_dir])):
+
+    requested_path = os.path.abspath(os.path.normpath(path))
+    output_root = os.path.abspath(OUTPUT_DIR)
+    legacy_storyboard_dir = os.path.join(output_root, "storyboards")
+    session_root = os.path.join(output_root, "sessions")
+
+    def _is_under(child: str, parent: str) -> bool:
+        try:
+            return os.path.commonpath([child, parent]) == parent
+        except ValueError:
+            return False
+
+    # 安全检查：只允许访问 output/storyboards、output/sessions/*/storyboards
+    # 或 output/sessions/*/scene_cards 下的图片。
+    under_legacy_storyboards = _is_under(requested_path, legacy_storyboard_dir)
+    under_session_storyboards = (
+        _is_under(requested_path, session_root)
+        and "storyboards" in set(os.path.normpath(requested_path).split(os.sep))
+    )
+    under_session_scene_cards = (
+        _is_under(requested_path, session_root)
+        and "scene_cards" in set(os.path.normpath(requested_path).split(os.sep))
+    )
+    if not (under_legacy_storyboards or under_session_storyboards or under_session_scene_cards):
         return JSONResponse({"success": False, "error": "非法路径"}, status_code=403)
-    if not os.path.exists(path):
+    if not requested_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+        return JSONResponse({"success": False, "error": "只允许访问图片文件"}, status_code=403)
+    if not os.path.exists(requested_path):
         return JSONResponse({"success": False, "error": "文件不存在"}, status_code=404)
-    return FileResponse(path)
+    return FileResponse(requested_path)
 
 
 @app.get("/api/config")

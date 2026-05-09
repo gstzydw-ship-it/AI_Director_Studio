@@ -396,7 +396,17 @@
             '补充参考图，仅按说明限定用途',
         ];
 
-        function defaultReferencePurpose(index) {
+        const SCENE_REFERENCE_NAME_HINTS = [
+            '场景', '空间', '环境', '地点', '场地', '公寓', '客厅', '卧室', '厨房', '餐厅',
+            '门口', '大堂', '公司', '集团', '办公室', '会议室', '小区', '街道', '走廊',
+            '电梯', '酒店', '医院', '学校', '房间', '庭院', '车库', '停车场'
+        ];
+
+        function defaultReferencePurpose(index, filename = '') {
+            const name = String(filename || '').replace(/\.[^/.]+$/, '');
+            if (SCENE_REFERENCE_NAME_HINTS.some(hint => name.includes(hint))) {
+                return REFERENCE_PURPOSE_OPTIONS[2];
+            }
             if (index === 1) return REFERENCE_PURPOSE_OPTIONS[0];
             if (index === 2) return REFERENCE_PURPOSE_OPTIONS[1];
             if (index === 3) return REFERENCE_PURPOSE_OPTIONS[2];
@@ -420,7 +430,7 @@
                 referenceItems.push({
                     file,
                     previewUrl: URL.createObjectURL(file),
-                    purpose: defaultReferencePurpose(nextIndex),
+                    purpose: defaultReferencePurpose(nextIndex, file.name),
                     note: '',
                 });
             });
@@ -518,7 +528,7 @@
                 referenceItems.push({
                     file,
                     previewUrl: URL.createObjectURL(file),
-                    purpose: defaultReferencePurpose(nextIndex),
+                    purpose: defaultReferencePurpose(nextIndex, filename),
                     note: baseName,
                 });
                 renderReferenceImages();
@@ -1032,7 +1042,11 @@
             }
             if (agent === 'storyboard_designer') {
                 const segIdx = Number(state.active_segment_index || state.current_segment_index || 1);
-                return outputs[`storyboard_prompt_seg${segIdx}`] || outputs.storyboard_designer || '';
+                const padded = String(segIdx).padStart(2, '0');
+                return outputs[`storyboard_prompt_seg${padded}`]
+                    || outputs[`storyboard_prompt_seg${segIdx}`]
+                    || outputs.storyboard_designer
+                    || '';
             }
             return outputs[agent] || '';
         }
@@ -1041,6 +1055,23 @@
             const agent = state.review_agent || '';
             const label = state.review_title || REVIEW_AGENT_LABELS[agent] || agent || 'Agent';
             const text = reviewOutputText(state);
+            const isStoryboardReview = agent === 'storyboard_designer';
+            const storyboardReviewImage = isStoryboardReview ? storyboardImagePathForSegment(state) : '';
+            const storyboardReviewImageHtml = storyboardReviewImage
+                ? `<div class="storyboard-image-wrap" style="margin-top:12px;">
+                       <img src="${escapeHtml(storyboardImageSrc(storyboardReviewImage))}"
+                            alt="分镜首帧图"
+                            class="storyboard-image"
+                            onerror="this.parentElement.innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">
+                   </div>`
+                : '';
+            const topActions = isStoryboardReview
+                ? `<button class="btn-primary review-approve-btn" onclick="saveStoryboardPromptAndGenerateImage()">保存提示词并生成图片</button>
+                   <button class="btn-secondary" onclick="saveStoryboardPromptOnly()">只保存提示词</button>
+                   <button class="btn-secondary" onclick="approveAgentOutput()">继续下一步</button>
+                   <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>`
+                : `<button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存修改并继续下一步</button>
+                   <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>`;
             selectResultTab(agent);
             document.getElementById('resultTabs').style.display = 'flex';
             document.getElementById('resultOutput').innerHTML = `
@@ -1054,9 +1085,9 @@
                     </div>
 
                     <div class="agent-review-actions">
-                        <button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存修改并继续下一步</button>
-                        <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
+                        ${topActions}
                     </div>
+                    ${storyboardReviewImageHtml}
 
                     <div class="review-preview">
                         ${renderReadableAgentOutput(agent, text, { hideRaw: true })}
@@ -1069,14 +1100,22 @@
                     </details>
 
                     <div class="agent-review-actions bottom">
-                        <button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存修改并继续下一步</button>
-                        <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
+                        ${topActions}
                     </div>
                 </div>
             `;
             document.getElementById('interactiveBox').innerHTML = '';
             updateAgentStatus('idle', `${label}等待审核`);
             resetBtn();
+        }
+
+        function storyboardImagePathForSegment(state = {}) {
+            const outputs = state.agent_outputs || {};
+            const segIdx = Number(state.active_segment_index || state.current_segment_index || 1);
+            const padded = String(segIdx).padStart(2, '0');
+            return outputs[`storyboard_image_seg${padded}`]
+                || outputs[`storyboard_image_seg${segIdx}`]
+                || '';
         }
 
         async function approveAgentOutput() {
@@ -1108,6 +1147,49 @@
             }
         }
 
+        async function saveStoryboardPromptOnly() {
+            return saveStoryboardPrompt(false);
+        }
+
+        async function saveStoryboardPromptAndGenerateImage() {
+            const saved = await saveStoryboardPrompt(true);
+            if (!saved) return;
+            const segIdx = Number(currentPublicState.active_segment_index || currentPublicState.current_segment_index || 1);
+            await generateStoryboardImage(segIdx);
+        }
+
+        async function saveStoryboardPrompt(showSavedMessage = true) {
+            const editor = document.getElementById('agentReviewEditor');
+            if (!editor) {
+                showError('当前没有可保存的分镜提示词');
+                return false;
+            }
+            const segIdx = Number(currentPublicState.active_segment_index || currentPublicState.current_segment_index || 1);
+            const formData = new FormData();
+            formData.append('session_id', getSessionId());
+            formData.append('segment_index', String(segIdx));
+            formData.append('edited_output', editor.value);
+            try {
+                const resp = await fetch('/api/save_storyboard_prompt', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    showError(data.error || '保存分镜提示词失败');
+                    return false;
+                }
+                if (showSavedMessage) {
+                    document.getElementById('pipelineMsg').textContent = data.message || '分镜提示词已保存。';
+                }
+                currentPublicState.review_output = editor.value;
+                const outputs = currentPublicState.agent_outputs || {};
+                outputs[`storyboard_prompt_seg${String(segIdx).padStart(2, '0')}`] = editor.value;
+                currentPublicState.agent_outputs = outputs;
+                return true;
+            } catch (e) {
+                showError('保存分镜提示词失败: ' + e.message);
+                return false;
+            }
+        }
+
         async function copyAgentReviewOutput() {
             const editor = document.getElementById('agentReviewEditor');
             if (!editor) return;
@@ -1125,6 +1207,12 @@
                 renderAgentReviewBox(state);
                 applyBackendProgress(state);
                 document.getElementById('pipelineMsg').textContent = readableStatusMessage(state.message) || '等待审核当前 Agent 输出';
+                return;
+            }
+            if (canContinueShotDirectorFromPlanner(state)) {
+                showBestAvailableResult(state);
+                renderShotDirectorRetryBox(state);
+                document.getElementById('pipelineMsg').textContent = readableStatusMessage(state.message) || '结构规划已完成，请继续镜头导演。';
                 return;
             }
             const segIdx = Number(state.current_segment_index || 1);
@@ -1173,15 +1261,27 @@
                 && !outputs.shot_director;
         }
 
+        function canContinueShotDirectorFromPlanner(state = {}) {
+            const outputs = state.agent_outputs || {};
+            return state.status === 'waiting_for_user_input'
+                && !state.review_mode
+                && !state.review_agent
+                && Boolean(outputs.story_planner)
+                && !latestShotDirectorOutput(outputs);
+        }
+
         function renderShotDirectorRetryBox(state = {}) {
             const outputs = state.agent_outputs || {};
             const hasLayout = Boolean(outputs.shot_director_layout);
+            const isPlannerHandoff = canContinueShotDirectorFromPlanner(state);
             const nextStage = outputs.shot_director_blocking ? '规则守门导演' : '动作调度导演';
-            const title = hasLayout ? '三段镜头导演可继续' : '可从镜头导演重新启动';
-            const helpText = hasLayout
-                ? `已保留镜头摆位骨架，将从${nextStage}继续。`
-                : '已保留场景预分析、剧情增强、节奏改写和结构规划，将从镜头摆位骨架重新开始，不重跑前四步。';
-            const buttonText = hasLayout ? '继续三段镜头导演' : '从镜头导演继续';
+            const title = isPlannerHandoff ? '拆片规划已完成' : (hasLayout ? '三段镜头导演可继续' : '可从镜头导演重新启动');
+            const helpText = isPlannerHandoff
+                ? '已保留场景预分析、剧情增强、节奏改写和结构规划，点击后进入镜头导演，不重跑前四步。'
+                : (hasLayout
+                    ? `已保留镜头摆位骨架，将从${nextStage}继续。`
+                    : '已保留场景预分析、剧情增强、节奏改写和结构规划，将从镜头导演重新开始，不重跑前四步。');
+            const buttonText = isPlannerHandoff ? '继续镜头导演' : (hasLayout ? '继续三段镜头导演' : '从镜头导演继续');
             document.getElementById('interactiveBox').innerHTML = `
                 <div style="padding: 16px; background: rgba(245, 158, 11, 0.12); border: 1.5px solid var(--accent-warning); border-radius: 10px; margin-top: 16px;">
                     <h3 style="margin-top: 0; color: var(--accent-warning);">${title}</h3>
@@ -1189,7 +1289,10 @@
                     <button class="btn-primary" style="width: 100%;" onclick="retryShotDirector()">${buttonText}</button>
                 </div>
             `;
-            updateAgentStatus('error', hasLayout ? '镜头导演中断' : '等待重启镜头导演');
+            updateAgentStatus(
+                isPlannerHandoff ? 'idle' : 'error',
+                isPlannerHandoff ? '等待继续镜头导演' : (hasLayout ? '镜头导演中断' : '等待重启镜头导演')
+            );
             resetBtn();
         }
 
@@ -1610,7 +1713,7 @@
         }
 
         function hasStoryboardOutput(outputs = {}) {
-            return Object.keys(outputs).some(key => /^storyboard_image_seg\d+$/.test(key));
+            return Object.keys(outputs).some(key => /^storyboard_(?:prompt|image)_seg\d+$/.test(key));
         }
 
         function inferCompletedStepIndex(state = {}) {
@@ -1943,7 +2046,9 @@
                 selectResultTab(availableAgent);
                 document.getElementById('resultOutput').innerHTML = availableAgent === 'prompt_compiler'
                     ? renderCompiledSegments(agentOutputs, state)
-                    : renderReadableAgentOutput(availableAgent, text);
+                    : availableAgent === 'scene_analyst'
+                        ? renderSceneAnalystOutput(agentOutputs)
+                        : renderReadableAgentOutput(availableAgent, text);
                 return;
             }
 
@@ -1952,8 +2057,53 @@
                 '<div class="placeholder-text">暂无可展示输出。</div>';
         }
 
+        function renderSceneAnalystOutput(outputs = {}) {
+            const text = outputs.scene_analyst || '';
+            let sceneCards = [];
+            if (outputs.scene_card_images) {
+                try {
+                    const parsed = typeof outputs.scene_card_images === 'string'
+                        ? JSON.parse(outputs.scene_card_images)
+                        : outputs.scene_card_images;
+                    if (Array.isArray(parsed)) sceneCards = parsed;
+                } catch (e) {
+                    sceneCards = [];
+                }
+            }
+            if (sceneCards.length === 0 && outputs.scene_card_image) {
+                sceneCards = [{
+                    scene_number: '1',
+                    scene_title: '场景母版参考图',
+                    image_path: outputs.scene_card_image,
+                    prompt: outputs.scene_card_prompt || '',
+                }];
+            }
+            const imageHtml = sceneCards.map((card, index) => {
+                const imagePath = card.image_path || card.path || '';
+                const promptText = card.prompt || '';
+                const title = card.scene_title || `场景${card.scene_number || index + 1}母版参考图`;
+                if (!imagePath) return '';
+                return `<div class="storyboard-card" style="margin-bottom:12px;">
+                       <div class="storyboard-card-header">
+                           <span class="storyboard-title">${escapeHtml(title)}</span>
+                       </div>
+                       <div class="storyboard-image-wrap">
+                           <img src="${escapeHtml(storyboardImageSrc(imagePath))}"
+                                alt="${escapeHtml(title)}"
+                                class="storyboard-image"
+                                onerror="this.parentElement.innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">
+                       </div>
+                       ${promptText ? `<div class="storyboard-prompt-toggle">
+                           <button class="btn-small" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.textContent = this.nextElementSibling.style.display === 'none' ? '显示场景母版生图提示词' : '隐藏场景母版生图提示词';">显示场景母版生图提示词</button>
+                           <pre class="result-text" style="display:none; margin-top:8px;">${escapeHtml(promptText)}</pre>
+                       </div>` : ''}
+                   </div>`;
+            }).join('');
+            return imageHtml + renderReadableAgentOutput('scene_analyst', text || '该 Agent 暂无输出');
+        }
+
         function renderStoryboardImages(outputs = {}) {
-            const entries = Object.keys(outputs)
+            const imageEntries = Object.keys(outputs)
                 .filter(key => /^storyboard_image_seg\d+$/.test(key))
                 .map(key => {
                     const match = key.match(/^storyboard_image_seg(\d+)$/);
@@ -1962,10 +2112,6 @@
                 .filter(item => item.path)
                 .sort((a, b) => a.segIndex - b.segIndex);
 
-            if (entries.length === 0) {
-                return '<div class="placeholder-text">暂无分镜流程图</div>';
-            }
-
             const promptEntries = Object.keys(outputs)
                 .filter(key => /^storyboard_prompt_seg\d+$/.test(key))
                 .map(key => {
@@ -1973,27 +2119,70 @@
                     return { segIndex: match ? Number(match[1]) : 0, text: outputs[key] };
                 });
             const promptMap = new Map(promptEntries.map(p => [p.segIndex, p.text]));
+            const imageMap = new Map(imageEntries.map(p => [p.segIndex, p.path]));
+            const segIndexes = Array.from(new Set([
+                ...promptEntries.map(item => item.segIndex),
+                ...imageEntries.map(item => item.segIndex),
+            ])).filter(Boolean).sort((a, b) => a - b);
 
-            return entries.map(item => {
-                const promptText = promptMap.get(item.segIndex) || '';
+            if (segIndexes.length === 0) {
+                return '<div class="placeholder-text">暂无分镜首帧提示词</div>';
+            }
+
+            return segIndexes.map(segIndex => {
+                const promptText = promptMap.get(segIndex) || '';
+                const imagePath = imageMap.get(segIndex) || '';
+                const imageSrc = storyboardImageSrc(imagePath);
                 return `
                     <div class="storyboard-card">
                         <div class="storyboard-card-header">
-                            <span class="storyboard-title">片段 ${item.segIndex} 分镜流程图</span>
+                            <span class="storyboard-title">片段 ${segIndex} 分镜首帧图</span>
                         </div>
-                        <div class="storyboard-image-wrap">
-                            <img src="/api/storyboard_image?path=${encodeURIComponent(item.path)}" 
-                                 alt="片段 ${item.segIndex} 分镜流程图"
+                        ${imagePath ? `<div class="storyboard-image-wrap">
+                            <img src="${escapeHtml(imageSrc)}"
+                                 alt="片段 ${segIndex} 分镜首帧图"
                                  class="storyboard-image"
                                  onerror="this.parentElement.innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">
+                        </div>` : `<div class="storyboard-image-wrap">
+                            <div class="placeholder-text">已生成提示词，尚未调用生图接口。</div>
+                        </div>`}
+                        <div class="storyboard-prompt-toggle">
+                            ${promptText ? `<button class="btn-small" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.textContent = this.nextElementSibling.style.display === 'none' ? '显示生图提示词' : '隐藏生图提示词';">显示生图提示词</button>
+                            <pre class="result-text" style="display:none; margin-top:8px;">${escapeHtml(promptText)}</pre>` : ''}
+                            <button class="btn-small" style="margin-left:8px;" onclick="generateStoryboardImage(${segIndex})">生成/重生成图片</button>
                         </div>
-                        ${promptText ? `<div class="storyboard-prompt-toggle">
-                            <button class="btn-small" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.textContent = this.nextElementSibling.style.display === 'none' ? '显示生成Prompt' : '隐藏生成Prompt';">显示生成Prompt</button>
-                            <pre class="result-text" style="display:none; margin-top:8px;">${escapeHtml(promptText)}</pre>
-                        </div>` : ''}
                     </div>
                 `;
             }).join('');
+        }
+
+        async function generateStoryboardImage(segmentIndex) {
+            const formData = new FormData();
+            formData.append('session_id', getSessionId());
+            formData.append('segment_index', String(segmentIndex));
+            document.getElementById('pipelineMsg').textContent = `正在生成片段 ${segmentIndex} 分镜图片...`;
+            updateAgentStatus('running', '分镜生图中');
+            try {
+                const resp = await fetch('/api/generate_storyboard_image', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    showError(data.error || '分镜图片生成失败');
+                    updateAgentStatus('error', '分镜生图失败');
+                    return;
+                }
+                startPolling();
+            } catch (e) {
+                showError('分镜图片生成请求失败: ' + e.message);
+                updateAgentStatus('error', '分镜生图失败');
+            }
+        }
+
+        function storyboardImageSrc(path = '') {
+            const value = String(path || '').trim();
+            if (/^(https?:)?\/\//i.test(value) || /^data:image\//i.test(value)) {
+                return value;
+            }
+            return `/api/storyboard_image?path=${encodeURIComponent(value)}`;
         }
 
         function switchResultTab(btn) {
@@ -2009,6 +2198,11 @@
 
             if (agent === 'storyboard_designer') {
                 output.innerHTML = renderStoryboardImages(agentOutputs);
+                return;
+            }
+
+            if (agent === 'scene_analyst') {
+                output.innerHTML = renderSceneAnalystOutput(agentOutputs);
                 return;
             }
 
