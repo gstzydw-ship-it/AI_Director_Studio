@@ -780,6 +780,40 @@ def _fragment_line_pattern() -> str:
     return r"^-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?F[\w-]+[\"']?"
 
 
+_YAML_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "fragment_id": ("fragment_id", "片段编号"),
+    "fragment_task": ("fragment_task", "片段任务"),
+    "rhythm": ("rhythm", "节奏"),
+    "shots": ("shots", "镜头列表"),
+    "shot_id": ("shot_id", "镜头编号"),
+    "duration": ("duration", "时长"),
+    "task": ("task", "镜头任务"),
+    "subject": ("subject", "拍摄主体"),
+    "shot": ("shot", "镜头"),
+    "camera": ("camera", "机位"),
+    "size": ("size", "景别"),
+    "action": ("action", "画面动作"),
+    "dialogue": ("dialogue", "台词"),
+    "must_carry": ("must_carry", "必须承载"),
+    "cut_point": ("cut_point", "切镜点"),
+    "continuity": ("continuity", "连续性"),
+    "type": ("type", "类型"),
+    "audio": ("audio", "声音"),
+}
+
+
+def _yaml_field_names(field: str) -> tuple[str, ...]:
+    return _YAML_FIELD_ALIASES.get(field, (field,))
+
+
+def _yaml_field_pattern(field: str) -> str:
+    return "|".join(re.escape(name) for name in _yaml_field_names(field))
+
+
+def _has_yaml_field(block: str, field: str) -> bool:
+    return bool(re.search(rf"(?m)^\s*-?\s*(?:{_yaml_field_pattern(field)})\s*:", block or ""))
+
+
 def _extract_yaml_sections(yaml_text: str) -> list[str]:
     sections: list[str] = []
     current: list[str] = []
@@ -800,7 +834,7 @@ def _extract_yaml_sections(yaml_text: str) -> list[str]:
 
 
 def _extract_fragment_id(section: str) -> str:
-    match = re.search(r"(?m)^\s*-?\s*fragment_id\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
+    match = re.search(r"(?m)^\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
     return match.group(1).strip() if match else ""
 
 
@@ -852,8 +886,8 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
         segment_num = re.sub(r"\D", "", segment_name)
         fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
         block_match = re.search(
-            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+            rf"(?m)(^\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+            rf"(?=\n\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?F\d+|\Z)",
             director_output,
         )
         if not block_match:
@@ -862,21 +896,21 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
         block = block_match.group(1)
 
         # Check for required top-level field: shots
-        if not re.search(r"shots\s*:", block):
+        if not _has_yaml_field(block, "shots"):
             issues.append(f"{fragment_id} 缺少 shots 字段。")
             continue
 
         # Check each shot for required fields
         for field in ["shot_id", "subject", "camera", "size", "action", "intent"]:
-            if not re.search(rf"^\s*-?\s*{field}\s*:", block, re.MULTILINE):
+            if not _has_yaml_field(block, field):
                 issues.append(f"{fragment_id} 的 shots 缺少字段 {field}。")
 
     return issues
 
 
 _MAIN_SHOT_BLOCK_RE = re.compile(
-    r"(?ms)^\s*-\s*shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$"
-    r"([\s\S]*?)(?=^\s*-\s*shot_id\s*:|^\s*sub_shots\s*:|^\s*-\s*fragment_id\s*:|\Z)"
+    r"(?ms)^\s*-\s*(?:shot_id|镜头编号)\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$"
+    r"([\s\S]*?)(?=^\s*-\s*(?:shot_id|镜头编号)\s*:|^\s*(?:sub_shots|子镜头|子镜头列表)\s*:|^\s*-\s*(?:fragment_id|片段编号)\s*:|\Z)"
 )
 
 
@@ -899,20 +933,20 @@ def _segment_block_by_fragment_id(text: str, fragment_id: str) -> str:
     if not fragment_id:
         return ""
     match = re.search(
-        rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-        rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F[\w-]+[\"']?|\Z)",
+        rf"(?m)(^\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+        rf"(?=\n\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?F[\w-]+[\"']?|\Z)",
         text or "",
     )
     return match.group(1).strip() if match else ""
 
 
 def _yaml_scalar_field(block: str, field: str) -> str:
-    match = re.search(rf"(?m)^\s*{re.escape(field)}\s*:\s*[\"']?([^\"'\n#]+)", block or "")
+    match = re.search(rf"(?m)^\s*-?\s*(?:{_yaml_field_pattern(field)})\s*:\s*[\"']?([^\"'\n#]+)", block or "")
     return match.group(1).strip() if match else ""
 
 
 def _yaml_line_field(block: str, field: str) -> str:
-    match = re.search(rf"(?m)^\s*{re.escape(field)}\s*:\s*(.+?)\s*$", block or "")
+    match = re.search(rf"(?m)^\s*-?\s*(?:{_yaml_field_pattern(field)})\s*:\s*(.+?)\s*$", block or "")
     if not match:
         return ""
     return match.group(1).strip().strip("\"'")
@@ -985,16 +1019,16 @@ def _repair_body_mechanics_contract_output(output: str) -> str:
         indent = indent_match.group(1) if indent_match else "      "
         child_indent = indent + "  "
         defaults = {
-            "contact_points": "none unless explicitly stated by the source action",
-            "weight_shift": "minimal; characters hold existing office positions",
-            "movement_path": "start position -> visible action path -> stop at established desk/standing position",
-            "body_facing": "preserve established eyeline and desk axis",
-            "feasibility": "valid; movement remains readable in the selected shot",
-            "camera_requirement": "keep medium/medium-close framing wide enough to read the action path",
-            "continuity_risk": "preserve final body position and desk-side relationship for the next shot",
+            "接触点位": "除非原剧本动作明确写出接触，否则不新增身体接触",
+            "重心变化": "保持轻微变化；人物延续当前站位",
+            "移动路径": "从起始位置出发，经过可见动作路径，停在已建立的位置",
+            "身体朝向": "延续已建立的视线方向和空间轴线",
+            "可拍性": "可拍；所选镜头能看清动作路径",
+            "机位要求": "保持中景或中近景足够宽，能读清身体动作路径",
+            "连续性风险": "保留尾帧人物位置和相邻人物关系，供下一镜继承",
         }
-        if not re.search(r"(?m)^\s*body_mechanics_check\s*:", block):
-            body_lines = ["body_mechanics_check:"] + [
+        if not re.search(r"(?m)^\s*(?:身体动作检查|body_mechanics_check)\s*:", block):
+            body_lines = ["身体动作检查:"] + [
                 f"{field}: {value}" for field, value in defaults.items()
             ]
             return block.rstrip() + "\n" + "\n".join(

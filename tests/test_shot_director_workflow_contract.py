@@ -15,6 +15,7 @@ from agents.director_graph_package.shot_director_impl import (  # noqa: E402
     _shot_director_coverage_contract_prompt,
     _shot_director_downstream_context,
     _shot_director_workflow_contract,
+    _validate_shot_director_output,
 )
 
 
@@ -23,25 +24,45 @@ def test_shot_director_explicit_workflow_contract_is_present():
     coverage_contract = _shot_director_coverage_contract_prompt()
 
     for stage_name in (
-        "fact_extraction",
-        "dramatic_task_mapping",
-        "layout_blueprint",
-        "blocking_and_subshots",
-        "cut_timing",
-        "guard_minimal_repair",
-        "final_yaml_handoff",
+        "事实提取",
+        "戏剧任务判断",
+        "镜头骨架",
+        "动作与子镜头",
+        "切镜时机",
+        "最小修复",
+        "最终交付",
     ):
         assert stage_name in contract
 
     for field_name in (
-        "coverage_role",
-        "cut_reason",
-        "companion_visibility",
-        "state_delta",
-        "tailframe_role",
+        "覆盖职责",
+        "切镜原因",
+        "同场人物位置",
+        "状态变化",
+        "尾帧职责",
     ):
         assert field_name in contract
         assert field_name in coverage_contract
+
+
+def test_shot_director_accepts_all_chinese_output_fields():
+    director_output = """- 片段编号: F01
+  片段任务: 电梯口压迫
+  节奏: 前压后停
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-2秒
+      镜头任务: 建立关系
+      拍摄主体: 乔熙和商北琛
+      镜头: 侧面视角双人中景
+      画面动作: 乔熙停在电梯口，商北琛挡住去路
+      台词: ~
+      必须承载: 两人的空间距离和压迫关系
+      切镜点: 电梯门停在半开状态时切出
+      连续性: 乔熙在画面右侧，商北琛在画面左侧，电梯门仍半开
+"""
+
+    assert _validate_shot_director_output(director_output, ["F01"]) == []
 
 
 def test_shot_director_workflow_trace_summarises_planner_fragments():
@@ -165,7 +186,7 @@ def test_shot_director_builds_signal_based_shot_library_tasks():
     assert "tailframe_handoff" in card
     assert "调用受击/碰撞镜头库" in card
     assert "调用信息揭示镜头库" in card
-    assert "must_retrieve_knowledge" in card
+    assert "必须检索的知识" in card
     assert "ACTION-COLLISION-001" in card
     assert "CASE_拍摄剪辑_用反拍剪辑叙事的镜头拆解" in card
     assert "强制落地" in card
@@ -194,6 +215,7 @@ def test_shot_director_signal_profile_routes_knowledge_retrieval():
     assert "long_dialogue_coverage" in profile["reusable_pattern"]
     assert "SHOT-DIALOGUE-COVERAGE-001" in profile["reusable_pattern"]
     assert "CASE_拍摄剪辑_切出镜头_访谈对话与情感片段技巧" in profile["tags"]
+    assert "必须把检索到的剪辑/镜头库规则转成镜头、切镜点、连续性、声音，不得只写原则" in profile["visual_constraints"]
     assert "必须优先使用本片段剧情信号匹配到的 CASE 案例和规则卡" in profile["visual_constraints"]
     assert profile["max_chunks_per_source"] == 2
 

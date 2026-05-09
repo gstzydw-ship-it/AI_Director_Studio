@@ -12,6 +12,7 @@ from . import legacy_impl as _legacy
 
 # V1 schema contract: shot_director outputs fragment_task/rhythm/shots
 # with shot fields: duration, task, subject, shot, action, dialogue, must_carry, cut_point, continuity
+# Chinese aliases such as 片段任务/镜头列表/切镜点 are accepted for user-facing output.
 # Legacy camera+size assets are still accepted at the compiler gate.
 # Optional: type, audio
 from .helpers import (
@@ -24,6 +25,7 @@ from .helpers import (
     _script_fidelity_rules,
     _subject_framing_rules,
     _yaml_line_field,
+    _has_yaml_field,
     _dialogue_payload_is_long,
     _MAIN_SHOT_BLOCK_RE,
     _DIALOGUE_COVERAGE_TERMS_RE,
@@ -373,7 +375,10 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
     if _INTERNAL_FIELD_LEAK_RE.search(prompt or ""):
         issues.append("- Prompt 泄漏了上游内部字段名：必须把 fragment_task、must_carry、cut_point 等翻译成自然中文镜头语言。")
 
-    uses_construction_sheet = bool(re.search(r"(?m)^\s*(?:duration|must_carry|cut_point|continuity)\s*:", director_segment or ""))
+    uses_construction_sheet = any(
+        _has_yaml_field(director_segment or "", field)
+        for field in ("duration", "must_carry", "cut_point", "continuity")
+    )
     director_geometry_issues = [] if uses_construction_sheet else _validate_spatial_geometry_contract(director_segment or "")
     if any("缺少空间几何字段" in issue for issue in director_geometry_issues):
         issues.append(
@@ -877,7 +882,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
     v1_issues: list[str] = []
     if current_director_segment_raw:
         for field in ("fragment_task", "rhythm", "shots"):
-            if not re.search(rf"(?m)^\s*{re.escape(field)}\s*:", current_director_segment_raw):
+            if not _has_yaml_field(current_director_segment_raw, field):
                 v1_issues.append(f"shot_director 缺少 fragment 字段 {field}。")
         for v2_field in ("schema_version", "fragment_intent", "reaction_coverage", "continuity_anchor"):
             if re.search(rf"(?m)^\s*{re.escape(v2_field)}\s*:", current_director_segment_raw):
@@ -888,12 +893,10 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         for shot_id_raw, shot_body in shot_blocks:
             shot_id = shot_id_raw.strip()
             for field in ("duration", "task", "subject", "action", "dialogue", "must_carry", "cut_point", "continuity"):
-                if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_body):
+                if not _has_yaml_field(shot_body, field):
                     v1_issues.append(f"{shot_id} 缺少必要字段 {field}。")
-            has_merged_shot = re.search(r"(?m)^\s*-?\s*shot\s*:", shot_body)
-            has_legacy_camera_size = re.search(r"(?m)^\s*-?\s*camera\s*:", shot_body) and re.search(
-                r"(?m)^\s*-?\s*size\s*:", shot_body
-            )
+            has_merged_shot = _has_yaml_field(shot_body, "shot")
+            has_legacy_camera_size = _has_yaml_field(shot_body, "camera") and _has_yaml_field(shot_body, "size")
             if not (has_merged_shot or has_legacy_camera_size):
                 v1_issues.append(f"{shot_id} 缺少必要字段 shot（或旧版 camera+size）。")
     else:

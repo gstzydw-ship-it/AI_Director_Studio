@@ -57,6 +57,23 @@ def test_segment_block_can_use_actual_fragment_id() -> None:
     assert "fragment_id: F06" not in block
 
 
+def test_segment_block_accepts_chinese_shot_director_fields() -> None:
+    text = (
+        "- 片段编号: F01\n"
+        "  片段任务: 第一段\n"
+        "  镜头列表:\n"
+        "    - 镜头编号: F01-S01\n"
+        "- 片段编号: F02\n"
+        "  片段任务: 第二段\n"
+    )
+
+    block = prompt_compiler_impl._segment_block(text, 1, "F01")
+
+    assert "片段编号: F01" in block
+    assert "片段任务: 第一段" in block
+    assert "片段编号: F02" not in block
+
+
 def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) -> None:
     captured: dict[str, str] = {}
 
