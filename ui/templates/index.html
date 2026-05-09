@@ -74,7 +74,7 @@
                                             <input type="checkbox" id="speedMode">
                                             <span>快速模式</span>
                                         </label>
-                                        <small>跳过场景分析LLM和质检LLM，保留拆片与Prompt编译。</small>
+                                        <small>跳过场景预分析LLM和质检LLM，保留拆片与Prompt编译。</small>
                                     </div>
                                 </div>
                                 <div class="setting-group">
@@ -127,6 +127,15 @@
                             </div>
                             <div class="card-body">
                                 <div class="pipeline-steps">
+                                    <div class="step" id="step-analyze">
+                                        <div class="step-icon">📋</div>
+                                        <div class="step-info">
+                                            <div class="step-name">场景预分析</div>
+                                            <div class="step-desc">参考图/站位/空间</div>
+                                        </div>
+                                        <div class="step-status">等待</div>
+                                    </div>
+                                    <div class="step-arrow">→</div>
                                     <div class="step" id="step-enhance">
                                         <div class="step-icon">📝</div>
                                         <div class="step-info">
@@ -141,15 +150,6 @@
                                         <div class="step-info">
                                             <div class="step-name">节奏总控</div>
                                             <div class="step-desc">快慢/停顿/卡断</div>
-                                        </div>
-                                        <div class="step-status">等待</div>
-                                    </div>
-                                    <div class="step-arrow">→</div>
-                                    <div class="step" id="step-analyze">
-                                        <div class="step-icon">📋</div>
-                                        <div class="step-info">
-                                            <div class="step-name">场景分析</div>
-                                            <div class="step-desc">约束/戏剧任务</div>
                                         </div>
                                         <div class="step-status">等待</div>
                                     </div>
@@ -210,20 +210,20 @@
                             </div>
                             <div class="card-body">
                                 <div class="result-tabs" id="resultTabs" style="display:none;">
-                                    <button class="result-tab active" data-agent="prompt_compiler"
-                                        onclick="switchResultTab(this)">✍️ Seedance编译</button>
-                                    <button class="result-tab" data-agent="storyboard_designer"
-                                        onclick="switchResultTab(this)">🎨 分镜流程图</button>
+                                    <button class="result-tab active" data-agent="scene_analyst"
+                                        onclick="switchResultTab(this)">📋 场景预分析</button>
                                     <button class="result-tab" data-agent="director_showrunner"
                                         onclick="switchResultTab(this)">📝 剧情增强</button>
                                     <button class="result-tab" data-agent="rhythm_rewrite_director"
                                         onclick="switchResultTab(this)">🎼 节奏策略</button>
-                                    <button class="result-tab" data-agent="scene_analyst"
-                                        onclick="switchResultTab(this)">📋 场景约束</button>
                                     <button class="result-tab" data-agent="story_planner"
                                         onclick="switchResultTab(this)">🎬 拆片规划</button>
                                     <button class="result-tab" data-agent="shot_director"
                                         onclick="switchResultTab(this)">🎥 三段镜头</button>
+                                    <button class="result-tab" data-agent="storyboard_designer"
+                                        onclick="switchResultTab(this)">🎨 分镜流程图</button>
+                                    <button class="result-tab" data-agent="prompt_compiler"
+                                        onclick="switchResultTab(this)">✍️ Seedance编译</button>
                                     <button class="result-tab" data-agent="quality_inspector"
                                         onclick="switchResultTab(this)">🔍 质检报告</button>
                                 </div>
@@ -628,7 +628,7 @@
         const REVIEW_AGENT_LABELS = {
             director_showrunner: '剧情增强',
             rhythm_rewrite_director: '节奏总控',
-            scene_analyst: '场景分析',
+            scene_analyst: '场景预分析',
             story_planner: '结构规划',
             shot_director: '三段镜头导演',
             shot_director_layout: '镜头摆位骨架',
@@ -758,9 +758,9 @@
         };
 
         const STATUS_MESSAGE_REWRITES = [
-            [/Director showrunner brief ready; scene analyst is running/i, '剧情增强已完成，节奏总控正在运行...'],
+            [/Director showrunner brief ready; scene analyst is running/i, '场景预分析正在运行...'],
             [/Seedance compiler is generating segment\s+(\d+)\s+prompt/i, 'Seedance 编译师正在生成片段 $1 Prompt...'],
-            [/scene analyst is running/i, '场景分析正在运行...'],
+            [/scene analyst is running/i, '场景预分析正在运行...'],
             [/story planner is running/i, '结构规划正在运行...'],
             [/shot director is running/i, '镜头导演正在运行...'],
             [/quality inspector is running/i, '质检导演正在检查...'],
@@ -1180,7 +1180,7 @@
             const title = hasLayout ? '三段镜头导演可继续' : '可从镜头导演重新启动';
             const helpText = hasLayout
                 ? `已保留镜头摆位骨架，将从${nextStage}继续。`
-                : '已保留节奏改写、场景分析和结构规划，将从镜头摆位骨架重新开始，不重跑前三步。';
+                : '已保留场景预分析、剧情增强、节奏改写和结构规划，将从镜头摆位骨架重新开始，不重跑前四步。';
             const buttonText = hasLayout ? '继续三段镜头导演' : '从镜头导演继续';
             document.getElementById('interactiveBox').innerHTML = `
                 <div style="padding: 16px; background: rgba(245, 158, 11, 0.12); border: 1.5px solid var(--accent-warning); border-radius: 10px; margin-top: 16px;">
@@ -1271,6 +1271,7 @@
 
         // 页面初始化：恢复后端状态（刷新不丢数据）
         window.addEventListener('DOMContentLoaded', async () => {
+            loadReferenceLibrary();
             try {
                 const resp = await fetch(statusUrl());
                 let state = await resp.json();
@@ -1576,12 +1577,13 @@
         }
 
         // 进度条只以 /api/status 返回的后端状态为准。
-        const STEP_ORDER = ['enhance', 'rhythm', 'analyze', 'plan', 'direct', 'storyboard', 'compile', 'inspect'];
+        const STEP_ORDER = ['analyze', 'enhance', 'rhythm', 'plan', 'direct', 'storyboard', 'compile', 'inspect'];
         const STEP_KEY_MAP = {
-            'step_0_enhance': 0,
-            'step_0_rhythm': 1,
-            'step_1_rhythm': 1,
-            'step_1_analyze': 2,
+            'step_0_scene': 0,
+            'step_1_analyze': 0,
+            'step_0_enhance': 1,
+            'step_0_rhythm': 2,
+            'step_1_rhythm': 2,
             'step_2_plan': 3,
             'step_3_direct': 4,
             'step_4_storyboard': 5,
@@ -1614,9 +1616,9 @@
         function inferCompletedStepIndex(state = {}) {
             const outputs = state.agent_outputs || {};
             let doneIdx = -1;
-            if (outputs.director_showrunner) doneIdx = Math.max(doneIdx, 0);
-            if (outputs.rhythm_rewrite_director) doneIdx = Math.max(doneIdx, 1);
-            if (outputs.scene_analyst) doneIdx = Math.max(doneIdx, 2);
+            if (outputs.scene_analyst) doneIdx = Math.max(doneIdx, 0);
+            if (outputs.director_showrunner) doneIdx = Math.max(doneIdx, 1);
+            if (outputs.rhythm_rewrite_director) doneIdx = Math.max(doneIdx, 2);
             if (outputs.story_planner) doneIdx = Math.max(doneIdx, 3);
             if (latestShotDirectorOutput(outputs)) doneIdx = Math.max(doneIdx, 4);
             if (hasStoryboardOutput(outputs)) doneIdx = Math.max(doneIdx, 5);
@@ -1635,7 +1637,7 @@
                 && /节奏总控|rhythm/i.test(message)
                 && !/场景分析|scene_analyst/i.test(message)
             ) {
-                return 1;
+                return 2;
             }
 
             const stepIdx = STEP_KEY_MAP[state.step];
@@ -1646,18 +1648,18 @@
             if (/分镜流程图|storyboard/i.test(message)) return 5;
             if (/镜头导演|动作调度|守门|shot_director|blocking|layout|guard/i.test(message)) return 4;
             if (/结构规划|拆片|story_planner|plan/i.test(message)) return 3;
-            if (/场景分析|scene_analyst/i.test(message)) return 2;
-            if (/节奏总控|rhythm/i.test(message)) return 1;
-            if (/剧情增强|director_showrunner|enhance/i.test(message)) return 0;
+            if (/场景预分析|场景分析|scene_analyst/i.test(message)) return 0;
+            if (/节奏总控|rhythm/i.test(message)) return 2;
+            if (/剧情增强|director_showrunner|enhance/i.test(message)) return 1;
 
             if (hasQualityOutput(outputs)) return 7;
             if (hasCompiledPrompt(outputs, state)) return 6;
             if (hasStoryboardOutput(outputs)) return 5;
             if (latestShotDirectorOutput(outputs)) return 4;
             if (outputs.story_planner) return 3;
-            if (outputs.scene_analyst) return 2;
-            if (outputs.rhythm_rewrite_director) return 1;
-            if (outputs.director_showrunner) return 0;
+            if (outputs.rhythm_rewrite_director) return 2;
+            if (outputs.director_showrunner) return 1;
+            if (outputs.scene_analyst) return 0;
             return 0;
         }
 
@@ -1925,31 +1927,27 @@
             currentPublicState = state;
             document.getElementById('resultTabs').style.display = 'flex';
 
-            const hasCompiledPrompt = compiledSegmentEntries(agentOutputs).length > 0
-                || Boolean(agentOutputs.prompt_compiler || state.result);
-            if (hasCompiledPrompt) {
-                selectResultTab('prompt_compiler');
-                document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, state);
-                return;
-            }
-
             const fallbackCandidates = [
-                ['shot_director', latestShotDirectorOutput(agentOutputs)],
-                ['story_planner', agentOutputs.story_planner],
                 ['scene_analyst', agentOutputs.scene_analyst],
-                ['rhythm_rewrite_director', agentOutputs.rhythm_rewrite_director],
                 ['director_showrunner', agentOutputs.director_showrunner],
+                ['rhythm_rewrite_director', agentOutputs.rhythm_rewrite_director],
+                ['story_planner', agentOutputs.story_planner],
+                ['shot_director', latestShotDirectorOutput(agentOutputs)],
+                ['storyboard_designer', agentOutputs.storyboard_designer],
+                ['prompt_compiler', compiledSegmentEntries(agentOutputs).length > 0 || agentOutputs.prompt_compiler || state.result],
                 ['quality_inspector', agentOutputs.quality_inspector],
             ];
             const availableEntry = fallbackCandidates.find(([, text]) => Boolean(text));
             if (availableEntry) {
                 const [availableAgent, text] = availableEntry;
                 selectResultTab(availableAgent);
-                document.getElementById('resultOutput').innerHTML = renderReadableAgentOutput(availableAgent, text);
+                document.getElementById('resultOutput').innerHTML = availableAgent === 'prompt_compiler'
+                    ? renderCompiledSegments(agentOutputs, state)
+                    : renderReadableAgentOutput(availableAgent, text);
                 return;
             }
 
-            selectResultTab('prompt_compiler');
+            selectResultTab('scene_analyst');
             document.getElementById('resultOutput').innerHTML =
                 '<div class="placeholder-text">暂无可展示输出。</div>';
         }

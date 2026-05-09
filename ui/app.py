@@ -246,7 +246,7 @@ _AGENT_KEY_MAP = {
 _AGENT_DISPLAY_NAMES = {
     "director_showrunner": "📝 剧情增强",
     "rhythm_rewrite_director": "🎼 节奏改写",
-    "scene_analyst": "📋 场景分析",
+    "scene_analyst": "📋 场景预分析",
     "story_planner": "🎬 结构规划",
     "shot_director": "🎥 镜头设计",
     "storyboard_designer": "🎨 分镜流程图",
@@ -331,12 +331,13 @@ def _recover_stale_running_state(session_id: str, state: dict) -> bool:
 _load_latest_results_on_startup()
 
 _STEP_LABELS = {
-    "节奏总控导演":  ("step_0_rhythm",  "🎼 节奏总控导演正在改写剧本...（1/6）"),
-    "场景分析师":  ("step_1_analyze",  "📋 场景分析师正在分析剧本...（2/6）"),
-    "结构规划师":  ("step_2_plan",     "🎬 结构规划师正在拆片规划...（3/6）"),
-    "镜头导演":    ("step_3_direct",   "🎥 镜头导演正在设计分镜...（4/6）"),
-    "Seedance编译师": ("step_4_compile", "✍️ Seedance编译师正在生成Prompt...（5/6）"),
-    "质检导演":    ("step_5_inspect",  "🔍 质检导演正在审查产物...（6/6）"),
+    "场景分析师":  ("step_0_scene",    "📋 场景预分析正在读取参考图、人物站位和空间信息...（1/8）"),
+    "剧情增强导演":  ("step_0_enhance", "📝 剧情增强导演正在按场景约束增强剧本...（2/8）"),
+    "节奏总控导演":  ("step_0_rhythm",  "🎼 节奏总控导演正在改写剧本...（3/8）"),
+    "结构规划师":  ("step_2_plan",     "🎬 结构规划师正在拆片规划...（4/8）"),
+    "镜头导演":    ("step_3_direct",   "🎥 镜头导演正在设计分镜...（5/8）"),
+    "Seedance编译师": ("step_4_compile", "✍️ Seedance编译师正在生成Prompt...（7/8）"),
+    "质检导演":    ("step_5_inspect",  "🔍 质检导演正在审查产物...（8/8）"),
 }
 
 
@@ -833,9 +834,9 @@ def _run_pipeline_in_thread(
             task_state.clear()
             task_state.update(_default_task_state())
             task_state.update(preserved_inputs)
-            task_state["step"] = "step_0_rhythm"
+            task_state["step"] = "step_0_scene"
             task_state["status"] = "running_phase_1"
-            task_state["message"] = "🎼 节奏总控导演正在改写剧本...（1/6）"
+            task_state["message"] = "📋 场景预分析正在读取参考图、人物站位和空间信息...（1/8）"
             started_at = datetime.now().isoformat()
             task_state["started_at"] = started_at
             task_state["last_progress_at"] = started_at
