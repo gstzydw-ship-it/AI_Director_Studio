@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from contextlib import contextmanager
 from datetime import datetime, timedelta
 
 
@@ -162,3 +163,49 @@ def test_status_refresh_uses_disk_progress_for_live_task(tmp_path, monkeypatch):
     assert task_state["step"] == "step_3_direct"
     assert "规则守门导演" in task_state["message"]
     assert task_state["agent_outputs"]["shot_director_blocking"] == "blocking yaml"
+
+
+def test_ui_pipeline_starts_with_story_enhancement_step(tmp_path, monkeypatch):
+    import ui.app as web_app
+
+    session_id = "web_story_enhance"
+    generation = 7
+    captured = {}
+
+    @contextmanager
+    def fake_request_scope(**_kwargs):
+        yield None
+
+    def fake_run_phase_1_planning(**_kwargs):
+        captured["step_before_graph"] = web_app._task_state(session_id).get("step")
+        captured["message_before_graph"] = web_app._task_state(session_id).get("message")
+        return {
+            "status": "waiting_for_user_input",
+            "step": "step_0_enhance",
+            "message": "剧情增强已完成，请审核/修改后继续。",
+            "agent_outputs": {"director_showrunner": "增强版剧本: |\n  A rushes in."},
+            "review_agent": "director_showrunner",
+            "review_mode": "agent_output",
+            "review_output": "增强版剧本: |\n  A rushes in.",
+        }
+
+    monkeypatch.setattr(web_app, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(web_app, "request_scope", fake_request_scope)
+    monkeypatch.setattr(web_app, "run_phase_1_planning", fake_run_phase_1_planning)
+    web_app.active_task_generations[session_id] = generation
+
+    web_app._run_pipeline_in_thread(
+        script="A enters.",
+        aspect_ratio="9:16",
+        reference_images="",
+        reference_image_b64s=[],
+        reference_image_manifest=[],
+        speed_mode=False,
+        task_generation=generation,
+        session_id=session_id,
+    )
+
+    assert captured["step_before_graph"] == "step_0_scene"
+    assert "场景预分析" in captured["message_before_graph"]
+    assert web_app._STEP_LABELS["场景分析师"][0] == "step_0_scene"
+    assert web_app._STEP_LABELS["剧情增强导演"][0] == "step_0_enhance"

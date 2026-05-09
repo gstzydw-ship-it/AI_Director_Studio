@@ -31,7 +31,6 @@ _RUNNER_INVOKE_GRAPH: Any | None = None
 HUMAN_REVIEW_NODES = [
     "director_showrunner",
     "rhythm_rewrite_director",
-    "scene_analyst",
     "story_planner",
     "shot_director",
     "storyboard_designer",
@@ -42,7 +41,7 @@ HUMAN_REVIEW_NODES = [
 REVIEW_AGENT_LABELS = {
     "director_showrunner": "剧情增强",
     "rhythm_rewrite_director": "节奏总控",
-    "scene_analyst": "场景分析",
+    "scene_analyst": "场景预分析",
     "story_planner": "结构规划",
     "shot_director": "三段镜头导演",
     "storyboard_designer": "分镜流程图",
@@ -53,7 +52,7 @@ REVIEW_AGENT_LABELS = {
 REVIEW_AGENT_STEPS = {
     "director_showrunner": "step_0_enhance",
     "rhythm_rewrite_director": "step_0_rhythm",
-    "scene_analyst": "step_1_analyze",
+    "scene_analyst": "step_0_scene",
     "story_planner": "step_2_plan",
     "shot_director": "step_3_direct",
     "storyboard_designer": "step_4_storyboard",
@@ -63,8 +62,7 @@ REVIEW_AGENT_STEPS = {
 
 _NEXT_NODE_TO_REVIEW_AGENT = {
     "rhythm_rewrite_director": "director_showrunner",
-    "scene_analyst": "rhythm_rewrite_director",
-    "story_planner": "scene_analyst",
+    "story_planner": "rhythm_rewrite_director",
     "shot_director": "story_planner",
     "storyboard_designer": "shot_director",
     "wait_for_segment_request": "storyboard_designer",
@@ -466,11 +464,12 @@ def run_phase_1_planning(
     initial_state = {
         "thread_id": thread_id,
         "status": "running_phase_1",
-        "step": "step_0_enhance",
-        "message": "剧情增强导演正在增强原剧本冲突...（1/6）",
+        "step": "step_0_scene",
+        "message": "场景预分析正在读取参考图、人物站位和空间信息...（1/8）",
         "script": script,
         "original_script": script,
         "enhanced_script": "",
+        "scene_context_brief": "",
         "atmosphere_strategy": "",
         "director_brief": "",
         "aspect_ratio": aspect_ratio,

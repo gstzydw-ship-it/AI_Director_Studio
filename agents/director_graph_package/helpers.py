@@ -777,7 +777,7 @@ def _is_closeup_shot_size(value: str) -> bool:
 
 
 def _fragment_line_pattern() -> str:
-    return r"^-?\s*fragment_id\s*:\s*[\"']?F[\w-]+[\"']?"
+    return r"^-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?F[\w-]+[\"']?"
 
 
 def _extract_yaml_sections(yaml_text: str) -> list[str]:

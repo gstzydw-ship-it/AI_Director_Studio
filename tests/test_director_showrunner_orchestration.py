@@ -33,6 +33,13 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
         assert "必须输出的 YAML 字段" in user_prompt
         assert "增强版剧本" in user_prompt
         assert "不得新增台词" in user_prompt
+        assert "禁止输出状态合同" in system_prompt
+        assert "手机/电话尤其要谨慎" in system_prompt
+        assert "每两句原台词之间最多补 1-2 个动作节拍" in user_prompt
+        assert "通话结束后必须写清手机去向" in system_prompt
+        assert "不要写“状态合同/入场状态/出场状态/道具状态变化/禁止连续性/特写/音效”" in user_prompt
+        assert "【场景预分析约束】" in user_prompt
+        assert "门在左侧，乔熙站在床边" in user_prompt
         return (
             "增强版剧本: |\n"
             "  A rushes into the room.\n"
@@ -55,6 +62,7 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
         {
             "script": "A enters the room.",
             "original_script": "A enters the room.",
+            "scene_context_brief": "人物占位: 乔熙和小豆丁\n站位姿势: 门在左侧，乔熙站在床边",
             "aspect_ratio": "9:16",
             "agent_outputs": {},
             "knowledge_metadata": {},
@@ -156,6 +164,23 @@ def test_human_review_pauses_after_story_enhancement(monkeypatch):
     assert state["review_title"] == "剧情增强"
     assert "A rushes in" in state["review_output"]
     assert saved["review_agent"] == "director_showrunner"
+
+
+def test_scene_preanalysis_does_not_pause_before_story_enhancement(monkeypatch):
+    saved: dict[str, object] = {}
+    monkeypatch.setattr(runners, "_save_runner_state", lambda state: saved.update(state))
+
+    state = runners._mark_human_review_state(
+        {
+            "agent_outputs": {"scene_analyst": "人物占位:\n  - 乔熙站在床边"},
+            "step": "step_0_scene",
+        },
+        ("director_showrunner",),
+    )
+
+    assert state["step"] == "step_0_scene"
+    assert "review_agent" not in state
+    assert saved == {}
 
 
 def test_story_enhancement_review_edit_updates_script():

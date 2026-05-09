@@ -241,6 +241,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
     source_script = str(state.get("script") or "")
     original_script = str(state.get("original_script") or source_script)
+    scene_context_brief = str(state.get("scene_context_brief") or outputs.get("scene_analyst") or "").strip()
 
     if bool(state.get("speed_mode", False)):
         output = _localize_director_showrunner_output(_fallback_director_brief(state, "快速模式"))
@@ -294,8 +295,12 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "你是 AI 短剧流水线里的剧情冲突增强导演。\n"
         "你的职责是在不改变主线剧情的前提下，把原剧本里偏弱、偏概括、偏静态的冲突增强成可拍内容。\n"
         "你不做拆片、不做具体镜头设计、不输出 shot 建议；你只交付增强版剧本和增强依据。\n"
+        "你的增强必须是清晰的动作剧本，不是文学化润色；少用形容和比喻，只写观众能看见、演员能执行的动作。\n"
+        "禁止输出状态合同、入场状态、出场状态、道具状态变化、禁止连续性等制作合同块；这些只可内化为判断，不能写进增强版剧本。\n"
         "允许增强 L1 动作层与 L2 调度层：动作密度、时间压力、声音压力、已有道具阻碍、已有角色进入/拦住/停住/转身等可见调度。\n"
         "禁止直接改动主线剧情、人物关系、剧情结果和原台词；禁止新增未确认的新人物、新台词、新关键道具、新误会或新反转。\n"
+        "道具处理必须保持因果清晰：只使用原剧本已经出现或由原台词明确暗示的道具；每个道具只在必要时变化一次，不要为了细节堆动作。\n"
+        "手机/电话尤其要谨慎：如果原台词暗示正在通话，可以写乔熙拿着或放下手机；通话结束后必须写清手机去向，不能让手机持续占手却又同时完成双手动作。\n"
         "如果某个想法属于剧情层新增，必须放入“需用户确认”，不能写进增强版剧本。\n"
         "输出必须是 YAML，字段名和说明内容全部使用中文；只有原剧本台词或专有名词可以保留原文。",
         "director_showrunner",
@@ -306,6 +311,8 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         f"{source_script}\n\n"
         "【用户导演意图/补充要求】\n"
         f"{_director_showrunner_user_intent(state) or '无'}\n\n"
+        "【场景预分析约束】\n"
+        f"{scene_context_brief or '无参考图/场景预分析；只能根据原始剧本文字增强。'}\n\n"
         "【画幅】\n"
         f"{state.get('aspect_ratio', '16:9')}\n\n"
         "【必须输出的 YAML 字段】\n"
@@ -318,9 +325,13 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "1. 可以把“忙乱、急匆匆、气氛紧张、愣住、等待、列队”等概括词展开成连续可见动作。\n"
         "2. 可以把静态说明改成动态调度，例如已有主管/秘书从门内快速出来列队，已有朋友迎面拦住女主提醒。\n"
         "3. 可以使用原剧本已有道具和环境强化阻力，例如闹钟、电话、水杯、书包、咖啡、公司大门、车辆声音。\n"
-        "4. 不得改变主线剧情：人物关系、公司易主、新老板到达、前夫揭示等核心事实不能变。\n"
-        "5. 不得新增台词；原台词必须原样保留。\n"
-        "6. 除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
+        "4. 每两句原台词之间最多补 1-2 个动作节拍；优先写因果动作，不写情绪散文，不把简单动作拆成过多微动作。\n"
+        "5. 手机/电话规则：只有原文台词、动作或上下文明示通话时才可使用手机；如果写手机夹在肩上、握在手里或放在一旁，后续动作必须符合单手/双手可执行逻辑。\n"
+        "6. 增强版剧本只写场景标题、人物、动作、原台词和必要转场；不要写“状态合同/入场状态/出场状态/道具状态变化/禁止连续性/特写/音效”等合同式或镜头式小标题，除非原文已有。\n"
+        "7. 必须遵守场景预分析约束：人物站位、姿势、朝向、空间锚点、可见道具和参考图基底不能被剧情增强改乱。\n"
+        "8. 不得改变主线剧情：人物关系、公司易主、新老板到达、前夫揭示等核心事实不能变。\n"
+        "9. 不得新增台词；原台词必须原样保留。\n"
+        "10. 除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
     )
 
     started = time.perf_counter()
@@ -360,7 +371,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         {
             "status": "running_phase_1",
             "step": "step_0_rhythm",
-            "message": "剧情增强完成，节奏总控导演正在分析增强版剧本...（2/6）",
+                "message": "剧情增强完成，节奏总控导演正在分析增强版剧本...（3/8）",
             "script": enhanced_script,
             "original_script": original_script,
             "enhanced_script": enhanced_script,
@@ -406,37 +417,48 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
             state,
             {
                 "status": "running_phase_1",
-                "step": "step_2_plan",
-                "message": "快速模式：已跳过场景分析LLM，结构规划师正在拆片...（4/6）",
+                "step": "step_0_enhance",
+                "message": "快速模式：已生成本地场景预分析，剧情增强导演正在运行...（2/8）",
                 "agent_outputs": outputs,
+                "scene_context_brief": output,
                 "knowledge_metadata": knowledge_metadata,
             },
         )
 
-    scene_hint = f"场景分析 剧本拆解 核心动作 炸点 约束 导演意图 aspect_ratio {state.get('aspect_ratio', '16:9')}"
+    scene_hint = (
+        "场景预分析 参考图分析 人物站位 姿势 朝向 空间锚点 可见道具 简短约束 "
+        f"aspect_ratio {state.get('aspect_ratio', '16:9')}"
+    )
     system_prompt, retrieval_meta = build_system_prompt(
-        "你是一位顶尖短剧场景分析师。你需要拆解用户提供的剧本，提取核心动作、炸点和约束。\n\n"
+        "你是一位短剧场景预分析师，运行在剧情增强导演之前。\n"
+        "你的任务不是拆片、不是增强剧情、不是写镜头方案，而是把参考图和原剧本中的场景信息转成简短文字约束，交给剧情增强导演。\n\n"
         "【绝对禁令】你只能提取剧本原文中明确存在的信息。\n"
         "禁止推测、补充或扩展剧本中没有出现的内容。\n"
         "禁止新增剧本中没有的员工反应、旁白、低声议论、表情反应或任何解释性信息。\n"
         "如果原剧本没有写员工说话，分析卡中不得出现员工对白或低语。\n"
-        "如果原剧本没有写某个动作，分析卡中不得出现该动作。",
+        "如果原剧本没有写某个动作，分析卡中不得出现该动作。\n"
+        "输出必须简短，只分析：人物形象占位、人物站位/姿势/朝向、场景空间、可见道具、与剧本冲突点。",
         "scene_analyst",
         context_hint=scene_hint,
     )
     user_prompt = (
         f"{director_brief_block}\n"
-        f"分析以下剧本场景，填充完整的场景分析输入卡。\n\n"
+        f"请为剧情增强导演生成轻量场景预分析卡。\n\n"
         f"【剧本】\n{state['script']}\n\n"
         f"【画幅】{state.get('aspect_ratio', '16:9')}\n\n"
         f"【参考图清单】\n{_reference_context(state)}\n\n"
         "【参考图使用边界】\n"
-        "1. 参考图只用于提取空间、环境、人物站位、人物朝向、人物间距离、视线轴线和关键场景锚点。\n"
-        "2. 不要展开人物五官、发型、服装细节；人物身份后续由 Seedance 参考图锁定，分析卡和最终 prompt 只需要使用人名。\n"
+        "1. 参考图只用于提取空间、环境、人物站位、人物姿势、人物朝向、人物间距离、视线轴线和关键场景锚点。\n"
+        "2. 人物形象只做占位描述，例如“女主/孩子/西装男/秘书群体”；不要展开五官、发型、服装纹理。\n"
         "3. 场景分析必须把可见空间翻译成可继承的文字锚点：入口/电梯/门/走廊/前台/窗/桌椅等物体的相对方位，以及人物与这些锚点的关系。\n"
         "4. 如果参考图与剧本文字冲突，不得新增剧情，只能把参考图作为空间和环境基底说明。\n\n"
         f"{_script_fidelity_rules()}\n"
-        f"请直接输出YAML分析卡片。"
+        "【输出 YAML 字段】\n"
+        "人物占位: 每个可见人物/群体一句话，写身份占位和可见姿态。\n"
+        "站位姿势: 列出人物相对位置、朝向、距离、是否坐/站/移动。\n"
+        "场景信息: 列出空间类型、入口、主要家具/门/走廊/公司门口等锚点。\n"
+        "道具锚点: 只列原剧本或参考图可见的关键道具及位置；不新增手机、照片、咖啡等未确认道具。\n"
+        "增强约束: 给剧情增强导演的简短边界，提醒哪些空间/站位/道具不能改乱。\n"
     )
     ref_images = _scene_reference_images(state) or None
     agent_for_call = "scene_vision_analyst" if ref_images else "scene_analyst"
@@ -456,9 +478,10 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         state,
         {
             "status": "running_phase_1",
-            "step": "step_2_plan",
-            "message": "结构规划师正在拆片规划...（4/6）",
+            "step": "step_0_enhance",
+            "message": "场景预分析完成，剧情增强导演正在按场景约束增强剧本...（2/8）",
             "agent_outputs": outputs,
+            "scene_context_brief": output,
             "knowledge_metadata": knowledge_metadata,
         },
     )

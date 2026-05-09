@@ -32,12 +32,12 @@ def create_director_graph():
     graph.add_node("qc_router", qc_router_node)
     graph.add_node("segment_complete", segment_complete_node)
 
-    # 剧情增强先把弱冲突转成可拍文本，再交给节奏总控做快慢、卡断和反应归属。
+    # 先做轻量场景预分析，锁住参考图、站位姿势和空间锚点，再让剧情增强在该框架内可拍化。
     graph.add_node("rhythm_rewrite_director", rhythm_rewrite_director_node)
-    graph.add_edge(START, "director_showrunner")
+    graph.add_edge(START, "scene_analyst")
+    graph.add_edge("scene_analyst", "director_showrunner")
     graph.add_edge("director_showrunner", "rhythm_rewrite_director")
-    graph.add_edge("rhythm_rewrite_director", "scene_analyst")
-    graph.add_edge("scene_analyst", "story_planner")
+    graph.add_edge("rhythm_rewrite_director", "story_planner")
     graph.add_edge("story_planner", "shot_director")
     graph.add_edge("shot_director", "storyboard_designer")
     graph.add_edge("storyboard_designer", "wait_for_segment_request")

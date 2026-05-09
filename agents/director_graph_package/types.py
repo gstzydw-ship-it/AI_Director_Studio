@@ -109,6 +109,7 @@ class DirectorState(TypedDict, total=False):
     script: str
     original_script: str
     enhanced_script: str
+    scene_context_brief: str
     atmosphere_strategy: str
     director_brief: str
     aspect_ratio: str

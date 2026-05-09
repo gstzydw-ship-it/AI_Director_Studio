@@ -150,10 +150,9 @@ def _validate_rhythm_insert_continuity(original_script: str, rewritten_script: s
 
 def _rhythm_context_hint(state: DirectorState) -> str:
     return (
-        "节奏总控 冲突诊断 戏剧冲突弱点 冲突增强分级 速度曲线 "
-        "动作密度 声音压力 道具阻碍 人物调度 时间压力 隐藏信息 情绪伤口 "
-        "下游施工指令 戏剧微粒 受击反应 停顿 卡断 尾帧承接 "
-        "禁止改写剧本 禁止新增事件 禁止重排台词 "
+        "节奏总控 时间分配 段落位置 节奏合同 片段边界 "
+        "反应归属 停顿 卡断 尾帧承接 时长建议 切镜预算 无效过渡压缩 "
+        "下游施工指令 不新增动作 不改写剧本 禁止新增事件 禁止重排台词 "
         f"aspect_ratio {state.get('aspect_ratio', '16:9')}"
     )
 
@@ -165,8 +164,9 @@ def _rhythm_retrieval_profile(state: DirectorState) -> dict[str, Any]:
             "rhythm_rewrite",
             "dramatic_signal_rhythm",
             "story_rhythm",
-            "conflict_diagnosis",
-            "speed_curve",
+            "segment_boundary",
+            "tailframe_handoff",
+            "reaction_ownership",
         ],
         "priority": ["P0", "P1", "hard"],
         "signals": [
@@ -174,10 +174,12 @@ def _rhythm_retrieval_profile(state: DirectorState) -> dict[str, Any]:
             "action_coverage",
             "continuity_lock",
             "reaction_beat",
-            "time_pressure",
-            "prop_pressure",
-            "sound_pressure",
-            "action_density",
+            "timing_allocation",
+            "pause_point",
+            "cut_point",
+            "tailframe_handoff",
+            "cut_budget",
+            "transition_trim",
         ],
         "scene_types": ["dialogue", "action", "suspense", "confrontation", "daily_rush"],
         "events": [
@@ -185,14 +187,14 @@ def _rhythm_retrieval_profile(state: DirectorState) -> dict[str, Any]:
             "collision",
             "power_reversal",
             "suspense_reveal",
-            "conflict_escalation",
+            "segment_boundary",
             "speed_shift",
         ],
         "risks": [
             "script_invention_risk",
             "over_segmentation",
             "rewriting_script_facts",
-            "weak_conflict",
+            "duplicate_action_enhancement",
         ],
         "dialogue_types": ["long_dialogue_compression", "reaction_beat", "power_confrontation"],
         "aspect_ratios": [str(state.get("aspect_ratio", "16:9"))],
@@ -202,18 +204,16 @@ def _rhythm_retrieval_profile(state: DirectorState) -> dict[str, Any]:
 
 
 def _rhythm_user_director_intent(state: DirectorState) -> str:
-    candidate_keys = (
-        "director_intent",
-        "user_director_intent",
-        "user_notes",
-        "director_notes",
-        "creative_brief",
-        "requirements",
-        "visual_requirements",
-        "reference_images",
+    candidate_fields = (
+        ("director_intent", "导演意图"),
+        ("user_director_intent", "用户导演意图"),
+        ("user_notes", "用户备注"),
+        ("director_notes", "导演备注"),
+        ("creative_brief", "创作简报"),
+        ("requirements", "补充要求"),
     )
     lines: list[str] = []
-    for key in candidate_keys:
+    for key, label in candidate_fields:
         value = state.get(key)
         if not value:
             continue
@@ -222,56 +222,78 @@ def _rhythm_user_director_intent(state: DirectorState) -> str:
         else:
             text = str(value).strip()
         if text:
-            lines.append(f"{key}: {text}")
+            lines.append(f"{label}: {text}")
     return "\n".join(lines)
 
 
 def _rhythm_supervisor_role_prompt() -> str:
     return (
-        "你是一位短剧导演系统的节奏总控导演。你的任务不是改写剧本，"
-        "而是先诊断戏剧冲突，再把剧本和用户导演意图转成可执行的节奏调度方案。\n\n"
+        "你是一位短剧导演系统的节奏总控导演。你的任务不是改写剧本、不是增强动作，"
+        "而是把当前施工剧本和上游导演意图转成可执行的时间与段落合同。\n\n"
         "核心职责：\n"
-        "1. 对任何剧本先做冲突诊断：主角目标、阻力、失败代价、时间压力、隐藏信息、情绪伤口、冲突弱点。\n"
-        "2. 如果冲突偏弱，必须给出冲突增强方案，但要分清权限边界。\n"
-        "3. 必须输出速度曲线：哪里起速、靠什么动作加速、哪里刹车、为什么慢、哪里再启动、爆点和钩子落点在哪里。\n"
-        "4. 必须把概括性动作翻译为可拍的动作密度，例如“手忙脚乱”“急匆匆”“气氛紧张”“列队等候”。\n"
-        "5. 必须给 story_planner 和 shot_director 下游施工指令，说明哪些是段内节拍、哪些需要拆片或卡断。\n\n"
-        "增强权限分级：\n"
-        "- L1_动作层增强：允许增加动作密度、声音压力、道具阻碍、时间压力、人物可见反应；不改剧情事实和台词。\n"
-        "- L2_调度层增强：允许调整人物进入方向、信息释放顺序、群体压迫、谁先看到谁；不改变事件结果。\n"
-        "- L3_剧情层增强：涉及新增事件、改变因果、增加误会或反转时，必须标为“需用户确认”，不能作为最终执行指令。\n\n"
+        "1. 只基于当前施工剧本中已经存在的动作、台词、停顿、转场和剧情增强契约进行判断。\n"
+        "2. 决定已有内容的时间分配：哪里快推、哪里放慢、哪里停顿、哪里压缩、哪里不拆。\n"
+        "3. 决定段落位置：哪些事件合并、哪些地方拆分、哪些普通反应留在段内、哪些钩子可以卡断。\n"
+        "4. 决定反应归属和尾帧承接：反应属于本段还是下一段开头，段尾必须停在哪个可见状态。\n"
+        "5. 给结构规划师和镜头导演下游施工指令；只给时间、边界、停顿、切镜预算、无效过渡压缩和承接要求。\n\n"
+        "工作量控制：\n"
+        "- 只处理会影响拆片、停顿、卡断、尾帧或镜头节奏的关键锚点；普通顺畅动作不必逐条分析。\n"
+        "- 每个列表优先控制在 3-5 条；没有必要约束的字段写 无。\n"
+        "- 不做完整剧情复盘，不做镜头方案，不做动作增强，只给下游必须遵守的节奏合同。\n\n"
         "绝对禁止：\n"
-        "1. 不得输出改写后剧本。\n"
-        "2. 不得改写、补写、删除、调换任何台词、人物关系或剧情事实。\n"
-        "3. 不得把 L3 剧情层增强伪装成已确定剧情。\n"
-        "4. 不得把普通停顿、受击反应、信息揭示自动判定为独立片段。\n"
-        "5. 不得只写“节奏快/节奏慢”，快节奏必须写动作密度，慢节奏必须写停顿位置。\n\n"
-        "输出格式必须包含以下字段，字段名必须原样保留，便于下游读取：\n"
-        "- conflict_diagnosis：冲突诊断，包含目标、阻力、失败代价、时间压力、隐藏信息/情绪伤口、冲突弱点。\n"
-        "- conflict_enhancement_plan：冲突增强方案，按 L1/L2/L3 分级；L3 必须写“需用户确认”。\n"
-        "- speed_curve：速度曲线，按场次或片段写起速、加速动作、刹车点、慢拍原因、再启动点、爆点、钩子落点。\n"
-        "- rhythm_diagnosis：节奏诊断，说明哪里快、哪里慢、哪里停、哪里压缩、哪里卡断、哪里给反应。\n"
-        "- construction_notes：给 story_planner 的拆片施工指令，说明合并、拆分、卡断、尾帧承接。\n"
-        "- shot_director_notes：给 shot_director 的镜头施工指令，说明动作密度、反应归属、停顿位置、卡断落点和尾帧承接。\n\n"
-        "锚点归属必须写清楚：原文明确事实、概括动作可展开、用户指定导演意图、建议补强锚点、需用户确认剧情增强。"
+        "1. 不得新增动作、道具阻碍、人物调度、声音事件、人物反应、台词或剧情事实。\n"
+        "2. 不得输出改写后剧本，不得改写、补写、删除、调换任何台词、人物关系或剧情结果。\n"
+        "3. 不得继续提出动作层/调度层/剧情层增强方案；这些属于剧情增强导演。\n"
+        "4. 不得把节奏建议写成新的剧情事件；每条建议必须绑定当前施工剧本中的原文锚点。\n"
+        "5. 不得把普通停顿、受击反应、信息揭示自动判定为独立片段。\n"
+        "6. 不得只写“节奏快/节奏慢”，必须写清时间分配、段落位置、反应归属或尾帧承接。\n\n"
+        "输出格式必须包含以下中文字段，字段名必须原样保留，便于下游读取；不得输出英文字段名：\n"
+        "- 节奏总合同：总节奏合同；每条包含 原文锚点、时间分配指令、建议时长、原因。\n"
+        "- 拆片边界建议：拆片边界建议；每条包含 边界锚点、拆分决定、建议时长、原因。\n"
+        "- 反应归属：反应归属；每条包含 反应锚点、归属决定、停顿建议、原因。\n"
+        "- 尾帧承接：尾帧承接；每条包含 段尾锚点、可见状态、下一段开头约束。\n"
+        "- 结构规划施工指令：给结构规划师的拆片施工指令，只写合并、拆分、不拆、卡断、时长范围、尾帧承接。\n"
+        "- 镜头导演节奏执行约束：给镜头导演的节奏执行约束；每条包含 原文锚点、执行约束、停顿要求、切镜预算、无效过渡压缩、反应主体、尾帧要求；不写具体镜头方案。\n"
+        "- 风险提醒：提醒下游哪里容易误加动作、误拆、误改道具状态或误把节奏建议当剧情事实。\n\n"
+        "镜头导演节奏执行约束.切镜预算 必须使用具体数量，不得只写高/中/低：\n"
+        "- 覆盖时长：该节奏点建议覆盖时长，例如 2-3秒、4-6秒、5-8秒。\n"
+        "- 主镜头上限：最多主镜头数；普通连续动作 1-2，信息揭示 2，情绪停顿/尾钩 1-2，人物入场/权力登场 2-3。\n"
+        "- 辅助插入镜头上限：最多辅助插入镜头数；普通过渡 0，信息揭示最多 1，情绪停顿最多 0-1。\n"
+        "- 单个主镜头最短时长：单个主镜头建议不低于 2 秒；除非是明确动作冲击或信息揭示，不允许连续碎切。\n"
+        "- 最低停顿时长：反应/尾钩最低停顿秒数；普通动作 0，信息揭示 1-1.5，情绪停顿 1.2-2，尾钩 1.5-2。\n"
+        "- 禁止切走区间：不能切走的反应或信息揭示区间；没有则写 无。\n\n"
+        "镜头导演节奏执行约束.无效过渡压缩 用于删减或压缩无效过渡：\n"
+        "- 压缩决定：保留 / 压缩 / 可省略 / 禁止省略。\n"
+        "- 必须保留：必须拍出的信息，例如位置变化、按键、门口状态、人物已到达。\n"
+        "- 可省略或桥接：可省掉或切接跳过的机械过程，例如完整走路、完整开门、完整进电梯。\n"
+        "- 允许桥接到：允许直接接到的下一画面状态，例如人物已到电梯口、已在电梯内、门即将关闭。\n"
+        "- 过渡最长时长：机械过渡最多占几秒；无信息交通动作通常不超过 2 秒。\n"
+        "- 安全规则：如果过渡中发生台词、关键道具交接、碰撞、拦截、认出、回头、情绪变化或尾帧必需状态，禁止省略。\n\n"
+        "锚点归属必须写清楚：当前施工剧本明确事实、剧情增强导演意图、用户指定导演意图、节奏合同建议。"
     )
 
 
 def _rhythm_supervisor_user_prompt(state: DirectorState) -> str:
     user_intent = _rhythm_user_director_intent(state)
-    user_intent_block = user_intent or "无单独补充；只根据当前施工剧本做冲突诊断和节奏增强。"
+    user_intent_block = user_intent or "无单独补充；只根据当前施工剧本做时间分配和段落位置判断。"
     script_label = "当前施工剧本（已由剧情增强导演处理）" if state.get("enhanced_script") else "当前施工剧本"
+    director_contract = str(state.get("director_brief") or "").strip()
+    scene_context = str(state.get("scene_context_brief") or "").strip()
     return (
-        "请只做冲突诊断、节奏增强方案和下游施工指令，不要改写剧本。\n\n"
+        "请只做时间分配、段落位置、反应归属、卡断和尾帧承接，不要改写剧本，不要新增动作。\n\n"
         f"【{script_label}】\n{state['script']}\n\n"
+        f"【剧情增强导演契约】\n{director_contract or '无；仅以当前施工剧本为准。'}\n\n"
+        f"【场景预分析约束】\n{scene_context or '无；不得自行补充空间、站位或道具。'}\n\n"
         f"【用户导演意图/补充要求】\n{user_intent_block}\n\n"
         f"【画幅】{state.get('aspect_ratio', '16:9')}\n\n"
         "【处理要求】\n"
-        "1. 如果当前施工剧本仍有冲突弱点，先指出弱点，再用 L1/L2 增强动作、声音、道具、调度和信息释放。\n"
-        "2. 当原文只写概括词，如“忙乱、急匆匆、紧张、等待、愣住”，必须转成可拍节奏锚点。\n"
-        "3. 如果某个增强来自用户明确要求，标为“用户指定导演意图”，并优先传给下游。\n"
-        "4. 如果某个增强是你基于剧本推断，标为“建议补强锚点”，不能当作原文事实。\n"
-        "5. 如果增强会改变剧情因果或新增关键事件，放入 L3_剧情层增强，并标注“需用户确认”。\n"
+        "1. 每条节奏建议都必须绑定当前施工剧本中的原文锚点；没有锚点就写入风险提醒，不得执行。\n"
+        "2. 动作密度已经由剧情增强导演完成；你只判断已有动作的时长、停顿、不拆、拆分、卡断和承接。\n"
+        "3. 用户意图只可影响时间分配和段落位置；不得把用户意图补写成当前施工剧本外的新动作。\n"
+        "4. 结构规划施工指令只服务结构规划师：影响目标时长、片段边界、反应计划、连续性。\n"
+        "5. 镜头导演节奏执行约束只服务镜头导演：影响停顿、反应落点、切镜预算、无效过渡压缩和尾帧承接。\n"
+        "6. 对走向电梯、按按钮、门打开、进门、走廊移动、上下车等机械过渡，只在不影响主线、人物位置、道具状态、台词和剧情因果时给无效过渡压缩建议。\n"
+        "7. 切镜预算必须给具体数量；不要只写高/中/低切镜密度。\n"
     )
 
 
@@ -292,8 +314,8 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
             state,
             {
                 "status": "running_phase_1",
-                "step": "step_1_analyze",
-                "message": "快速模式：已跳过节奏总控，场景分析师正在分析...（3/6）",
+                "step": "step_2_plan",
+                "message": "快速模式：已跳过节奏总控，结构规划师正在拆片...（4/8）",
                 "agent_outputs": outputs,
                 "atmosphere_strategy": "",
             },
@@ -321,8 +343,8 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
         state,
         {
             "status": "running_phase_1",
-            "step": "step_1_analyze",
-            "message": "节奏总控诊断完成，场景分析师正在分析...（3/6）",
+            "step": "step_2_plan",
+            "message": "节奏总控诊断完成，结构规划师正在拆片规划...（4/8）",
             "atmosphere_strategy": atmosphere_strategy,
             "agent_outputs": outputs,
             "knowledge_metadata": knowledge_metadata,

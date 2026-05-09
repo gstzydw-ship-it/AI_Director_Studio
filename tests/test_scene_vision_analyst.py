@@ -52,7 +52,12 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
     assert captured["images_base64"] == ["image-a"]
     assert "五官" in str(captured["user_prompt"])
     assert "人物站位" in str(captured["user_prompt"])
+    assert "轻量场景预分析卡" in str(captured["user_prompt"])
+    assert "站位姿势" in str(captured["user_prompt"])
+    assert "道具锚点" in str(captured["user_prompt"])
     assert result["agent_outputs"]["scene_analyst"] == "scene_id: test_scene"
+    assert result["scene_context_brief"] == "scene_id: test_scene"
+    assert result["step"] == "step_0_enhance"
 
 
 def test_scene_analyst_sends_only_one_scene_reference_image(monkeypatch):

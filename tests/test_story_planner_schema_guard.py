@@ -58,6 +58,29 @@ def test_story_planner_accepts_lightweight_schema_without_shot_fields():
     assert "sub_shots" not in LIGHTWEIGHT_YAML
 
 
+def test_story_planner_accepts_minimal_chinese_handoff_schema():
+    planner_output = """
+- 片段编号: F01
+  目标时长: "8-10秒"
+  施工剧本原文事件:
+    - "乔熙拿起书包。"
+    - "照片从书包里滑落。"
+  出现人物:
+    - "乔熙"
+  入场状态: "乔熙手边有书包，照片仍在书包内。"
+  出场状态: "照片滑落到地面，乔熙看到照片。"
+  承接要求: "照片揭示反应留在本段尾部，下一段承接乔熙受击状态。"
+"""
+
+    issues = _validate_story_planner_output(
+        planner_output,
+        "乔熙拿起书包。\n照片从书包里滑落。",
+    )
+
+    assert issues == []
+    assert _extract_segments(planner_output) == (1, ["片段01"])
+
+
 def test_story_planner_requires_only_planning_handoff_fields():
     planner_output = """
 - fragment_id: F01
@@ -71,8 +94,9 @@ def test_story_planner_requires_only_planning_handoff_fields():
 
     issues = _validate_story_planner_output(planner_output, "Shang walks into the lobby.")
 
-    assert any("cast" in issue for issue in issues)
-    assert any("continuity" in issue for issue in issues)
+    assert any("出现人物" in issue for issue in issues)
+    assert any("入场状态" in issue for issue in issues)
+    assert any("出场状态" in issue for issue in issues)
     assert not any("main_shots" in issue for issue in issues)
     assert not any("boundary_reason" in issue for issue in issues)
 
@@ -97,7 +121,7 @@ def test_story_planner_autofills_missing_reaction_plan():
     normalised = _normalise_story_planner_output(planner_output)
     issues = _validate_story_planner_output(normalised, "Qiao thinks, Good? My ass!")
 
-    assert "reaction_plan:" in normalised
+    assert "承接要求:" in normalised
     assert "下游镜头导演负责决定具体反应镜头与动作落点" in normalised
     assert not any("reaction_plan" in issue for issue in issues)
 
@@ -220,7 +244,8 @@ def test_story_planner_repairs_short_non_yaml_output(monkeypatch):
     assert "必须修复的问题" in calls["repair_prompt"]
     assert "节奏总控施工指令" in calls["repair_prompt"]
     assert "普通受击反应留在片段内部" in calls["repair_prompt"]
-    assert "shots" in calls["repair_prompt"]
+    assert "镜头" in calls["repair_prompt"]
+    assert "场景空间记忆卡" not in calls["repair_prompt"]
     assert attempts[0]["status"] == "invalid_schema"
     assert attempts[1]["status"] == "success"
     assert "fragment_id" in output
@@ -442,8 +467,49 @@ def test_story_planner_agent_validation_parser_understands_chinese_statuses():
 def test_story_planner_rhythm_boundary_rules_limit_rewrite_permissions():
     rules = _story_planner_rhythm_boundary_rules()
 
-    assert "只负责识别戏剧微粒" in rules
-    assert "不负责改写剧本" in rules
-    assert "story_planner 不能执行" in rules
-    assert "director_brief / reaction_plan 只能写结构判断" in rules
+    assert "只负责把当前施工剧本拆成" in rules
+    assert "不定义镜头语言" in rules
+    assert "不能被当成新剧情事件来源" in rules
+    assert "当前施工剧本" in rules
+    assert "承接要求只能写结构判断" in rules
     assert "beat_design / reaction_plan" not in rules
+
+
+def test_story_planner_prompt_uses_current_script_and_upstream_contracts(monkeypatch):
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        spi,
+        "build_system_prompt",
+        lambda prompt, agent_name, context_hint="": (prompt, {"retrieval_mode": "test"}),
+    )
+    monkeypatch.setattr(spi, "_record_knowledge_metadata", lambda *args, **kwargs: {})
+    monkeypatch.setattr(spi, "_validate_story_planner_output", lambda *args, **kwargs: [])
+    monkeypatch.setattr(spi, "_persist_update", lambda state, payload: {**state, **payload})
+
+    def fake_run_story_planner(**kwargs):
+        captured["user_prompt"] = kwargs["user_prompt"]
+        captured["rhythm_guidance"] = kwargs["rhythm_guidance"]
+        return LIGHTWEIGHT_YAML, [{"status": "success"}]
+
+    monkeypatch.setattr(spi, "_run_story_planner_with_schema_repair", fake_run_story_planner)
+
+    result = spi.story_planner_node(
+        {
+            "script": "增强后施工剧本：乔熙拿起书包，照片滑落。",
+            "director_brief": "主线保护: 不改变人物关系\n节奏总控交接: 照片滑落后必须刹车。",
+            "atmosphere_strategy": "拆片边界建议: 照片滑落后不拆；尾帧承接: 乔熙低头停住。",
+            "agent_outputs": {"scene_analyst": "道具锚点: 书包在乔熙手边。"},
+            "aspect_ratio": "9:16",
+        }
+    )
+
+    prompt = str(captured["user_prompt"])
+    assert "【当前施工剧本】" in prompt
+    assert "增强后施工剧本" in prompt
+    assert "节奏总控施工指令" in prompt
+    assert "施工剧本原文事件" in prompt
+    assert "剧情增强导演契约" not in prompt
+    assert "场景空间记忆卡" not in prompt
+    assert "按原始剧本" not in prompt
+    assert captured["rhythm_guidance"] == result["atmosphere_strategy"]

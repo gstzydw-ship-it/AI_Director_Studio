@@ -12,42 +12,35 @@ from .types import DirectorState
 from . import legacy_impl as _legacy
 from .helpers import _agent_runtime_trace, _fragment_line_pattern, _truncate_for_prompt
 from .llm import call_llm
-from .planning_context_impl import (
-    _director_brief,
-    _director_brief_prompt_block,
-    _script_fidelity_rules,
-)
+from .planning_context_impl import _script_fidelity_rules
 from .prompting import build_system_prompt
 from .state_store import _agent_outputs, _persist_update
 
 STORY_PLANNER_MAX_SCHEMA_ATTEMPTS = _legacy.STORY_PLANNER_MAX_SCHEMA_ATTEMPTS
 
 _agent_configured = _legacy._agent_configured
-_scene_memory_card = _legacy._scene_memory_card
 _record_knowledge_metadata = _legacy._record_knowledge_metadata
 
 def _story_planner_rhythm_boundary_rules() -> str:
     return (
-        "【story_planner 节奏权限边界】\n"
-        "1. story_planner 只负责识别戏剧微粒、Hook 权重、片段边界、受击承接层级和节拍轻重；不负责改写剧本，不负责插入新动作。\n"
-        "2. 若检索到含\"改写、增补动作、氛围具象化\"的节奏规则，这些权限只属于 rhythm_rewrite_director；story_planner 不能执行。\n"
-        "3. source_script_events 必须逐条引用当前输入剧本中的原文子串，不得概括、改写、合并或补写。\n"
-        "4. director_brief / reaction_plan 只能写结构判断，例如\"片段内承接\"\"升级到下一片段\"\"预留停顿\"\"在台词后收束\"；不得新增具体动作、道具、龙套反应或人物调度。\n"
-        "5. 如果某处节奏需要更紧或需要气口，但当前剧本没有对应动作，只能标注承接层级，不能把需要写成新的剧情内容。\n"
-        "6. 时间段不是 prompt_compiler 决定的。story_planner 必须把片段时长、卡断位置、尾帧承接作为上游节奏合同交给后续节点；下游只能继承，不能重切。\n"
-        "7. story_planner 只定义\"这一段从哪到哪\"和\"这一段承担什么剧情任务\"，不定义镜头语言、不定义同一机位继续、不定义具体运镜。\n"
+        "【结构规划师权限边界】\n"
+        "1. 结构规划师只负责把当前施工剧本拆成给镜头导演使用的片段清单。\n"
+        "2. 节奏总控只提供拆片边界、目标时长、反应归属、卡断和尾帧承接；不能被当成新剧情事件来源。\n"
+        "3. 施工剧本原文事件必须逐条引用当前施工剧本中的原文子串，不得概括、改写、合并或补写。\n"
+        "4. 承接要求只能写结构判断，例如\"反应留在本段\"\"下一段承接\"\"尾帧停在照片仍在手中\"；不得新增动作、道具、龙套反应或人物调度。\n"
+        "5. 只定义\"这一段从哪到哪\"和\"交给下个 agent 时需要怎样承接\"；不定义镜头语言、不定义机位、不定义具体运镜。\n"
     )
 
 def _story_planner_granularity_rules() -> str:
     return (
-        "【story_planner 颗粒度拆片指南（Seedance 2.0 15秒剧情任务版）】\n"
+        "【结构规划师拆片指南（Seedance 2.0 15秒剧情任务版）】\n"
         "1. 核心目标：每个片段承载一个 15 秒以内可完成的剧情任务；不追求多拆，也不允许把多个任务粗暴塞进一段。\n"
-        "2. 单段推荐 4-8 条 source_script_events。超过 8 条必须拆开；少于 4 条通常合并到相邻片段。\n"
+        "2. 单段推荐 4-8 条施工剧本原文事件。超过 8 条必须拆开；少于 4 条通常合并到相邻片段。\n"
         "3. 少于 4 条仍可独立的例外：明确钩子、卡断、尾帧承接、重大反转落点或下一段必须从该状态接起。\n"
-        "4. 普通停顿、受击反应、信息揭示默认留在当前片段内部，由 shot_director 处理，不自动拆成新 fragment。\n"
-        "5. 拆片必须服从节奏总控施工指令：哪里快、哪里慢、哪里停、哪里压缩、哪里卡断、哪里给反应。\n"
+        "4. 普通停顿、受击反应、信息揭示默认留在当前片段内部，由镜头导演处理，不自动拆成新片段。\n"
+        "5. 拆片必须服从节奏总控施工指令：时长范围、停顿、不拆、压缩、卡断、反应归属和尾帧承接。\n"
         "6. 反应归属只做高层判断：留在本段、下一段承接、无须独立反应；不要替镜头导演设计具体镜头。\n"
-        "7. 一个片段只承担一个核心剧情任务；若同一段里同时包含入场、对白、群体反应、道具动作、空间变化、情绪重音，应优先拆开，而不是把所有任务压进一个 fragment。\n"
+        "7. 一个片段只承担一个核心剧情任务；若同一段里同时包含入场、对白、群体反应、道具动作、空间变化、情绪重音，应优先拆开，而不是把所有任务压进一个片段。\n"
         "8. 大动作优先拆成连续小任务链，例如进入门缝→撞上→扶住→停住；不要把复杂动作整包塞成一句笼统事件后再期待下游补救。\n"
         "9. 文戏/情绪戏/对白戏优先保持可延长的连续段；武戏/高动作冲突戏优先拆成可拼接的短段。\n"
     )
@@ -71,7 +64,7 @@ def _extract_yaml_sections(yaml_text: str) -> list[str]:
     return sections
 
 def _extract_fragment_id(section: str) -> str:
-    match = re.search(r"(?m)^\s*-?\s*fragment_id\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
+    match = re.search(r"(?m)^\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
     return match.group(1).strip() if match else ""
 
 def _normalise_fragment_section_id(section: str, index: int) -> str:
@@ -79,7 +72,7 @@ def _normalise_fragment_section_id(section: str, index: int) -> str:
     old_id = _extract_fragment_id(section)
     new_id = f"F{index:02d}"
     updated = re.sub(
-        r"(?m)^(\s*-?\s*fragment_id\s*:\s*)[\"']?[^\"'\s#]+[\"']?",
+        r"(?m)^(\s*-?\s*(?:fragment_id|片段编号)\s*:\s*)[\"']?[^\"'\s#]+[\"']?",
         rf'\1"{new_id}"',
         section,
         count=1,
@@ -91,12 +84,24 @@ def _normalise_fragment_section_id(section: str, index: int) -> str:
 def _is_missing_planner_field(section: str, field: str) -> bool:
     return not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", section)
 
+def _has_planner_field_alias(section: str, fields: tuple[str, ...]) -> bool:
+    return any(re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", section) for field in fields)
+
 def _has_planner_field_any(section: str, fields: tuple[str, ...]) -> bool:
     return any(not _is_missing_planner_field(section, field) for field in fields)
 
 def _field_value(section: str, field: str) -> str:
-    match = re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:\s*[\"']?(.+?)[\"']?\s*$", section)
-    return match.group(1).strip() if match else ""
+    fields = {
+        "dramatic_unit": ("dramatic_unit", "片段任务"),
+        "duration_target": ("duration_target", "目标时长"),
+        "reaction_plan": ("reaction_plan", "承接要求"),
+        "director_brief": ("director_brief",),
+    }.get(field, (field,))
+    for candidate in fields:
+        match = re.search(rf"(?m)^\s*-?\s*{re.escape(candidate)}\s*:\s*[\"']?(.+?)[\"']?\s*$", section)
+        if match:
+            return match.group(1).strip()
+    return ""
 
 def _infer_boundary_reason(section: str) -> str:
     dramatic_unit = _field_value(section, "dramatic_unit")
@@ -124,9 +129,9 @@ def _infer_reaction_plan(section: str) -> str:
     )
 
 def _planner_field_indent(lines: list[str]) -> str:
-    indent = "  " if re.match(r"^\s*-\s*fragment_id\s*:", lines[0] if lines else "") else ""
+    indent = "  " if re.match(r"^\s*-\s*(?:fragment_id|片段编号)\s*:", lines[0] if lines else "") else ""
     for line in lines[1:]:
-        field_match = re.match(r"^(\s+)[a-z_]+\s*:", line)
+        field_match = re.match(r"^(\s+)(?:[a-z_]+|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_/]*)\s*:", line)
         if field_match:
             return field_match.group(1)
     return indent
@@ -170,7 +175,8 @@ def _split_merged_source_event(event: str, script_lines: list[str]) -> list[str]
 
 def _replace_source_script_events_block(section: str, events: list[str]) -> str:
     match = re.search(
-        r"(?m)^(\s*)source_script_events\s*:\s*([\s\S]*?)(?=\n\s*[a-z_]+\s*:|\n\s*-?\s*fragment_id\s*:|\Z)",
+        r"(?m)^(\s*)(source_script_events|施工剧本原文事件|当前剧本事件)\s*:\s*"
+        r"([\s\S]*?)(?=\n\s*(?:[a-z_]+|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_/]*)\s*:|\n\s*-?\s*(?:fragment_id|片段编号)\s*:|\Z)",
         section,
     )
     if not match:
@@ -178,7 +184,8 @@ def _replace_source_script_events_block(section: str, events: list[str]) -> str:
 
     field_indent = match.group(1)
     item_indent = field_indent + "  "
-    block_lines = [f"{field_indent}source_script_events:"]
+    field_name = match.group(2)
+    block_lines = [f"{field_indent}{field_name}:"]
     for event in events:
         safe_event = event.replace('"', "'")
         block_lines.append(f'{item_indent}- "{safe_event}"')
@@ -215,10 +222,10 @@ def _normalise_story_planner_output(planner_output: str, source_script: str = ""
     for section in sections:
         lines = section.splitlines()
         section_after_boundary = "\n".join(lines)
-        if _is_missing_planner_field(section_after_boundary, "reaction_plan"):
+        if not _has_planner_field_alias(section_after_boundary, ("reaction_plan", "承接要求")):
             _insert_planner_field_before(
                 lines,
-                field="reaction_plan",
+                field="承接要求",
                 value=_infer_reaction_plan(section_after_boundary),
                 before_fields=("director_brief", "beat_design", "shots"),
             )
@@ -231,7 +238,8 @@ def _normalise_story_planner_output(planner_output: str, source_script: str = ""
 
 def _source_script_events(section: str) -> list[str]:
     block_match = re.search(
-        r"(?m)^\s*source_script_events\s*:\s*([\s\S]*?)(?=\n\s*[a-z_]+\s*:|\n\s*-?\s*fragment_id\s*:|\Z)",
+        r"(?m)^\s*(?:source_script_events|施工剧本原文事件|当前剧本事件)\s*:\s*"
+        r"([\s\S]*?)(?=\n\s*(?:[a-z_]+|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_/]*)\s*:|\n\s*-?\s*(?:fragment_id|片段编号)\s*:|\Z)",
         section,
     )
     block = block_match.group(1) if block_match else ""
@@ -277,14 +285,17 @@ def _story_planner_soft_validation_issues(planner_output: str) -> list[str]:
                 "请由校验导演判断是否真的需要拆分。"
             )
 
-        reaction_match = re.search(r"reaction_plan\s*:([\s\S]*?)(?=\n\s*[a-z_]+\s*:|\Z)", section)
+        reaction_match = re.search(
+            r"(?:reaction_plan|承接要求)\s*:([\s\S]*?)(?=\n\s*(?:[a-z_]+|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_/]*)\s*:|\Z)",
+            section,
+        )
         reaction_text = reaction_match.group(1).strip() if reaction_match else ""
         if reaction_text and not re.search(
             r"片段内|内部|本片段|独立片段|独立主分镜|无需独立|不需要|无需|不涉及|N/?A|none|无受击|画外|背景|虚化|升级|下一段|下个片段|后续片段"
             r"|within|internal|same.?fragment|separate|independent|no.?reaction|covered|absorbed|next.?fragment",
             reaction_text, re.IGNORECASE
         ):
-            issues.append(f"{fragment_id} 的 reaction_plan 承接层级不够直白。")
+            issues.append(f"{fragment_id} 的承接要求不够直白。")
 
     import math
     total_events = sum(len(_source_script_events(s)) for s in sections)
@@ -376,8 +387,8 @@ def _run_story_planner_agent_validator(
         "而是判断 story_planner 的拆片结果能不能交给后续镜头导演继续工作。\n\n"
         "只把真正会导致后续无法接住的问题判为失败，例如：片段边界完全混乱、"
         "明显漏掉核心剧情、把不同场景硬塞成一段、使用剧本外事件、人物连续性自相矛盾。\n"
-        "下面这些默认只算提醒，不要直接判失败：单段 source_script_events 略多、"
-        "片段略密、reaction_plan 表述不够漂亮、某段可能还可以再拆。\n\n"
+        "下面这些默认只算提醒，不要直接判失败：单段施工剧本原文事件略多、"
+        "片段略密、承接要求表述不够漂亮、某段可能还可以再拆。\n\n"
         "输出格式必须严格如下：\n"
         "总体评级：通过/提醒/失败\n"
         "问题清单：\n"
@@ -385,8 +396,7 @@ def _run_story_planner_agent_validator(
         "不要输出其他文字。"
     )
     user_prompt = (
-        f"【原始剧本】\n{_truncate_for_prompt(original_script, 4000)}\n\n"
-        f"【场景空间记忆卡】\n{_scene_memory_card(scene_output, 1600)}\n\n"
+        f"【当前施工剧本】\n{_truncate_for_prompt(original_script, 4000)}\n\n"
         f"【story_planner 输出】\n{_truncate_for_prompt(planner_output, 9000)}\n\n"
         "【代码层发现的非阻断提醒】\n"
         + "\n".join(f"- {issue}" for issue in soft_issues)
@@ -419,26 +429,23 @@ def _validate_story_planner_output(planner_output: str, script: str = "") -> lis
     if not sections:
         return ["story_planner 未输出可解析的 fragment_id 分段。"]
 
-    required_fields = [
-        "fragment_id",
-        "duration_target",
-        "dramatic_unit",
-        "source_script_events",
-        "reaction_plan",
-        "director_brief",
+    required_field_groups = [
+        ("片段编号", ("片段编号", "fragment_id")),
+        ("目标时长", ("目标时长", "duration_target")),
+        ("施工剧本原文事件", ("施工剧本原文事件", "当前剧本事件", "source_script_events")),
+        ("出现人物", ("出现人物", "cast", "active_cast")),
+        ("入场状态", ("入场状态", "continuity", "state_contract")),
+        ("出场状态", ("出场状态", "continuity", "state_contract")),
+        ("承接要求", ("承接要求", "reaction_plan")),
     ]
     source_script = script or ""
     for section in sections:
         fragment_id = _extract_fragment_id(section) or "unknown"
         if not re.fullmatch(r"F\d{2}", fragment_id):
             issues.append(f"{fragment_id} 片段编号不符合 F01/F02 顺序契约。")
-        for field in required_fields:
-            if not re.search(rf"{field}\s*:", section):
-                issues.append(f"{fragment_id} 缺少字段 {field}。")
-        if not _has_planner_field_any(section, ("cast", "active_cast")):
-            issues.append(f"{fragment_id} 缺少字段 cast（或兼容字段 active_cast）。")
-        if not _has_planner_field_any(section, ("continuity", "state_contract")):
-            issues.append(f"{fragment_id} 缺少字段 continuity（或兼容字段 state_contract）。")
+        for display_name, aliases in required_field_groups:
+            if not _has_planner_field_alias(section, aliases):
+                issues.append(f"{fragment_id} 缺少字段 {display_name}。")
 
     issues.extend(_story_planner_fragment_granularity_issues(planner_output))
 
@@ -464,16 +471,14 @@ def _story_planner_repair_prompt(
         f"{issue_text}\n\n"
         "【修复硬约束】\n"
         "1. 只输出 YAML，不要解释、不要 Markdown 代码围栏、不要前后说明。\n"
-        "2. fragment_id 必须从 F01 开始顺序递增，不能跳号，不能使用场次号或复合编号。\n"
-        "3. 每个片段只需要包含：fragment_id、duration_target、dramatic_unit、source_script_events、cast、continuity、reaction_plan、director_brief。\n"
-        "4. cast 使用 active / must_not_show；continuity 使用 entry / exit。只写对后续连续性有用的信息。\n"
-        "5. 禁止输出 shots、shot_id、camera_setup_type、primary_subject、action_unit、line_unit、sub_shots、sub_shot_strategy；这些属于后续镜头导演。\n"
-        "6. source_script_events 必须逐条引用【原始剧本】中的原文，不能概括、改写或新增剧本外动作。\n"
-        "7. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据原始剧本和场景分析重建完整 YAML。\n"
+        "2. 片段编号必须从 F01 开始顺序递增，不能跳号，不能使用场次号或复合编号。\n"
+        "3. 每个片段只需要包含：片段编号、目标时长、施工剧本原文事件、出现人物、入场状态、出场状态、承接要求。\n"
+        "4. 禁止输出镜头、机位、景别、子分镜、剧情解释、场景预分析简表、剧情增强约束或风险长说明。\n"
+        "5. 施工剧本原文事件必须逐条引用【当前施工剧本】中的原文，不能概括、改写或新增剧本外动作。\n"
+        "6. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本和节奏总控施工指令重建完整 YAML。\n"
         f"8. {_story_planner_granularity_rules()}\n\n"
         f"【节奏总控施工指令】\n{_truncate_for_prompt(rhythm_guidance or 'none', 2400)}\n\n"
-        f"【原始剧本】\n{original_script}\n\n"
-        f"【场景空间记忆卡】\n{_scene_memory_card(scene_output)}\n\n"
+        f"【当前施工剧本】\n{original_script}\n\n"
         f"【上一轮无效输出】\n{_truncate_for_prompt(previous_output, 9000)}\n\n"
         "请输出修复后的完整 YAML。"
     )
@@ -585,49 +590,44 @@ def _extract_segments(planner_output: str) -> tuple[int, list[str]]:
 
 def story_planner_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
-    director_brief_block = _director_brief_prompt_block(_director_brief(state))
-    scene_output = outputs.get("scene_analyst", "")
-    scene_memory = _scene_memory_card(scene_output, 1800)
     rhythm_guidance = state.get("atmosphere_strategy", "") or outputs.get("rhythm_rewrite_director", "")
     truncated_script = _truncate_for_prompt(state.get("script", ""), 12000)
-    planner_hint = f"剧本拆分 15秒片段规划 多机位分镜 节奏控制 镜头切换 {truncated_script[:200]}"
+    planner_hint = f"施工剧本拆片 片段编号 目标时长 原文事件 承接要求 {truncated_script[:200]}"
     system_prompt, retrieval_meta = build_system_prompt(
-        "你是一位短剧结构规划师。你的核心任务是把剧本拆成可拍的视频片段施工单："
-        "只决定每段从哪到哪、谁在场、连续性如何交接、反应归属哪里。"
-        "不要设计机位、景别、shot_id、子分镜或具体镜头动作，这些交给后续镜头导演。",
+        "你是一位短剧结构规划师。你的唯一任务是把当前施工剧本拆成交给下一个 agent 的片段清单："
+        "只决定片段边界、目标时长、原文事件、出现人物、入场状态、出场状态和承接要求。"
+        "不要复述场景预分析，不要输出剧情增强约束，不要写解释，不要设计镜头。",
         "story_planner",
         context_hint=planner_hint,
     )
     user_prompt = (
-        f"{director_brief_block}\n"
-        f"基于以下【原始剧本】与【场景空间记忆卡】，制定严格拆片方案。\n\n"
-        f"【原始剧本】\n{truncated_script}\n\n"
-        f"【场景空间记忆卡】\n{scene_memory}\n\n"
+        "基于以下【当前施工剧本】和【节奏总控施工指令】，制定严格拆片方案。\n"
+        "当前施工剧本可能已经由剧情增强导演增强并经用户确认；施工剧本原文事件必须引用这个版本，不要退回原始剧本。\n\n"
+        f"【当前施工剧本】\n{truncated_script}\n\n"
         "【输出结构硬约束】\n"
-        "你必须输出 YAML 列表；每个片段只保留轻量施工单字段：\n"
-        "- fragment_id（必须从 F01 开始按顺序递增：F01、F02、F03；严禁输出 F2-1A、F2-2B、片段2A、scene-1 等复合编号）\n"
-        "- duration_target\n"
-        "- dramatic_unit\n"
-        "- source_script_events（数组，逐条引用原剧本动作/台词）\n"
-        "- cast（active / must_not_show，只写本段允许出现和明确不能出现的人）\n"
-        "- continuity（entry / exit，只写本段开始和结束的关键连续性状态）\n"
-        "- reaction_plan（只判断反应留在本片段内部，还是升级到下一片段；不要设计具体镜头）\n"
-        "- director_brief（一句话告诉后续镜头导演本段要抓住的戏剧重点）\n\n"
+        "你必须输出 YAML 列表；每个片段只保留以下字段，字段名必须使用中文：\n"
+        "- 片段编号（必须从 F01 开始按顺序递增：F01、F02、F03；严禁输出 F2-1A、F2-2B、片段2A、scene-1 等复合编号）\n"
+        "- 目标时长\n"
+        "- 施工剧本原文事件（数组，逐条引用当前施工剧本中的动作/台词原文）\n"
+        "- 出现人物\n"
+        "- 入场状态\n"
+        "- 出场状态\n"
+        "- 承接要求\n\n"
         "【严禁输出的字段】\n"
-        "不要输出 shots、shot_id、primary_subject、camera_setup_type、action_unit、line_unit、sub_shots、sub_shot_strategy、beat_design。\n"
-        "这些属于后续 shot_director 的职责。\n\n"
+        "不要输出镜头、机位、景别、子分镜、剧情解释、场景预分析简表、剧情增强约束、风险长说明、shots、shot_id、primary_subject、camera_setup_type、action_unit、line_unit、sub_shots、sub_shot_strategy、beat_design。\n\n"
         "【核心拆片原则】\n"
-        "0. 片段编号是运行时硬契约，只能使用 F01/F02/F03 顺序编号；不得把集数、场次或动作层级写入 fragment_id。\n"
+        "0. 片段编号是运行时硬契约，只能使用 F01/F02/F03 顺序编号；不得把集数、场次或动作层级写入片段编号。\n"
         "1. 每个片段 = 一个清楚的戏剧动作单元或一次完整交锋，不是机械切 15 秒。\n"
         "2. 完整发言单元优先保持完整，不得把完整意思单元机械拆碎。\n"
         "3. 禁止为了凑时长补写剧本外动作。若动作不足，用更短片段或合并相邻弱事件。\n"
         "4. 反应归属只做高层判断：留在本段、下一段承接、无需独立反应。具体怎么拍由后续镜头导演处理。\n"
-        "5. continuity 只写会影响下一段首帧/角色位置/道具状态/门电梯状态的关键信息。\n\n"
+        "5. 入场状态/出场状态只写会影响下一个 agent 接续的角色位置、道具状态、门电梯状态或情绪状态。\n\n"
         f"{_story_planner_granularity_rules()}\n"
         f"{_script_fidelity_rules()}"
         f"{_story_planner_rhythm_boundary_rules()}"
-        "11. source_script_events 必须逐条引用原剧本原文，不得改写、概括或补写剧本外动作。\n"
-        "12. 直接输出 YAML 拆片结果，不要解释。"
+        "11. 施工剧本原文事件必须逐条引用当前施工剧本原文，不得改写、概括或补写剧本外动作。\n"
+        "12. 节奏总控施工指令只用于决定目标时长、片段边界、承接要求和尾帧承接；不得写入新的施工剧本原文事件。\n"
+        "13. 直接输出 YAML 拆片结果，不要解释。"
     )
     user_prompt += (
         "\n\n【节奏总控施工指令】\n"
@@ -637,13 +637,14 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         "2. 单段推荐承载 4-8 条原文事件；超过 8 条必须拆开，少于 4 条通常合并。\n"
         "3. 明确钩子、卡断、尾帧承接或重大反转落点，可以保留短片段。\n"
         "4. 普通停顿、受击反应、信息揭示默认留在片段内部，由 shot_director 处理，不单独拆段。\n"
-        "5. 拆片必须服从节奏总控给出的快慢、停顿、卡断、反应归属和尾帧承接指令。\n"
+        "5. 拆片必须服从节奏总控给出的时长范围、停顿、不拆、卡断、反应归属和尾帧承接指令。\n"
+        "6. 节奏总控指令只允许影响目标时长、片段边界、承接要求、入场状态和出场状态；不得写入新的施工剧本原文事件。\n"
     )
     output, planner_attempts = _run_story_planner_with_schema_repair(
         system_prompt=system_prompt,
         user_prompt=user_prompt,
         original_script=state.get("script", ""),
-        scene_output=scene_memory,
+        scene_output="",
         rhythm_guidance=rhythm_guidance,
     )
     knowledge_metadata = _record_knowledge_metadata(state, "story_planner", planner_hint, retrieval_meta)
