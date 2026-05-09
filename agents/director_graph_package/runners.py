@@ -29,6 +29,7 @@ _STATE_STORE_CLEAR_STATE = clear_state
 _RUNNER_INVOKE_GRAPH: Any | None = None
 
 HUMAN_REVIEW_NODES = [
+    "scene_analyst",
     "director_showrunner",
     "rhythm_rewrite_director",
     "story_planner",
@@ -61,6 +62,7 @@ REVIEW_AGENT_STEPS = {
 }
 
 _NEXT_NODE_TO_REVIEW_AGENT = {
+    "director_showrunner": "scene_analyst",
     "rhythm_rewrite_director": "director_showrunner",
     "story_planner": "rhythm_rewrite_director",
     "shot_director": "story_planner",
@@ -241,10 +243,18 @@ def _review_output_for_agent(state: dict[str, Any], agent: str) -> str:
 
     if agent == "storyboard_designer":
         seg_idx = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
-        for key in (f"storyboard_prompt_seg{seg_idx}", "storyboard_designer"):
+        for key in (
+            f"storyboard_prompt_seg{seg_idx:02d}",
+            f"storyboard_prompt_seg{seg_idx}",
+            "storyboard_designer",
+        ):
             if outputs.get(key):
                 return str(outputs.get(key))
-        image_path = outputs.get(f"storyboard_image_seg{seg_idx}") or outputs.get("storyboard_image")
+        image_path = (
+            outputs.get(f"storyboard_image_seg{seg_idx:02d}")
+            or outputs.get(f"storyboard_image_seg{seg_idx}")
+            or outputs.get("storyboard_image")
+        )
         return str(image_path or "")
 
     return str(outputs.get(agent) or "")
@@ -276,7 +286,9 @@ def _apply_human_review_edit(
     edited = edited_output or ""
     outputs[agent] = edited
 
-    if agent == "director_showrunner":
+    if agent == "scene_analyst":
+        state["scene_context_brief"] = edited
+    elif agent == "director_showrunner":
         from .planning_context_impl import _director_enhancement_contract, _extract_enhanced_script
 
         source_script = str(state.get("original_script") or state.get("script") or "")
@@ -299,7 +311,7 @@ def _apply_human_review_edit(
     elif agent == "storyboard_designer":
         seg_idx = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
         if edited:
-            outputs[f"storyboard_prompt_seg{seg_idx}"] = edited
+            outputs[f"storyboard_prompt_seg{seg_idx:02d}"] = edited
     elif agent == "prompt_compiler":
         seg_idx = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
         outputs[f"compiled_segment_{seg_idx}"] = edited

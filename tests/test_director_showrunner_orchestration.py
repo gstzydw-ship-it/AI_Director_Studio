@@ -166,7 +166,7 @@ def test_human_review_pauses_after_story_enhancement(monkeypatch):
     assert saved["review_agent"] == "director_showrunner"
 
 
-def test_scene_preanalysis_does_not_pause_before_story_enhancement(monkeypatch):
+def test_scene_preanalysis_pauses_before_story_enhancement(monkeypatch):
     saved: dict[str, object] = {}
     monkeypatch.setattr(runners, "_save_runner_state", lambda state: saved.update(state))
 
@@ -178,9 +178,30 @@ def test_scene_preanalysis_does_not_pause_before_story_enhancement(monkeypatch):
         ("director_showrunner",),
     )
 
+    assert state["status"] == "waiting_for_user_input"
     assert state["step"] == "step_0_scene"
-    assert "review_agent" not in state
-    assert saved == {}
+    assert state["review_agent"] == "scene_analyst"
+    assert state["review_title"] == "场景预分析"
+    assert "乔熙站在床边" in state["review_output"]
+    assert saved["review_agent"] == "scene_analyst"
+
+
+def test_scene_preanalysis_review_edit_updates_scene_context():
+    edited = "人物占位:\n  - 乔熙站在门口\n场景母版图: |\n  - scene card"
+
+    state = runners._apply_human_review_edit(
+        {
+            "script": "old",
+            "scene_context_brief": "old context",
+            "agent_outputs": {},
+        },
+        "scene_analyst",
+        edited,
+    )
+
+    assert state["scene_context_brief"] == edited
+    assert state["agent_outputs"]["scene_analyst"] == edited
+    assert state["status"] == "running_phase_1"
 
 
 def test_story_enhancement_review_edit_updates_script():
