@@ -672,7 +672,7 @@ def _main_shot_blocks(output: str) -> list[tuple[str, str]]:
     return blocks
 
 def _fragment_line_pattern() -> str:
-    return r"^-?\s*fragment_id\s*:\s*[\"']?F[\w-]+[\"']?"
+    return r"^-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?F[\w-]+[\"']?"
 
 def _extract_yaml_sections(yaml_text: str) -> list[str]:
     sections: list[str] = []
@@ -693,7 +693,7 @@ def _extract_yaml_sections(yaml_text: str) -> list[str]:
     return sections
 
 def _extract_fragment_id(section: str) -> str:
-    match = re.search(r"(?m)^\s*-?\s*fragment_id\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
+    match = re.search(r"(?m)^\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
     return match.group(1).strip() if match else ""
 
 
@@ -758,7 +758,8 @@ def _field_value(section: str, field: str) -> str:
 
 def _source_script_events(section: str) -> list[str]:
     block_match = re.search(
-        r"(?m)^\s*source_script_events\s*:\s*([\s\S]*?)(?=\n\s*[a-z_]+\s*:|\n\s*-?\s*fragment_id\s*:|\Z)",
+        r"(?m)^\s*(?:source_script_events|施工剧本原文事件|当前剧本事件)\s*:\s*"
+        r"([\s\S]*?)(?=\n\s*(?:[a-z_]+|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_/]*)\s*:|\n\s*-?\s*(?:fragment_id|片段编号)\s*:|\Z)",
         section,
     )
     block = block_match.group(1) if block_match else ""
@@ -1317,6 +1318,25 @@ def _extract_nested_mapping_value(section: str, parent: str, child: str) -> str:
             return match.group(1).strip()
     return ""
 
+def _extract_top_level_list_items(section: str, field: str) -> list[str]:
+    match = re.search(
+        rf"(?m)^\s*{re.escape(field)}\s*:\s*([\s\S]*?)(?=\n\s*(?:[a-z_]+|[\u4e00-\u9fff][\u4e00-\u9fffA-Za-z0-9_/]*)\s*:|\n\s*-?\s*(?:fragment_id|片段编号)\s*:|\Z)",
+        section,
+    )
+    if not match:
+        value = _field_value(section, field)
+        return [value] if value else []
+    block = match.group(1)
+    items = [
+        item.strip().strip("\"'")
+        for item in re.findall(r"(?m)^\s*-\s*[\"']?(.+?)[\"']?\s*$", block)
+        if item.strip()
+    ]
+    if items:
+        return items
+    value = block.strip().strip("\"'")
+    return [value] if value else []
+
 def _extract_nested_list_items(section: str, parent: str, child: str) -> list[str]:
     block_lines = _extract_parent_block_lines(section, parent)
     items: list[str] = []
@@ -1360,11 +1380,13 @@ def _shot_director_layout_context(planner_output: str, aspect_ratio: str) -> str
     ]
     for section in sections:
         fragment_id = _extract_fragment_id(section) or "unknown"
-        dramatic_unit = _field_value(section, "dramatic_unit")
+        dramatic_unit = _field_value(section, "dramatic_unit") or _field_value(section, "片段任务") or _field_value(section, "承接要求")
         active_cast = _extract_nested_list_items(section, "cast", "active")
+        if not active_cast:
+            active_cast = _extract_top_level_list_items(section, "出现人物")
         must_not_show = _extract_nested_list_items(section, "cast", "must_not_show")
-        continuity_entry = _extract_nested_mapping_value(section, "continuity", "entry")
-        continuity_exit = _extract_nested_mapping_value(section, "continuity", "exit")
+        continuity_entry = _extract_nested_mapping_value(section, "continuity", "entry") or _field_value(section, "入场状态")
+        continuity_exit = _extract_nested_mapping_value(section, "continuity", "exit") or _field_value(section, "出场状态")
         source_events = _source_script_events(section)
         key_events = [_trim_layout_text(event, 90) for event in source_events[:4]]
         dialogue_lines = [
@@ -1432,14 +1454,21 @@ def _extract_rhythm_shot_director_notes(atmosphere_strategy: str) -> str:
     if not text:
         return ""
 
-    label_pattern = re.compile(r"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?shot_director_notes\s*[：:]\s*(.*)$")
+    label_pattern = re.compile(
+        r"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?"
+        r"(?:shot_director_notes|镜头导演节奏执行约束|镜头导演执行约束|给镜头导演的节奏执行约束)"
+        r"\s*[：:]\s*(.*)$"
+    )
     match = label_pattern.search(text)
     if not match:
         return ""
 
     stop_pattern = re.compile(
         r"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?"
-        r"(?:rhythm_diagnosis|construction_notes|shot_director_notes|atmosphere_strategy|rewritten_script|改写后剧本)"
+        r"(?:rhythm_diagnosis|rhythm_contract|segment_boundary_advice|reaction_ownership|tailframe_handoff|"
+        r"construction_notes|shot_director_notes|risk_flags|atmosphere_strategy|rewritten_script|改写后剧本|"
+        r"节奏总合同|拆片边界建议|反应归属|尾帧承接|结构规划施工指令|"
+        r"镜头导演节奏执行约束|镜头导演执行约束|给镜头导演的节奏执行约束|风险提醒)"
         r"\s*[：:]"
     )
     lines: list[str] = []
@@ -1459,10 +1488,9 @@ def _rhythm_shot_director_notes_prompt(atmosphere_strategy: str) -> str:
     if not notes:
         return ""
     return (
-        "[Rhythm Supervisor Shot Notes]\n"
-        "These are upstream shot-construction instructions for reaction ownership, pauses, "
-        "cut landing points, and tailframe handoff. Obey them unless they conflict with "
-        "source_script_events, original dialogue, prop continuity, or spatial axis safety.\n"
+        "[节奏总控给镜头导演的执行约束]\n"
+        "这是上游给镜头施工层的节奏约束，主要控制反应归属、停顿、切点、无效过渡压缩和尾帧承接。"
+        "若它与结构规划原文事件、原始台词、道具连续性或空间轴线安全冲突，以后者为准。\n"
         f"{_truncate_for_prompt(notes, 1200)}\n"
     )
 
@@ -1654,9 +1682,292 @@ _SHOT_SIGNAL_TAG_HINTS = {
     "vertical_framing": ("9:16", "竖屏", "画幅"),
 }
 
+_SHOT_SCENE_TYPE_HINTS = {
+    "elevator": ("电梯", "轿厢", "电梯门", "elevator", "lift"),
+    "door_threshold": ("门口", "门缝", "房门", "车门", "入口", "阈值"),
+    "office": ("办公室", "公司", "会议室", "工位", "员工"),
+    "vehicle": ("车内", "车门", "驾驶座", "副驾驶", "后座"),
+}
+
+_SHOT_LIBRARY_TASK_KEYWORDS = {
+    "long_dialogue_coverage": ("对白", "台词", "命令", "质问", "解释", "说完", "问道", "回答", "OS", "J-cut", "L-cut"),
+    "impact_reaction": ("撞", "碰撞", "受击", "击中", "冲进", "摔", "压住", "推开"),
+    "reveal_insert_reaction": ("看清", "发现", "揭示", "照片", "文件", "手机", "信息", "秘密", "真相"),
+    "door_threshold_continuity": ("电梯", "门", "门口", "门缝", "车门", "入口", "轿厢"),
+    "tailframe_handoff": ("尾帧", "承接", "出场状态", "下一段", "停住", "结束状态"),
+    "authority_pressure": ("命令", "压迫", "沉默", "上司", "新老板", "退让", "让路", "质问"),
+}
+
+_SHOT_LIBRARY_TASK_RULES = {
+    "long_dialogue_coverage": (
+        "调用对白覆盖镜头库：说话者起句 -> 同侧听者反应/过肩 -> 必要时用 OS/J-cut/L-cut 落到反应上；"
+        "不得一个固定机位吃完整长台词。"
+    ),
+    "impact_reaction": (
+        "调用受击/碰撞镜头库：动作前摇 -> 接触/命中瞬间 -> 受击者反应 -> 结果状态；"
+        "不得把意外碰撞浪漫化或省掉受击落点。"
+    ),
+    "reveal_insert_reaction": (
+        "调用信息揭示镜头库：主体动作 -> 信息可读的插入/近景 -> 人物被击中的反应 -> 尾帧承接；"
+        "切点必须落在信息看清之后。"
+    ),
+    "door_threshold_continuity": (
+        "调用门/电梯阈值镜头库：优先场景固定机位或侧前方机位，门状态单向推进，进入/停住/合拢必须连续；"
+        "不得让门、电梯或人物位置跳变。"
+    ),
+    "tailframe_handoff": (
+        "调用尾帧承接镜头库：最后一镜必须写清人物位置、道具状态、视线方向和下一段可继承起点。"
+    ),
+    "authority_pressure": (
+        "调用权力压迫镜头库：稳定关系景建立空间 -> 说话者半身承压 -> 听者/群体反应 -> 群体退让或沉默尾帧；"
+        "少写空间坐标，多写可见调度。"
+    ),
+}
+
+_SHOT_LIBRARY_TASK_KNOWLEDGE_HINTS = {
+    "long_dialogue_coverage": (
+        "04_对白与表演镜头规则",
+        "21_镜头调用规则与多机位模板 R-012 声画错位剪辑 J-Cut L-Cut R-034 反应切出",
+        "22_多机位分镜与镜头多样性规则 反站桩正反打 过肩 反应特写",
+        "SHOT-DIALOGUE-COVERAGE-001",
+        "SHOT-DIALOGUE-PAUSE-001",
+        "CASE_拍摄剪辑_切出镜头_访谈对话与情感片段技巧",
+        "CASE_拍摄设计_对话场景的景别变化与情绪放大",
+    ),
+    "impact_reaction": (
+        "26_动作调度与受击覆盖规则",
+        "ACTION-COLLISION-001",
+        "SHOT-COMPLEX-ACTION-DEGRADE-001",
+        "SHOT-ACTION-APEX-PRECUT-001",
+        "BLOCKING-REACTION-COVERAGE-002",
+        "CASE_镜头叙事_如何用镜头讲故事16_街边相撞与文件落地",
+    ),
+    "reveal_insert_reaction": (
+        "03_镜头切换与推进规则 信息看清 切点",
+        "21_镜头调用规则与多机位模板 R-034 反应切出 R-037 特写锚点转场",
+        "23_视频教学提取_全场景分镜与转场库 插入镜头 切出镜头",
+        "CASE_导演叙事技巧_如何讲故事与镜头信息组织",
+        "CASE_拍摄剪辑_用反拍剪辑叙事的镜头拆解",
+    ),
+    "door_threshold_continuity": (
+        "06_连续性与安全规则",
+        "CONT-DOOR-MONOTONIC-001",
+        "22_多机位分镜与镜头多样性规则 电梯 按钮 门口",
+        "CASE_拍摄剪辑_动作匹配与连续动作衔接",
+        "CASE_剪辑转场_动作转场与相似动作匹配",
+    ),
+    "tailframe_handoff": (
+        "18_情绪锚点与逐段交互与仰拍限制补丁",
+        "REF-TAILFRAME-PRIORITY-001",
+        "TAILFRAME-RELATIONSHOT-001",
+        "RHYTHM-REACTION-MIN-001",
+        "CASE_镜头叙事_分别场景的七镜头电影感设计",
+    ),
+    "authority_pressure": (
+        "21_镜头调用规则与多机位模板 权力压迫 景别收缩 反应切出",
+        "22_多机位分镜与镜头多样性规则 反站桩正反打",
+        "SHOT-CONFLICT-COVERAGE-001",
+        "CASE_拍摄设计_双人对话到情绪爆发的机位推进",
+        "CASE_镜头叙事_情绪升级时的景别递进与压迫感",
+    ),
+    "continuity_lock": (
+        "06_连续性与安全规则",
+        "21_镜头调用规则与多机位模板 动作匹配剪辑",
+        "22_多机位分镜与镜头多样性规则",
+    ),
+}
+
+_SHOT_LIBRARY_TASK_FORCED_USAGE = {
+    "long_dialogue_coverage": (
+        "必须至少安排一次说话者外的画面承载台词后半句：听者反应、过肩反应、面部特写或道具切出任选其一；"
+        "cut_point 写明台词断点或压迫落点，audio 可写 OS/J-cut/L-cut。"
+    ),
+    "impact_reaction": (
+        "必须把冲撞/受击拆成至少两个镜头责任：动作起势或命中瞬间 + 受击者反应/结果状态；"
+        "cut_point 写动作顶点、接触瞬间或反应出现。"
+    ),
+    "reveal_insert_reaction": (
+        "必须安排信息可读镜头或近景，并在信息看清后给人物反应；"
+        "cut_point 不得早于信息可读。"
+    ),
+    "door_threshold_continuity": (
+        "必须写清门/电梯/入口状态的单向变化和人物相对位置；"
+        "不得出现门重新打开、人物瞬移或机位退入墙/电梯。"
+    ),
+    "tailframe_handoff": (
+        "最后一个镜头必须承担尾帧职责，写清人物位置、视线、道具和下一段可继承状态。"
+    ),
+    "authority_pressure": (
+        "必须用景别或机位变化体现压力递进：关系景/过肩建立 -> 单人近景或反应镜头 -> 尾帧压住；"
+        "不得全程均速正反打。"
+    ),
+    "continuity_lock": (
+        "必须先建立空间轴线和人物关系，再安排动作/对白/信息落点，最后交代尾帧。"
+    ),
+}
+
 
 def _infer_retrieval_tags(text: str, mapping: dict[str, tuple[str, ...]]) -> list[str]:
     return [tag for tag, needles in mapping.items() if any(needle and needle in text for needle in needles)]
+
+
+def _unique_preserve_order(items: list[str]) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for item in items:
+        value = (item or "").strip()
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        result.append(value)
+    return result
+
+
+def _detect_shot_library_tasks(text: str) -> list[str]:
+    task_keys = [
+        task_key
+        for task_key, needles in _SHOT_LIBRARY_TASK_KEYWORDS.items()
+        if any(needle and needle in (text or "") for needle in needles)
+    ]
+    if not task_keys:
+        task_keys.append("continuity_lock")
+    return _unique_preserve_order(task_keys)
+
+
+def _knowledge_hints_for_tasks(task_keys: list[str]) -> list[str]:
+    hints: list[str] = []
+    for task_key in task_keys:
+        hints.extend(_SHOT_LIBRARY_TASK_KNOWLEDGE_HINTS.get(task_key, ()))
+    return _unique_preserve_order(hints)
+
+
+def _build_shot_director_signal_retrieval_profile(
+    *,
+    planner_output: str,
+    atmosphere_strategy: str,
+    director_brief: str,
+    aspect_ratio: str,
+) -> dict[str, Any]:
+    signal_text = "\n".join(
+        part for part in (planner_output, atmosphere_strategy, director_brief, aspect_ratio) if part
+    )
+    scene_types = _infer_retrieval_tags(signal_text, _SHOT_SCENE_TYPE_HINTS)
+    events = _infer_retrieval_tags(signal_text, _SHOT_EVENT_TAG_HINTS)
+    risks = _infer_retrieval_tags(signal_text, _SHOT_RISK_TAG_HINTS)
+    dialogue_types = _infer_retrieval_tags(signal_text, _SHOT_DIALOGUE_TAG_HINTS)
+    signals = _infer_retrieval_tags(signal_text, _SHOT_SIGNAL_TAG_HINTS)
+    task_keys = _detect_shot_library_tasks(signal_text)
+    knowledge_hints = _knowledge_hints_for_tasks(task_keys)
+
+    event_by_task = {
+        "long_dialogue_coverage": "dialogue",
+        "impact_reaction": "collision",
+        "reveal_insert_reaction": "reveal",
+        "door_threshold_continuity": "door_state",
+        "tailframe_handoff": "tailframe",
+        "authority_pressure": "reaction",
+    }
+    risk_by_task = {
+        "impact_reaction": "romanticize_collision",
+        "door_threshold_continuity": "door_state_jump",
+        "long_dialogue_coverage": "dialogue_integrity",
+    }
+
+    events.extend(event_by_task[task_key] for task_key in task_keys if task_key in event_by_task)
+    risks.extend(risk_by_task[task_key] for task_key in task_keys if task_key in risk_by_task)
+    signals.extend(["shot_library_routing", "upstream_director_contract", "source_event_coverage"])
+
+    return {
+        "scene_types": _unique_preserve_order(scene_types),
+        "events": _unique_preserve_order(events),
+        "risks": _unique_preserve_order(risks),
+        "dialogue_types": _unique_preserve_order(dialogue_types),
+        "signals": _unique_preserve_order(signals),
+        "aspect_ratio": aspect_ratio,
+        "tags": _unique_preserve_order(
+            [
+                "镜头库调用",
+                "多机位模板",
+                "上游导演约束",
+                "故事节奏控制",
+                *task_keys,
+                *knowledge_hints,
+            ]
+        ),
+        "reusable_pattern": _unique_preserve_order([*task_keys, *knowledge_hints]),
+        "visual_constraints": _unique_preserve_order(
+            [
+                "必须把检索到的剪辑/镜头库规则转成 shot 字段、cut_point、continuity、audio，不得只写原则",
+                "必须优先使用本片段剧情信号匹配到的 CASE 案例和规则卡",
+            ]
+        ),
+        "served_agents": ["shot_director"],
+        "final_top_k": 10,
+        "bm25_top_k": 14,
+        "vector_top_k": 14,
+        "max_chunks_per_source": 2,
+    }
+
+
+def _shot_library_signal_task_card(
+    *,
+    planner_output: str,
+    atmosphere_strategy: str,
+    director_brief: str,
+    aspect_ratio: str,
+) -> str:
+    sections = _extract_yaml_sections(planner_output or "")
+    if not sections and planner_output:
+        sections = [planner_output]
+
+    rhythm_notes = _extract_rhythm_shot_director_notes(atmosphere_strategy)
+    lines = [
+        "[镜头库调用任务单]",
+        "先读上游导演资产，再按剧情信号调用镜头库；镜头库只能服务 story_planner 的 source_script_events，不能扩写新剧情。",
+        f"画幅约束: {aspect_ratio}",
+    ]
+    if director_brief:
+        lines.append(f"总导演意图: {_truncate_for_prompt(director_brief, 260)}")
+    if rhythm_notes:
+        lines.append(f"节奏总控约束: {_truncate_for_prompt(rhythm_notes, 360)}")
+
+    if not sections:
+        lines.extend(
+            [
+                "- fragment_id: unknown",
+                "  detected_signals: continuity_lock",
+                "  shot_library_tasks:",
+                "    - 先建立人物关系和空间轴线，再覆盖动作/对白/信息，最后交代尾帧承接。",
+            ]
+        )
+        return "\n".join(lines)
+
+    for index, section in enumerate(sections, start=1):
+        fragment_id = _extract_fragment_id(section) or f"F{index:02d}"
+        source_events = _source_script_events(section)
+        signal_text = "\n".join([section, "\n".join(source_events), atmosphere_strategy, director_brief])
+        task_keys = _detect_shot_library_tasks(signal_text)
+        knowledge_hints = _knowledge_hints_for_tasks(task_keys)
+        event_preview = " / ".join(_truncate_for_prompt(event, 80) for event in source_events[:3])
+        lines.extend(
+            [
+                f"- fragment_id: {fragment_id}",
+                f"  upstream_events: {event_preview or '以当前片段规划资产为准'}",
+                f"  detected_signals: {', '.join(task_keys)}",
+                f"  must_retrieve_knowledge: {', '.join(knowledge_hints) if knowledge_hints else '通用镜头连续性规则'}",
+                "  shot_library_tasks:",
+            ]
+        )
+        for task_key in task_keys:
+            task_rule = _SHOT_LIBRARY_TASK_RULES.get(
+                task_key,
+                "先建立人物关系和空间轴线，再覆盖动作/对白/信息，最后交代尾帧承接。",
+            )
+            lines.append(f"    - {task_rule}")
+            forced_rule = _SHOT_LIBRARY_TASK_FORCED_USAGE.get(task_key)
+            if forced_rule:
+                lines.append(f"      强制落地: {forced_rule}")
+    return "\n".join(lines)
 
 
 def _run_shot_director_single_pass_impl(
@@ -1676,9 +1987,16 @@ def _run_shot_director_single_pass_impl(
 ) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
     """Simplified single-pass shot director with lean YAML output schema."""
     director_brief_block = _director_brief_prompt_block(director_brief)
+    signal_task_card = _shot_library_signal_task_card(
+        planner_output=planner_output,
+        atmosphere_strategy=atmosphere_strategy,
+        director_brief=director_brief,
+        aspect_ratio=aspect_ratio,
+    )
     downstream_context = _shot_director_downstream_context(planner_output, atmosphere_strategy, aspect_ratio)
     if director_brief_block:
         downstream_context = director_brief_block + "\n" + downstream_context
+    downstream_context = downstream_context + "\n" + signal_task_card + "\n"
     rule_block = _shot_director_rule_block(aspect_ratio)
     workflow_contract = _shot_director_workflow_contract()
     workflow_trace = _build_shot_director_workflow_trace(
@@ -1715,15 +2033,18 @@ def _run_shot_director_single_pass_impl(
             "误解错位 9:16 半身中景 特写限频 微细节镜头"
         )
         hint = hint.replace("9:16", str(aspect_ratio or "aspect_ratio_unspecified"))
-        retrieval_profile = {
-            "aspect_ratio": aspect_ratio,
-            "events": _infer_retrieval_tags(downstream_context, _SHOT_EVENT_TAG_HINTS),
-            "risks": _infer_retrieval_tags(downstream_context, _SHOT_RISK_TAG_HINTS),
-            "dialogue_types": _infer_retrieval_tags(downstream_context, _SHOT_DIALOGUE_TAG_HINTS),
-            "signals": _infer_retrieval_tags(downstream_context, _SHOT_SIGNAL_TAG_HINTS),
-        }
+        retrieval_profile = _build_shot_director_signal_retrieval_profile(
+            planner_output=planner_output,
+            atmosphere_strategy=atmosphere_strategy,
+            director_brief=director_brief,
+            aspect_ratio=aspect_ratio,
+        )
         system_prompt, final_meta = build_system_prompt(
             "你是一位镜头导演。你的职责是为每个片段设计时间轴上的镜头序列。\n\n"
+            "【镜头库调用方式】\n"
+            "你必须先根据【镜头库调用任务单】识别当前片段属于对白覆盖、受击/碰撞、信息揭示、门/电梯阈值、尾帧承接或权力压迫等哪类镜头任务，"
+            "再从知识库里的镜头库、多机位模板和连续性规则中选择合适结构。"
+            "镜头选择必须服从总导演意图、节奏总控和 story_planner 的 source_script_events；不得为了套模板新增剧情。\n\n"
             "【每个片段必须交付】\n"
             "1. fragment_task — 本片段的剧情施工任务，例如建立关系、冲突升级、信息揭示、反应落点、权力反转、喜剧泄压、尾帧钩子。\n"
             "2. rhythm — 服从 rhythm supervisor/story_planner 的节奏指令，例如压缩、放慢、停顿、卡断、短促泄压。\n\n"
@@ -1783,6 +2104,8 @@ def _run_shot_director_single_pass_impl(
             "5. dialogue 只能使用原剧本文字、原剧本 OS/J-cut/L-cut 或写 ~；不得新增台词。\n"
             "6. 只有剧本已有信息载体才能成为 subject；不要新增空镜、道具或环境信息。\n"
             "7. 每个镜头的时间段 duration 必须连续，前后衔接。\n\n"
+            "8. 每个片段必须执行【镜头库调用任务单】里的 shot_library_tasks：先判断剧情信号，再决定镜头结构和切点；"
+            "如果任务单与 source_script_events 冲突，以 source_script_events 和 story_planner 片段边界为准。\n\n"
             f"{_shot_director_coverage_contract_prompt()}\n"
             f"{rule_block}"
             "请只输出完整 YAML 镜头方案。"
@@ -1794,6 +2117,7 @@ def _run_shot_director_single_pass_impl(
             def build_fragment_prompt(fragment_id: str, fragment_context: str, _fragment_contract: str) -> str:
                 return (
                     f"[Task]\nDesign shot sequence for {fragment_id} only.\n\n"
+                    f"{signal_task_card}\n\n"
                     f"{fragment_context}\n\n"
                     "[Workflow]\n"
                     f"{workflow_contract}\n"
