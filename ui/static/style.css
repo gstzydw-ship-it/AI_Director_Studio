@@ -554,6 +554,11 @@ select option {
     margin-top: 2px;
 }
 
+.agent-model-row select {
+    width: 100%;
+    min-width: 0;
+}
+
 @media (max-width: 760px) {
     .config-grid,
     .agent-model-grid,

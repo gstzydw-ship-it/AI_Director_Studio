@@ -376,6 +376,27 @@
             }
         }
 
+        function agentModelSelectOptions(currentValue = '') {
+            const current = currentValue || '';
+            const models = Array.from(new Set([current, ...availableModels].filter(Boolean)));
+            const placeholder = availableModels.length ? '请选择模型' : '先拉取模型列表';
+            const placeholderSelected = current ? '' : ' selected';
+            return `<option value=""${placeholderSelected}>${escapeHtml(placeholder)}</option>` + models.map(model => {
+                const selected = model === current ? ' selected' : '';
+                return `<option value="${escapeHtml(model)}"${selected}>${escapeHtml(model)}</option>`;
+            }).join('');
+        }
+
+        function syncCurrentAgentSelections() {
+            const agentModels = systemConfig.agent_models || {};
+            document.querySelectorAll('[data-agent-model]').forEach(input => {
+                const name = input.dataset.agentModel;
+                if (!agentModels[name]) agentModels[name] = {};
+                agentModels[name].model = input.value.trim();
+            });
+            systemConfig.agent_models = agentModels;
+        }
+
         function renderAgentModelGrid(config = {}) {
             const grid = document.getElementById('agentModelGrid');
             if (!grid) return;
@@ -396,7 +417,9 @@
                             <strong>${escapeHtml(label)}</strong>
                             <small>${escapeHtml(name)}</small>
                         </span>
-                        <input type="text" data-agent-model="${escapeHtml(name)}" list="modelOptions" value="${escapeHtml(value)}" placeholder="选择模型">
+                        <select data-agent-model="${escapeHtml(name)}">
+                            ${agentModelSelectOptions(value)}
+                        </select>
                     </label>
                 `;
             }).join('');
@@ -445,6 +468,8 @@
                 availableModels = data.models || [];
                 availableEmbeddingModels = data.embedding_models || [];
                 refreshModelDatalists();
+                syncCurrentAgentSelections();
+                renderAgentModelGrid(systemConfig);
                 setConfigStatus(`已拉取 ${availableModels.length} 个模型。`, 'success');
             } catch (e) {
                 setConfigStatus('拉取模型列表失败：' + e.message, 'error');
