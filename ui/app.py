@@ -2142,6 +2142,36 @@ def _normalise_config_base_url(value: str) -> str:
     return base_url.rstrip("/")
 
 
+def _model_list_candidate_urls(base_url: str) -> list[str]:
+    base_url = base_url.rstrip("/")
+    urls = [f"{base_url}/models"]
+    if not base_url.lower().endswith("/v1"):
+        urls.append(f"{base_url}/v1/models")
+    return urls
+
+
+def _model_response_preview(response: httpx.Response) -> str:
+    content_type = response.headers.get("content-type", "").split(";", 1)[0] or "unknown"
+    body = response.text.strip().replace("\r", " ").replace("\n", " ")
+    if len(body) > 300:
+        body = body[:300] + "..."
+    return f"Content-Type {content_type}, body: {body or '<empty>'}"
+
+
+def _extract_model_ids(raw_models: object) -> list[str]:
+    models: list[str] = []
+    if isinstance(raw_models, list):
+        for item in raw_models:
+            if isinstance(item, dict):
+                model_id = item.get("id") or item.get("name")
+            else:
+                model_id = item
+            model_id = str(model_id or "").strip()
+            if model_id:
+                models.append(model_id)
+    return sorted(set(models), key=lambda item: item.lower())
+
+
 def _normalise_optional_model(value: object) -> str:
     return str(value or "").strip()
 
@@ -2170,36 +2200,40 @@ async def api_model_list(request: Request):
     if not api_key:
         return JSONResponse({"success": False, "error": "请先填写 API Key，再拉取模型列表。"}, status_code=400)
 
+    models: list[str] = []
+    parsed_model_list = False
+    errors: list[str] = []
     try:
         with httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
-            resp = client.get(
-                f"{base_url}/models",
-                headers={"Authorization": f"Bearer {api_key}"},
-            )
-        if resp.status_code >= 400:
-            return JSONResponse(
-                {
-                    "success": False,
-                    "error": f"模型列表接口返回 HTTP {resp.status_code}: {resp.text[:500]}",
-                },
-                status_code=resp.status_code,
-            )
-        data = resp.json()
+            for url in _model_list_candidate_urls(base_url):
+                try:
+                    resp = client.get(
+                        url,
+                        headers={"Authorization": f"Bearer {api_key}"},
+                    )
+                except httpx.HTTPError as exc:
+                    errors.append(f"{url} 请求失败：{type(exc).__name__}: {exc}")
+                    continue
+                if resp.status_code >= 400:
+                    errors.append(f"{url} 返回 HTTP {resp.status_code}: {resp.text[:500]}")
+                    continue
+                try:
+                    data = resp.json()
+                except ValueError:
+                    errors.append(f"{url} 返回的不是合法 JSON（{_model_response_preview(resp)}）")
+                    continue
+                raw_models = data.get("data") if isinstance(data, dict) else data
+                if not isinstance(raw_models, list):
+                    errors.append(f"{url} JSON 中没有 data 模型数组。")
+                    continue
+                models = _extract_model_ids(raw_models)
+                parsed_model_list = True
+                break
     except Exception as exc:
         return JSONResponse({"success": False, "error": f"拉取模型列表失败：{type(exc).__name__}: {exc}"}, status_code=500)
+    if not parsed_model_list:
+        return JSONResponse({"success": False, "error": "拉取模型列表失败：" + "；".join(errors)}, status_code=502)
 
-    raw_models = data.get("data") if isinstance(data, dict) else data
-    models: list[str] = []
-    if isinstance(raw_models, list):
-        for item in raw_models:
-            if isinstance(item, dict):
-                model_id = item.get("id") or item.get("name")
-            else:
-                model_id = item
-            model_id = str(model_id or "").strip()
-            if model_id:
-                models.append(model_id)
-    models = sorted(set(models), key=lambda item: item.lower())
     groups = _model_groups(models)
     return JSONResponse({
         "success": True,
