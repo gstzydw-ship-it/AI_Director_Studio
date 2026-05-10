@@ -1199,6 +1199,86 @@ select option {
     object-fit: contain;
 }
 
+.scene-layout-annotation-wrap {
+    align-items: center;
+}
+
+.scene-annotation-actions {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.scene-annotation-btn {
+    padding: 5px 9px;
+    font-size: 11px;
+    white-space: nowrap;
+}
+
+.scene-annotation-btn.active {
+    color: #fff;
+    background: rgba(249, 115, 22, 0.32);
+    border-color: rgba(249, 115, 22, 0.72);
+}
+
+.scene-annotation-stage {
+    position: relative;
+    display: inline-block;
+    max-width: 100%;
+    line-height: 0;
+}
+
+.scene-annotation-stage.annotation-active {
+    cursor: crosshair;
+}
+
+.scene-annotatable-image {
+    display: block;
+}
+
+.scene-annotation-svg {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    overflow: visible;
+}
+
+.scene-annotation-arrow {
+    stroke: #f97316;
+    stroke-width: 4;
+    stroke-linecap: round;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+
+.scene-annotation-person circle {
+    fill: #ef4444;
+    stroke: #fff;
+    stroke-width: 2;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.7));
+}
+
+.scene-annotation-person text {
+    fill: #fff;
+    stroke: rgba(0, 0, 0, 0.85);
+    stroke-width: 3;
+    paint-order: stroke;
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1;
+}
+
+.scene-annotation-draft {
+    fill: rgba(249, 115, 22, 0.22);
+    stroke: #f97316;
+    stroke-width: 3;
+    stroke-dasharray: 4 3;
+    filter: drop-shadow(0 1px 2px rgba(0, 0, 0, 0.6));
+}
+
 .storyboard-prompt-toggle {
     padding: 8px 16px 12px;
     border-top: 1px solid var(--border-color);

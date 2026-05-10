@@ -113,6 +113,10 @@ class DirectorState(TypedDict, total=False):
     scene_card_image: str
     scene_card_prompt: str
     scene_card_images: list[dict[str, str]]
+    scene_layout_image: str
+    scene_layout_prompt: str
+    scene_grid_image: str
+    scene_grid_prompt: str
     atmosphere_strategy: str
     director_brief: str
     aspect_ratio: str

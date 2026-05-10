@@ -214,27 +214,38 @@ def _scene_reference_items(state: DirectorState) -> list[dict[str, Any]]:
         return []
 
     manifest = list(state.get("reference_image_manifest") or [])
-    items: list[dict[str, Any]] = []
+    filename_scene_items: list[dict[str, Any]] = []
+    metadata_scene_items: list[dict[str, Any]] = []
     for index, item in enumerate(manifest):
         if index >= len(images):
             break
         if _is_generated_scene_card_item(item):
             continue
-        haystack = " ".join(
+        filename_text = " ".join(
             str(item.get(key) or "")
-            for key in ("label", "filename", "purpose", "type", "role", "name")
+            for key in ("filename", "name", "label")
         ).lower()
-        if any(marker in haystack for marker in _SCENE_REFERENCE_MARKERS):
-            items.append(
-                {
-                    "source_index": index,
-                    "image": images[index],
-                    "manifest": dict(item),
-                }
-            )
+        metadata_text = " ".join(
+            str(item.get(key) or "")
+            for key in ("purpose", "type", "role")
+        ).lower()
+        scene_item = {
+            "source_index": index,
+            "image": images[index],
+            "manifest": dict(item),
+        }
+        if any(marker in filename_text for marker in _SCENE_REFERENCE_MARKERS):
+            filename_scene_items.append(scene_item)
+            continue
+        if any(marker in metadata_text for marker in _SCENE_REFERENCE_MARKERS):
+            metadata_scene_items.append(scene_item)
 
-    if items:
-        return items
+    # Prefer filenames/names that explicitly look like locations. This prevents
+    # auto-inferred or stale metadata from turning character portraits into scenes.
+    if filename_scene_items:
+        return filename_scene_items
+    if metadata_scene_items:
+        return metadata_scene_items
 
     fallback_manifest = dict(manifest[0]) if manifest else {}
     if _is_generated_scene_card_item(fallback_manifest):
@@ -269,6 +280,72 @@ def _scene_reference_title(scene_item: dict[str, Any], scene_number: int) -> str
     return "｜".join(title_bits) if title_bits else f"场景{scene_number}"
 
 
+_SCENE_CARD_TEXT_OMIT_KEYS = (
+    "reference_bindings",
+    "九层输入卡",
+    "本场景在场人物",
+    "禁止加入人物",
+    "戏剧动作关系",
+    "人物站位",
+    "人物占位",
+    "站位姿势",
+    "增强约束",
+)
+
+
+def _scene_card_reference_context(
+    state: DirectorState,
+    scene_item: dict[str, Any] | None,
+) -> str:
+    """Return only the active scene reference metadata to avoid cross-scene bleed."""
+    if scene_item:
+        manifest = dict(scene_item.get("manifest") or {})
+        label = str(manifest.get("label") or f"@图片{int(scene_item.get('source_index') or 0) + 1}").strip()
+        filename = str(manifest.get("filename") or "").strip()
+        purpose = str(manifest.get("purpose") or manifest.get("name") or "当前场景空间参考图").strip()
+        parts = [part for part in (label, filename, purpose) if part]
+        if parts:
+            return "当前随请求发送的唯一参考图：" + "｜".join(parts)
+    return _reference_context(state) or "当前随请求发送的唯一参考图。"
+
+
+def _scene_card_spatial_summary(scene_output: str, limit: int = 900) -> str:
+    """Keep scene-card prompts spatial-only; remove all people/position marker content."""
+    text = (scene_output or "").strip()
+    if not text:
+        return "无"
+
+    selected: list[str] = []
+    skipping_section = False
+    key_pattern = "|".join(re.escape(key) for key in _SCENE_CARD_TEXT_OMIT_KEYS)
+    for raw_line in text.splitlines():
+        line = raw_line.rstrip()
+        stripped = line.strip()
+        if not stripped:
+            if not skipping_section:
+                selected.append(line)
+            continue
+
+        is_top_level_field = bool(re.match(r"^[^\s#][^:：]{0,40}\s*[:：]", line))
+        if re.match(rf"^\s*(?:{key_pattern})\s*[:：]", line):
+            skipping_section = True
+            continue
+        if skipping_section and is_top_level_field:
+            skipping_section = False
+        if skipping_section:
+            continue
+
+        marker_terms = ("人物点位", "人物站位", "站位标记", "彩色圆点", "位置标点", "相机标记")
+        if any(term in stripped for term in marker_terms):
+            continue
+        selected.append(line)
+
+    summary = "\n".join(selected).strip() or "无"
+    if len(summary) > limit:
+        summary = summary[:limit].rstrip() + "\n...[已截断]..."
+    return summary
+
+
 def _build_scene_card_image_prompt(
     state: DirectorState,
     scene_output: str,
@@ -276,35 +353,80 @@ def _build_scene_card_image_prompt(
     scene_number: int = 1,
     total_scenes: int = 1,
 ) -> str:
-    """Build the image prompt for a reusable visual scene master card."""
-    aspect_ratio = str(state.get("aspect_ratio") or "9:16")
-    reference_context = _reference_context(state) or "未提供文字清单；以随请求发送的场景参考图为准。"
+    """Build the second-step prompt for a standalone 3x3 scene view grid."""
+    return (
+        "基于随请求上传的两张参考图，生成一张独立的 3x3 多机位参考图 / cinematic camera-angle coverage sheet。\n\n"
+        "参考图用途：\n"
+        "- 参考图1：只用于锁定真实场景的材质、家具外观、色彩、光线、氛围和渲染风格。\n"
+        "- 参考图2：只用于锁定俯视空间布局、方向、门窗、入口、通道、家具和固定物体位置。\n"
+        "- 两张参考图都只是参考，不得被复制、裁切、拼贴或直接画进最终图。\n\n"
+        "最终输出：\n"
+        "- 只输出一张完整图片。\n"
+        "- 3列 x 3行九宫格，16:9 横版。\n"
+        "- 九个格子铺满整张画布，只保留极细分隔线。\n"
+        "- 禁止出现俯视图、说明卡、十格布局、海报拼贴、白边、留白、背景底色、标题栏或未绘制区域。\n\n"
+        "空间规则：\n"
+        "- 以参考图2为唯一布局依据，图上方=北，右侧=东，下方=南，左侧=西。\n"
+        "- 九个视图必须来自同一个空间、同一布局、同一材质、同一光线方向和同一视觉风格。\n"
+        "- 不得重新设计房间，不得移动、增删、旋转或替换门窗、入口、通道、沙发、茶几、电视墙、柜体和其他固定物体。\n"
+        "- 所有透视画面都必须由俯视布局反推真实相机位置生成，而不是复制、镜像、裁切同一张画面。\n\n"
+        "九宫格固定排列：\n"
+        "左上：北侧平视，看南。\n"
+        "上中：高位看全场。\n"
+        "右上：东侧平视，看西。\n"
+        "左中：西侧平视，看东。\n"
+        "中间：正对主墙看。\n"
+        "右中：南侧平视，看北。\n"
+        "左下：入口看里面。\n"
+        "下中：道具近景。\n"
+        "右下：里面看入口。\n\n"
+        "四个正向平视机位：\n"
+        "- 北侧平视：相机贴近俯视图北边界，眼平高度，水平看南。\n"
+        "- 东侧平视：相机贴近俯视图东边界，眼平高度，水平看西。\n"
+        "- 南侧平视：相机贴近俯视图南边界，眼平高度，水平看北。\n"
+        "- 西侧平视：相机贴近俯视图西边界，眼平高度，水平看东。\n\n"
+        "四个方向必须明显不同：\n"
+        "- 北、东、南、西四格必须呈现不同的背景面、侧墙、通道、门窗组合、家具侧面或空间边界。\n"
+        "- 东侧和西侧必须有清晰的侧墙、侧立面或侧向通道透视，不能仍然正对主入口或主墙。\n"
+        "- 如果某方向没有完整墙面，也要画出该方向对应的入口、走廊、窗边、柜体侧面、外部道路或相邻空间边界。\n"
+        "- 禁止用同一个入口、主墙、窗墙、沙发、电视墙、门头或主立面画面冒充多个方向。\n\n"
+        "其余五个机位：\n"
+        "- 高位看全场：空间一角稍高机位，轻微俯视，展示整体空间关系。\n"
+        "- 正对主墙看：水平正对最重要的墙面、电视墙、柜体、门头或主背景面。\n"
+        "- 入口看里面：位于入口、门口或通道口，水平看向空间内部。\n"
+        "- 道具近景：靠近原图已有固定道具，如茶几、沙发、柜体、门把手、标志、台阶或水景边缘，近景中仍能看出周围空间。\n"
+        "- 里面看入口：位于空间内部、靠近核心家具或主活动区，水平看向入口、门、通道或来向，只画空景。\n\n"
+        "禁止内容：\n"
+        "不要人物、人物肩背、视线轴线、箭头、点位标记、运动线、图例、新家具、新装饰、复制画面、镜像画面、鱼眼、超广角畸变或夸张透视。\n\n"
+        "标签：\n"
+        "每格角落用小号清晰文字标注：\n"
+        "北侧平视、高位看全场、东侧平视、西侧平视、正对主墙、南侧平视、入口看里面、道具近景、里面看入口。"
+    )
+
+
+def _build_scene_card_overhead_prompt(
+    state: DirectorState,
+    scene_output: str,
+    scene_item: dict[str, Any] | None = None,
+    scene_number: int = 1,
+    total_scenes: int = 1,
+) -> str:
+    """Build the first-step prompt that extracts only the overhead layout."""
+    reference_context = _scene_card_reference_context(state, scene_item)
     scene_title = _scene_reference_title(scene_item or {}, scene_number)
-    scene_summary = (scene_output or "").strip()
-    if len(scene_summary) > 1800:
-        scene_summary = scene_summary[:1800].rstrip() + "\n...[已截断]..."
+    scene_summary = _scene_card_spatial_summary(scene_output)
 
     return (
-        "请根据随请求发送的场景参考图，生成一张“场景母版参考图”。\n"
-        f"当前要生成的是第 {scene_number}/{total_scenes} 个场景母版：{scene_title}。\n"
-        "只分析并重建当前这一个场景；不要把其他场景参考图、人物参考图或上一张场景母版混入本图。\n"
-        f"整张图片使用 {aspect_ratio} 画幅，适合后续作为分镜流程图和 Seedance 2.0 的场景参考。\n\n"
-        "画面结构：\n"
-        "1. 图片必须包含五个清晰分区：一个俯视布局图，四个同一场景的固定视角参考图。\n"
-        "2. 俯视布局图展示房间/空间边界、入口、窗、门、沙发、茶几、地毯、床、柜子、通道等固定物体的相对位置。\n"
-        "3. 四个固定视角参考图必须是从房间四面墙壁位置看向房间内景象的正面内景视角：入口墙向内、入口对面墙向内、左侧墙向内、右侧墙向内。\n"
-        "4. 五个分区必须来自同一个场景，不允许变成五个不同房间或不同装修版本。\n\n"
-        "空间锁定硬规则：\n"
-        "1. 固定家具和空间锚点必须继承参考图，不能移动、替换、重新摆放或新增同类替代物。\n"
-        "2. 如果参考图中有茶几、沙发、窗户、门、地毯、床头、柜子、台面，它们的相对位置必须一致。\n"
-        "3. 视角变化只能改变摄影机所在墙面位置，不能改变场景结构；四个视角看到的是同一套空间，镜头均朝向房间中心。\n"
-        "4. 不生成剧情动作、台词、字幕、对白气泡、人物运动线、箭头说明或夸张漫画符号。\n"
-        "5. 可以保留极淡人物比例剪影作为尺度参考，但不要画具体表演动作；如果无法确定人物，保持无人场景。\n\n"
-        "视觉要求：写实影视场景参考图，干净、明亮、空间关系清楚，家具轮廓稳定，适合后续镜头导演和分镜生图继承。\n"
-        "分区标题可以放在每个分区外缘的小标签中，只能写中文：俯视布局、入口墙向内、对面墙向内、左侧墙向内、右侧墙向内；"
-        "不要把文字写在家具、墙面或道具表面。\n\n"
-        f"【参考图清单】\n{reference_context}\n\n"
-        f"【场景预分析文字卡】\n{scene_summary or '无'}"
+        "第一步：只根据随请求发送的这一张场景参考图，生成一张独立的俯视布局图。\n"
+        f"场景 {scene_number}/{total_scenes}: {scene_title}\n"
+        "输出只允许是一张俯视布局图，不要九宫格、不要透视内景、不要场景卡、不要拼贴。\n"
+        "这张俯视图必须严格依据当前随请求发送的唯一场景参考图推导；不要引用文字摘要里出现的其他图片、其他场景名、人物图或通用豪宅/大堂模板。\n"
+        "如果参考图不是俯视角，只能从可见空间关系谨慎推导平面布局：保留参考图里的真实入口、窗、墙面、通道、家具/固定物体、道路/水景/台阶/门头等相对位置；不可凭空新增对称大厅、停车区、水池、柱廊、沙发区、雕塑或绿化。\n"
+        "必须清楚画出空间边界、墙体/外立面、门窗、入口出口、主要通道、固定家具、固定道具和它们的相对位置；看不见的区域可以简化或留作边界推断，但不能换成另一个场景。\n"
+        "固定家具和空间锚点必须继承参考图，不能移动、替换或重排；材质和光线只作为辅助，不要盖过布局表达。\n"
+        "俯视图必须铺满整张画布，房间/场地边界尽量贴近画布四边，禁止白边、留白、底板、图例、编号、箭头、机位点、站位点和人物。\n\n"
+        f"【当前参考图】\n{reference_context}\n\n"
+        f"【仅供锁定空间的文字摘要】\n{scene_summary}"
     )
 
 
@@ -326,27 +448,58 @@ def _extract_image_result(result: str) -> str:
 
 
 def _call_scene_card_image_api(prompt: str, images_base64: list[str]) -> str:
-    """Generate the visual scene master card with the image model."""
+    """Generate the standalone 3x3 scene view grid with the image model."""
     system_prompt = (
-        "你是场景母版图生成模型。请根据参考图生成一张可复用的场景参考卡："
-        "必须包含一个俯视布局图和四个同一场景的固定视角图；四个视角要从房间四面墙壁位置看向房间内部。"
-        "重点是锁定固定家具、门窗、通道、光线和空间轴线；不得移动或重排固定物体。"
+        "你是多机位场景参考图生成模型。严格按用户提示生成一张独立 3x3 九宫格图。"
+        "输入图片顺序固定：参考图1为原始场景图，参考图2为俯视布局图。"
+        "不得复制、裁切、拼贴或直接画入任何参考图；不得输出俯视图、十格布局、说明卡或海报拼贴。"
+        "只输出同一空间的九个透视机位空景，必须依据参考图2反推相机位置。"
     )
     result = call_llm(
         system_prompt=system_prompt,
         user_prompt=prompt,
         images_base64=images_base64,
-        temperature=0.25,
+        temperature=0.2,
         agent_name="scene_card_designer",
     )
     return _extract_image_result(result)
 
 
-def _save_scene_card_image(data: str, session_id: str, scene_number: int = 1) -> str:
-    """Save a generated scene master card image and return its local path."""
-    output_dir = os.path.join(OUTPUT_DIR, "sessions", session_id, "scene_cards")
-    os.makedirs(output_dir, exist_ok=True)
-    filepath = os.path.join(output_dir, f"scene_card_{scene_number:02d}.png")
+def _call_scene_card_overhead_api(prompt: str, images_base64: list[str]) -> str:
+    """Generate the first-step overhead layout image."""
+    system_prompt = (
+        "你是场景俯视布局生成模型。只生成一张独立俯视图，用于下一步九宫格机位推导。"
+        "必须从原始场景参考图提取真实空间边界、门窗入口、通道、固定家具和固定道具的相对位置。"
+        "不要生成九宫格、不要内景透视、不要人物、不要站位点、不要相机点、不要箭头或图例。"
+        "输出要清晰、铺满画布、空间比例稳定，便于下一步严格参考。"
+    )
+    result = call_llm(
+        system_prompt=system_prompt,
+        user_prompt=prompt,
+        images_base64=images_base64,
+        temperature=0.15,
+        agent_name="scene_card_designer",
+    )
+    return _extract_image_result(result)
+
+
+def _generate_scene_card_with_overhead(
+    overhead_prompt: str,
+    card_prompt: str,
+    scene_image: str,
+    session_id: str,
+    scene_number: int,
+) -> tuple[str, str]:
+    """Generate overhead first, then generate a standalone 3x3 view grid from that layout."""
+    overhead_result = _call_scene_card_overhead_api(overhead_prompt, [scene_image])
+    overhead_path = _save_scene_card_layout_image(overhead_result, session_id, scene_number)
+    overhead_image = _file_to_image_data_uri(overhead_path)
+    card_result = _call_scene_card_image_api(card_prompt, [scene_image, overhead_image])
+    return card_result, overhead_path
+
+
+def _save_generated_scene_image(data: str, filepath: str) -> str:
+    os.makedirs(os.path.dirname(filepath), exist_ok=True)
 
     if os.path.exists(data):
         return data
@@ -368,7 +521,21 @@ def _save_scene_card_image(data: str, session_id: str, scene_number: int = 1) ->
                 f.write(resp.content)
         return filepath
 
-    raise RuntimeError("场景母版图接口没有返回可保存的图片。")
+    raise RuntimeError("场景参考图接口没有返回可保存的图片。")
+
+
+def _save_scene_card_image(data: str, session_id: str, scene_number: int = 1) -> str:
+    """Save a generated 3x3 scene view grid image and return its local path."""
+    output_dir = os.path.join(OUTPUT_DIR, "sessions", session_id, "scene_cards")
+    filepath = os.path.join(output_dir, f"scene_grid_{scene_number:02d}.png")
+    return _save_generated_scene_image(data, filepath)
+
+
+def _save_scene_card_layout_image(data: str, session_id: str, scene_number: int = 1) -> str:
+    """Save the generated overhead layout used to drive the scene card."""
+    output_dir = os.path.join(OUTPUT_DIR, "sessions", session_id, "scene_cards")
+    filepath = os.path.join(output_dir, f"scene_layout_{scene_number:02d}.png")
+    return _save_generated_scene_image(data, filepath)
 
 
 def _file_to_image_data_uri(path: str) -> str:
@@ -409,7 +576,7 @@ def _append_scene_card_references(
                 "label": label,
                 "filename": os.path.basename(image_path),
                 "purpose": (
-                    f"{scene_title}场景母版图：俯视布局和四个固定视角，"
+                    f"{scene_title}场景九宫格机位图：与同批俯视布局图配套，"
                     "用于后续分镜流程图与 Seedance 2.0 场景参考"
                 ),
                 "type": "scene_card",
@@ -461,6 +628,101 @@ def _script_fidelity_rules() -> str:
     )
 
 
+_SHOWRUNNER_SCENE_KEEP_FIELDS = (
+    "场景信息",
+    "道具锚点",
+    "固定物体锁定",
+    "增强约束",
+    "与剧本冲突点",
+    "冲突点",
+)
+
+_SHOWRUNNER_SCENE_SKIP_FIELDS = (
+    "场景参考图需求",
+    "光线与材质",
+    "reference_bindings",
+    "九层输入卡",
+    "本场景在场人物",
+    "禁止加入人物",
+    "戏剧动作关系",
+    "人物站位",
+    "人物占位",
+    "站位姿势",
+    "行动路径",
+    "运动轨迹",
+)
+
+_SHOWRUNNER_SCENE_FORBIDDEN_TERMS = (
+    "人物站位",
+    "人物占位",
+    "站位姿势",
+    "行动路径",
+    "运动轨迹",
+    "人物点位",
+    "标点",
+    "俯视图上手动",
+)
+
+
+def _compact_scene_context_for_showrunner(scene_context: str, max_chars: int = 700) -> str:
+    """Keep only short spatial constraints that the story enhancer can safely use."""
+    text = (scene_context or "").strip()
+    if not text:
+        return ""
+
+    kept: dict[str, list[str]] = {field: [] for field in _SHOWRUNNER_SCENE_KEEP_FIELDS}
+    current_field = ""
+    field_pattern = re.compile(r"^\s*([^:：\n]{1,32})\s*[:：]\s*(.*)$")
+
+    for raw_line in text.splitlines():
+        stripped = raw_line.strip()
+        if not stripped:
+            continue
+
+        match = field_pattern.match(raw_line)
+        if match and not raw_line.startswith((" ", "\t", "-", "  -")):
+            field = match.group(1).strip()
+            value = match.group(2).strip()
+            if field in _SHOWRUNNER_SCENE_SKIP_FIELDS:
+                current_field = ""
+                continue
+            if field in _SHOWRUNNER_SCENE_KEEP_FIELDS:
+                current_field = field
+                if value:
+                    kept[field].append(value)
+                continue
+            current_field = ""
+            continue
+
+        if current_field:
+            kept[current_field].append(stripped.lstrip("- ").strip())
+
+    lines: list[str] = []
+    for field in _SHOWRUNNER_SCENE_KEEP_FIELDS:
+        values = [value for value in kept[field] if value]
+        if not values:
+            continue
+        safe_values = [
+            value
+            for value in values
+            if not any(term in value for term in _SHOWRUNNER_SCENE_FORBIDDEN_TERMS)
+        ]
+        if not safe_values:
+            continue
+        compact_value = "；".join(safe_values[:2])
+        if len(compact_value) > 180:
+            compact_value = compact_value[:180].rstrip() + "..."
+        lines.append(f"{field}: {compact_value}")
+
+    if not lines:
+        return ""
+
+    compact = "\n".join(lines)
+    if len(compact) > max_chars:
+        compact = compact[:max_chars].rstrip() + "..."
+    return compact
+
+
 def director_showrunner_node(state: DirectorState) -> DirectorState:
     import time
 
@@ -468,6 +730,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
     source_script = str(state.get("script") or "")
     original_script = str(state.get("original_script") or source_script)
     scene_context_brief = str(state.get("scene_context_brief") or outputs.get("scene_analyst") or "").strip()
+    showrunner_scene_context = _compact_scene_context_for_showrunner(scene_context_brief)
 
     if bool(state.get("speed_mode", False)):
         output = _localize_director_showrunner_output(_fallback_director_brief(state, "快速模式"))
@@ -514,7 +777,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
 
     showrunner_hint = (
         "剧情增强 冲突强化 弱冲突 可拍动作 动作密度 时间压力 声音压力 "
-        "人物调度 主线保护 禁止新增台词 禁止改主线 "
+        "抽象动作因果 相对互动 主线保护 禁止新增台词 禁止改主线 "
         f"画幅 {state.get('aspect_ratio', '16:9')}"
     )
     system_prompt, retrieval_meta = build_system_prompt(
@@ -523,7 +786,8 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "你不做拆片、不做具体镜头设计、不输出 shot 建议；你只交付增强版剧本和增强依据。\n"
         "你的增强必须是清晰的动作剧本，不是文学化润色；少用形容和比喻，只写观众能看见、演员能执行的动作。\n"
         "禁止输出状态合同、入场状态、出场状态、道具状态变化、禁止连续性等制作合同块；这些只可内化为判断，不能写进增强版剧本。\n"
-        "允许增强 L1 动作层与 L2 调度层：动作密度、时间压力、声音压力、已有道具阻碍、已有角色进入/拦住/停住/转身等可见调度。\n"
+        "允许增强 L1 动作层和笼统相对互动：动作密度、时间压力、声音压力、已有道具阻碍、靠近、停住、避让、拦住、转身等可见动作。\n"
+        "不要写精确站位、具体方位、距离、行走路线、运动轨迹或镜头调度；这些留给用户标注后的镜头导演处理。\n"
         "禁止直接改动主线剧情、人物关系、剧情结果和原台词；禁止新增未确认的新人物、新台词、新关键道具、新误会或新反转。\n"
         "道具处理必须保持因果清晰：只使用原剧本已经出现或由原台词明确暗示的道具；每个道具只在必要时变化一次，不要为了细节堆动作。\n"
         "手机/电话尤其要谨慎：如果原台词暗示正在通话，可以写乔熙拿着或放下手机；通话结束后必须写清手机去向，不能让手机持续占手却又同时完成双手动作。\n"
@@ -538,7 +802,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "【用户导演意图/补充要求】\n"
         f"{_director_showrunner_user_intent(state) or '无'}\n\n"
         "【场景预分析约束】\n"
-        f"{scene_context_brief or '无参考图/场景预分析；只能根据原始剧本文字增强。'}\n\n"
+        f"{showrunner_scene_context or '无参考图/场景预分析；只能根据原始剧本文字增强。'}\n\n"
         "【画幅】\n"
         f"{state.get('aspect_ratio', '16:9')}\n\n"
         "【必须输出的 YAML 字段】\n"
@@ -549,15 +813,16 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "需用户确认: 只列 L3 剧情层新增想法；没有就写 无。\n\n"
         "【决策边界】\n"
         "1. 可以把“忙乱、急匆匆、气氛紧张、愣住、等待、列队”等概括词展开成连续可见动作。\n"
-        "2. 可以把静态说明改成动态调度，例如已有主管/秘书从门内快速出来列队，已有朋友迎面拦住女主提醒。\n"
+        "2. 可以把静态说明改成笼统可见动作，例如已有角色出现、停住、靠近、避让、拦住、转身、递出或收回道具；不要写具体站位、方位、距离或路线。\n"
         "3. 可以使用原剧本已有道具和环境强化阻力，例如闹钟、电话、水杯、书包、咖啡、公司大门、车辆声音。\n"
         "4. 每两句原台词之间最多补 1-2 个动作节拍；优先写因果动作，不写情绪散文，不把简单动作拆成过多微动作。\n"
         "5. 手机/电话规则：只有原文台词、动作或上下文明示通话时才可使用手机；如果写手机夹在肩上、握在手里或放在一旁，后续动作必须符合单手/双手可执行逻辑。\n"
         "6. 增强版剧本只写场景标题、人物、动作、原台词和必要转场；不要写“状态合同/入场状态/出场状态/道具状态变化/禁止连续性/特写/音效”等合同式或镜头式小标题，除非原文已有。\n"
-        "7. 必须遵守场景预分析约束：人物站位、姿势、朝向、空间锚点、可见道具和参考图基底不能被剧情增强改乱。\n"
-        "8. 不得改变主线剧情：人物关系、公司易主、新老板到达、前夫揭示等核心事实不能变。\n"
-        "9. 不得新增台词；原台词必须原样保留。\n"
-        "10. 除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
+        "7. 只遵守上方简表里的物理空间硬约束：入口、通道、固定物体和可见道具不能改乱；不要推导或锁定人物站位、行动路径、运动轨迹。\n"
+        "8. 没有明确空间信息时，使用“靠近、停下、退开、挡住、绕开、转身看向”等笼统关系词，不写“左侧/右侧/北侧/几米/从A点到B点”等精确调度。\n"
+        "9. 不得改变主线剧情：人物关系、公司易主、新老板到达、前夫揭示等核心事实不能变。\n"
+        "10. 不得新增台词；原台词必须原样保留。\n"
+        "11. 除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
     )
 
     started = time.perf_counter()
@@ -652,7 +917,7 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         )
 
     scene_hint = (
-        "场景预分析 场景母版图 参考图分析 俯视布局 四视角 人物站位 姿势 朝向 空间锚点 可见道具 "
+        "场景预分析 场景母版图 参考图分析 俯视布局 九宫格机位 空间锚点 固定家具 门窗通道 可见道具 "
         f"aspect_ratio {state.get('aspect_ratio', '16:9')}"
     )
     system_prompt, retrieval_meta = build_system_prompt(
@@ -664,32 +929,35 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         "禁止新增剧本中没有的员工反应、旁白、低声议论、表情反应或任何解释性信息。\n"
         "如果原剧本没有写员工说话，分析卡中不得出现员工对白或低语。\n"
         "如果原剧本没有写某个动作，分析卡中不得出现该动作。\n"
-        "输出必须简短，只分析：人物形象占位、人物站位/姿势/朝向、场景空间、固定家具、可见道具、与剧本冲突点。"
+        "输出必须简短，只分析：场景空间、固定家具、门窗入口、通道、可见道具、光线方向、与剧本冲突点。"
+        "不要推导人物站位、姿势、朝向、行动路径或运动轨迹；这些由用户在俯视图上手动标点和画轨迹后交给镜头导演处理。"
+        "不要把参考图里的真人位置、姿态、距离或视线当作固定站位。"
         "凡参考图中可见的固定家具和空间锚点，都要作为不可移动的场景母版规则。",
         "scene_analyst",
         context_hint=scene_hint,
     )
     user_prompt = (
         f"{director_brief_block}\n"
-        f"请为剧情增强导演和后续场景母版生图生成场景预分析卡。\n\n"
+        f"请生成简短场景预分析卡：只给剧情增强导演物理空间边界，并给后续场景生图锁定空间锚点。\n\n"
         f"【剧本】\n{state['script']}\n\n"
         f"【画幅】{state.get('aspect_ratio', '16:9')}\n\n"
         f"【参考图清单】\n{_reference_context(state)}\n\n"
         "【参考图使用边界】\n"
-        "1. 参考图只用于提取空间、环境、人物站位、人物姿势、人物朝向、人物间距离、视线轴线和关键场景锚点。\n"
-        "2. 人物形象只做占位描述，例如“女主/孩子/西装男/秘书群体”；不要展开五官、发型、服装纹理。\n"
-        "3. 场景分析必须把可见空间翻译成可继承的文字锚点：入口/电梯/门/走廊/前台/窗/桌椅等物体的相对方位，以及人物与这些锚点的关系。\n"
-        "4. 固定家具和空间锚点必须作为场景母版锁定：茶几、沙发、窗户、门、地毯、床、柜子、台面等一旦在参考图中可见，后续不得移动、替换或重排。\n"
-        "5. 如果参考图与剧本文字冲突，不得新增剧情，只能把参考图作为空间和环境基底说明。\n\n"
+        "1. 参考图只用于提取空间、环境、固定家具、门窗入口、通道、光线方向和关键场景锚点。\n"
+        "2. 不从参考图固定人物站位、人物姿势、人物朝向、人物间距离或视线轴线；参考图里的真人只当作可忽略干扰。\n"
+        "3. 不推导人物站位和行动路径；后续人物标点、运动轨迹由用户在俯视图上手动添加，并交给镜头导演参考。\n"
+        "4. 场景分析必须把可见空间翻译成可继承的文字锚点：入口/电梯/门/走廊/前台/窗/桌椅等物体的相对方位。\n"
+        "5. 固定家具和空间锚点必须作为场景母版锁定：茶几、沙发、窗户、门、地毯、床、柜子、台面等一旦在参考图中可见，后续不得移动、替换或重排。\n"
+        "6. 如果参考图与剧本文字冲突，不得新增剧情，只能把参考图作为空间和环境基底说明。\n\n"
         f"{_script_fidelity_rules()}\n"
         "【输出 YAML 字段】\n"
-        "人物占位: 每个可见人物/群体一句话，写身份占位和可见姿态。\n"
-        "站位姿势: 列出人物相对位置、朝向、距离、是否坐/站/移动。\n"
         "场景信息: 列出空间类型、入口、主要家具/门/走廊/公司门口等锚点。\n"
+        "调度待定: 固定写“人物站位和运动轨迹由用户在俯视图上手动标注；场景预分析不推导”。\n"
         "道具锚点: 只列原剧本或参考图可见的关键道具及位置；不新增手机、照片、咖啡等未确认道具。\n"
-        "场景母版图需求: 一句话说明需要生成俯视布局图，以及从入口墙、入口对面墙、左侧墙、右侧墙位置看向房间内景象的四个正面内景固定视角，全部继承同一场景结构。\n"
+        "光线与材质: 列出参考图里的主光方向、材质气质和空间尺度。\n"
+        "场景参考图需求: 一句话说明需要输出两张独立图片：第一张是俯视布局图，只锁定空间边界和固定物体；第二张是 16:9 的 3x3 九宫格机位图，严格依据俯视图生成东西南北四个正向平视图，并补充高位看全场、正对主墙、入口看里面、道具近景、里面看入口。不要要求生成左侧俯视图+右侧九宫格的十格场景卡。\n"
         "固定物体锁定: 列出参考图中不可移动的固定家具和空间锚点，强调后续只能换机位或裁切，不能移动物体。\n"
-        "增强约束: 给剧情增强导演的简短边界，提醒哪些空间/站位/道具不能改乱。\n"
+        "增强约束: 给剧情增强导演的简短物理空间边界，只提醒空间、固定家具、门窗通道和道具不能改乱；不要写人物站位或行动路径。\n"
     )
     scene_ref_items = _scene_reference_items(state)
     ref_images = [item["image"] for item in scene_ref_items] or None
@@ -715,6 +983,13 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         total_scenes = len(scene_ref_items)
         for scene_number, scene_item in enumerate(scene_ref_items, start=1):
             scene_title = _scene_reference_title(scene_item, scene_number)
+            overhead_prompt = _build_scene_card_overhead_prompt(
+                state,
+                output,
+                scene_item=scene_item,
+                scene_number=scene_number,
+                total_scenes=total_scenes,
+            )
             scene_card_prompt = _build_scene_card_image_prompt(
                 state,
                 output,
@@ -722,14 +997,24 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
                 scene_number=scene_number,
                 total_scenes=total_scenes,
             )
-            image_result = _call_scene_card_image_api(scene_card_prompt, [scene_item["image"]])
+            image_result, overhead_path = _generate_scene_card_with_overhead(
+                overhead_prompt,
+                scene_card_prompt,
+                scene_item["image"],
+                session_id,
+                scene_number,
+            )
             scene_card_image = _save_scene_card_image(image_result, session_id, scene_number)
             scene_cards.append(
                 {
                     "scene_number": str(scene_number),
                     "scene_title": scene_title,
                     "image_path": scene_card_image,
+                    "grid_path": scene_card_image,
+                    "layout_path": overhead_path,
+                    "layout_prompt": overhead_prompt,
                     "prompt": scene_card_prompt,
+                    "grid_prompt": scene_card_prompt,
                 }
             )
 
@@ -738,18 +1023,25 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
             scene_cards,
         )
         scene_card_lines = "\n".join(
-            f"  - 场景{card['scene_number']}：{card['scene_title']} → {card['image_path']}"
+            f"  - 场景{card['scene_number']}：{card['scene_title']}\n"
+            f"    俯视图 → {card['layout_path']}\n"
+            f"    九宫格 → {card['grid_path']}"
             for card in scene_cards
         )
         output = (
             f"{output.rstrip()}\n\n"
-            "场景母版图: |\n"
+            "场景参考图: |\n"
             f"{scene_card_lines}\n"
-            "  用途：每个场景单独作为后续分镜流程图与 Seedance 2.0 场景参考；每张图包含俯视布局和四个固定视角。\n"
+            "  流程：每个场景输出两张独立图片：一张俯视布局图，一张 3x3 九宫格机位图。\n"
+            "  用途：俯视图锁定空间结构，九宫格锁定东西南北和补充景别。\n"
         )
         outputs["scene_card_prompt"] = scene_cards[0]["prompt"]
         outputs["scene_card_image"] = scene_cards[0]["image_path"]
         outputs["scene_card_images"] = json.dumps(scene_cards, ensure_ascii=False)
+        outputs["scene_layout_prompt"] = scene_cards[0]["layout_prompt"]
+        outputs["scene_layout_image"] = scene_cards[0]["layout_path"]
+        outputs["scene_grid_prompt"] = scene_cards[0]["grid_prompt"]
+        outputs["scene_grid_image"] = scene_cards[0]["grid_path"]
 
     outputs["scene_analyst"] = output
     update_payload: dict[str, Any] = {
@@ -761,10 +1053,14 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         "knowledge_metadata": knowledge_metadata,
     }
     if scene_cards:
-        update_payload["message"] = f"场景预分析和 {len(scene_cards)} 张场景母版图已完成，剧情增强导演正在按场景约束增强剧本...（2/8）"
+        update_payload["message"] = f"场景预分析和 {len(scene_cards)} 组俯视图/九宫格图已完成，剧情增强导演正在按场景约束增强剧本...（2/8）"
         update_payload["scene_card_image"] = scene_cards[0]["image_path"]
         update_payload["scene_card_prompt"] = scene_cards[0]["prompt"]
         update_payload["scene_card_images"] = scene_cards
+        update_payload["scene_layout_image"] = scene_cards[0]["layout_path"]
+        update_payload["scene_layout_prompt"] = scene_cards[0]["layout_prompt"]
+        update_payload["scene_grid_image"] = scene_cards[0]["grid_path"]
+        update_payload["scene_grid_prompt"] = scene_cards[0]["grid_prompt"]
     if updated_reference_images is not None and updated_reference_manifest is not None:
         update_payload["reference_image_b64s"] = updated_reference_images
         update_payload["reference_image_manifest"] = updated_reference_manifest

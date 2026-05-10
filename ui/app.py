@@ -287,6 +287,7 @@ from agents.director_graph_package.storyboard_designer_impl import (
     generate_storyboard_for_segment,
     generate_storyboard_image_for_segment,
 )
+from agents.director_graph_package import planning_context_impl as scene_card_impl
 
 
 def _save_task_state_for_session(
@@ -650,8 +651,8 @@ def _infer_reference_purpose(index: int, filename: str = "") -> str:
     purposes = {
         1: "主角人物身份、五官、发型、身形与服装一致性锁定",
         2: "对手角色/第二核心角色身份、五官、发型、身形与服装一致性锁定",
-        3: "场景空间、轴线、光线与首帧环境基底锁定",
-        4: "多人位置关系、视线方向与调度关系锁定",
+        3: "第三核心人物/补充人物身份、五官、发型、身形与服装一致性锁定",
+        4: "第四核心人物/补充人物身份、五官、发型、身形与服装一致性锁定",
     }
     return purposes.get(index, "补充参考图，仅按用户说明限定用途")
 
@@ -1812,6 +1813,119 @@ async def api_clear_segment(
             "success": True,
             "message": message,
             "cleared_segment": cleared_index,
+            "state": _public_task_state(session_id),
+        }
+    )
+
+
+@app.post("/api/regenerate_scene_card")
+async def api_regenerate_scene_card(
+    scene_number: int = Form(...),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+):
+    """Regenerate one scene layout image and one 3x3 scene grid from its reference image."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "当前流水线正在运行，不能同时重跑场景参考图。"})
+
+    task_state = _task_state(session_id)
+    scene_items = scene_card_impl._scene_reference_items(task_state)
+    if scene_number < 1 or scene_number > len(scene_items):
+        return JSONResponse(
+            {
+                "success": False,
+                "error": f"场景编号 {scene_number} 不存在，当前可重跑 {len(scene_items)} 张场景参考图。",
+            }
+        )
+
+    outputs = task_state.setdefault("agent_outputs", {})
+    scene_output = str(outputs.get("scene_analyst") or task_state.get("scene_context_brief") or "")
+    scene_output = re.split(r"\n\n(?:场景母版图|场景参考图):\s*\|", scene_output, maxsplit=1)[0]
+    scene_item = scene_items[scene_number - 1]
+    total_scenes = len(scene_items)
+    scene_title = scene_card_impl._scene_reference_title(scene_item, scene_number)
+
+    try:
+        overhead_prompt = scene_card_impl._build_scene_card_overhead_prompt(
+            task_state,
+            scene_output,
+            scene_item=scene_item,
+            scene_number=scene_number,
+            total_scenes=total_scenes,
+        )
+        prompt = scene_card_impl._build_scene_card_image_prompt(
+            task_state,
+            scene_output,
+            scene_item=scene_item,
+            scene_number=scene_number,
+            total_scenes=total_scenes,
+        )
+        image_result, overhead_path = scene_card_impl._generate_scene_card_with_overhead(
+            overhead_prompt,
+            prompt,
+            scene_item["image"],
+            session_id,
+            scene_number,
+        )
+        image_path = scene_card_impl._save_scene_card_image(image_result, session_id, scene_number)
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"重跑场景参考图失败：{type(exc).__name__}: {exc}"})
+
+    existing_cards: list[dict[str, str]] = []
+    if outputs.get("scene_card_images"):
+        try:
+            parsed = (
+                json.loads(outputs["scene_card_images"])
+                if isinstance(outputs["scene_card_images"], str)
+                else outputs["scene_card_images"]
+            )
+            if isinstance(parsed, list):
+                existing_cards = [dict(item) for item in parsed if isinstance(item, dict)]
+        except Exception:
+            existing_cards = []
+
+    new_card = {
+        "scene_number": str(scene_number),
+        "scene_title": scene_title,
+        "image_path": image_path,
+        "grid_path": image_path,
+        "layout_path": overhead_path,
+        "layout_prompt": overhead_prompt,
+        "prompt": prompt,
+        "grid_prompt": prompt,
+        "source_index": str(scene_item.get("source_index", scene_number - 1)),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    card_map = {str(card.get("scene_number") or index + 1): card for index, card in enumerate(existing_cards)}
+    card_map[str(scene_number)] = new_card
+    scene_cards = [card_map[str(index)] for index in range(1, total_scenes + 1) if str(index) in card_map]
+
+    outputs["scene_card_images"] = json.dumps(scene_cards, ensure_ascii=False)
+    if scene_number == 1 or not outputs.get("scene_card_image"):
+        outputs["scene_card_prompt"] = prompt
+        outputs["scene_card_image"] = image_path
+        outputs["scene_layout_prompt"] = overhead_prompt
+        outputs["scene_layout_image"] = overhead_path
+        outputs["scene_grid_prompt"] = prompt
+        outputs["scene_grid_image"] = image_path
+
+    updated_images, updated_manifest = scene_card_impl._append_scene_card_references(task_state, scene_cards)
+    task_state["reference_image_b64s"] = updated_images
+    task_state["reference_image_manifest"] = updated_manifest
+    task_state["reference_image_count"] = len(updated_images)
+    task_state["agent_outputs"] = outputs
+    task_state["message"] = f"场景{scene_number}俯视图和九宫格图已重新生成。"
+    task_state["error"] = ""
+
+    with request_scope(session_id=session_id):
+        save_state(task_state)
+
+    return JSONResponse(
+        {
+            "success": True,
+            "message": task_state["message"],
+            "scene_card": new_card,
             "state": _public_task_state(session_id),
         }
     )

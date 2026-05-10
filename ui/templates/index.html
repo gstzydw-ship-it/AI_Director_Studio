@@ -2019,6 +2019,186 @@
             return str.replace(/[&<>"']/g, m => map[m]);
         }
 
+        const sceneLayoutAnnotationMode = {};
+        const sceneLayoutArrowDraft = {};
+        const scenePersonPalette = [
+            '#ef4444', '#2563eb', '#16a34a', '#eab308',
+            '#a855f7', '#06b6d4', '#f97316', '#ec4899',
+            '#84cc16', '#14b8a6', '#f43f5e', '#8b5cf6',
+        ];
+
+        function stableAnnotationHash(value = '') {
+            let hash = 5381;
+            const text = String(value || '');
+            for (let i = 0; i < text.length; i += 1) {
+                hash = ((hash << 5) + hash) + text.charCodeAt(i);
+                hash |= 0;
+            }
+            return (hash >>> 0).toString(36);
+        }
+
+        function sceneLayoutAnnotationKey(sceneNumber, imagePath, cacheKey = '') {
+            return `scene-layout-annotations:${getSessionId()}:${sceneNumber}:${stableAnnotationHash(`${imagePath}|${cacheKey}`)}`;
+        }
+
+        function scenePersonColor(index, storedColor = '') {
+            const color = String(storedColor || '').trim();
+            if (/^#[0-9a-f]{6}$/i.test(color)) return color;
+            return scenePersonPalette[index % scenePersonPalette.length];
+        }
+
+        function loadSceneLayoutAnnotations(key) {
+            try {
+                const parsed = JSON.parse(localStorage.getItem(key) || '{}');
+                return {
+                    people: Array.isArray(parsed.people) ? parsed.people : [],
+                    arrows: Array.isArray(parsed.arrows) ? parsed.arrows : [],
+                };
+            } catch (e) {
+                return { people: [], arrows: [] };
+            }
+        }
+
+        function saveSceneLayoutAnnotations(key, annotations) {
+            localStorage.setItem(key, JSON.stringify({
+                people: Array.isArray(annotations.people) ? annotations.people : [],
+                arrows: Array.isArray(annotations.arrows) ? annotations.arrows : [],
+            }));
+        }
+
+        function sceneLayoutPointFromEvent(event, stage) {
+            const rect = stage.getBoundingClientRect();
+            if (!rect.width || !rect.height) return null;
+            const x = (event.clientX - rect.left) / rect.width;
+            const y = (event.clientY - rect.top) / rect.height;
+            if (x < 0 || x > 1 || y < 0 || y > 1) return null;
+            return { x, y };
+        }
+
+        function setSceneLayoutAnnotationMode(key, mode, event = null) {
+            if (event) event.stopPropagation();
+            const nextMode = sceneLayoutAnnotationMode[key] === mode ? '' : mode;
+            sceneLayoutAnnotationMode[key] = nextMode;
+            sceneLayoutArrowDraft[key] = null;
+            refreshSceneLayoutAnnotations();
+        }
+
+        function undoSceneLayoutAnnotation(key, event = null) {
+            if (event) event.stopPropagation();
+            const annotations = loadSceneLayoutAnnotations(key);
+            if (annotations.arrows.length) {
+                annotations.arrows.pop();
+            } else if (annotations.people.length) {
+                annotations.people.pop();
+            }
+            sceneLayoutArrowDraft[key] = null;
+            saveSceneLayoutAnnotations(key, annotations);
+            refreshSceneLayoutAnnotations();
+        }
+
+        function clearSceneLayoutAnnotations(key, event = null) {
+            if (event) event.stopPropagation();
+            if (!window.confirm('清空这张俯视图上的人物标点和活动轨迹？')) return;
+            localStorage.removeItem(key);
+            sceneLayoutArrowDraft[key] = null;
+            refreshSceneLayoutAnnotations();
+        }
+
+        function handleSceneLayoutAnnotationClick(event, stage) {
+            const key = stage.dataset.annotationKey || '';
+            const mode = sceneLayoutAnnotationMode[key] || '';
+            if (!key || !mode) return;
+            const point = sceneLayoutPointFromEvent(event, stage);
+            if (!point) return;
+            const annotations = loadSceneLayoutAnnotations(key);
+
+            if (mode === 'person') {
+                const defaultLabel = `人${annotations.people.length + 1}`;
+                const label = (window.prompt('人物标点名称', defaultLabel) || defaultLabel).trim() || defaultLabel;
+                annotations.people.push({
+                    x: point.x,
+                    y: point.y,
+                    label,
+                    color: scenePersonColor(annotations.people.length),
+                });
+                saveSceneLayoutAnnotations(key, annotations);
+                renderSceneLayoutAnnotations(stage);
+                return;
+            }
+
+            if (mode === 'arrow') {
+                const draft = sceneLayoutArrowDraft[key];
+                if (!draft) {
+                    sceneLayoutArrowDraft[key] = point;
+                    renderSceneLayoutAnnotations(stage);
+                    return;
+                }
+                annotations.arrows.push({ x1: draft.x, y1: draft.y, x2: point.x, y2: point.y });
+                sceneLayoutArrowDraft[key] = null;
+                saveSceneLayoutAnnotations(key, annotations);
+                renderSceneLayoutAnnotations(stage);
+            }
+        }
+
+        function renderSceneLayoutAnnotations(stage) {
+            if (!stage) return;
+            const key = stage.dataset.annotationKey || '';
+            const svg = stage.querySelector('.scene-annotation-svg');
+            if (!key || !svg || !stage.clientWidth || !stage.clientHeight) return;
+
+            const width = stage.clientWidth;
+            const height = stage.clientHeight;
+            const annotations = loadSceneLayoutAnnotations(key);
+            const markerId = `arrowhead-${stableAnnotationHash(key)}`;
+            const mode = sceneLayoutAnnotationMode[key] || '';
+            stage.classList.toggle('annotation-active', Boolean(mode));
+
+            let markup = `
+                <defs>
+                    <marker id="${markerId}" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto" markerUnits="strokeWidth">
+                        <path d="M0,0 L10,5 L0,10 Z" fill="#f97316"></path>
+                    </marker>
+                </defs>
+            `;
+
+            annotations.arrows.forEach((arrow) => {
+                markup += `<line class="scene-annotation-arrow" x1="${arrow.x1 * width}" y1="${arrow.y1 * height}" x2="${arrow.x2 * width}" y2="${arrow.y2 * height}" marker-end="url(#${markerId})"></line>`;
+            });
+
+            annotations.people.forEach((person, index) => {
+                const x = person.x * width;
+                const y = person.y * height;
+                const label = escapeHtml(person.label || `人${index + 1}`);
+                const color = scenePersonColor(index, person.color);
+                markup += `
+                    <g class="scene-annotation-person">
+                        <circle cx="${x}" cy="${y}" r="8" style="fill:${color};"></circle>
+                        <text x="${x + 11}" y="${y + 4}" style="stroke:${color};">${label}</text>
+                    </g>
+                `;
+            });
+
+            const draft = sceneLayoutArrowDraft[key];
+            if (draft) {
+                markup += `<circle class="scene-annotation-draft" cx="${draft.x * width}" cy="${draft.y * height}" r="7"></circle>`;
+            }
+
+            svg.setAttribute('viewBox', `0 0 ${width} ${height}`);
+            svg.innerHTML = markup;
+            document.querySelectorAll('[data-scene-annotation-button]').forEach((button) => {
+                if (button.dataset.sceneAnnotationKey !== key) return;
+                button.classList.toggle('active', Boolean(mode) && button.dataset.sceneAnnotationMode === mode);
+            });
+        }
+
+        function refreshSceneLayoutAnnotations() {
+            document.querySelectorAll('.scene-annotation-stage').forEach((stage) => {
+                renderSceneLayoutAnnotations(stage);
+            });
+        }
+
+        window.addEventListener('resize', refreshSceneLayoutAnnotations);
+
         function selectResultTab(agent) {
             document.querySelectorAll('.result-tab').forEach(t => t.classList.remove('active'));
             const tab = document.querySelector(`.result-tab[data-agent="${agent}"]`);
@@ -2070,37 +2250,151 @@
                     sceneCards = [];
                 }
             }
-            if (sceneCards.length === 0 && outputs.scene_card_image) {
+            if (sceneCards.length === 0 && (outputs.scene_card_image || outputs.scene_layout_image || outputs.scene_grid_image)) {
                 sceneCards = [{
                     scene_number: '1',
-                    scene_title: '场景母版参考图',
+                    scene_title: '场景参考图',
                     image_path: outputs.scene_card_image,
+                    layout_path: outputs.scene_layout_image,
+                    grid_path: outputs.scene_grid_image || outputs.scene_card_image,
+                    layout_prompt: outputs.scene_layout_prompt || '',
+                    grid_prompt: outputs.scene_grid_prompt || outputs.scene_card_prompt || '',
                     prompt: outputs.scene_card_prompt || '',
                 }];
             }
-            const imageHtml = sceneCards.map((card, index) => {
-                const imagePath = card.image_path || card.path || '';
-                const promptText = card.prompt || '';
-                const title = card.scene_title || `场景${card.scene_number || index + 1}母版参考图`;
+
+            const renderSceneReferenceImage = (imagePath, title, promptText, sceneNumber, cacheKey, actionHtml = '', enableAnnotation = false) => {
                 if (!imagePath) return '';
-                return `<div class="storyboard-card" style="margin-bottom:12px;">
-                       <div class="storyboard-card-header">
-                           <span class="storyboard-title">${escapeHtml(title)}</span>
-                       </div>
-                       <div class="storyboard-image-wrap">
-                           <img src="${escapeHtml(storyboardImageSrc(imagePath))}"
+                const baseImageSrc = storyboardImageSrc(imagePath);
+                const imageSrc = cacheKey && !/^data:image\//i.test(baseImageSrc)
+                    ? `${baseImageSrc}${baseImageSrc.includes('?') ? '&' : '?'}v=${encodeURIComponent(cacheKey)}`
+                    : baseImageSrc;
+                const annotationKey = enableAnnotation ? sceneLayoutAnnotationKey(sceneNumber, imagePath, cacheKey) : '';
+                const annotationActions = enableAnnotation ? `
+                           <div class="scene-annotation-actions">
+                               <button class="btn-small scene-annotation-btn" type="button" title="添加人物标点"
+                                   data-scene-annotation-button="1" data-scene-annotation-key="${escapeHtml(annotationKey)}" data-scene-annotation-mode="person"
+                                   onclick="setSceneLayoutAnnotationMode('${escapeHtml(annotationKey)}', 'person', event); return false;">点 人物</button>
+                               <button class="btn-small scene-annotation-btn" type="button" title="添加活动轨迹箭头：先点起点，再点终点"
+                                   data-scene-annotation-button="1" data-scene-annotation-key="${escapeHtml(annotationKey)}" data-scene-annotation-mode="arrow"
+                                   onclick="setSceneLayoutAnnotationMode('${escapeHtml(annotationKey)}', 'arrow', event); return false;">↗ 轨迹</button>
+                               <button class="btn-small scene-annotation-btn" type="button" title="撤销最后一个标注"
+                                   onclick="undoSceneLayoutAnnotation('${escapeHtml(annotationKey)}', event); return false;">撤销</button>
+                               <button class="btn-small scene-annotation-btn" type="button" title="清空这张俯视图的标注"
+                                   onclick="clearSceneLayoutAnnotations('${escapeHtml(annotationKey)}', event); return false;">清空</button>
+                           </div>` : '';
+                const headerActions = [actionHtml, annotationActions].filter(Boolean).join('');
+                const imageContent = enableAnnotation
+                    ? `<div class="scene-annotation-stage" data-annotation-key="${escapeHtml(annotationKey)}" onclick="handleSceneLayoutAnnotationClick(event, this); return false;">
+                           <img src="${escapeHtml(imageSrc)}"
+                                alt="${escapeHtml(title)}"
+                                class="storyboard-image scene-annotatable-image"
+                                onload="renderSceneLayoutAnnotations(this.closest('.scene-annotation-stage'))"
+                                onerror="this.closest('.storyboard-image-wrap').innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">
+                           <svg class="scene-annotation-svg" aria-hidden="true"></svg>
+                       </div>`
+                    : `<img src="${escapeHtml(imageSrc)}"
                                 alt="${escapeHtml(title)}"
                                 class="storyboard-image"
-                                onerror="this.parentElement.innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">
+                                onerror="this.parentElement.innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">`;
+                return `<div class="storyboard-card" style="margin-bottom:12px;">
+                       <div class="storyboard-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
+                           <span class="storyboard-title">${escapeHtml(title)}</span>
+                           ${headerActions}
+                       </div>
+                       <div class="storyboard-image-wrap${enableAnnotation ? ' scene-layout-annotation-wrap' : ''}">
+                           ${imageContent}
                        </div>
                        ${promptText ? `<div class="storyboard-prompt-toggle">
-                           <button class="btn-small" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.textContent = this.nextElementSibling.style.display === 'none' ? '显示场景母版生图提示词' : '隐藏场景母版生图提示词';">显示场景母版生图提示词</button>
+                           <button class="btn-small" onclick="this.nextElementSibling.style.display = this.nextElementSibling.style.display === 'none' ? 'block' : 'none'; this.textContent = this.nextElementSibling.style.display === 'none' ? '显示生图提示词' : '隐藏生图提示词';">显示生图提示词</button>
                            <pre class="result-text" style="display:none; margin-top:8px;">${escapeHtml(promptText)}</pre>
                        </div>` : ''}
                    </div>`;
+            };
+
+            const imageHtml = sceneCards.map((card, index) => {
+                const layoutPath = card.layout_path || card.overhead_path || '';
+                const explicitGridPath = card.grid_path || '';
+                const fallbackImagePath = card.image_path || card.path || '';
+                const gridPath = explicitGridPath || (layoutPath ? fallbackImagePath : '');
+                const legacyOnlyPath = !layoutPath && !explicitGridPath ? fallbackImagePath : '';
+                const title = card.scene_title || `场景${card.scene_number || index + 1}参考图`;
+                const sceneNumber = Number(card.scene_number || index + 1);
+                const cacheKey = card.updated_at || '';
+                const rerunButton = `<button class="btn-small" type="button" data-scene-card-rerun="${sceneNumber}"
+                                   onclick="regenerateSceneCard(${sceneNumber}, this); return false;">重跑本场景两张图</button>`;
+                const parts = [];
+                if (layoutPath) {
+                    parts.push(renderSceneReferenceImage(
+                        layoutPath,
+                        `${title}｜俯视布局图`,
+                        card.layout_prompt || '',
+                        sceneNumber,
+                        cacheKey,
+                        rerunButton,
+                        true,
+                    ));
+                }
+                if (gridPath) {
+                    parts.push(renderSceneReferenceImage(
+                        gridPath,
+                        `${title}｜九宫格机位图`,
+                        card.grid_prompt || card.prompt || '',
+                        sceneNumber,
+                        cacheKey,
+                        layoutPath ? '' : rerunButton,
+                    ));
+                }
+                if (legacyOnlyPath && parts.length === 0) {
+                    parts.push(renderSceneReferenceImage(
+                        legacyOnlyPath,
+                        `${title}｜场景参考图`,
+                        card.prompt || '',
+                        sceneNumber,
+                        cacheKey,
+                        rerunButton,
+                    ));
+                }
+                return parts.join('');
             }).join('');
-            return imageHtml + renderReadableAgentOutput('scene_analyst', text || '该 Agent 暂无输出');
+            const textHtml = text
+                ? renderReadableAgentOutput('scene_analyst', text)
+                : '<div class="placeholder-text">场景预分析文字尚未生成；如果图片也为空，请等待流水线完成或重跑场景参考图。</div>';
+            setTimeout(refreshSceneLayoutAnnotations, 0);
+            return imageHtml + textHtml;
         }
+
+        async function regenerateSceneCard(sceneNumber, triggerButton = null) {
+            const originalHtml = triggerButton ? triggerButton.innerHTML : '';
+            if (triggerButton) {
+                triggerButton.disabled = true;
+                triggerButton.innerHTML = '重跑中...';
+            }
+            document.getElementById('pipelineMsg').textContent = `正在重跑场景${sceneNumber}俯视图和九宫格图...`;
+            try {
+                const formData = new FormData();
+                formData.append('session_id', getSessionId());
+                formData.append('scene_number', String(sceneNumber));
+                const resp = await fetch('/api/regenerate_scene_card', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    showError(data.error || `场景${sceneNumber}参考图重跑失败`);
+                    return;
+                }
+                agentOutputs = (data.state && data.state.agent_outputs) || agentOutputs || {};
+                currentPublicState = data.state || currentPublicState || {};
+                document.getElementById('resultOutput').innerHTML = renderSceneAnalystOutput(agentOutputs);
+                document.getElementById('pipelineMsg').textContent = data.message || `场景${sceneNumber}参考图已重跑`;
+            } catch (e) {
+                showError('重跑场景参考图失败: ' + e.message);
+            } finally {
+                if (triggerButton) {
+                    triggerButton.disabled = false;
+                    triggerButton.innerHTML = originalHtml;
+                }
+            }
+        }
+        window.regenerateSceneCard = regenerateSceneCard;
 
         function renderStoryboardImages(outputs = {}) {
             const imageEntries = Object.keys(outputs)
