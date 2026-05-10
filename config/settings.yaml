@@ -41,7 +41,7 @@ agent_models:
   scene_card_designer:
     api_key: ${DIRECTOR_STORYBOARD_IMAGE_API_KEY}
     base_url: https://ai.comfly.chat/v1
-    model: gpt-image-2-all
+    model: gpt-image-2
     temperature: 0.25
     timeout_seconds: 180
     read_timeout_seconds: 180
