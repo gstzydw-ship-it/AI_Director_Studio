@@ -471,6 +471,97 @@ select option {
     background: var(--bg-secondary);
 }
 
+/* === 系统配置 === */
+.config-card {
+    max-width: 980px;
+}
+
+.config-form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.config-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(220px, 1fr));
+    gap: 14px;
+}
+
+.config-actions {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 10px;
+}
+
+.config-actions .btn-primary {
+    width: auto;
+    padding: 8px 14px;
+    font-size: 13px;
+}
+
+.config-status {
+    color: var(--text-secondary);
+    font-size: 12px;
+}
+
+.config-status.success {
+    color: var(--accent-success);
+}
+
+.config-status.error {
+    color: var(--accent-danger);
+}
+
+.config-section-title {
+    color: var(--text-primary);
+    font-size: 13px;
+    font-weight: 700;
+    margin-top: 4px;
+}
+
+.agent-model-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 10px;
+}
+
+.agent-model-row {
+    display: grid;
+    grid-template-columns: minmax(112px, 0.55fr) minmax(130px, 1fr);
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: rgba(15, 23, 42, 0.45);
+}
+
+.agent-model-row strong,
+.agent-model-row small {
+    display: block;
+}
+
+.agent-model-row strong {
+    color: var(--text-primary);
+    font-size: 12px;
+}
+
+.agent-model-row small {
+    color: var(--text-secondary);
+    font-size: 10px;
+    margin-top: 2px;
+}
+
+@media (max-width: 760px) {
+    .config-grid,
+    .agent-model-grid,
+    .agent-model-row {
+        grid-template-columns: 1fr;
+    }
+}
+
 /* === 按钮 === */
 .btn-primary {
     display: flex;

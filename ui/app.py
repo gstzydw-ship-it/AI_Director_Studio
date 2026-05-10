@@ -12,9 +12,12 @@ import threading
 import traceback
 import re
 import shutil
+import copy
 from io import BytesIO
 from datetime import datetime
 
+import httpx
+import yaml
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -29,7 +32,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from agents.knowledge_base import build_vectordb, load_config
 from agents.request_context import request_scope
-from agents.utils import COMFLY_BASE_URL
+from agents.utils import COMFLY_BASE_URL, get_config_path
 
 
 app = FastAPI(title="智能导演多Agent团队", version="0.2.0")
@@ -1970,19 +1973,215 @@ async def api_storyboard_image(path: str = ""):
 
 @app.get("/api/config")
 async def api_get_config():
-    config = load_config()
-    # 脱敏：隐藏所有 API key，但保留 base_url 和 model 供前端展示
-    if "llm" in config and "api_key" in config["llm"]:
-        config["llm"]["api_key"] = "***"
-    if "vectordb" in config and "api_key" in config["vectordb"]:
-        config["vectordb"]["api_key"] = "***"
-    for agent_config in config.get("agent_models", {}).values():
-        if isinstance(agent_config, dict) and "api_key" in agent_config:
-            agent_config["api_key"] = "***"
-    # 标记配置为后端锁定，前端不可覆盖
-    config["_config_locked"] = True
-    config["_config_note"] = "模型配置由 config/settings.yaml 定死，前端不可修改"
+    config = _public_model_config()
     return JSONResponse(config)
+
+
+def _load_raw_settings() -> dict:
+    config_path = get_config_path()
+    try:
+        with open(config_path, "r", encoding="utf-8-sig") as file:
+            data = yaml.safe_load(file) or {}
+    except FileNotFoundError:
+        data = {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"配置文件 YAML 解析失败：{exc}") from exc
+    return data if isinstance(data, dict) else {}
+
+
+def _save_raw_settings(config: dict) -> None:
+    config_path = get_config_path()
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as file:
+        yaml.safe_dump(config, file, allow_unicode=True, sort_keys=False)
+
+
+def _mask_config_key(section: dict) -> dict:
+    result = dict(section or {})
+    api_key = str(result.get("api_key") or "").strip()
+    result["api_key"] = ""
+    result["has_api_key"] = bool(api_key) and not _looks_like_env_placeholder(api_key)
+    return result
+
+
+def _looks_like_env_placeholder(value: str) -> bool:
+    text = str(value or "").strip()
+    return bool(re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", text) or re.fullmatch(r"%[A-Za-z_][A-Za-z0-9_]*%", text))
+
+
+def _public_model_config() -> dict:
+    raw_config = _load_raw_settings()
+    public_config = copy.deepcopy(raw_config)
+    public_config["llm"] = _mask_config_key(public_config.get("llm") or {})
+    public_config["vectordb"] = _mask_config_key(public_config.get("vectordb") or {})
+    agent_models = public_config.get("agent_models")
+    if isinstance(agent_models, dict):
+        for agent_config in agent_models.values():
+            if isinstance(agent_config, dict):
+                masked = _mask_config_key(agent_config)
+                agent_config.clear()
+                agent_config.update(masked)
+    public_config["_config_locked"] = False
+    public_config["_config_note"] = "模型配置可在前端修改，保存后写入本地 config/settings.yaml。"
+    public_config["_agent_labels"] = {
+        "director_showrunner": "剧情增强",
+        "rhythm_rewrite_director": "节奏总控",
+        "scene_analyst": "场景预分析",
+        "scene_vision_analyst": "场景视觉分析",
+        "scene_card_designer": "场景俯视/九宫格生图",
+        "story_planner": "拆片规划",
+        "shot_director": "三段镜头导演",
+        "prompt_compiler": "Seedance 编译",
+        "quality_inspector": "质检报告",
+        "storyboard_prompt_designer": "分镜提示词",
+        "storyboard_designer": "分镜图片生成",
+        "video_analyst": "视频/尾帧分析",
+        "script_event_validator": "剧本事件校验",
+    }
+    return public_config
+
+
+def _normalise_config_base_url(value: str) -> str:
+    base_url = str(value or "").strip()
+    if not base_url:
+        raise ValueError("中转站地址不能为空。")
+    if not base_url.startswith(("http://", "https://")):
+        base_url = "https://" + base_url
+    return base_url.rstrip("/")
+
+
+def _normalise_optional_model(value: object) -> str:
+    return str(value or "").strip()
+
+
+@app.post("/api/model_list")
+async def api_model_list(request: Request):
+    if not _is_local_request(request):
+        return JSONResponse({"success": False, "error": "模型列表仅允许本机管理员拉取。"}, status_code=403)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    try:
+        base_url = _normalise_config_base_url(str(payload.get("base_url") or ""))
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    api_key = str(payload.get("api_key") or "").strip()
+    if not api_key or api_key == "***":
+        raw_config = _load_raw_settings()
+        api_key = str((raw_config.get("llm") or {}).get("api_key") or "").strip()
+    if _looks_like_env_placeholder(api_key):
+        api_key = ""
+    if not api_key:
+        return JSONResponse({"success": False, "error": "请先填写 API Key，再拉取模型列表。"}, status_code=400)
+
+    try:
+        with httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+            resp = client.get(
+                f"{base_url}/models",
+                headers={"Authorization": f"Bearer {api_key}"},
+            )
+        if resp.status_code >= 400:
+            return JSONResponse(
+                {
+                    "success": False,
+                    "error": f"模型列表接口返回 HTTP {resp.status_code}: {resp.text[:500]}",
+                },
+                status_code=resp.status_code,
+            )
+        data = resp.json()
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"拉取模型列表失败：{type(exc).__name__}: {exc}"}, status_code=500)
+
+    raw_models = data.get("data") if isinstance(data, dict) else data
+    models: list[str] = []
+    if isinstance(raw_models, list):
+        for item in raw_models:
+            if isinstance(item, dict):
+                model_id = item.get("id") or item.get("name")
+            else:
+                model_id = item
+            model_id = str(model_id or "").strip()
+            if model_id:
+                models.append(model_id)
+    models = sorted(set(models), key=lambda item: item.lower())
+    embedding_models = [
+        model for model in models
+        if any(marker in model.lower() for marker in ("embed", "embedding", "bge", "text-embedding"))
+    ]
+    return JSONResponse({"success": True, "models": models, "embedding_models": embedding_models})
+
+
+@app.post("/api/config")
+async def api_save_config(request: Request):
+    if not _is_local_request(request):
+        return JSONResponse({"success": False, "error": "系统配置仅允许本机管理员保存。"}, status_code=403)
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"配置请求不是合法 JSON：{exc}"}, status_code=400)
+
+    try:
+        base_url = _normalise_config_base_url(str(payload.get("base_url") or ""))
+        api_key = str(payload.get("api_key") or "").strip()
+        default_model = _normalise_optional_model(payload.get("default_model"))
+        embedding_model = _normalise_optional_model(payload.get("embedding_model"))
+        agent_models_payload = payload.get("agent_models") or {}
+        if not isinstance(agent_models_payload, dict):
+            raise ValueError("agent_models 必须是对象。")
+        raw_config = _load_raw_settings()
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+
+    existing_llm_key = str((raw_config.get("llm") or {}).get("api_key") or "").strip()
+    if _looks_like_env_placeholder(existing_llm_key):
+        existing_llm_key = ""
+    resolved_key = api_key if api_key and api_key != "***" else existing_llm_key
+    if not resolved_key:
+        return JSONResponse({"success": False, "error": "API Key 不能为空。"}, status_code=400)
+
+    llm_config = raw_config.setdefault("llm", {})
+    if not isinstance(llm_config, dict):
+        llm_config = {}
+        raw_config["llm"] = llm_config
+    llm_config["api_key"] = resolved_key
+    llm_config["base_url"] = base_url
+    if default_model:
+        llm_config["model"] = default_model
+
+    vectordb_config = raw_config.setdefault("vectordb", {})
+    if not isinstance(vectordb_config, dict):
+        vectordb_config = {}
+        raw_config["vectordb"] = vectordb_config
+    vectordb_config["api_key"] = resolved_key
+    vectordb_config["base_url"] = base_url
+    if embedding_model:
+        vectordb_config["embedding_model"] = embedding_model
+
+    agent_models = raw_config.setdefault("agent_models", {})
+    if not isinstance(agent_models, dict):
+        agent_models = {}
+        raw_config["agent_models"] = agent_models
+
+    known_agents = set((_public_model_config().get("_agent_labels") or {}).keys())
+    known_agents.update(str(key) for key in agent_models.keys())
+    for agent_name in sorted(known_agents):
+        selected_model = _normalise_optional_model(agent_models_payload.get(agent_name))
+        agent_config = agent_models.setdefault(agent_name, {})
+        if not isinstance(agent_config, dict):
+            agent_config = {}
+            agent_models[agent_name] = agent_config
+        agent_config["api_key"] = resolved_key
+        agent_config["base_url"] = base_url
+        if selected_model:
+            agent_config["model"] = selected_model
+
+    try:
+        _save_raw_settings(raw_config)
+    except OSError as exc:
+        return JSONResponse({"success": False, "error": f"保存配置失败：{exc}"}, status_code=500)
+
+    return JSONResponse({"success": True, "message": "系统配置已保存。", "config": _public_model_config()})
 
 
 @app.post("/api/build_vectordb")

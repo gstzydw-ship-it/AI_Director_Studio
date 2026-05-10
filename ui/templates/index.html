@@ -241,19 +241,47 @@
             <div class="tab-panel" id="tab-config">
                 <div class="panel-header">
                     <h2>⚙️ 系统配置</h2>
-                    <p>模型连接由后端统一管理</p>
+                    <p>配置中转站、API Key、Embedding 模型和每个 Agent 使用的模型</p>
                 </div>
-                <div class="card" style="max-width: 600px;">
+                <div class="card config-card">
                     <div class="card-header">
-                        <h3>统一中转站</h3>
+                        <h3>模型中转站</h3>
                     </div>
-                    <div class="card-body">
-                        <p style="color: var(--text-secondary); margin-bottom: 12px;">
-                            所有 Agent 与向量库固定走 https://ai.comfly.chat/v1。
-                        </p>
-                        <p style="color: var(--text-secondary);">
-                            API Key 与模型分配只从后端配置读取，浏览器不再保存或提交 API 配置。
-                        </p>
+                    <div class="card-body config-form">
+                        <div class="config-grid">
+                            <div class="setting-group">
+                                <label>中转站 Base URL</label>
+                                <input type="text" id="configBaseUrl" placeholder="https://www.xkwuai.cn/v1">
+                            </div>
+                            <div class="setting-group">
+                                <label>API Key</label>
+                                <input type="password" id="configApiKey" placeholder="留空则保留已保存密钥">
+                            </div>
+                        </div>
+                        <div class="config-actions">
+                            <button class="btn-small" type="button" onclick="fetchModelList(this)">拉取模型列表</button>
+                            <button class="btn-primary" type="button" onclick="saveSystemConfig(this)">保存当前配置</button>
+                            <span id="configStatus" class="config-status"></span>
+                        </div>
+
+                        <datalist id="modelOptions"></datalist>
+                        <datalist id="embeddingModelOptions"></datalist>
+
+                        <div class="config-grid">
+                            <div class="setting-group">
+                                <label>默认文本模型</label>
+                                <input type="text" id="configDefaultModel" list="modelOptions" placeholder="先拉取模型列表后选择">
+                            </div>
+                            <div class="setting-group">
+                                <label>向量嵌入模型</label>
+                                <input type="text" id="configEmbeddingModel" list="embeddingModelOptions" placeholder="选择 embedding 模型">
+                            </div>
+                        </div>
+
+                        <div class="config-section-title">Agent 模型分配</div>
+                        <div id="agentModelGrid" class="agent-model-grid">
+                            <div class="placeholder-text">正在读取配置...</div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -299,6 +327,10 @@
         let referenceItems = [];
         const MAX_REFERENCE_IMAGES = 12;
         const SESSION_STORAGE_KEY = 'director_session_id';
+        const DEFAULT_MODEL_BASE_URL = 'https://www.xkwuai.cn/v1';
+        let systemConfig = {};
+        let availableModels = [];
+        let availableEmbeddingModels = [];
 
         function createSessionId() {
             const randomPart = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '');
@@ -320,6 +352,147 @@
 
         function appendSession(formData) {
             formData.append('session_id', getSessionId());
+        }
+
+        function setConfigStatus(message, type = 'info') {
+            const el = document.getElementById('configStatus');
+            if (!el) return;
+            el.textContent = message || '';
+            el.className = `config-status ${type}`;
+        }
+
+        function modelOptionHtml(models = []) {
+            return models.map(model => `<option value="${escapeHtml(model)}"></option>`).join('');
+        }
+
+        function refreshModelDatalists() {
+            const modelOptions = document.getElementById('modelOptions');
+            const embeddingOptions = document.getElementById('embeddingModelOptions');
+            if (modelOptions) modelOptions.innerHTML = modelOptionHtml(availableModels);
+            if (embeddingOptions) {
+                embeddingOptions.innerHTML = modelOptionHtml(
+                    availableEmbeddingModels.length ? availableEmbeddingModels : availableModels
+                );
+            }
+        }
+
+        function renderAgentModelGrid(config = {}) {
+            const grid = document.getElementById('agentModelGrid');
+            if (!grid) return;
+            const agentModels = config.agent_models || {};
+            const labels = config._agent_labels || {};
+            const names = Array.from(new Set([...Object.keys(labels), ...Object.keys(agentModels)])).sort();
+            if (!names.length) {
+                grid.innerHTML = '<div class="placeholder-text">暂无 Agent 配置。</div>';
+                return;
+            }
+            grid.innerHTML = names.map(name => {
+                const cfg = agentModels[name] || {};
+                const label = labels[name] || name;
+                const value = cfg.model || '';
+                return `
+                    <label class="agent-model-row">
+                        <span>
+                            <strong>${escapeHtml(label)}</strong>
+                            <small>${escapeHtml(name)}</small>
+                        </span>
+                        <input type="text" data-agent-model="${escapeHtml(name)}" list="modelOptions" value="${escapeHtml(value)}" placeholder="选择模型">
+                    </label>
+                `;
+            }).join('');
+        }
+
+        async function loadSystemConfig() {
+            const grid = document.getElementById('agentModelGrid');
+            if (grid) grid.innerHTML = '<div class="placeholder-text">正在读取配置...</div>';
+            try {
+                const resp = await fetch('/api/config');
+                const config = await resp.json();
+                systemConfig = config || {};
+                const llm = systemConfig.llm || {};
+                const vectordb = systemConfig.vectordb || {};
+                document.getElementById('configBaseUrl').value = llm.base_url || vectordb.base_url || DEFAULT_MODEL_BASE_URL;
+                document.getElementById('configApiKey').value = '';
+                document.getElementById('configApiKey').placeholder = llm.has_api_key ? '已保存，留空不修改' : '请输入 API Key';
+                document.getElementById('configDefaultModel').value = llm.model || '';
+                document.getElementById('configEmbeddingModel').value = vectordb.embedding_model || '';
+                renderAgentModelGrid(systemConfig);
+                setConfigStatus(systemConfig._config_note || '配置已读取。', 'info');
+            } catch (e) {
+                setConfigStatus('读取配置失败：' + e.message, 'error');
+                if (grid) grid.innerHTML = '<div class="placeholder-text">配置读取失败。</div>';
+            }
+        }
+
+        async function fetchModelList(button = null) {
+            const originalText = button ? button.textContent : '';
+            if (button) {
+                button.disabled = true;
+                button.textContent = '拉取中...';
+            }
+            setConfigStatus('正在拉取模型列表...', 'info');
+            try {
+                const resp = await fetch('/api/model_list', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        base_url: document.getElementById('configBaseUrl').value.trim(),
+                        api_key: document.getElementById('configApiKey').value.trim(),
+                    }),
+                });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error || '模型列表拉取失败');
+                availableModels = data.models || [];
+                availableEmbeddingModels = data.embedding_models || [];
+                refreshModelDatalists();
+                setConfigStatus(`已拉取 ${availableModels.length} 个模型。`, 'success');
+            } catch (e) {
+                setConfigStatus('拉取模型列表失败：' + e.message, 'error');
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            }
+        }
+
+        async function saveSystemConfig(button = null) {
+            const originalText = button ? button.textContent : '';
+            if (button) {
+                button.disabled = true;
+                button.textContent = '保存中...';
+            }
+            const agentModels = {};
+            document.querySelectorAll('[data-agent-model]').forEach(input => {
+                agentModels[input.dataset.agentModel] = input.value.trim();
+            });
+            try {
+                const resp = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        base_url: document.getElementById('configBaseUrl').value.trim(),
+                        api_key: document.getElementById('configApiKey').value.trim(),
+                        default_model: document.getElementById('configDefaultModel').value.trim(),
+                        embedding_model: document.getElementById('configEmbeddingModel').value.trim(),
+                        agent_models: agentModels,
+                    }),
+                });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error || '保存失败');
+                systemConfig = data.config || systemConfig;
+                document.getElementById('configApiKey').value = '';
+                document.getElementById('configApiKey').placeholder = '已保存，留空不修改';
+                renderAgentModelGrid(systemConfig);
+                setConfigStatus(data.message || '配置已保存。', 'success');
+            } catch (e) {
+                setConfigStatus('保存失败：' + e.message, 'error');
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            }
         }
 
         function hasRestorableState(state) {
@@ -1375,6 +1548,7 @@
         // 页面初始化：恢复后端状态（刷新不丢数据）
         window.addEventListener('DOMContentLoaded', async () => {
             loadReferenceLibrary();
+            loadSystemConfig();
             try {
                 const resp = await fetch(statusUrl());
                 let state = await resp.json();
