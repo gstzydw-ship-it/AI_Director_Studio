@@ -15,6 +15,7 @@ import shutil
 import copy
 from io import BytesIO
 from datetime import datetime
+from time import perf_counter
 
 import httpx
 import yaml
@@ -2267,6 +2268,90 @@ def _write_profile_credentials(section: dict, api_key: str, base_url: str) -> No
     section["base_url"] = base_url
 
 
+def _agent_connection_preview(response: httpx.Response) -> str:
+    body = response.text.strip().replace("\r", " ").replace("\n", " ")
+    if len(body) > 260:
+        body = body[:260] + "..."
+    return body or response.reason_phrase or "empty response"
+
+
+async def _probe_agent_connection(
+    *,
+    agent_name: str,
+    label: str,
+    category: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+) -> dict:
+    started = perf_counter()
+    result = {
+        "agent": agent_name,
+        "label": label,
+        "category": category,
+        "base_url": base_url,
+        "model": model,
+        "success": False,
+        "latency_ms": None,
+        "message": "",
+    }
+    if not base_url:
+        result["message"] = "缺少 Base URL"
+        return result
+    if not api_key:
+        result["message"] = "缺少 API Key"
+        return result
+    if not model:
+        result["message"] = "未选择模型"
+        return result
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "你是连通性测试端点，只需回复 OK。"},
+            {"role": "user", "content": f"测试 {label} ({agent_name}) 的模型连通性，请只回复 OK。"},
+        ],
+        "temperature": 0,
+        "max_tokens": 8,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    timeout = httpx.Timeout(20.0, connect=8.0, read=20.0, write=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            response = await client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=payload)
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        if response.status_code >= 400:
+            result["message"] = f"HTTP {response.status_code}: {_agent_connection_preview(response)}"
+            return result
+        try:
+            data = response.json()
+        except ValueError:
+            result["message"] = f"返回非 JSON: {_agent_connection_preview(response)}"
+            return result
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not isinstance(choices, list) or not choices:
+            result["message"] = "响应缺少 choices 字段"
+            return result
+        result["success"] = True
+        result["message"] = "连接正常"
+        return result
+    except httpx.TimeoutException as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"请求超时: {type(exc).__name__}"
+        return result
+    except httpx.HTTPError as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"请求失败: {type(exc).__name__}: {exc}"
+        return result
+    except Exception as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"测试异常: {type(exc).__name__}: {exc}"
+        return result
+
+
 @app.post("/api/config")
 async def api_save_config(request: Request):
     if not _is_local_request(request):
@@ -2349,10 +2434,125 @@ async def api_save_config(request: Request):
     return JSONResponse({"success": True, "message": "系统配置已保存。", "config": _public_model_config()})
 
 
+@app.post("/api/test_agent_connections")
+async def api_test_agent_connections(request: Request):
+    if not _is_local_request(request):
+        return JSONResponse({"success": False, "error": "Agent 连通性测试仅允许本机管理员执行。"}, status_code=403)
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"测试请求不是合法 JSON：{exc}"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"success": False, "error": "测试请求必须是 JSON 对象。"}, status_code=400)
+
+    try:
+        raw_config = _load_raw_settings()
+        text_base_url = _normalise_config_base_url(
+            payload.get("text_base_url") or payload.get("base_url") or _profile_source(raw_config, "text").get("base_url") or ""
+        )
+        image_base_url = _normalise_config_base_url(
+            payload.get("image_base_url") or _profile_source(raw_config, "image").get("base_url") or text_base_url
+        )
+        text_key = _resolve_saved_api_key(raw_config, "text", str(payload.get("text_api_key") or payload.get("api_key") or "").strip())
+        image_key = _resolve_saved_api_key(raw_config, "image", str(payload.get("image_api_key") or "").strip(), fallback_key=text_key)
+        agent_models_payload = payload.get("agent_models") or {}
+        if not isinstance(agent_models_payload, dict):
+            raise ValueError("agent_models 必须是对象。")
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"读取测试配置失败：{exc}"}, status_code=500)
+
+    raw_agent_models = raw_config.get("agent_models") or {}
+    if not isinstance(raw_agent_models, dict):
+        raw_agent_models = {}
+    agent_names = sorted(set(AGENT_LABELS.keys()) | {str(name) for name in raw_agent_models.keys()} | {str(name) for name in agent_models_payload.keys()})
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def _run_probe(agent_name: str) -> dict:
+        category = _agent_category(agent_name)
+        stored_agent = raw_agent_models.get(agent_name) if isinstance(raw_agent_models.get(agent_name), dict) else {}
+        model = _normalise_optional_model(agent_models_payload.get(agent_name) or stored_agent.get("model"))
+        base_url = image_base_url if category == "image" else text_base_url
+        api_key = image_key if category == "image" else text_key
+        async with semaphore:
+            return await _probe_agent_connection(
+                agent_name=agent_name,
+                label=AGENT_LABELS.get(agent_name, agent_name),
+                category=category,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+            )
+
+    results = await asyncio.gather(*(_run_probe(agent_name) for agent_name in agent_names))
+    ok_count = sum(1 for item in results if item.get("success"))
+    return JSONResponse({
+        "success": ok_count == len(results),
+        "summary": {
+            "total": len(results),
+            "ok": ok_count,
+            "failed": len(results) - ok_count,
+        },
+        "results": results,
+    })
+
+
 @app.post("/api/build_vectordb")
 async def api_build_vectordb(request: Request):
     if not _is_local_request(request):
         return JSONResponse({"success": False, "error": "知识库重建仅允许本机管理员执行。"})
+    with vectordb_build_lock:
+        if vectordb_build_status.get("status") == "running":
+            return JSONResponse({
+                "success": True,
+                "status": "running",
+                "message": vectordb_build_status.get("message", "向量知识库正在构建中"),
+            })
+
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    try:
+        raw_config = _load_raw_settings()
+        vectordb_config = _ensure_config_section(raw_config, "vectordb")
+        embedding_base_url = _normalise_config_base_url(
+            payload.get("embedding_base_url")
+            or payload.get("base_url")
+            or vectordb_config.get("base_url")
+            or ""
+        )
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"读取向量配置失败：{exc}"}, status_code=500)
+
+    embedding_model = _normalise_optional_model(
+        payload.get("embedding_model") or payload.get("model") or vectordb_config.get("embedding_model")
+    )
+    if not embedding_model:
+        return JSONResponse({"success": False, "error": "请先选择向量嵌入模型。"}, status_code=400)
+    embedding_key = _resolve_saved_api_key(
+        raw_config,
+        "embedding",
+        str(payload.get("embedding_api_key") or payload.get("api_key") or "").strip(),
+    )
+    if _looks_like_env_placeholder(embedding_key):
+        embedding_key = ""
+    if not embedding_key:
+        return JSONResponse({"success": False, "error": "请先填写向量嵌入 API Key。"}, status_code=400)
+
+    _write_profile_credentials(vectordb_config, embedding_key, embedding_base_url)
+    vectordb_config["embedding_model"] = embedding_model
+    try:
+        _save_raw_settings(raw_config)
+    except OSError as exc:
+        return JSONResponse({"success": False, "error": f"保存向量配置失败：{exc}"}, status_code=500)
 
     with vectordb_build_lock:
         if vectordb_build_status.get("status") == "running":
@@ -2381,11 +2581,18 @@ async def api_build_vectordb(request: Request):
                     "finished_at": datetime.now().isoformat(timespec="seconds"),
                 })
         except Exception as e:
+            error_detail = str(e) or type(e).__name__
+            if error_detail == "Connection error.":
+                error_detail = (
+                    "Embedding 中转站连接失败。"
+                    f"当前向量模型：{embedding_model or '未配置'}；Base URL：{embedding_base_url or '未配置'}。"
+                    "请检查该地址是否能访问 /v1/models 和 /v1/embeddings，或在模型配置页把“向量嵌入”切到可用的中转站/API Key。"
+                )
             with vectordb_build_lock:
                 vectordb_build_status.update({
                     "status": "error",
                     "message": "向量知识库构建失败",
-                    "error": str(e),
+                    "error": error_detail,
                     "finished_at": datetime.now().isoformat(timespec="seconds"),
                 })
 

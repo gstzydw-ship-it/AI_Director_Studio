@@ -92,3 +92,63 @@ def test_model_list_api_reports_non_json_without_raw_jsondecodeerror(monkeypatch
     assert data["success"] is False
     assert "不是合法 JSON" in data["error"]
     assert "JSONDecodeError" not in data["error"]
+
+
+def test_agent_connection_test_uses_current_form_profiles(monkeypatch):
+    import ui.app as web_app
+
+    calls: list[dict] = []
+
+    async def fake_probe(**kwargs):
+        calls.append(kwargs)
+        return {
+            "agent": kwargs["agent_name"],
+            "label": kwargs["label"],
+            "category": kwargs["category"],
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+            "latency_ms": 12,
+            "message": "连接正常",
+        }
+
+    monkeypatch.setattr(web_app, "AGENT_LABELS", {
+        "director_showrunner": "剧情增强",
+        "scene_card_designer": "场景俯视/九宫格生图",
+    })
+    monkeypatch.setattr(web_app, "AGENT_CATEGORIES", {"scene_card_designer": "image"})
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "old-text-key", "base_url": "https://old-text.example/v1"},
+        "image_generation": {"api_key": "old-image-key", "base_url": "https://old-image.example/v1"},
+        "agent_models": {
+            "director_showrunner": {"model": "old-text-model"},
+            "scene_card_designer": {"model": "old-image-model"},
+        },
+    })
+    monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
+
+    response = asyncio.run(
+        web_app.api_test_agent_connections(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "image-key",
+                "agent_models": {
+                    "director_showrunner": "gpt-5.5",
+                    "scene_card_designer": "gpt-image-2",
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    by_agent = {call["agent_name"]: call for call in calls}
+    assert by_agent["director_showrunner"]["base_url"] == "https://text.example/v1"
+    assert by_agent["director_showrunner"]["api_key"] == "text-key"
+    assert by_agent["director_showrunner"]["model"] == "gpt-5.5"
+    assert by_agent["scene_card_designer"]["base_url"] == "https://image.example/v1"
+    assert by_agent["scene_card_designer"]["api_key"] == "image-key"
+    assert by_agent["scene_card_designer"]["model"] == "gpt-image-2"

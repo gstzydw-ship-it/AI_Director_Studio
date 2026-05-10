@@ -15,22 +15,25 @@
     <div class="app-container">
         <aside class="sidebar">
             <div class="sidebar-header">
-                <div class="logo">🎬</div>
-                <h1>智能导演</h1>
-                <span class="version">LANGGRAPH V0.3</span>
+                <div class="logo-mark">ADS</div>
+                <div>
+                    <h1>AI Director Studio</h1>
+                    <span class="version">LangGraph v0.3</span>
+                </div>
             </div>
             <nav class="sidebar-nav">
                 <button class="nav-item active" data-tab="workspace">
-                    <span class="nav-icon">🎯</span><span>工作台</span>
+                    <span class="nav-icon">01</span><span>导演工作台</span>
                 </button>
                 <button class="nav-item" data-tab="config">
-                    <span class="nav-icon">⚙️</span><span>系统配置</span>
+                    <span class="nav-icon">02</span><span>模型配置</span>
                 </button>
                 <button class="nav-item" data-tab="knowledge">
-                    <span class="nav-icon">📚</span><span>知识库</span>
+                    <span class="nav-icon">03</span><span>知识库</span>
                 </button>
             </nav>
             <div class="sidebar-footer">
+                <div class="sidebar-label">本地会话</div>
                 <div class="agent-status" id="agentStatus">
                     <div class="status-dot idle"></div>
                     <span>Agent 就绪</span>
@@ -42,22 +45,62 @@
             <!-- 工作台 -->
             <div class="tab-panel active" id="tab-workspace">
                 <div class="panel-header">
-                    <h2>🎯 导演工作台</h2>
-                    <p>输入剧本，多Agent团队将自动完成全流程</p>
+                    <div>
+                        <span class="eyebrow">Director Console</span>
+                        <h2>导演工作台</h2>
+                    </div>
+                    <p>剧本、参考图、流水线状态和最终 Prompt 集中在一个视野里。</p>
+                </div>
+                <div class="workspace-summary">
+                    <div class="summary-item">
+                        <span>当前状态</span>
+                        <strong id="workspaceStatusText">就绪</strong>
+                    </div>
+                    <div class="summary-item">
+                        <span>参考素材</span>
+                        <strong id="workspaceRefCount">0 张</strong>
+                    </div>
+                    <div class="summary-item">
+                        <span>输出目标</span>
+                        <strong>Seedance Prompt</strong>
+                    </div>
                 </div>
                 <div class="workspace-grid">
                     <div class="input-section">
-                        <div class="card">
+                        <section class="card script-card">
                             <div class="card-header">
-                                <h3>📝 剧本输入</h3>
+                                <div>
+                                    <span class="section-kicker">Source</span>
+                                    <h3>剧本输入</h3>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <textarea id="scriptInput" placeholder="粘贴你的剧本片段..."></textarea>
                             </div>
+                        </section>
+                        <div class="btn-row command-row">
+                            <button class="btn-primary" id="btnRun" onclick="startPipeline()">
+                                启动导演流水线
+                            </button>
+                            <button class="btn-abort" id="btnAbort" onclick="abortPipeline()" style="display:none;">
+                                中断任务
+                            </button>
+                            <button class="btn-clear" id="btnClearTask" onclick="clearPreviousSegment()">
+                                清除上一段
+                            </button>
+                            <button class="btn-clear" id="btnNewTask" onclick="startBlankTask()">
+                                新建空白任务
+                            </button>
+                            <button class="btn-restore" id="btnRestoreTask" onclick="restoreLatestSessionManual()">
+                                恢复最近任务
+                            </button>
                         </div>
-                        <div class="card">
+                        <section class="card controls-card">
                             <div class="card-header">
-                                <h3>🎛️ 参数设置</h3>
+                                <div>
+                                    <span class="section-kicker">Controls</span>
+                                    <h3>运行设置</h3>
+                                </div>
                             </div>
                             <div class="card-body settings-stack">
                                 <div class="settings-row">
@@ -74,61 +117,50 @@
                                             <input type="checkbox" id="speedMode">
                                             <span>快速模式</span>
                                         </label>
-                                        <small>跳过场景预分析LLM和质检LLM，保留拆片与Prompt编译。</small>
+                                        <small>跳过预分析和质检，保留拆片与 Prompt 编译。</small>
                                     </div>
                                 </div>
-                                <div class="setting-group">
-                                    <label>添加参考图（可选，可多次添加）</label>
-                                    <div style="display: flex; gap: 10px; align-items: center; margin-bottom: 8px;">
-                                        <select id="refLibrarySelect" style="flex: 1;" onchange="addReferenceFromLibrary(this.value); this.value='';">
+                                <div class="reference-panel">
+                                    <div class="reference-panel-head">
+                                        <div>
+                                            <label>参考图</label>
+                                            <small>人物、空间、服装和位置关系都可以分批加入。</small>
+                                        </div>
+                                        <button type="button" class="btn-small" onclick="clearReferenceImages()">清空</button>
+                                    </div>
+                                    <div class="reference-picker-row">
+                                        <select id="refLibrarySelect" onchange="addReferenceFromLibrary(this.value); this.value='';">
                                             <option value="">-- 正在加载本地库... --</option>
                                         </select>
-                                        <span style="font-size: 12px; color: var(--text-muted);">或</span>
-                                        <input type="file" id="refImageFiles" accept="image/png, image/jpeg, image/webp" multiple style="flex: 1; padding: 6px;">
+                                        <input type="file" id="refImageFiles" accept="image/png, image/jpeg, image/webp" multiple>
                                     </div>
-                                    <small>已添加的图片会保留并生成 @图片 编号；建议包含主角人物、对手人物、场景空间，也可继续添加位置关系图、服装道具图。单次最多 12 张，后端会自动压缩后再发给模型。</small>
                                     <div class="reference-toolbar">
                                         <span id="refImageCount">已添加 0 张</span>
-                                        <button type="button" class="btn-small" onclick="clearReferenceImages()">清空参考图</button>
                                     </div>
                                     <div id="refPreviewGrid" class="reference-grid">
                                         <div class="reference-empty">还没有参考图。可以分批添加，后添加的不会覆盖前面的。</div>
                                     </div>
                                 </div>
                                 <div class="setting-group">
-                                    <label>参考图说明（可选）</label>
+                                    <label>参考图说明</label>
                                     <textarea id="refImages" class="reference-notes" placeholder="可用 @图片1、@图片2 调用上方缩略图，例如：@图片1 商北琛人物参考，只锁定五官发型和黑色高定西装；@图片3 天御集团大堂，只锁定空间、轴线、冷白顶光。"></textarea>
                                 </div>
                             </div>
-                        </div>
-                        <div class="btn-row">
-                            <button class="btn-primary" id="btnRun" onclick="startPipeline()">
-                                <span class="btn-icon">🚀</span> 启动导演流水线
-                            </button>
-                            <button class="btn-abort" id="btnAbort" onclick="abortPipeline()" style="display:none;">
-                                <span class="btn-icon">⏹</span> 中断任务
-                            </button>
-                            <button class="btn-clear" id="btnClearTask" onclick="clearPreviousSegment()">
-                                <span class="btn-icon">↩</span> 清除上一段
-                            </button>
-                            <button class="btn-clear" id="btnNewTask" onclick="startBlankTask()">
-                                <span class="btn-icon">+</span> 新建空白任务
-                            </button>
-                            <button class="btn-restore" id="btnRestoreTask" onclick="restoreLatestSessionManual()">
-                                <span class="btn-icon">↻</span> 恢复最近任务
-                            </button>
-                        </div>
+                        </section>
                     </div>
 
                     <div class="output-section">
-                        <div class="card pipeline-card">
+                        <section class="card pipeline-card">
                             <div class="card-header">
-                                <h3>🔄 Agent 流水线</h3>
+                                <div>
+                                    <span class="section-kicker">Pipeline</span>
+                                    <h3>Agent 流水线</h3>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <div class="pipeline-steps">
                                     <div class="step" id="step-analyze">
-                                        <div class="step-icon">📋</div>
+                                        <div class="step-icon">01</div>
                                         <div class="step-info">
                                             <div class="step-name">场景预分析</div>
                                             <div class="step-desc">参考图/站位/空间</div>
@@ -137,7 +169,7 @@
                                     </div>
                                     <div class="step-arrow">→</div>
                                     <div class="step" id="step-enhance">
-                                        <div class="step-icon">📝</div>
+                                        <div class="step-icon">02</div>
                                         <div class="step-info">
                                             <div class="step-name">剧情增强</div>
                                             <div class="step-desc">弱冲突可拍化</div>
@@ -146,7 +178,7 @@
                                     </div>
                                     <div class="step-arrow">→</div>
                                     <div class="step" id="step-rhythm">
-                                        <div class="step-icon">🎼</div>
+                                        <div class="step-icon">03</div>
                                         <div class="step-info">
                                             <div class="step-name">节奏总控</div>
                                             <div class="step-desc">快慢/停顿/卡断</div>
@@ -155,7 +187,7 @@
                                     </div>
                                     <div class="step-arrow">→</div>
                                     <div class="step" id="step-plan">
-                                        <div class="step-icon">🎬</div>
+                                        <div class="step-icon">04</div>
                                         <div class="step-info">
                                             <div class="step-name">结构规划</div>
                                             <div class="step-desc">拆片/连续性</div>
@@ -164,7 +196,7 @@
                                     </div>
                                     <div class="step-arrow">→</div>
                                     <div class="step" id="step-direct">
-                                        <div class="step-icon">🎥</div>
+                                        <div class="step-icon">05</div>
                                         <div class="step-info">
                                             <div class="step-name">三段镜头导演</div>
                                             <div class="step-desc">摆位/调度/守门</div>
@@ -173,7 +205,7 @@
                                     </div>
                                     <div class="step-arrow">→</div>
                                     <div class="step" id="step-storyboard">
-                                        <div class="step-icon">🎨</div>
+                                        <div class="step-icon">06</div>
                                         <div class="step-info">
                                             <div class="step-name">分镜流程图</div>
                                             <div class="step-desc">可视化设计</div>
@@ -182,7 +214,7 @@
                                     </div>
                                     <div class="step-arrow">→</div>
                                     <div class="step" id="step-compile">
-                                        <div class="step-icon">✍️</div>
+                                        <div class="step-icon">07</div>
                                         <div class="step-info">
                                             <div class="step-name">Seedance编译</div>
                                             <div class="step-desc">单段Prompt</div>
@@ -191,7 +223,7 @@
                                     </div>
                                     <div class="step-arrow">→</div>
                                     <div class="step" id="step-inspect">
-                                        <div class="step-icon">🔍</div>
+                                        <div class="step-icon">08</div>
                                         <div class="step-info">
                                             <div class="step-name">质检导演</div>
                                             <div class="step-desc">判例/返修</div>
@@ -201,38 +233,41 @@
                                 </div>
                                 <div id="pipelineMsg" class="pipeline-msg"></div>
                             </div>
-                        </div>
+                        </section>
 
-                        <div class="card result-card">
+                        <section class="card result-card">
                             <div class="card-header">
-                                <h3>📄 执行结果</h3>
-                                <button class="btn-small" onclick="copyCurrentTab()">📋 复制当前</button>
+                                <div>
+                                    <span class="section-kicker">Output</span>
+                                    <h3>执行结果</h3>
+                                </div>
+                                <button class="btn-small" onclick="copyCurrentTab()">复制当前</button>
                             </div>
                             <div class="card-body">
                                 <div class="result-tabs" id="resultTabs" style="display:none;">
                                     <button class="result-tab active" data-agent="scene_analyst"
-                                        onclick="switchResultTab(this)">📋 场景预分析</button>
+                                        onclick="switchResultTab(this)">场景预分析</button>
                                     <button class="result-tab" data-agent="director_showrunner"
-                                        onclick="switchResultTab(this)">📝 剧情增强</button>
+                                        onclick="switchResultTab(this)">剧情增强</button>
                                     <button class="result-tab" data-agent="rhythm_rewrite_director"
-                                        onclick="switchResultTab(this)">🎼 节奏策略</button>
+                                        onclick="switchResultTab(this)">节奏策略</button>
                                     <button class="result-tab" data-agent="story_planner"
-                                        onclick="switchResultTab(this)">🎬 拆片规划</button>
+                                        onclick="switchResultTab(this)">拆片规划</button>
                                     <button class="result-tab" data-agent="shot_director"
-                                        onclick="switchResultTab(this)">🎥 三段镜头</button>
+                                        onclick="switchResultTab(this)">三段镜头</button>
                                     <button class="result-tab" data-agent="storyboard_designer"
-                                        onclick="switchResultTab(this)">🎨 分镜流程图</button>
+                                        onclick="switchResultTab(this)">分镜流程图</button>
                                     <button class="result-tab" data-agent="prompt_compiler"
-                                        onclick="switchResultTab(this)">✍️ Seedance编译</button>
+                                        onclick="switchResultTab(this)">Seedance编译</button>
                                     <button class="result-tab" data-agent="quality_inspector"
-                                        onclick="switchResultTab(this)">🔍 质检报告</button>
+                                        onclick="switchResultTab(this)">质检报告</button>
                                 </div>
                                 <div id="resultOutput" class="result-output">
                                     <div class="placeholder-text">等待执行...</div>
                                 </div>
                                 <div id="interactiveBox"></div>
                             </div>
-                        </div>
+                        </section>
                     </div>
                 </div>
             </div>
@@ -240,12 +275,18 @@
             <!-- 系统配置 -->
             <div class="tab-panel" id="tab-config">
                 <div class="panel-header">
-                    <h2>⚙️ 系统配置</h2>
-                    <p>按用途配置中转站和模型池，避免文本、视觉、Embedding、生图模型混用</p>
+                    <div>
+                        <span class="eyebrow">Model Router</span>
+                        <h2>模型配置</h2>
+                    </div>
+                    <p>先连接中转站，再拉取模型池，最后分配给每个 Agent。</p>
                 </div>
                 <div class="card config-card">
                     <div class="card-header">
-                        <h3>模型中转站</h3>
+                        <div>
+                            <span class="section-kicker">Provider</span>
+                            <h3>中转站连接</h3>
+                        </div>
                     </div>
                     <div class="card-body config-form">
                         <div class="config-profile-grid">
@@ -294,6 +335,7 @@
                         <datalist id="modelOptions"></datalist>
                         <datalist id="embeddingModelOptions"></datalist>
 
+                        <div class="config-section-title">默认模型</div>
                         <div class="config-grid">
                             <div class="setting-group">
                                 <label>默认文本模型</label>
@@ -309,6 +351,17 @@
                         <div id="agentModelGrid" class="agent-model-grid">
                             <div class="placeholder-text">正在读取配置...</div>
                         </div>
+                        <div class="agent-test-panel">
+                            <div class="agent-test-head">
+                                <div>
+                                    <strong>Agent 连通性测试</strong>
+                                    <small>按当前页面配置逐个测试 Agent 模型是否可调用。</small>
+                                </div>
+                                <button class="btn-secondary" type="button" onclick="testAgentConnections(this)">测试全部 Agent</button>
+                            </div>
+                            <div id="agentTestSummary" class="config-status"></div>
+                            <div id="agentTestResults" class="agent-test-results"></div>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -316,21 +369,27 @@
             <!-- 知识库 -->
             <div class="tab-panel" id="tab-knowledge">
                 <div class="panel-header">
-                    <h2>📚 知识库管理</h2>
-                    <p>管理 JSON 向量知识库</p>
+                    <div>
+                        <span class="eyebrow">Knowledge</span>
+                        <h2>知识库管理</h2>
+                    </div>
+                    <p>重建导演规则向量库，让 Agent 检索到最新规则。</p>
                 </div>
-                <div class="card" style="max-width: 600px;">
+                <div class="card knowledge-card">
                     <div class="card-header">
-                        <h3>向量知识库</h3>
+                        <div>
+                            <span class="section-kicker">Vector DB</span>
+                            <h3>向量知识库</h3>
+                        </div>
                     </div>
                     <div class="card-body">
-                        <p style="color: var(--text-secondary); margin-bottom: 16px;">
+                        <p class="knowledge-copy">
                             将导演规则切分并向量化，供各 Agent 按需检索。
                         </p>
                         <button class="btn-primary" onclick="buildVectorDB()" id="btnBuildDB">
-                            🔄 构建/重建向量知识库
+                            构建/重建向量知识库
                         </button>
-                        <div id="dbStatus" class="status-msg" style="margin-top: 12px;"></div>
+                        <div id="dbStatus" class="status-msg"></div>
                     </div>
                 </div>
             </div>
@@ -345,6 +404,8 @@
                 document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
                 btn.classList.add('active');
                 document.getElementById('tab-' + btn.dataset.tab).classList.add('active');
+                document.querySelector('.main-content')?.scrollTo({ top: 0, behavior: 'smooth' });
+                window.scrollTo({ top: 0, behavior: 'smooth' });
             });
         });
 
@@ -620,6 +681,87 @@
             }
         }
 
+        async function testAgentConnections(button = null) {
+            const originalText = button ? button.textContent : '';
+            const summary = document.getElementById('agentTestSummary');
+            const resultsBox = document.getElementById('agentTestResults');
+            const agentModels = {};
+            document.querySelectorAll('[data-agent-model]').forEach(input => {
+                agentModels[input.dataset.agentModel] = input.value.trim();
+            });
+            if (button) {
+                button.disabled = true;
+                button.textContent = '测试中...';
+            }
+            if (summary) {
+                summary.textContent = '正在逐个测试 Agent 连通性...';
+                summary.className = 'config-status';
+            }
+            if (resultsBox) {
+                resultsBox.innerHTML = '<div class="placeholder-text">测试请求已发送，请稍候...</div>';
+            }
+            try {
+                const resp = await fetch('/api/test_agent_connections', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text_base_url: document.getElementById('textBaseUrl').value.trim(),
+                        text_api_key: document.getElementById('textApiKey').value.trim(),
+                        image_base_url: document.getElementById('imageBaseUrl').value.trim(),
+                        image_api_key: document.getElementById('imageApiKey').value.trim(),
+                        agent_models: agentModels,
+                    }),
+                });
+                const data = await resp.json();
+                if (!resp.ok || data.error) throw new Error(data.error || '连通性测试失败');
+                renderAgentConnectionResults(data);
+            } catch (e) {
+                if (summary) {
+                    summary.textContent = '测试失败：' + e.message;
+                    summary.className = 'config-status error';
+                }
+                if (resultsBox) resultsBox.innerHTML = '';
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            }
+        }
+
+        function renderAgentConnectionResults(data) {
+            const summary = document.getElementById('agentTestSummary');
+            const resultsBox = document.getElementById('agentTestResults');
+            const items = data.results || [];
+            const stat = data.summary || { total: items.length, ok: 0, failed: items.length };
+            if (summary) {
+                summary.textContent = `完成：${stat.ok}/${stat.total} 个 Agent 连通，${stat.failed} 个异常。`;
+                summary.className = `config-status ${stat.failed ? 'error' : 'success'}`;
+            }
+            if (!resultsBox) return;
+            if (!items.length) {
+                resultsBox.innerHTML = '<div class="placeholder-text">没有可测试的 Agent。</div>';
+                return;
+            }
+            resultsBox.innerHTML = items.map(item => {
+                const stateClass = item.success ? 'ok' : 'fail';
+                const latency = item.latency_ms == null ? '' : `${item.latency_ms}ms`;
+                return `
+                    <div class="agent-test-item ${stateClass}">
+                        <div>
+                            <strong>${escapeHtml(item.label || item.agent)}</strong>
+                            <small>${escapeHtml(item.agent)} · ${escapeHtml(categoryLabel(item.category))}</small>
+                        </div>
+                        <div class="agent-test-meta">
+                            <span>${escapeHtml(item.model || '未选择模型')}</span>
+                            <span>${escapeHtml(latency)}</span>
+                        </div>
+                        <p>${escapeHtml(item.message || (item.success ? '连接正常' : '测试失败'))}</p>
+                    </div>
+                `;
+            }).join('');
+        }
+
         function hasRestorableState(state) {
             const outputs = state.agent_outputs || {};
             return Boolean(
@@ -647,7 +789,7 @@
             const btn = document.getElementById('btnRestoreTask');
             const originalHtml = btn.innerHTML;
             btn.disabled = true;
-            btn.innerHTML = '<span class="btn-icon spinner">⏳</span> 正在恢复...';
+            btn.innerHTML = '<span class="btn-icon spinner"></span> 正在恢复...';
             try {
                 const currentSessionId = getSessionId();
                 const latestResp = await fetch('/api/latest_session?exclude_session_id=' + encodeURIComponent(currentSessionId));
@@ -738,7 +880,10 @@
 
         function renderReferenceImages() {
             const grid = document.getElementById('refPreviewGrid');
-            document.getElementById('refImageCount').textContent = `已添加 ${referenceItems.length} 张`;
+            const countText = `已添加 ${referenceItems.length} 张`;
+            document.getElementById('refImageCount').textContent = countText;
+            const summaryCount = document.getElementById('workspaceRefCount');
+            if (summaryCount) summaryCount.textContent = `${referenceItems.length} 张`;
             if (referenceItems.length === 0) {
                 grid.innerHTML = '<div class="reference-empty">还没有参考图。可以分批添加，后添加的不会覆盖前面的。</div>';
                 return;
@@ -886,16 +1031,16 @@
                 //   - 其他未到的段 → '未生成'
                 let badgeLabel, badgeClass;
                 if (hasContent) {
-                    badgeLabel = '✅ 已生成';
+                    badgeLabel = '已生成';
                     badgeClass = 'done';
                 } else if (i === currentIndex && isRunning) {
-                    badgeLabel = '⏳ 运行中';
+                    badgeLabel = '运行中';
                     badgeClass = 'running';
                 } else if (i === currentIndex && status === 'waiting_for_user_input') {
-                    badgeLabel = '⏸ 等待输入';
+                    badgeLabel = '等待输入';
                     badgeClass = 'waiting';
                 } else {
-                    badgeLabel = '○ 未生成';
+                    badgeLabel = '未生成';
                     badgeClass = 'pending';
                 }
 
@@ -1525,7 +1670,7 @@
             const videoInputHtml = completedSegment > 0
                 ? `
                     <div style="flex:1; min-width: 200px;">
-                        <label style="display:block; margin-bottom: 6px; font-size: 13px;">📹 上一段完整视频（推荐）</label>
+                        <label style="display:block; margin-bottom: 6px; font-size: 13px;">上一段完整视频（推荐）</label>
                         <input type="file" id="previousVideoUpload" accept="video/mp4, video/quicktime, video/webm, video/x-msvideo" />
                     </div>
                 `
@@ -1538,11 +1683,11 @@
                     <div style="display: flex; gap: 16px; flex-wrap: wrap; margin-bottom: 14px;">
                         ${videoInputHtml}
                         <div style="flex:1; min-width: 200px;">
-                            <label style="display:block; margin-bottom: 6px; font-size: 13px;">🖼️ 补充尾帧截图（可选）</label>
+                            <label style="display:block; margin-bottom: 6px; font-size: 13px;">补充尾帧截图（可选）</label>
                             <input type="file" id="tailFrameUpload" accept="image/png, image/jpeg, image/webp" />
                         </div>
                     </div>
-                    <button class="btn-primary" style="width: 100%;" onclick="resumePipeline(${segIdx})">🚀 生成片段 ${segIdx} / ${totalSegments}</button>
+                    <button class="btn-primary" style="width: 100%;" onclick="resumePipeline(${segIdx})">生成片段 ${segIdx} / ${totalSegments}</button>
                 </div>
             `;
             markWaitingForInput(state);
@@ -1695,7 +1840,7 @@
                     } else if (state.status === 'error' && Number(state.total_segments) > 0 && (state.agent_outputs || {}).shot_director) {
                         const retryState = { ...state, status: 'waiting_for_user_input' };
                         renderWaitingInputBox(retryState);
-                        document.getElementById('pipelineMsg').textContent = '❌ 上次执行出错，可重试生成当前片段。';
+                        document.getElementById('pipelineMsg').textContent = '上次执行出错，可重试生成当前片段。';
                     }
 
                 } else if (state.status === 'waiting_for_user_input' && hasOutputs) {
@@ -2183,18 +2328,18 @@
         async function abortPipeline() {
             const btn = document.getElementById('btnAbort');
             btn.disabled = true;
-            btn.innerHTML = '<span class="btn-icon spinner">⏳</span> 正在中断...';
+            btn.innerHTML = '<span class="btn-icon spinner"></span> 正在中断...';
             try {
                 const formData = new FormData();
                 formData.append('session_id', getSessionId());
                 await fetch('/api/abort', { method: 'POST', body: formData });
             } catch (e) { }
             if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; }
-            document.getElementById('pipelineMsg').textContent = '⏹ 任务已中断';
+            document.getElementById('pipelineMsg').textContent = '任务已中断';
             document.getElementById('resultOutput').innerHTML = '<div class="placeholder-text">任务已被手动中断</div>';
             updateAgentStatus('idle', 'Agent 就绪');
             resetBtn();
-            btn.innerHTML = '<span class="btn-icon">⏹</span> 中断任务';
+            btn.innerHTML = '中断任务';
             btn.disabled = false;
         }
 
@@ -2205,7 +2350,7 @@
             const btn = document.getElementById('btnClearTask');
             const originalHtml = btn.innerHTML;
             btn.disabled = true;
-            btn.innerHTML = '<span class="btn-icon spinner">⏳</span> 正在清除...';
+            btn.innerHTML = '<span class="btn-icon spinner"></span> 正在清除...';
             try {
                 const formData = new FormData();
                 formData.append('session_id', getSessionId());
@@ -2235,12 +2380,17 @@
 
         function showError(msg) {
             document.getElementById('resultOutput').innerHTML =
-                '<div class="error-text">❌ ' + escapeHtml(msg) + '</div>';
+                '<div class="error-text">' + escapeHtml(msg) + '</div>';
+            const summary = document.getElementById('workspaceStatusText');
+            if (summary) summary.textContent = '出错';
         }
 
         function updateAgentStatus(type, text) {
+            const readable = readableStatusMessage(text);
             document.getElementById('agentStatus').innerHTML =
-                `<div class="status-dot ${type}"></div><span>${escapeHtml(readableStatusMessage(text))}</span>`;
+                `<div class="status-dot ${type}"></div><span>${escapeHtml(readable)}</span>`;
+            const summary = document.getElementById('workspaceStatusText');
+            if (summary) summary.textContent = type === 'running' ? '运行中' : type === 'error' ? '出错' : '就绪';
         }
 
         // === 构建向量库 ===
@@ -2251,18 +2401,18 @@
             const status = document.getElementById('dbStatus');
             const state = data.status || (data.success ? 'done' : 'error');
             if (state === 'running') {
-                status.textContent = '⏳ ' + (data.message || '向量知识库正在后台构建...');
+                status.textContent = data.message || '向量知识库正在后台构建...';
                 status.className = 'status-msg info';
                 btn.disabled = true;
                 return;
             }
             if (state === 'done') {
-                status.textContent = '✅ ' + (data.message || '向量知识库已重建');
+                status.textContent = data.message || '向量知识库已重建';
                 status.className = 'status-msg success';
                 btn.disabled = false;
                 return;
             }
-            status.textContent = '❌ ' + (data.error || data.message || '向量知识库构建失败');
+            status.textContent = data.error || data.message || '向量知识库构建失败';
             status.className = 'status-msg error';
             btn.disabled = false;
         }
@@ -2284,7 +2434,7 @@
                     const btn = document.getElementById('btnBuildDB');
                     const status = document.getElementById('dbStatus');
                     btn.disabled = false;
-                    status.textContent = '❌ 状态查询失败: ' + e.message;
+                    status.textContent = '状态查询失败: ' + e.message;
                     status.className = 'status-msg error';
                 }
             }, 2000);
@@ -2296,15 +2446,24 @@
             btn.disabled = true;
             status.textContent = '正在启动后台构建...';
             status.className = 'status-msg info';
+            const payload = {
+                embedding_base_url: document.getElementById('embeddingBaseUrl')?.value.trim() || '',
+                embedding_api_key: document.getElementById('embeddingApiKey')?.value.trim() || '',
+                embedding_model: document.getElementById('configEmbeddingModel')?.value.trim() || '',
+            };
             try {
-                const resp = await fetch('/api/build_vectordb', { method: 'POST' });
+                const resp = await fetch('/api/build_vectordb', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload),
+                });
                 const data = await resp.json();
                 renderVectorDbStatus(data);
                 if (data.status === 'running') {
                     pollVectorDbStatus();
                 }
             } catch (e) {
-                status.textContent = '❌ 网络错误: ' + e.message;
+                status.textContent = '网络错误: ' + e.message;
                 status.className = 'status-msg error';
                 btn.disabled = false;
             }
@@ -2830,7 +2989,7 @@
                 const btn = document.querySelector('.card-header .btn-small');
                 if (btn) {
                     const orig = btn.textContent;
-                    btn.textContent = '✅ 已复制';
+                    btn.textContent = '已复制';
                     setTimeout(() => { btn.textContent = orig; }, 1500);
                 }
             }).catch(() => {
@@ -2852,7 +3011,7 @@
             const markDone = () => {
                 if (!button) return;
                 const orig = button.textContent;
-                button.textContent = '✅ 已复制';
+                button.textContent = '已复制';
                 button.disabled = true;
                 setTimeout(() => {
                     button.textContent = orig;
