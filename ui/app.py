@@ -2009,11 +2009,115 @@ def _looks_like_env_placeholder(value: str) -> bool:
     return bool(re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", text) or re.fullmatch(r"%[A-Za-z_][A-Za-z0-9_]*%", text))
 
 
+AGENT_LABELS: dict[str, str] = {
+    "director_showrunner": "剧情增强",
+    "rhythm_rewrite_director": "节奏总控",
+    "scene_analyst": "场景预分析",
+    "scene_vision_analyst": "场景视觉分析",
+    "scene_card_designer": "场景俯视/九宫格生图",
+    "story_planner": "拆片规划",
+    "shot_director": "三段镜头导演",
+    "prompt_compiler": "Seedance 编译",
+    "quality_inspector": "质检报告",
+    "storyboard_prompt_designer": "分镜提示词",
+    "storyboard_designer": "分镜图片生成",
+    "video_analyst": "视频/尾帧分析",
+    "script_event_validator": "剧本事件校验",
+}
+
+AGENT_CATEGORIES: dict[str, str] = {
+    "scene_vision_analyst": "vision",
+    "video_analyst": "vision",
+    "scene_card_designer": "image",
+    "storyboard_designer": "image",
+}
+
+MODEL_PROFILE_LABELS: dict[str, str] = {
+    "text": "文本/视觉 Agent",
+    "image": "生图 Agent",
+    "embedding": "向量嵌入",
+}
+
+
+def _agent_category(agent_name: str) -> str:
+    return AGENT_CATEGORIES.get(agent_name, "text")
+
+
+def _first_agent_config(raw_config: dict, category: str) -> dict:
+    agent_models = raw_config.get("agent_models") or {}
+    if not isinstance(agent_models, dict):
+        return {}
+    for agent_name, agent_config in agent_models.items():
+        if _agent_category(str(agent_name)) == category and isinstance(agent_config, dict):
+            return agent_config
+    return {}
+
+
+def _profile_source(raw_config: dict, profile: str) -> dict:
+    if profile == "image":
+        image_config = raw_config.get("image_generation")
+        if isinstance(image_config, dict):
+            return image_config
+        return _first_agent_config(raw_config, "image")
+    if profile == "embedding":
+        vectordb_config = raw_config.get("vectordb")
+        return vectordb_config if isinstance(vectordb_config, dict) else {}
+    llm_config = raw_config.get("llm")
+    return llm_config if isinstance(llm_config, dict) else {}
+
+
+def _public_model_profiles(raw_config: dict) -> dict:
+    profiles: dict[str, dict] = {}
+    for profile, label in MODEL_PROFILE_LABELS.items():
+        source = _profile_source(raw_config, profile)
+        masked = _mask_config_key(source)
+        masked["label"] = label
+        profiles[profile] = masked
+    if not profiles["image"].get("base_url"):
+        profiles["image"]["base_url"] = COMFLY_BASE_URL
+    return profiles
+
+
+def _model_groups(models: list[str]) -> dict[str, list[str]]:
+    def has_any(model: str, markers: tuple[str, ...]) -> bool:
+        lower = model.lower()
+        return any(marker in lower for marker in markers)
+
+    embedding_markers = ("embed", "embedding", "bge", "text-embedding")
+    image_markers = (
+        "image", "gpt-image", "dall-e", "dalle", "flux", "midjourney", "mj-",
+        "stable-diffusion", "sdxl", "seedream", "jimeng", "ideogram",
+    )
+    vision_markers = (
+        "vision", "vl", "qwen-vl", "glm-4v", "gpt-4o", "gpt-5", "claude",
+        "gemini", "moonshot-vision", "omni", "multimodal",
+    )
+    groups = {
+        "text": [],
+        "vision": [],
+        "image": [],
+        "embedding": [],
+    }
+    for model in models:
+        if has_any(model, embedding_markers):
+            groups["embedding"].append(model)
+        elif has_any(model, image_markers):
+            groups["image"].append(model)
+        else:
+            groups["text"].append(model)
+            if has_any(model, vision_markers):
+                groups["vision"].append(model)
+    if not groups["vision"]:
+        groups["vision"] = list(groups["text"])
+    return groups
+
+
 def _public_model_config() -> dict:
     raw_config = _load_raw_settings()
     public_config = copy.deepcopy(raw_config)
     public_config["llm"] = _mask_config_key(public_config.get("llm") or {})
     public_config["vectordb"] = _mask_config_key(public_config.get("vectordb") or {})
+    public_config["image_generation"] = _mask_config_key(public_config.get("image_generation") or _profile_source(raw_config, "image"))
     agent_models = public_config.get("agent_models")
     if isinstance(agent_models, dict):
         for agent_config in agent_models.values():
@@ -2023,21 +2127,9 @@ def _public_model_config() -> dict:
                 agent_config.update(masked)
     public_config["_config_locked"] = False
     public_config["_config_note"] = "模型配置可在前端修改，保存后写入本地 config/settings.yaml。"
-    public_config["_agent_labels"] = {
-        "director_showrunner": "剧情增强",
-        "rhythm_rewrite_director": "节奏总控",
-        "scene_analyst": "场景预分析",
-        "scene_vision_analyst": "场景视觉分析",
-        "scene_card_designer": "场景俯视/九宫格生图",
-        "story_planner": "拆片规划",
-        "shot_director": "三段镜头导演",
-        "prompt_compiler": "Seedance 编译",
-        "quality_inspector": "质检报告",
-        "storyboard_prompt_designer": "分镜提示词",
-        "storyboard_designer": "分镜图片生成",
-        "video_analyst": "视频/尾帧分析",
-        "script_event_validator": "剧本事件校验",
-    }
+    public_config["_agent_labels"] = AGENT_LABELS
+    public_config["_agent_categories"] = {name: _agent_category(name) for name in AGENT_LABELS}
+    public_config["_model_profiles"] = _public_model_profiles(raw_config)
     return public_config
 
 
@@ -2062,14 +2154,17 @@ async def api_model_list(request: Request):
         payload = await request.json()
     except Exception:
         payload = {}
+    raw_config = _load_raw_settings()
+    profile = str(payload.get("profile") or "text").strip() or "text"
+    if profile not in MODEL_PROFILE_LABELS:
+        profile = "text"
     try:
-        base_url = _normalise_config_base_url(str(payload.get("base_url") or ""))
+        base_url = _normalise_config_base_url(str(payload.get("base_url") or _profile_source(raw_config, profile).get("base_url") or ""))
     except ValueError as exc:
         return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
     api_key = str(payload.get("api_key") or "").strip()
     if not api_key or api_key == "***":
-        raw_config = _load_raw_settings()
-        api_key = str((raw_config.get("llm") or {}).get("api_key") or "").strip()
+        api_key = str(_profile_source(raw_config, profile).get("api_key") or "").strip()
     if _looks_like_env_placeholder(api_key):
         api_key = ""
     if not api_key:
@@ -2105,11 +2200,37 @@ async def api_model_list(request: Request):
             if model_id:
                 models.append(model_id)
     models = sorted(set(models), key=lambda item: item.lower())
-    embedding_models = [
-        model for model in models
-        if any(marker in model.lower() for marker in ("embed", "embedding", "bge", "text-embedding"))
-    ]
-    return JSONResponse({"success": True, "models": models, "embedding_models": embedding_models})
+    groups = _model_groups(models)
+    return JSONResponse({
+        "success": True,
+        "profile": profile,
+        "models": models,
+        "groups": groups,
+        "embedding_models": groups["embedding"],
+        "image_models": groups["image"],
+        "vision_models": groups["vision"],
+    })
+
+
+def _resolve_saved_api_key(raw_config: dict, profile: str, submitted_key: str, fallback_key: str = "") -> str:
+    submitted_key = str(submitted_key or "").strip()
+    if submitted_key and submitted_key != "***":
+        return submitted_key
+    existing_key = str(_profile_source(raw_config, profile).get("api_key") or "").strip()
+    return existing_key or fallback_key
+
+
+def _ensure_config_section(raw_config: dict, section_name: str) -> dict:
+    section = raw_config.setdefault(section_name, {})
+    if not isinstance(section, dict):
+        section = {}
+        raw_config[section_name] = section
+    return section
+
+
+def _write_profile_credentials(section: dict, api_key: str, base_url: str) -> None:
+    section["api_key"] = api_key
+    section["base_url"] = base_url
 
 
 @app.post("/api/config")
@@ -2122,48 +2243,54 @@ async def api_save_config(request: Request):
         return JSONResponse({"success": False, "error": f"配置请求不是合法 JSON：{exc}"}, status_code=400)
 
     try:
-        base_url = _normalise_config_base_url(str(payload.get("base_url") or ""))
-        api_key = str(payload.get("api_key") or "").strip()
+        raw_config = _load_raw_settings()
+        text_base_url = _normalise_config_base_url(
+            str(payload.get("text_base_url") or payload.get("base_url") or _profile_source(raw_config, "text").get("base_url") or "")
+        )
+        image_base_url = _normalise_config_base_url(
+            str(payload.get("image_base_url") or _profile_source(raw_config, "image").get("base_url") or text_base_url)
+        )
+        embedding_base_url = _normalise_config_base_url(
+            str(payload.get("embedding_base_url") or _profile_source(raw_config, "embedding").get("base_url") or text_base_url)
+        )
+        text_api_key = str(payload.get("text_api_key") or payload.get("api_key") or "").strip()
+        image_api_key = str(payload.get("image_api_key") or "").strip()
+        embedding_api_key = str(payload.get("embedding_api_key") or "").strip()
         default_model = _normalise_optional_model(payload.get("default_model"))
         embedding_model = _normalise_optional_model(payload.get("embedding_model"))
         agent_models_payload = payload.get("agent_models") or {}
         if not isinstance(agent_models_payload, dict):
             raise ValueError("agent_models 必须是对象。")
-        raw_config = _load_raw_settings()
     except ValueError as exc:
         return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
 
-    existing_llm_key = str((raw_config.get("llm") or {}).get("api_key") or "").strip()
-    if _looks_like_env_placeholder(existing_llm_key):
-        existing_llm_key = ""
-    resolved_key = api_key if api_key and api_key != "***" else existing_llm_key
-    if not resolved_key:
-        return JSONResponse({"success": False, "error": "API Key 不能为空。"}, status_code=400)
+    text_key = _resolve_saved_api_key(raw_config, "text", text_api_key)
+    image_key = _resolve_saved_api_key(raw_config, "image", image_api_key, fallback_key=text_key)
+    embedding_key = _resolve_saved_api_key(raw_config, "embedding", embedding_api_key, fallback_key=text_key)
+    missing_profiles = [
+        MODEL_PROFILE_LABELS[profile]
+        for profile, key in (("text", text_key), ("image", image_key), ("embedding", embedding_key))
+        if not key
+    ]
+    if missing_profiles:
+        return JSONResponse({"success": False, "error": "API Key 不能为空：" + "、".join(missing_profiles)}, status_code=400)
 
-    llm_config = raw_config.setdefault("llm", {})
-    if not isinstance(llm_config, dict):
-        llm_config = {}
-        raw_config["llm"] = llm_config
-    llm_config["api_key"] = resolved_key
-    llm_config["base_url"] = base_url
+    llm_config = _ensure_config_section(raw_config, "llm")
+    _write_profile_credentials(llm_config, text_key, text_base_url)
     if default_model:
         llm_config["model"] = default_model
 
-    vectordb_config = raw_config.setdefault("vectordb", {})
-    if not isinstance(vectordb_config, dict):
-        vectordb_config = {}
-        raw_config["vectordb"] = vectordb_config
-    vectordb_config["api_key"] = resolved_key
-    vectordb_config["base_url"] = base_url
+    image_config = _ensure_config_section(raw_config, "image_generation")
+    _write_profile_credentials(image_config, image_key, image_base_url)
+
+    vectordb_config = _ensure_config_section(raw_config, "vectordb")
+    _write_profile_credentials(vectordb_config, embedding_key, embedding_base_url)
     if embedding_model:
         vectordb_config["embedding_model"] = embedding_model
 
-    agent_models = raw_config.setdefault("agent_models", {})
-    if not isinstance(agent_models, dict):
-        agent_models = {}
-        raw_config["agent_models"] = agent_models
+    agent_models = _ensure_config_section(raw_config, "agent_models")
 
-    known_agents = set((_public_model_config().get("_agent_labels") or {}).keys())
+    known_agents = set(AGENT_LABELS.keys())
     known_agents.update(str(key) for key in agent_models.keys())
     for agent_name in sorted(known_agents):
         selected_model = _normalise_optional_model(agent_models_payload.get(agent_name))
@@ -2171,10 +2298,14 @@ async def api_save_config(request: Request):
         if not isinstance(agent_config, dict):
             agent_config = {}
             agent_models[agent_name] = agent_config
-        agent_config["api_key"] = resolved_key
-        agent_config["base_url"] = base_url
+        if _agent_category(agent_name) == "image":
+            _write_profile_credentials(agent_config, image_key, image_base_url)
+        else:
+            _write_profile_credentials(agent_config, text_key, text_base_url)
         if selected_model:
             agent_config["model"] = selected_model
+            if _agent_category(agent_name) == "image":
+                image_config["model"] = selected_model
 
     try:
         _save_raw_settings(raw_config)

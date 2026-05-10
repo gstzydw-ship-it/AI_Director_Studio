@@ -488,6 +488,26 @@ select option {
     gap: 14px;
 }
 
+.config-profile-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(220px, 1fr));
+    gap: 12px;
+}
+
+.config-profile-card {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    border: 1px solid var(--border-color);
+    border-radius: var(--radius-sm);
+    background: rgba(15, 23, 42, 0.36);
+}
+
+.config-profile-card .btn-small {
+    align-self: flex-start;
+}
+
 .config-actions {
     display: flex;
     align-items: center;
@@ -560,6 +580,7 @@ select option {
 }
 
 @media (max-width: 760px) {
+    .config-profile-grid,
     .config-grid,
     .agent-model-grid,
     .agent-model-row {

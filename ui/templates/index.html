@@ -241,25 +241,52 @@
             <div class="tab-panel" id="tab-config">
                 <div class="panel-header">
                     <h2>⚙️ 系统配置</h2>
-                    <p>配置中转站、API Key、Embedding 模型和每个 Agent 使用的模型</p>
+                    <p>按用途配置中转站和模型池，避免文本、视觉、Embedding、生图模型混用</p>
                 </div>
                 <div class="card config-card">
                     <div class="card-header">
                         <h3>模型中转站</h3>
                     </div>
                     <div class="card-body config-form">
-                        <div class="config-grid">
-                            <div class="setting-group">
-                                <label>中转站 Base URL</label>
-                                <input type="text" id="configBaseUrl" placeholder="https://www.xkwuai.cn/v1">
+                        <div class="config-profile-grid">
+                            <div class="config-profile-card">
+                                <div class="config-section-title">文本 / 视觉 Agent</div>
+                                <div class="setting-group">
+                                    <label>Base URL</label>
+                                    <input type="text" id="textBaseUrl" placeholder="https://www.xkwuai.cn/v1">
+                                </div>
+                                <div class="setting-group">
+                                    <label>API Key</label>
+                                    <input type="password" id="textApiKey" placeholder="留空则保留已保存密钥">
+                                </div>
+                                <button class="btn-small" type="button" onclick="fetchModelList('text', this)">拉取文本/视觉模型</button>
                             </div>
-                            <div class="setting-group">
-                                <label>API Key</label>
-                                <input type="password" id="configApiKey" placeholder="留空则保留已保存密钥">
+                            <div class="config-profile-card">
+                                <div class="config-section-title">生图 Agent</div>
+                                <div class="setting-group">
+                                    <label>Base URL</label>
+                                    <input type="text" id="imageBaseUrl" placeholder="https://ai.comfly.chat/v1">
+                                </div>
+                                <div class="setting-group">
+                                    <label>API Key</label>
+                                    <input type="password" id="imageApiKey" placeholder="留空则保留已保存密钥">
+                                </div>
+                                <button class="btn-small" type="button" onclick="fetchModelList('image', this)">拉取生图模型</button>
+                            </div>
+                            <div class="config-profile-card">
+                                <div class="config-section-title">向量嵌入</div>
+                                <div class="setting-group">
+                                    <label>Base URL</label>
+                                    <input type="text" id="embeddingBaseUrl" placeholder="https://ai.comfly.chat/v1">
+                                </div>
+                                <div class="setting-group">
+                                    <label>API Key</label>
+                                    <input type="password" id="embeddingApiKey" placeholder="留空则保留已保存密钥">
+                                </div>
+                                <button class="btn-small" type="button" onclick="fetchModelList('embedding', this)">拉取 Embedding 模型</button>
                             </div>
                         </div>
                         <div class="config-actions">
-                            <button class="btn-small" type="button" onclick="fetchModelList(this)">拉取模型列表</button>
                             <button class="btn-primary" type="button" onclick="saveSystemConfig(this)">保存当前配置</button>
                             <span id="configStatus" class="config-status"></span>
                         </div>
@@ -270,11 +297,11 @@
                         <div class="config-grid">
                             <div class="setting-group">
                                 <label>默认文本模型</label>
-                                <input type="text" id="configDefaultModel" list="modelOptions" placeholder="先拉取模型列表后选择">
+                                <select id="configDefaultModel"></select>
                             </div>
                             <div class="setting-group">
                                 <label>向量嵌入模型</label>
-                                <input type="text" id="configEmbeddingModel" list="embeddingModelOptions" placeholder="选择 embedding 模型">
+                                <select id="configEmbeddingModel"></select>
                             </div>
                         </div>
 
@@ -328,9 +355,14 @@
         const MAX_REFERENCE_IMAGES = 12;
         const SESSION_STORAGE_KEY = 'director_session_id';
         const DEFAULT_MODEL_BASE_URL = 'https://www.xkwuai.cn/v1';
+        const DEFAULT_IMAGE_BASE_URL = 'https://ai.comfly.chat/v1';
         let systemConfig = {};
-        let availableModels = [];
-        let availableEmbeddingModels = [];
+        let modelPools = {
+            text: [],
+            vision: [],
+            image: [],
+            embedding: [],
+        };
 
         function createSessionId() {
             const randomPart = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '');
@@ -365,26 +397,61 @@
             return models.map(model => `<option value="${escapeHtml(model)}"></option>`).join('');
         }
 
+        function uniqueModels(models = []) {
+            return Array.from(new Set(models.filter(Boolean)));
+        }
+
+        function selectOptions(models = [], currentValue = '', placeholder = '请选择模型') {
+            const current = currentValue || '';
+            const options = uniqueModels([current, ...models]);
+            const placeholderSelected = current ? '' : ' selected';
+            return `<option value=""${placeholderSelected}>${escapeHtml(placeholder)}</option>` + options.map(model => {
+                const selected = model === current ? ' selected' : '';
+                return `<option value="${escapeHtml(model)}"${selected}>${escapeHtml(model)}</option>`;
+            }).join('');
+        }
+
         function refreshModelDatalists() {
             const modelOptions = document.getElementById('modelOptions');
             const embeddingOptions = document.getElementById('embeddingModelOptions');
-            if (modelOptions) modelOptions.innerHTML = modelOptionHtml(availableModels);
-            if (embeddingOptions) {
-                embeddingOptions.innerHTML = modelOptionHtml(
-                    availableEmbeddingModels.length ? availableEmbeddingModels : availableModels
-                );
-            }
+            if (modelOptions) modelOptions.innerHTML = modelOptionHtml(modelPools.text);
+            if (embeddingOptions) embeddingOptions.innerHTML = modelOptionHtml(modelPools.embedding);
+        }
+
+        function agentCategory(agentName) {
+            return (systemConfig._agent_categories || {})[agentName] || 'text';
+        }
+
+        function agentModelPool(agentName) {
+            const category = agentCategory(agentName);
+            return modelPools[category] || modelPools.text || [];
+        }
+
+        function categoryLabel(category) {
+            return {
+                text: '文本模型',
+                vision: '视觉模型',
+                image: '生图模型',
+                embedding: 'Embedding 模型',
+            }[category] || '文本模型';
         }
 
         function agentModelSelectOptions(currentValue = '') {
             const current = currentValue || '';
-            const models = Array.from(new Set([current, ...availableModels].filter(Boolean)));
-            const placeholder = availableModels.length ? '请选择模型' : '先拉取模型列表';
-            const placeholderSelected = current ? '' : ' selected';
-            return `<option value=""${placeholderSelected}>${escapeHtml(placeholder)}</option>` + models.map(model => {
-                const selected = model === current ? ' selected' : '';
-                return `<option value="${escapeHtml(model)}"${selected}>${escapeHtml(model)}</option>`;
-            }).join('');
+            return selectOptions(modelPools.text, current, modelPools.text.length ? '请选择模型' : '先拉取文本模型列表');
+        }
+
+        function refreshPrimaryModelSelects() {
+            const llm = systemConfig.llm || {};
+            const vectordb = systemConfig.vectordb || {};
+            const defaultModel = document.getElementById('configDefaultModel');
+            const embeddingModel = document.getElementById('configEmbeddingModel');
+            if (defaultModel) {
+                defaultModel.innerHTML = selectOptions(modelPools.text, defaultModel.value || llm.model || '', modelPools.text.length ? '请选择默认文本模型' : '先拉取文本模型列表');
+            }
+            if (embeddingModel) {
+                embeddingModel.innerHTML = selectOptions(modelPools.embedding, embeddingModel.value || vectordb.embedding_model || '', modelPools.embedding.length ? '请选择 Embedding 模型' : '先拉取 Embedding 模型列表');
+            }
         }
 
         function syncCurrentAgentSelections() {
@@ -411,18 +478,33 @@
                 const cfg = agentModels[name] || {};
                 const label = labels[name] || name;
                 const value = cfg.model || '';
+                const category = agentCategory(name);
+                const pool = agentModelPool(name);
+                const placeholder = pool.length ? `请选择${categoryLabel(category)}` : `先拉取${categoryLabel(category)}列表`;
                 return `
                     <label class="agent-model-row">
                         <span>
                             <strong>${escapeHtml(label)}</strong>
-                            <small>${escapeHtml(name)}</small>
+                            <small>${escapeHtml(name)} · ${escapeHtml(categoryLabel(category))}</small>
                         </span>
                         <select data-agent-model="${escapeHtml(name)}">
-                            ${agentModelSelectOptions(value)}
+                            ${selectOptions(pool, value, placeholder)}
                         </select>
                     </label>
                 `;
             }).join('');
+        }
+
+        function setProfileInput(profile, data = {}) {
+            const baseInput = document.getElementById(`${profile}BaseUrl`);
+            const keyInput = document.getElementById(`${profile}ApiKey`);
+            if (baseInput) {
+                baseInput.value = data.base_url || (profile === 'image' || profile === 'embedding' ? DEFAULT_IMAGE_BASE_URL : DEFAULT_MODEL_BASE_URL);
+            }
+            if (keyInput) {
+                keyInput.value = '';
+                keyInput.placeholder = data.has_api_key ? '已保存，留空不修改' : '请输入 API Key';
+            }
         }
 
         async function loadSystemConfig() {
@@ -432,13 +514,11 @@
                 const resp = await fetch('/api/config');
                 const config = await resp.json();
                 systemConfig = config || {};
-                const llm = systemConfig.llm || {};
-                const vectordb = systemConfig.vectordb || {};
-                document.getElementById('configBaseUrl').value = llm.base_url || vectordb.base_url || DEFAULT_MODEL_BASE_URL;
-                document.getElementById('configApiKey').value = '';
-                document.getElementById('configApiKey').placeholder = llm.has_api_key ? '已保存，留空不修改' : '请输入 API Key';
-                document.getElementById('configDefaultModel').value = llm.model || '';
-                document.getElementById('configEmbeddingModel').value = vectordb.embedding_model || '';
+                const profiles = systemConfig._model_profiles || {};
+                setProfileInput('text', profiles.text || systemConfig.llm || {});
+                setProfileInput('image', profiles.image || systemConfig.image_generation || {});
+                setProfileInput('embedding', profiles.embedding || systemConfig.vectordb || {});
+                refreshPrimaryModelSelects();
                 renderAgentModelGrid(systemConfig);
                 setConfigStatus(systemConfig._config_note || '配置已读取。', 'info');
             } catch (e) {
@@ -447,30 +527,40 @@
             }
         }
 
-        async function fetchModelList(button = null) {
+        async function fetchModelList(profile = 'text', button = null) {
             const originalText = button ? button.textContent : '';
             if (button) {
                 button.disabled = true;
                 button.textContent = '拉取中...';
             }
-            setConfigStatus('正在拉取模型列表...', 'info');
+            setConfigStatus(`正在拉取${categoryLabel(profile)}列表...`, 'info');
             try {
                 const resp = await fetch('/api/model_list', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        base_url: document.getElementById('configBaseUrl').value.trim(),
-                        api_key: document.getElementById('configApiKey').value.trim(),
+                        profile,
+                        base_url: document.getElementById(`${profile}BaseUrl`).value.trim(),
+                        api_key: document.getElementById(`${profile}ApiKey`).value.trim(),
                     }),
                 });
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || '模型列表拉取失败');
-                availableModels = data.models || [];
-                availableEmbeddingModels = data.embedding_models || [];
+                const groups = data.groups || {};
+                if (profile === 'text') {
+                    modelPools.text = groups.text || data.models || [];
+                    modelPools.vision = groups.vision || modelPools.text;
+                } else if (profile === 'image') {
+                    modelPools.image = groups.image || data.image_models || data.models || [];
+                } else if (profile === 'embedding') {
+                    modelPools.embedding = groups.embedding || data.embedding_models || data.models || [];
+                }
                 refreshModelDatalists();
                 syncCurrentAgentSelections();
+                refreshPrimaryModelSelects();
                 renderAgentModelGrid(systemConfig);
-                setConfigStatus(`已拉取 ${availableModels.length} 个模型。`, 'success');
+                const count = profile === 'image' ? modelPools.image.length : profile === 'embedding' ? modelPools.embedding.length : modelPools.text.length;
+                setConfigStatus(`已拉取 ${count} 个可用${categoryLabel(profile)}。`, 'success');
             } catch (e) {
                 setConfigStatus('拉取模型列表失败：' + e.message, 'error');
             } finally {
@@ -496,8 +586,12 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
-                        base_url: document.getElementById('configBaseUrl').value.trim(),
-                        api_key: document.getElementById('configApiKey').value.trim(),
+                        text_base_url: document.getElementById('textBaseUrl').value.trim(),
+                        text_api_key: document.getElementById('textApiKey').value.trim(),
+                        image_base_url: document.getElementById('imageBaseUrl').value.trim(),
+                        image_api_key: document.getElementById('imageApiKey').value.trim(),
+                        embedding_base_url: document.getElementById('embeddingBaseUrl').value.trim(),
+                        embedding_api_key: document.getElementById('embeddingApiKey').value.trim(),
                         default_model: document.getElementById('configDefaultModel').value.trim(),
                         embedding_model: document.getElementById('configEmbeddingModel').value.trim(),
                         agent_models: agentModels,
@@ -506,8 +600,14 @@
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || '保存失败');
                 systemConfig = data.config || systemConfig;
-                document.getElementById('configApiKey').value = '';
-                document.getElementById('configApiKey').placeholder = '已保存，留空不修改';
+                ['text', 'image', 'embedding'].forEach(profile => {
+                    const keyInput = document.getElementById(`${profile}ApiKey`);
+                    if (keyInput) {
+                        keyInput.value = '';
+                        keyInput.placeholder = '已保存，留空不修改';
+                    }
+                });
+                refreshPrimaryModelSelects();
                 renderAgentModelGrid(systemConfig);
                 setConfigStatus(data.message || '配置已保存。', 'success');
             } catch (e) {
