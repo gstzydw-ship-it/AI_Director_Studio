@@ -475,19 +475,36 @@ def test_story_planner_rhythm_boundary_rules_limit_rewrite_permissions():
     assert "beat_design / reaction_plan" not in rules
 
 
-def test_story_planner_prompt_uses_current_script_and_upstream_contracts(monkeypatch):
+def test_story_planner_prompt_uses_current_script_with_slim_rule_digest(monkeypatch):
     captured: dict[str, object] = {}
 
-    monkeypatch.setattr(
-        spi,
-        "build_system_prompt",
-        lambda prompt, agent_name, context_hint="": (prompt, {"retrieval_mode": "test"}),
-    )
-    monkeypatch.setattr(spi, "_record_knowledge_metadata", lambda *args, **kwargs: {})
+    def fake_record_knowledge_metadata(state, agent_name, context_hint, retrieval_meta):
+        captured["agent_name"] = agent_name
+        captured["context_hint"] = context_hint
+        captured["retrieval_meta"] = retrieval_meta
+        return {}
+
+    monkeypatch.setattr(spi, "_record_knowledge_metadata", fake_record_knowledge_metadata)
     monkeypatch.setattr(spi, "_validate_story_planner_output", lambda *args, **kwargs: [])
     monkeypatch.setattr(spi, "_persist_update", lambda state, payload: {**state, **payload})
+    monkeypatch.setattr(
+        spi,
+        "query_rule_registry",
+        lambda query, agent_name, n_results: [
+            {
+                "rule_id": "SEG-NOT-EQUAL-002",
+                "title": "片段不是时间均分块",
+                "text": (
+                    "[SEG-NOT-EQUAL-002] 片段不是时间均分块\n"
+                    "执行指令: 片段边界必须围绕戏剧完整性、动作段和发言单元微调，而不是机械按秒数或字数均分。\n"
+                    "例外边界: 没有明显戏剧边界时，可用时间上限作为辅助约束。"
+                ),
+            }
+        ],
+    )
 
     def fake_run_story_planner(**kwargs):
+        captured["system_prompt"] = kwargs["system_prompt"]
         captured["user_prompt"] = kwargs["user_prompt"]
         captured["rhythm_guidance"] = kwargs["rhythm_guidance"]
         return LIGHTWEIGHT_YAML, [{"status": "success"}]
@@ -507,9 +524,17 @@ def test_story_planner_prompt_uses_current_script_and_upstream_contracts(monkeyp
     prompt = str(captured["user_prompt"])
     assert "【当前施工剧本】" in prompt
     assert "增强后施工剧本" in prompt
-    assert "节奏总控施工指令" in prompt
+    assert "【少量节奏提示】" in prompt
+    assert "【知识库极简规则】" in prompt
+    assert "SEG-NOT-EQUAL-002" in prompt
+    assert "只做分段" in str(captured["system_prompt"])
     assert "施工剧本原文事件" in prompt
     assert "剧情增强导演契约" not in prompt
     assert "场景空间记忆卡" not in prompt
     assert "按原始剧本" not in prompt
+    assert captured["agent_name"] == "story_planner"
+    assert "纯拆片" in captured["context_hint"]
+    assert captured["retrieval_meta"]["retrieval_mode"] == "rule_registry_slim"
+    assert captured["retrieval_meta"]["matched_sources"] == ["rule_registry.yaml"]
+    assert captured["retrieval_meta"]["registry_rule_ids"] == ["SEG-NOT-EQUAL-002"]
     assert captured["rhythm_guidance"] == result["atmosphere_strategy"]

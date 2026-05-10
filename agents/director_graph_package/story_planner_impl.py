@@ -13,13 +13,60 @@ from . import legacy_impl as _legacy
 from .helpers import _agent_runtime_trace, _fragment_line_pattern, _truncate_for_prompt
 from .llm import call_llm
 from .planning_context_impl import _script_fidelity_rules
-from .prompting import build_system_prompt
 from .state_store import _agent_outputs, _persist_update
+from ..knowledge_base import query_rule_registry
 
 STORY_PLANNER_MAX_SCHEMA_ATTEMPTS = _legacy.STORY_PLANNER_MAX_SCHEMA_ATTEMPTS
 
 _agent_configured = _legacy._agent_configured
 _record_knowledge_metadata = _legacy._record_knowledge_metadata
+
+def _story_planner_slim_rule_digest(context_hint: str, *, n_results: int = 3) -> tuple[str, dict[str, Any]]:
+    """Fetch a tiny rule-registry digest for segmentation without broad RAG context."""
+    try:
+        results = query_rule_registry(context_hint, agent_name="story_planner", n_results=n_results)
+    except Exception as exc:
+        return "", {
+            "retrieval_mode": "rule_registry_slim",
+            "matched_sources": [],
+            "critical_sources": [],
+            "result_count": 0,
+            "registry_rule_ids": [],
+            "error": str(exc)[:300],
+        }
+
+    lines: list[str] = []
+    rule_ids: list[str] = []
+    for item in results:
+        rule_id = str(item.get("rule_id") or "").strip()
+        title = str(item.get("title") or "").strip()
+        text = str(item.get("text") or "")
+        instruction = ""
+        avoid = ""
+        instruction_match = re.search(r"(?m)^执行指令:\s*(.+)$", text)
+        avoid_match = re.search(r"(?m)^例外边界:\s*(.+)$", text)
+        if instruction_match:
+            instruction = instruction_match.group(1).strip()
+        if avoid_match:
+            avoid = avoid_match.group(1).strip()
+        if not instruction:
+            continue
+
+        rule_ids.append(rule_id)
+        label = f"{rule_id} {title}".strip()
+        line = f"- {label}: {_truncate_for_prompt(instruction, 120)}"
+        if avoid:
+            line += f"；例外：{_truncate_for_prompt(avoid, 80)}"
+        lines.append(line)
+
+    metadata = {
+        "retrieval_mode": "rule_registry_slim",
+        "matched_sources": ["rule_registry.yaml"] if lines else [],
+        "critical_sources": [],
+        "result_count": len(lines),
+        "registry_rule_ids": rule_ids,
+    }
+    return "\n".join(lines), metadata
 
 def _story_planner_rhythm_boundary_rules() -> str:
     return (
@@ -475,8 +522,9 @@ def _story_planner_repair_prompt(
         "3. 每个片段只需要包含：片段编号、目标时长、施工剧本原文事件、出现人物、入场状态、出场状态、承接要求。\n"
         "4. 禁止输出镜头、机位、景别、子分镜、剧情解释、场景预分析简表、剧情增强约束或风险长说明。\n"
         "5. 施工剧本原文事件必须逐条引用【当前施工剧本】中的原文，不能概括、改写或新增剧本外动作。\n"
-        "6. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本和节奏总控施工指令重建完整 YAML。\n"
-        f"8. {_story_planner_granularity_rules()}\n\n"
+        "6. 只做分段，不做分镜；不要写 shots、shot_id、sub_shots、camera、angle、beat_design。\n"
+        "7. 按 15 秒估算：普通对白段约 6-8 条原文事件；动作密集段约 2-4 条原文事件；一句完整台词或一个未完成动作不要从中间拆。\n"
+        "8. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本重建完整 YAML。\n\n"
         f"【节奏总控施工指令】\n{_truncate_for_prompt(rhythm_guidance or 'none', 2400)}\n\n"
         f"【当前施工剧本】\n{original_script}\n\n"
         f"【上一轮无效输出】\n{_truncate_for_prompt(previous_output, 9000)}\n\n"
@@ -592,53 +640,42 @@ def story_planner_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
     rhythm_guidance = state.get("atmosphere_strategy", "") or outputs.get("rhythm_rewrite_director", "")
     truncated_script = _truncate_for_prompt(state.get("script", ""), 12000)
-    planner_hint = f"施工剧本拆片 片段编号 目标时长 原文事件 承接要求 {truncated_script[:200]}"
-    system_prompt, retrieval_meta = build_system_prompt(
-        "你是一位短剧结构规划师。你的唯一任务是把当前施工剧本拆成交给下一个 agent 的片段清单："
-        "只决定片段边界、目标时长、原文事件、出现人物、入场状态、出场状态和承接要求。"
-        "不要复述场景预分析，不要输出剧情增强约束，不要写解释，不要设计镜头。",
-        "story_planner",
-        context_hint=planner_hint,
+    planner_hint = f"story_planner 纯拆片 15秒 片段边界 原文事件 不做分镜 {truncated_script[:200]}"
+    slim_rules, retrieval_meta = _story_planner_slim_rule_digest(planner_hint)
+    retrieval_meta["context_hint"] = planner_hint
+    retrieval_meta["reason"] = "story_planner uses only a tiny rule-registry digest, not broad knowledge context."
+    system_prompt = (
+        "你是纯拆片 agent。你的唯一工作是把当前施工剧本拆成片段清单。\n"
+        "只做分段，不做分镜；只判断每段从哪里到哪里、约几秒、交给下游时要接住什么状态。\n"
+        "不要设计镜头、机位、景别、运镜、子分镜；不要写剧情解释；不要新增动作、台词、人物、道具或场景。\n"
+        "直接输出 YAML，不要寒暄，不要 Markdown 代码围栏。"
     )
     user_prompt = (
-        "基于以下【当前施工剧本】和【节奏总控施工指令】，制定严格拆片方案。\n"
-        "当前施工剧本可能已经由剧情增强导演增强并经用户确认；施工剧本原文事件必须引用这个版本，不要退回原始剧本。\n\n"
+        "请把以下【当前施工剧本】拆成若干片段。当前施工剧本可能已经由前序 agent 改写并经用户确认；"
+        "施工剧本原文事件必须引用这个版本，不要退回原始剧本。\n\n"
         f"【当前施工剧本】\n{truncated_script}\n\n"
-        "【输出结构硬约束】\n"
-        "你必须输出 YAML 列表；每个片段只保留以下字段，字段名必须使用中文：\n"
-        "- 片段编号（必须从 F01 开始按顺序递增：F01、F02、F03；严禁输出 F2-1A、F2-2B、片段2A、scene-1 等复合编号）\n"
-        "- 目标时长\n"
-        "- 施工剧本原文事件（数组，逐条引用当前施工剧本中的动作/台词原文）\n"
-        "- 出现人物\n"
-        "- 入场状态\n"
-        "- 出场状态\n"
-        "- 承接要求\n\n"
-        "【严禁输出的字段】\n"
-        "不要输出镜头、机位、景别、子分镜、剧情解释、场景预分析简表、剧情增强约束、风险长说明、shots、shot_id、primary_subject、camera_setup_type、action_unit、line_unit、sub_shots、sub_shot_strategy、beat_design。\n\n"
-        "【核心拆片原则】\n"
-        "0. 片段编号是运行时硬契约，只能使用 F01/F02/F03 顺序编号；不得把集数、场次或动作层级写入片段编号。\n"
-        "1. 每个片段 = 一个清楚的戏剧动作单元或一次完整交锋，不是机械切 15 秒。\n"
-        "2. 完整发言单元优先保持完整，不得把完整意思单元机械拆碎。\n"
-        "3. 禁止为了凑时长补写剧本外动作。若动作不足，用更短片段或合并相邻弱事件。\n"
-        "4. 反应归属只做高层判断：留在本段、下一段承接、无需独立反应。具体怎么拍由后续镜头导演处理。\n"
-        "5. 入场状态/出场状态只写会影响下一个 agent 接续的角色位置、道具状态、门电梯状态或情绪状态。\n\n"
-        f"{_story_planner_granularity_rules()}\n"
-        f"{_script_fidelity_rules()}"
-        f"{_story_planner_rhythm_boundary_rules()}"
-        "11. 施工剧本原文事件必须逐条引用当前施工剧本原文，不得改写、概括或补写剧本外动作。\n"
-        "12. 节奏总控施工指令只用于决定目标时长、片段边界、承接要求和尾帧承接；不得写入新的施工剧本原文事件。\n"
-        "13. 直接输出 YAML 拆片结果，不要解释。"
-    )
-    user_prompt += (
-        "\n\n【节奏总控施工指令】\n"
-        f"{_truncate_for_prompt(rhythm_guidance or 'none', 2400)}\n\n"
-        "【当前最高优先级拆片规则】\n"
-        "1. 拆片目标是适配 Seedance 2.0 的 15 秒以内完整剧情任务，不追求多拆，也不允许太粗。\n"
-        "2. 单段推荐承载 4-8 条原文事件；超过 8 条必须拆开，少于 4 条通常合并。\n"
-        "3. 明确钩子、卡断、尾帧承接或重大反转落点，可以保留短片段。\n"
-        "4. 普通停顿、受击反应、信息揭示默认留在片段内部，由 shot_director 处理，不单独拆段。\n"
-        "5. 拆片必须服从节奏总控给出的时长范围、停顿、不拆、卡断、反应归属和尾帧承接指令。\n"
-        "6. 节奏总控指令只允许影响目标时长、片段边界、承接要求、入场状态和出场状态；不得写入新的施工剧本原文事件。\n"
+        "【少量节奏提示】\n"
+        f"{_truncate_for_prompt(rhythm_guidance or 'none', 1200)}\n\n"
+        "【知识库极简规则】\n"
+        f"{slim_rules or '无额外规则；按下方分段规则执行。'}\n\n"
+        "【输出格式】\n"
+        "只输出 YAML 列表。每个片段只允许这些中文字段：\n"
+        "- 片段编号：必须从 F01 开始顺序递增。\n"
+        "- 目标时长：通常 15 秒以内；内容很短可以更短。\n"
+        "- 施工剧本原文事件：数组，逐条照抄当前施工剧本里的动作或台词原文。\n"
+        "- 出现人物：只写本片段出现或被明确听见的人物。\n"
+        "- 入场状态：本片段开始时，人物、道具、门、电梯、空间等必要状态。\n"
+        "- 出场状态：本片段结束时，需要下游接住的必要状态。\n"
+        "- 承接要求：只写分段承接提醒，例如反应留在本段、下一段承接某状态、无需独立反应。\n\n"
+        "【分段规则】\n"
+        "1. 只按剧情动作单元、完整发言单元、场景/状态变化来分段，不平均切秒数。\n"
+        "2. 不要为了凑满 15 秒补写剧本外内容；动作少就短一点，弱事件可合并。\n"
+        "3. 一段太长或同时包含多个清楚任务时再拆开；普通停顿、短反应、信息揭示不用单独拆成一段。\n"
+        "4. 节奏提示只能影响片段边界、目标时长、入场状态、出场状态和承接要求，不得变成新的剧本事件。\n"
+        "5. 15 秒估算尺：普通对白段通常可容纳 6-8 条原文事件；动作密集段通常只容纳 2-4 条原文事件；长对白按完整意思单元拆。\n"
+        "6. 优先在进门完成、照片落地、人物发现、关系反转、场景切换、动作结果已经成立的位置拆开。\n"
+        "7. 不要在一句话中间、一个动作中间、同一个反应尚未落地、只是换表情或未来会换镜头的位置拆开。\n"
+        "8. 禁止输出任何镜头设计字段，包括 shots、shot_id、sub_shots、camera、angle、size、beat_design。"
     )
     output, planner_attempts = _run_story_planner_with_schema_repair(
         system_prompt=system_prompt,

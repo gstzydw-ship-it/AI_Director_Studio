@@ -100,10 +100,14 @@ _SHOT_COVERAGE_CONTRACT_FIELDS: tuple[str, ...] = (
 )
 _SHOT_DIRECTOR_WORKFLOW_STAGES: tuple[str, ...] = (
     "fact_extraction",
+    "rhythm_intent_reading",
+    "editing_strategy",
     "dramatic_task_mapping",
     "layout_blueprint",
+    "shot_language_variety",
     "blocking_and_subshots",
     "cut_timing",
+    "conflict_resolution",
     "guard_minimal_repair",
     "final_yaml_handoff",
 )
@@ -117,12 +121,16 @@ def _shot_director_workflow_contract() -> str:
         "【shot_director 显式工作流】\n"
         "在输出最终 YAML 前，必须按顺序完成以下内部步骤，不能直接套模板生成镜头：\n"
         "1. 事实提取：只提取当前片段的人物、地点、动作、道具、对白和可见事实；禁止补剧情。\n"
-        "2. 戏剧任务判断：判断片段任务与节奏功能，例如建立关系、冲突升级、悬念揭示、情绪极点、钩子结尾。\n"
-        "3. 镜头骨架：先决定主镜头数量、每镜拍谁、承担什么覆盖职责和必须承载的信息。\n"
-        "4. 动作与子镜头：再补动作路径、听者反应、子分镜重音；子分镜必须服务父镜头，不能漂浮。\n"
-        "5. 切镜时机：每个切镜点必须绑定动作顶点前、台词断点、信息看清、反应出现或尾帧完成。\n"
-        "6. 最小修复：只做最小修复，检查剧本外内容、漏事件、道具跳变、越轴、特写过密、切点无信息变化。\n"
-        "7. 最终交付：最后输出可交给提示词编译师的中文 YAML 镜头施工单。\n"
+        "2. 节奏意图读取：只提取节奏总控里的快慢、停顿、反应归属、卡断、尾帧要求；不得把建议当成改剧情命令。\n"
+        "3. 剪辑策略判断：判断哪些位移/开门/上车/走路等无戏剧增量动作应省略，哪些点必须切镜或给反应。\n"
+        "4. 戏剧任务判断：判断片段任务与节奏功能，例如建立关系、冲突升级、悬念揭示、情绪极点、钩子结尾。\n"
+        "5. 镜头骨架：先决定主镜头数量、每镜拍谁、承担什么覆盖职责和必须承载的信息。\n"
+        "6. 镜头语言变化：同一片段内主动安排不同主体、景别、角度或机位；禁止无理由连续重复同一种镜头。\n"
+        "7. 动作与子镜头：再补动作路径、听者反应、子分镜重音；子分镜必须服务父镜头，不能漂浮。\n"
+        "8. 切镜时机：每个切镜点必须绑定动作顶点前、台词断点、信息看清、反应出现或尾帧完成。\n"
+        "9. 冲突裁决：原剧本事实 > 拆片边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
+        "10. 最小修复：只做最小修复，检查剧本外内容、漏事件、道具跳变、越轴、特写过密、切点无信息变化、镜头语言重复。\n"
+        "11. 最终交付：最后输出可交给提示词编译师的中文 YAML 镜头施工单。\n"
         "每个镜头除基础字段外，可以补齐 覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责，"
         "让下游无需猜测镜头职责、切镜原因、同场人物位置和尾帧状态。\n"
     )
@@ -215,10 +223,80 @@ def _agent_outputs(state: DirectorState) -> dict[str, str]:
     return dict(state.get("agent_outputs") or {})  
   
   
+_SHOT_DIRECTOR_REFERENCE_TERMS = (
+    "scene_layout",
+    "scene_card",
+    "scene_map",
+    "annotated_scene_layout",
+    "annotated_scene_map",
+    "场景俯视",
+    "俯视布局",
+    "场景母版图",
+    "九宫格机位",
+    "人物位置",
+    "移动轨迹",
+    "用户标注",
+)
+
+
+def _scene_reference_items(state: DirectorState | dict[str, Any]) -> list[tuple[str, dict[str, Any]]]:
+    """Return scene-layout references that are useful to shot construction."""
+    images = list(state.get("reference_image_b64s") or [])
+    manifest = [item if isinstance(item, dict) else {} for item in list(state.get("reference_image_manifest") or [])]
+    while len(manifest) < len(images):
+        manifest.append({})
+
+    selected: list[tuple[str, dict[str, Any]]] = []
+    for index, image in enumerate(images):
+        if not image:
+            continue
+        item = manifest[index] if index < len(manifest) else {}
+        role_text = " ".join(
+            str(item.get(key) or "")
+            for key in ("role", "type", "purpose", "name", "filename", "label", "annotations_summary")
+        ).lower()
+        if any(term.lower() in role_text for term in _SHOT_DIRECTOR_REFERENCE_TERMS):
+            selected.append((str(image), item))
+    return selected[:4]
+
+
 def _reference_images(state: DirectorState) -> list[str]:
-    """Shot director consumes scene_analyst text; raw reference images stay scene-only."""
-    _ = state
-    return []
+    """Send only scene-layout/card references to shot_director."""
+    return [image for image, _item in _scene_reference_items(state)]
+
+
+def _reference_image_manifest_prompt(state: DirectorState | dict[str, Any]) -> str:
+    scene_refs = _scene_reference_items(state)
+    layout_annotations = list(state.get("scene_layout_annotations") or [])
+    if not scene_refs and not layout_annotations:
+        return ""
+
+    lines = [
+        "[Scene Layout Reference Images]",
+        "The attached images below are scene-layout references for blocking and continuity.",
+        "If an overhead layout contains user markers or movement routes, treat them as staging constraints: character positions, movement direction, spatial boundaries, doors and fixed objects.",
+        "Use these images only to choose camera orientation, blocking continuity and cut handoffs; do not add script-external props, actions, dialogue or people.",
+    ]
+    for index, (_image, item) in enumerate(scene_refs, start=1):
+        label = str(item.get("label") or f"@图片{index}")
+        role = str(item.get("role") or item.get("type") or "scene_reference")
+        purpose = str(
+            item.get("purpose")
+            or item.get("annotations_summary")
+            or item.get("name")
+            or item.get("filename")
+            or ""
+        )
+        lines.append(f"- {label}: {role}; {purpose}".rstrip("; "))
+    for annotation in layout_annotations[:4]:
+        if not isinstance(annotation, dict):
+            continue
+        summary = str(annotation.get("summary") or annotation.get("annotations_summary") or "").strip()
+        if not summary:
+            continue
+        scene_number = str(annotation.get("scene_number") or "?")
+        lines.append(f"- scene {scene_number} user annotations: {summary}")
+    return "\n".join(lines)
   
   
 def _director_brief(state: DirectorState | dict[str, Any]) -> str:  
@@ -1585,6 +1663,7 @@ def _call_stage_split_by_fragment(
     aspect_ratio: str,
     contract_output: str,
     prompt_builder: Callable[[str, str, str], str],
+    images_base64: list[str] | None = None,
     progress_callback: Callable[[str, str, dict[str, Any]], None] | None = None,
     resume_fragment_outputs: dict[str, str] | None = None,
     resume_fragment_runtime: dict[str, dict[str, Any]] | None = None,
@@ -1622,7 +1701,7 @@ def _call_stage_split_by_fragment(
                 system_prompt=system_prompt,
                 user_prompt=prompt_builder(fragment_id, fragment_context, fragment_contract),
                 agent_name=stage_key,
-                images_base64=None,
+                images_base64=images_base64,
             )
             cleaned = _clean_shot_director_output(fragment_output)
             fragment_runtime = {
@@ -1687,6 +1766,8 @@ _SHOT_EVENT_TAG_HINTS = {
     "rush_in": ("冲入", "闯入", "挤入", "跑进"),
     "waist_support": ("扶腰", "腰侧", "搂住", "托住"),
     "door_state": ("门", "电梯", "门缝", "关门", "开门"),
+    "vehicle_entry": ("上车", "下车", "车门", "车内", "驾驶座", "副驾驶"),
+    "motion_ellipsis": ("走向", "走到", "位移", "路过", "穿过", "进入", "到达"),
     "reaction": ("反应", "停顿", "愣住", "回避", "屏住呼吸"),
     "dialogue": ("对白", "台词", "OS", "J-cut", "L-cut"),
 }
@@ -1698,6 +1779,7 @@ _SHOT_RISK_TAG_HINTS = {
     "vertical_closeup_overuse": ("9:16", "竖屏", "特写", "近景"),
     "script_invention_risk": ("新增", "剧本外", "不得发明", "忠实"),
     "dialogue_integrity": ("对白", "台词", "不得新增台词"),
+    "shot_monotony": ("同一机位", "同一景别", "站桩", "正反打", "重复", "一镜到底"),
 }
 
 _SHOT_DIALOGUE_TAG_HINTS = {
@@ -1712,6 +1794,9 @@ _SHOT_SIGNAL_TAG_HINTS = {
     "cut_point": ("切点", "cut_point", "切镜", "动作顶点"),
     "continuity_lock": ("连续性", "承接", "状态", "位置"),
     "vertical_framing": ("9:16", "竖屏", "画幅"),
+    "editing_ellipsis": ("省略", "压缩", "跳切", "无用动作", "垃圾时间", "起点帧", "终点帧"),
+    "shot_variety": ("多机位", "多角度", "景别变化", "镜头多样", "反站桩", "正反打"),
+    "rhythm_alignment": ("节奏总控", "节奏执行", "停顿", "卡断", "反应归属", "快慢"),
 }
 
 _SHOT_SCENE_TYPE_HINTS = {
@@ -1728,6 +1813,9 @@ _SHOT_LIBRARY_TASK_KEYWORDS = {
     "door_threshold_continuity": ("电梯", "门", "门口", "门缝", "车门", "入口", "轿厢"),
     "tailframe_handoff": ("尾帧", "承接", "出场状态", "下一段", "停住", "结束状态"),
     "authority_pressure": ("命令", "压迫", "沉默", "上司", "新老板", "退让", "让路", "质问"),
+    "editing_ellipsis": ("无用", "省略", "压缩", "跳切", "走向", "走到", "位移", "上车", "下车", "进入新空间"),
+    "shot_language_variety": ("多机位", "多角度", "景别", "机位", "站桩", "正反打", "镜头多样", "一镜到底"),
+    "rhythm_alignment": ("节奏总控", "节奏执行", "快慢", "停顿", "卡断", "反应归属", "尾帧要求"),
 }
 
 _SHOT_LIBRARY_TASK_RULES = {
@@ -1753,6 +1841,18 @@ _SHOT_LIBRARY_TASK_RULES = {
     "authority_pressure": (
         "调用权力压迫镜头库：稳定关系景建立空间 -> 说话者半身承压 -> 听者/群体反应 -> 群体退让或沉默尾帧；"
         "少写空间坐标，多写可见调度。"
+    ),
+    "editing_ellipsis": (
+        "调用剪辑省略规则：走路、上车、开门、进入新空间等无戏剧增量过程只保留起点帧和终点帧；"
+        "用机位/景别/主体切换自然省略中间时间。"
+    ),
+    "shot_language_variety": (
+        "调用镜头多样性规则：围绕同一戏剧动作安排有动机的关系景、过肩、反应、局部或尾帧镜头；"
+        "不得连续三个镜头重复同一景别、同一机位或同一主体。"
+    ),
+    "rhythm_alignment": (
+        "调用节奏联动规则：继承节奏总控的快慢、停顿、反应归属和尾帧意图；"
+        "若与原剧本事实、拆片边界、空间连续性冲突，按上游事实和连续性优先。"
     ),
 }
 
@@ -1802,6 +1902,21 @@ _SHOT_LIBRARY_TASK_KNOWLEDGE_HINTS = {
         "CASE_拍摄设计_双人对话到情绪爆发的机位推进",
         "CASE_镜头叙事_情绪升级时的景别递进与压迫感",
     ),
+    "editing_ellipsis": (
+        "05_剧本拆分与15秒片段规划规则 时间压缩与冗余动作省略",
+        "22_多机位分镜与镜头多样性规则 机位切换即减法 上车 开门 进入新空间",
+        "CASE_剪辑转场_动作转场与相似动作匹配",
+    ),
+    "shot_language_variety": (
+        "22_多机位分镜与镜头多样性规则 镜头多样性自检 反站桩正反打",
+        "21_镜头调用规则与多机位模板 多机位覆盖 景别递进",
+        "02_焦段景深与景别画幅策略 景别限频 竖屏特写限制",
+    ),
+    "rhythm_alignment": (
+        "00_知识库优先级与冲突裁决规则 atmosphere_strategy 是建议不是硬指令",
+        "15_故事节奏控制规则 节奏层级合法性",
+        "21_镜头调用规则与多机位模板 把节奏判断翻译成画面执行",
+    ),
     "continuity_lock": (
         "06_连续性与安全规则",
         "21_镜头调用规则与多机位模板 动作匹配剪辑",
@@ -1832,6 +1947,18 @@ _SHOT_LIBRARY_TASK_FORCED_USAGE = {
     "authority_pressure": (
         "必须用景别或机位变化体现压力递进：关系景/过肩建立 -> 单人近景或反应镜头 -> 尾帧压住；"
         "不得全程均速正反打。"
+    ),
+    "editing_ellipsis": (
+        "必须标出至少一个可省略的无戏剧增量过程或说明本片段没有可省略项；"
+        "上车/开门/走路/进入新空间优先用机位切换保留关键瞬间，不拍完整过程。"
+    ),
+    "shot_language_variety": (
+        "同一片段有3个及以上镜头时，必须至少变化一种维度：拍摄主体、景别、视角/机位、声音承载或镜头任务；"
+        "不得连续三个镜头使用同一景别+同一视角。"
+    ),
+    "rhythm_alignment": (
+        "必须把节奏总控建议翻译为时长、停顿、反应归属、切镜点或尾帧；"
+        "若节奏建议与原剧本/拆片边界/连续性冲突，写在节奏字段中说明以事实和连续性为准。"
     ),
     "continuity_lock": (
         "必须先建立空间轴线和人物关系，再安排动作/对白/信息落点，最后交代尾帧。"
@@ -1898,16 +2025,29 @@ def _build_shot_director_signal_retrieval_profile(
         "door_threshold_continuity": "door_state",
         "tailframe_handoff": "tailframe",
         "authority_pressure": "reaction",
+        "editing_ellipsis": "motion_ellipsis",
+        "shot_language_variety": "shot_variety",
+        "rhythm_alignment": "rhythm_alignment",
     }
     risk_by_task = {
         "impact_reaction": "romanticize_collision",
         "door_threshold_continuity": "door_state_jump",
         "long_dialogue_coverage": "dialogue_integrity",
+        "shot_language_variety": "shot_monotony",
     }
 
     events.extend(event_by_task[task_key] for task_key in task_keys if task_key in event_by_task)
     risks.extend(risk_by_task[task_key] for task_key in task_keys if task_key in risk_by_task)
-    signals.extend(["shot_library_routing", "upstream_director_contract", "source_event_coverage"])
+    signals.extend(
+        [
+            "shot_library_routing",
+            "upstream_director_contract",
+            "source_event_coverage",
+            "editing_ellipsis",
+            "shot_variety",
+            "rhythm_alignment",
+        ]
+    )
 
     return {
         "scene_types": _unique_preserve_order(scene_types),
@@ -1920,6 +2060,10 @@ def _build_shot_director_signal_retrieval_profile(
             [
                 "镜头库调用",
                 "多机位模板",
+                "镜头多样性",
+                "机位切换减法",
+                "剪辑省略",
+                "节奏联动",
                 "上游导演约束",
                 "故事节奏控制",
                 *task_keys,
@@ -1931,6 +2075,8 @@ def _build_shot_director_signal_retrieval_profile(
             [
                 "必须把检索到的剪辑/镜头库规则转成镜头、切镜点、连续性、声音，不得只写原则",
                 "必须优先使用本片段剧情信号匹配到的 CASE 案例和规则卡",
+                "节奏总控建议只负责快慢、停顿、反应归属、卡断和尾帧意图；镜头导演必须按原剧本事实、拆片边界和连续性规则合法落地",
+                "同一片段不得无理由连续重复同一景别/视角/主体；需要用有动机的镜头语言变化避免一镜到底和站桩正反打",
             ]
         ),
         "served_agents": ["shot_director"],
@@ -1956,6 +2102,8 @@ def _shot_library_signal_task_card(
     lines = [
         "[镜头库调用任务单]",
         "先读上游导演资产，再按剧情信号调用镜头库；镜头库只能服务拆片规划里的原剧本事件，不能扩写新剧情。",
+        "节奏总控只提供快慢、停顿、反应归属、卡断和尾帧意图；若与原剧本事实、拆片边界、空间连续性冲突，必须以后者为准。",
+        "每个片段必须先判断剪辑省略点和镜头语言变化策略，再生成镜头列表；不要默认一镜到底或机械正反打。",
         f"画幅约束: {aspect_ratio}",
     ]
     if director_brief:
@@ -1987,6 +2135,7 @@ def _shot_library_signal_task_card(
                 f"  上游原文事件: {event_preview or '以当前片段规划资产为准'}",
                 f"  检测到的剧情信号: {', '.join(task_keys)}",
                 f"  必须检索的知识: {', '.join(knowledge_hints) if knowledge_hints else '通用镜头连续性规则'}",
+                "  冲突裁决: 原剧本事实 > 拆片边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学",
                 "  镜头库任务:",
             ]
         )
@@ -2011,6 +2160,7 @@ def _run_shot_director_single_pass_impl(
     expected_segments: list[str],
     images_base64: list[str] | None,
     director_hint: str,
+    scene_reference_context: str = "",
     director_brief: str = "",
     stage_callback: Callable[[str, str, dict[str, Any], dict[str, dict[str, Any]]], None] | None = None,
     resume_stage_outputs: dict[str, str] | None = None,
@@ -2028,6 +2178,8 @@ def _run_shot_director_single_pass_impl(
     downstream_context = _shot_director_downstream_context(planner_output, atmosphere_strategy, aspect_ratio)
     if director_brief_block:
         downstream_context = director_brief_block + "\n" + downstream_context
+    if scene_reference_context:
+        downstream_context = downstream_context + "\n" + scene_reference_context.strip() + "\n"
     downstream_context = downstream_context + "\n" + signal_task_card + "\n"
     rule_block = _shot_director_rule_block(aspect_ratio)
     workflow_contract = _shot_director_workflow_contract()
@@ -2076,12 +2228,13 @@ def _run_shot_director_single_pass_impl(
             "【镜头库调用方式】\n"
             "你必须先根据【镜头库调用任务单】识别当前片段属于对白覆盖、受击/碰撞、信息揭示、门/电梯阈值、尾帧承接或权力压迫等哪类镜头任务，"
             "再从知识库里的镜头库、多机位模板和连续性规则中选择合适结构。"
-            "镜头选择必须服从总导演意图、节奏总控和 story_planner 的 source_script_events；不得为了套模板新增剧情。\n\n"
+            "镜头选择必须继承总导演意图、节奏总控和 story_planner 的 source_script_events；不得为了套模板新增剧情。"
+            "节奏总控是节奏意图来源，不是镜头硬模板；你负责把快慢、停顿、反应归属、卡断和尾帧要求合法转译成镜头语言。\n\n"
             "【输出语言硬规则】\n"
             "最终 YAML 必须使用中文字段名，不要输出 fragment_id、shot_id、duration、task、subject、must_carry、cut_point、continuity 等英文字段名。\n\n"
             "【每个片段必须交付】\n"
             "1. 片段任务 — 本片段的剧情施工任务，例如建立关系、冲突升级、信息揭示、反应落点、权力反转、喜剧泄压、尾帧钩子。\n"
-            "2. 节奏 — 服从节奏总控和拆片规划的节奏指令，例如压缩、放慢、停顿、卡断、短促泄压。\n\n"
+            "2. 节奏 — 继承节奏总控和拆片规划的节奏意图，例如压缩、放慢、停顿、卡断、短促泄压；若发生冲突，说明按原剧本/连续性优先。\n\n"
             "【每个镜头必须回答】\n"
             "1. 时长 — 该镜头在片段内的时间段，必须连续，例如 0-2秒、2-5秒。\n"
             "2. 镜头任务 — 这个镜头负责什么：建立关系、承载对白、动作推进、信息揭示、反应落点、尾帧承接等。\n"
@@ -2097,11 +2250,14 @@ def _run_shot_director_single_pass_impl(
             "- 声音 — 只在需要画外音、声音先行或声音延续时写。\n\n"
             "【镜头设计原则】\n"
             "1. 事实红线高于一切：不新增剧本外的人物、台词、动作、道具或情节。\n"
-            "2. 节奏施工指令是创作节奏主控；镜头导演只负责把它合法施工成时长、镜头任务、拍摄主体、镜头、画面动作、台词、必须承载、切镜点与连续性。\n"
+            "2. 节奏总控决定快慢、停顿、反应归属、卡断和尾帧意图；镜头导演决定用哪些景别、机位、主体、声音和剪辑方式合法落地。\n"
             "3. 长台词或高压命令必须拆出视觉覆盖：说话者起句、同侧听者反应/过肩、必要时后半句以画外音、声音先行或声音延续落到反应上。\n"
             "4. 切镜点不许只写\"切出/继续/增强情绪\"，必须写清触发物，例如动作顶点、台词断点、信息看清、反应出现、门关闭完成、尾帧状态稳定。\n"
             "5. 片段编号必须沿用拆片方案的 F01/F02/F03...，不得改名合并跳号。\n"
-            f"6. 画幅：{aspect_ratio}",
+            "6. 同一片段有3个及以上镜头时，必须至少变化一种维度：拍摄主体、景别、视角/机位、声音承载或镜头任务；不得无理由连续重复。\n"
+            "7. 走路、上车、开门、进入新空间等无戏剧增量过程优先用机位/景别/主体切换省略，只保留关键起点帧和终点帧。\n"
+            "8. 冲突裁决顺序：原剧本事实 > story_planner片段边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
+            f"9. 画幅：{aspect_ratio}",
             "shot_director",
             context_hint=hint,
             retrieval_profile=retrieval_profile,
@@ -2132,7 +2288,7 @@ def _run_shot_director_single_pass_impl(
             "      声音: 画外音/声音先行/声音延续（需要时写）\n\n"
             "【关键要求】\n"
             "1. 必须覆盖拆片方案的所有片段编号。\n"
-            "2. 必须服从节奏总控施工指令，把快慢、停顿、卡断、反应归属落实到时长、镜头任务、画面动作、切镜点、连续性。\n"
+            "2. 必须继承节奏总控施工意图，把快慢、停顿、卡断、反应归属落实到时长、镜头任务、画面动作、切镜点、连续性；冲突时以原剧本、拆片边界和连续性为准。\n"
             "3. 长台词或高压命令必须插入听者反应覆盖，不能站桩正反打。\n"
             "4. 保持片段编号和镜头编号稳定，遵循 F01/F02... 和 F01-S01/F01-S02... 格式。\n"
             "5. 台词只能使用原剧本文字、原剧本画外音或写 ~；不得新增台词。\n"
@@ -2141,6 +2297,7 @@ def _run_shot_director_single_pass_impl(
             "8. 不要输出任何英文字段名；字段名必须使用上面的中文写法。\n\n"
             "9. 每个片段必须执行【镜头库调用任务单】里的镜头库任务：先判断剧情信号，再决定镜头结构和切点；"
             "如果任务单与原剧本事件冲突，以原剧本事件和拆片边界为准。\n\n"
+            "10. 每个片段必须主动判断剪辑省略点和镜头语言变化策略；不要让一个中景/同一机位吃完整段戏。\n\n"
             f"{_shot_director_coverage_contract_prompt()}\n"
             f"{rule_block}"
             "请只输出完整 YAML 镜头方案。"
@@ -2152,6 +2309,7 @@ def _run_shot_director_single_pass_impl(
             def build_fragment_prompt(fragment_id: str, fragment_context: str, _fragment_contract: str) -> str:
                 return (
                     f"【任务】\n只为 {fragment_id} 设计镜头序列。\n\n"
+                    f"{scene_reference_context.strip() + chr(10) + chr(10) if scene_reference_context else ''}"
                     f"{signal_task_card}\n\n"
                     f"{fragment_context}\n\n"
                     "【工作流】\n"
@@ -2197,6 +2355,7 @@ def _run_shot_director_single_pass_impl(
                 aspect_ratio=aspect_ratio,
                 contract_output="",
                 prompt_builder=build_fragment_prompt,
+                images_base64=images_base64,
                 progress_callback=persist_fragment,
                 resume_fragment_outputs=resume_stage_outputs,
                 resume_fragment_runtime=resume_stage_runtime,
@@ -2327,6 +2486,69 @@ def _validate_shot_director_dialogue_coverage(output: str) -> list[str]:
         )
     return issues
 
+_SHOT_VARIETY_EXCEPTION_RE = re.compile(
+    r"(长镜头|一镜到底|固定机位压迫|持续压迫|压迫式凝视|刻意重复|节奏总控.{0,24}(?:固定|长镜头|压住|不切))"
+)
+
+
+def _normalize_shot_variety_text(value: str) -> str:
+    text = re.sub(r"\s+", "", (value or "").strip().lower())
+    text = text.strip("\"'。；;，,")
+    return text
+
+
+def _shot_variety_key(block: str) -> str:
+    shot = _yaml_line_field(block, "shot")
+    if not shot:
+        camera = _yaml_line_field(block, "camera")
+        size = _yaml_line_field(block, "size")
+        shot = f"{camera} {size}".strip()
+    return _normalize_shot_variety_text(shot)
+
+
+def _validate_shot_director_variety(output: str) -> list[str]:
+    """Guard against accidental one-note shot language inside a fragment."""
+    issues: list[str] = []
+    for section in _extract_yaml_sections(output or ""):
+        fragment_id = _extract_fragment_id(section) or "unknown"
+        rhythm_text = " ".join(
+            [
+                _field_value(section, "rhythm"),
+                _field_value(section, "节奏"),
+                _field_value(section, "fragment_task"),
+                _field_value(section, "片段任务"),
+            ]
+        )
+        if _SHOT_VARIETY_EXCEPTION_RE.search(section) or _SHOT_VARIETY_EXCEPTION_RE.search(rhythm_text):
+            continue
+
+        shot_blocks = _main_shot_blocks(section)
+        if len(shot_blocks) < 3:
+            continue
+
+        shot_keys = [_shot_variety_key(block) for _shot_id, block in shot_blocks]
+        shot_keys = [key for key in shot_keys if key]
+        if len(shot_keys) < 3:
+            continue
+
+        unique_shot_keys = set(shot_keys)
+        if len(unique_shot_keys) == 1:
+            issues.append(
+                f"{fragment_id} 连续使用同一种镜头语言：{shot_keys[0]}；"
+                "请至少变化拍摄主体、景别、视角/机位、声音承载或镜头任务之一。"
+            )
+            continue
+
+        for index in range(len(shot_keys) - 2):
+            if shot_keys[index] == shot_keys[index + 1] == shot_keys[index + 2]:
+                issues.append(
+                    f"{fragment_id} 存在连续三个镜头重复同一景别/视角：{shot_keys[index]}；"
+                    "除非节奏总控明确要求压迫式长镜头，否则需要做有动机的镜头语言变化。"
+                )
+                break
+    return issues
+
+
 def _collect_shot_director_issues(
     director_output: str,
     *,
@@ -2342,6 +2564,7 @@ def _collect_shot_director_issues(
     issues.extend(_validate_shot_director_source_event_coverage(director_output, planner_output))
     issues.extend(_validate_shot_director_vertical_discipline(director_output, aspect_ratio))
     issues.extend(_validate_shot_director_dialogue_coverage(director_output))
+    issues.extend(_validate_shot_director_variety(director_output))
     return issues
 
 def _is_soft_shot_director_issue(issue: str) -> bool:
@@ -2424,6 +2647,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         director_hint = f"{director_hint} director_showrunner {director_brief_text[:300]}"
     shot_runtime_started = time.perf_counter()
     reference_images = _reference_images(state) or None
+    scene_reference_context = _reference_image_manifest_prompt(state)
     stage_runtimes: dict[str, dict[str, Any]] = {}
 
     def persist_stage(stage_name: str, stage_output: str, stage_runtime: dict[str, Any], stage_meta_snapshot: dict[str, dict[str, Any]]) -> None:
@@ -2488,6 +2712,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         expected_segments=segment_names,
         images_base64=reference_images,
         director_hint=director_hint,
+        scene_reference_context=scene_reference_context,
         director_brief=director_brief_text,
         stage_callback=persist_stage,
         resume_stage_outputs=resume_stage_outputs,
