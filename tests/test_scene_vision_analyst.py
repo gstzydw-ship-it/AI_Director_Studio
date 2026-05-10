@@ -13,6 +13,90 @@ from agents.director_graph_package import runners as package_runners
 from ui import app as ui_app
 
 
+def test_append_scene_card_references_keeps_layout_and_grid(tmp_path):
+    layout_path = tmp_path / "scene_layout_01.png"
+    grid_path = tmp_path / "scene_grid_01.png"
+    layout_path.write_bytes(b"layout")
+    grid_path.write_bytes(b"grid")
+
+    images, manifest = pci._append_scene_card_references(
+        {
+            "reference_image_b64s": ["person-ref"],
+            "reference_image_manifest": [{"filename": "乔熙.png", "role": "character"}],
+        },
+        [
+            {
+                "scene_number": "1",
+                "scene_title": "集团大堂",
+                "layout_path": str(layout_path),
+                "grid_path": str(grid_path),
+                "image_path": str(grid_path),
+            }
+        ],
+    )
+
+    assert len(images) == 3
+    assert images[1].startswith("data:image/png;base64,")
+    assert images[2].startswith("data:image/png;base64,")
+    assert [item.get("role") for item in manifest] == ["character", "scene_layout", "scene_card"]
+    assert "用户标注" in manifest[1]["purpose"]
+    assert "人物位置" in manifest[1]["purpose"]
+    assert "移动轨迹" in manifest[1]["purpose"]
+
+    rerun_images, rerun_manifest = pci._append_scene_card_references(
+        {"reference_image_b64s": images, "reference_image_manifest": manifest},
+        [
+            {
+                "scene_number": "1",
+                "scene_title": "集团大堂",
+                "layout_path": str(layout_path),
+                "grid_path": str(grid_path),
+                "image_path": str(grid_path),
+            }
+        ],
+    )
+
+    assert len(rerun_images) == 3
+    assert [item.get("role") for item in rerun_manifest] == ["character", "scene_layout", "scene_card"]
+
+
+def test_scene_layout_annotations_are_saved_as_annotated_references():
+    state = {
+        "reference_image_b64s": ["layout-a", "old-annotated", "person-a"],
+        "reference_image_manifest": [
+            {"label": "@图片1", "role": "scene_layout", "purpose": "场景俯视布局图"},
+            {"label": "@图片2", "role": "annotated_scene_layout", "purpose": "旧标注图"},
+            {"label": "@图片3", "role": "character", "purpose": "主角人物"},
+        ],
+        "agent_outputs": {},
+    }
+
+    saved_count = ui_app._upsert_scene_layout_annotations(
+        state,
+        [
+            {
+                "scene_number": 1,
+                "image_path": "output/sessions/local/scene_cards/scene_layout_01.png",
+                "annotations": {
+                    "people": [{"label": "乔熙", "x": 0.3, "y": 0.5, "color": "#ef4444"}],
+                    "arrows": [{"x1": 0.2, "y1": 0.3, "x2": 0.8, "y2": 0.7}],
+                },
+                "annotated_image": "data:image/png;base64,annotated",
+            }
+        ],
+    )
+
+    assert saved_count == 1
+    assert state["scene_layout_annotations"][0]["summary"] == (
+        "人物标点: 乔熙(0.30,0.50)；活动轨迹: (0.20,0.30)->(0.80,0.70)"
+    )
+    assert state["reference_image_b64s"] == ["layout-a", "person-a", "data:image/png;base64,annotated"]
+    assert state["reference_image_manifest"][-1]["role"] == "annotated_scene_layout"
+    assert "人物位置" in state["reference_image_manifest"][-1]["purpose"]
+    assert "移动轨迹" in state["reference_image_manifest"][-1]["purpose"]
+    assert "scene_layout_annotations" in state["agent_outputs"]
+
+
 def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch):
     captured: dict[str, object] = {}
 

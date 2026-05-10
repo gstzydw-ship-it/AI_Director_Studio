@@ -54,7 +54,7 @@ agent_models:
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 2
-    model: gpt-image-2-all
+    model: gpt-image-2
   scene_vision_analyst:
     api_key: ${DIRECTOR_LLM_API_KEY}
     base_url: https://www.xkwuai.cn/v1
@@ -66,7 +66,7 @@ agent_models:
   scene_card_designer:
     api_key: ${DIRECTOR_IMAGE_API_KEY}
     base_url: https://ai.comfly.chat/v1
-    model: gpt-image-2-all
+    model: gpt-image-2
   storyboard_prompt_designer:
     api_key: ${DIRECTOR_LLM_API_KEY}
     base_url: https://www.xkwuai.cn/v1
@@ -137,4 +137,4 @@ vectordb:
 image_generation:
   api_key: ${DIRECTOR_IMAGE_API_KEY}
   base_url: https://ai.comfly.chat/v1
-  model: gpt-image-2-all
+  model: gpt-image-2

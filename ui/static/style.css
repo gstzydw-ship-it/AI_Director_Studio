@@ -1980,6 +1980,7 @@ input:focus {
     border: 1px solid var(--border-color);
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.025);
+    min-height: 0;
 }
 
 .reference-panel-head {
@@ -1988,6 +1989,13 @@ input:focus {
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 10px;
+}
+
+.reference-actions {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 8px;
 }
 
 .reference-picker-row {
@@ -2002,6 +2010,13 @@ input:focus {
 
 .reference-grid {
     grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+    max-height: min(520px, calc(100vh - 430px));
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding-right: 4px;
+    scrollbar-gutter: stable;
+    contain: layout paint;
 }
 
 .reference-item,
@@ -2012,6 +2027,15 @@ input:focus {
     border-radius: 8px;
     background: rgba(255, 255, 255, 0.035);
     border-color: var(--border-color);
+}
+
+.reference-item {
+    contain: layout paint style;
+}
+
+.reference-thumb-wrap,
+.reference-thumb {
+    contain: layout paint;
 }
 
 .command-row {
@@ -2323,11 +2347,55 @@ input:focus {
     max-height: calc(100vh - 316px);
     padding: 14px 16px 16px;
     overflow-y: auto;
+    overscroll-behavior: contain;
+    scrollbar-gutter: stable;
+    contain: layout paint;
 }
 
 .result-text {
     font-size: 13px;
     line-height: 1.75;
+}
+
+.readable-section,
+.segment-card,
+.segment-prompt-card,
+.storyboard-card,
+.scene-reference-set {
+    contain: layout paint style;
+}
+
+.storyboard-image-wrap {
+    contain: layout paint;
+}
+
+@supports (content-visibility: auto) {
+    .reference-item,
+    .readable-section,
+    .segment-card,
+    .segment-prompt-card,
+    .storyboard-card,
+    .scene-reference-set {
+        content-visibility: auto;
+    }
+
+    .reference-item {
+        contain-intrinsic-size: auto 112px;
+    }
+
+    .readable-section,
+    .segment-card {
+        contain-intrinsic-size: auto 180px;
+    }
+
+    .segment-prompt-card {
+        contain-intrinsic-size: auto 260px;
+    }
+
+    .storyboard-card,
+    .scene-reference-set {
+        contain-intrinsic-size: auto 520px;
+    }
 }
 
 .placeholder-text,

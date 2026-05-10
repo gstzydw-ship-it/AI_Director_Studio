@@ -126,7 +126,10 @@
                                             <label>参考图</label>
                                             <small>人物、空间、服装和位置关系都可以分批加入。</small>
                                         </div>
-                                        <button type="button" class="btn-small" onclick="clearReferenceImages()">清空</button>
+                                        <div class="reference-actions">
+                                            <button type="button" class="btn-small" onclick="autoMatchReferenceImages()">自动匹配</button>
+                                            <button type="button" class="btn-small" onclick="clearReferenceImages()">清空</button>
+                                        </div>
                                     </div>
                                     <div class="reference-picker-row">
                                         <select id="refLibrarySelect" onchange="addReferenceFromLibrary(this.value); this.value='';">
@@ -1048,26 +1051,79 @@
             return REFERENCE_PURPOSE_OPTIONS[5];
         }
 
-        document.getElementById('refImageFiles').addEventListener('change', (event) => {
+        const REFERENCE_PREVIEW_EDGE = 160;
+
+        function revokeReferencePreview(item) {
+            if (item?.previewUrl && item.previewUrl.startsWith('blob:')) {
+                URL.revokeObjectURL(item.previewUrl);
+            }
+        }
+
+        async function createReferencePreviewUrl(file) {
+            if (!file) return '';
+            if (!window.createImageBitmap) {
+                return URL.createObjectURL(file);
+            }
+            let bitmap = null;
+            try {
+                bitmap = await createImageBitmap(file);
+                const canvas = document.createElement('canvas');
+                canvas.width = REFERENCE_PREVIEW_EDGE;
+                canvas.height = REFERENCE_PREVIEW_EDGE;
+                const ctx = canvas.getContext('2d', { alpha: false });
+                if (!ctx) return URL.createObjectURL(file);
+
+                ctx.fillStyle = '#111112';
+                ctx.fillRect(0, 0, REFERENCE_PREVIEW_EDGE, REFERENCE_PREVIEW_EDGE);
+                const sourceSize = Math.min(bitmap.width, bitmap.height);
+                const sourceX = Math.max(0, Math.floor((bitmap.width - sourceSize) / 2));
+                const sourceY = Math.max(0, Math.floor((bitmap.height - sourceSize) / 2));
+                ctx.drawImage(
+                    bitmap,
+                    sourceX,
+                    sourceY,
+                    sourceSize,
+                    sourceSize,
+                    0,
+                    0,
+                    REFERENCE_PREVIEW_EDGE,
+                    REFERENCE_PREVIEW_EDGE,
+                );
+                return canvas.toDataURL('image/jpeg', 0.72);
+            } catch (e) {
+                return URL.createObjectURL(file);
+            } finally {
+                if (bitmap && typeof bitmap.close === 'function') bitmap.close();
+            }
+        }
+
+        async function makeReferenceItem(file, purpose, note = '') {
+            return {
+                file,
+                previewUrl: await createReferencePreviewUrl(file),
+                purpose,
+                note,
+            };
+        }
+
+        document.getElementById('refImageFiles').addEventListener('change', async (event) => {
             const files = Array.from(event.target.files || []);
-            files.forEach(file => {
+            for (const file of files) {
                 if (referenceItems.length >= MAX_REFERENCE_IMAGES) {
                     showError(`一次最多添加 ${MAX_REFERENCE_IMAGES} 张参考图，请先移除不需要的图片。`);
-                    return;
+                    break;
                 }
                 const looksLikeImage = file.type.startsWith('image/') || /\.(png|jpe?g|webp)$/i.test(file.name);
                 if (!looksLikeImage) {
                     showError(`${file.name} 不是支持的图片文件`);
-                    return;
+                    continue;
                 }
                 const nextIndex = referenceItems.length + 1;
-                referenceItems.push({
+                referenceItems.push(await makeReferenceItem(
                     file,
-                    previewUrl: URL.createObjectURL(file),
-                    purpose: defaultReferencePurpose(nextIndex, file.name),
-                    note: '',
-                });
-            });
+                    defaultReferencePurpose(nextIndex, file.name),
+                ));
+            }
             event.target.value = '';
             renderReferenceImages();
         });
@@ -1091,7 +1147,7 @@
                 return `
                     <div class="reference-item">
                         <div class="reference-thumb-wrap">
-                            <img src="${item.previewUrl}" alt="@图片${index + 1}" class="reference-thumb">
+                            <img src="${item.previewUrl}" alt="@图片${index + 1}" class="reference-thumb" loading="lazy" decoding="async">
                             <span class="reference-badge">@图片${index + 1}</span>
                         </div>
                         <div class="reference-meta">
@@ -1117,14 +1173,14 @@
 
         function removeReferenceImage(index) {
             const item = referenceItems[index];
-            if (item?.previewUrl) URL.revokeObjectURL(item.previewUrl);
+            revokeReferencePreview(item);
             referenceItems.splice(index, 1);
             renderReferenceImages();
         }
 
         function clearReferenceImages() {
             referenceItems.forEach(item => {
-                if (item.previewUrl) URL.revokeObjectURL(item.previewUrl);
+                revokeReferencePreview(item);
             });
             referenceItems = [];
             document.getElementById('refImageFiles').value = '';
@@ -1162,15 +1218,61 @@
                 const nextIndex = referenceItems.length + 1;
                 const baseName = filename.replace(/\.[^/.]+$/, "");
                 
-                referenceItems.push({
+                referenceItems.push(await makeReferenceItem(
                     file,
-                    previewUrl: URL.createObjectURL(file),
-                    purpose: defaultReferencePurpose(nextIndex, filename),
-                    note: baseName,
-                });
+                    defaultReferencePurpose(nextIndex, filename),
+                    baseName,
+                ));
                 renderReferenceImages();
             } catch (e) {
                 showError(`添加库图片失败: ${e.message}`);
+            }
+        }
+
+        async function addAutoMatchedReference(filename, meta = {}) {
+            if (!filename) return false;
+            if (referenceItems.some(item => item?.file?.name === filename)) return false;
+            if (referenceItems.length >= MAX_REFERENCE_IMAGES) return false;
+            const resp = await fetch('/api/reference_library/' + encodeURIComponent(filename));
+            if (!resp.ok) throw new Error('fetch failed');
+            const blob = await resp.blob();
+            const file = new File([blob], filename, { type: blob.type || 'image/jpeg' });
+            referenceItems.push(await makeReferenceItem(
+                file,
+                meta.purpose || defaultReferencePurpose(referenceItems.length + 1, filename),
+                `auto: ${(meta.matched_tokens || []).join(' / ') || filename.replace(/\.[^/.]+$/, '')}`,
+            ));
+            return true;
+        }
+
+        async function autoMatchReferenceImages() {
+            const script = document.getElementById('scriptInput').value.trim();
+            if (!script) {
+                showError('请先输入剧本内容，再自动匹配参考图。');
+                return;
+            }
+            try {
+                const formData = new FormData();
+                formData.append('script', script);
+                formData.append('reference_image_manifest_json', JSON.stringify(buildReferenceManifest()));
+                const resp = await fetch('/api/reference_library/auto_select', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    showError(data.error || '自动匹配参考图失败');
+                    return;
+                }
+                let added = 0;
+                for (const item of data.images || []) {
+                    if (await addAutoMatchedReference(item.filename, item)) added += 1;
+                }
+                renderReferenceImages();
+                if (added === 0) {
+                    showError('没有匹配到新的本地参考图。请确认 reference_images 目录里有对应人物、场景或道具文件。');
+                } else {
+                    document.getElementById('pipelineMsg').textContent = `已自动匹配 ${added} 张参考图，可先检查后再启动流水线。`;
+                }
+            } catch (e) {
+                showError('自动匹配参考图失败: ' + e.message);
             }
         }
 
@@ -1402,21 +1504,35 @@
             if (tabs) tabs.style.display = 'none';
             if (toolbar) toolbar.style.display = 'none';
             if (shell) shell.classList.add('is-empty');
+            lastResultOutputAgent = '';
+            lastResultOutputHtml = '';
             setResultNotice('');
         }
+
+        let lastResultOutputAgent = '';
+        let lastResultOutputHtml = '';
 
         function setResultOutput(agent, html, options = {}) {
             const tabs = document.getElementById('resultTabs');
             const output = document.getElementById('resultOutput');
             const toolbar = document.getElementById('agentResultToolbar');
             const shell = document.querySelector('.agent-result-shell');
+            const nextHtml = String(html || '');
             if (tabs) tabs.style.display = 'flex';
             if (toolbar) toolbar.style.display = 'flex';
             if (shell) shell.classList.remove('is-empty');
             selectResultTab(agent);
             updateResultTabsState();
             updateAgentResultToolbar(agent, options);
-            if (output) output.innerHTML = html;
+            if (output && (options.forceRender || agent !== lastResultOutputAgent || nextHtml !== lastResultOutputHtml)) {
+                const previousScrollTop = output.scrollTop;
+                output.innerHTML = nextHtml;
+                lastResultOutputAgent = agent;
+                lastResultOutputHtml = nextHtml;
+                if (options.preserveScroll !== false) {
+                    output.scrollTop = Math.min(previousScrollTop, output.scrollHeight);
+                }
+            }
             setResultNotice(options.notice || '', options.noticeType || 'info');
         }
 
@@ -1556,13 +1672,24 @@
         }
 
         async function continueCurrentAgentOutput(agent = activeResultAgent()) {
-            if (isCurrentAgentReviewing(agent)) {
-                await approveAgentOutput();
+            if (agent === 'scene_analyst' && hasSceneReferenceCards(currentPublicState.agent_outputs || agentOutputs)) {
+                const saved = await saveSceneLayoutAnnotationsToBackend();
+                if (!saved) return;
+                const pendingReviewAgent = currentPublicState.review_agent || '';
+                if (pendingReviewAgent && pendingReviewAgent !== agent && currentPublicState.review_mode === 'agent_output') {
+                    await approveAgentOutput();
+                    return;
+                }
+                if (isCurrentAgentReviewing(agent)) {
+                    await approveAgentOutput();
+                    return;
+                }
+                setResultNotice('俯视图、九宫格和人物标点/活动轨迹已经保存到当前任务，并会作为后续参考图使用。', 'success');
+                document.getElementById('pipelineMsg').textContent = '场景参考图和标注已保存到当前任务。';
                 return;
             }
-            if (agent === 'scene_analyst' && hasSceneReferenceCards(currentPublicState.agent_outputs || agentOutputs)) {
-                setResultNotice('俯视图和九宫格已经保存到当前任务，并会作为后续参考图使用。若当前处于审核等待，按钮会继续到下一步。', 'success');
-                document.getElementById('pipelineMsg').textContent = '场景参考图已保存到当前任务。';
+            if (isCurrentAgentReviewing(agent)) {
+                await approveAgentOutput();
                 return;
             }
             setResultNotice('当前没有等待确认的 Agent 输出。', 'warning');
@@ -2045,14 +2172,19 @@
         async function approveAgentOutput() {
             const editor = document.getElementById('agentReviewEditor');
             const agent = currentPublicState.review_agent || '';
-            if (!editor || !agent) {
+            if (!agent) {
                 showError('当前没有可确认的 Agent 输出');
+                return;
+            }
+            const editedOutput = editor ? editor.value : reviewOutputText(currentPublicState);
+            if (!String(editedOutput || '').trim()) {
+                showError('当前没有可提交的 Agent 输出');
                 return;
             }
             const formData = new FormData();
             formData.append('session_id', getSessionId());
             formData.append('agent_name', agent);
-            formData.append('edited_output', editor.value);
+            formData.append('edited_output', editedOutput);
             document.getElementById('pipelineMsg').textContent = '已提交修改，正在继续下一个 Agent...';
             document.getElementById('interactiveBox').innerHTML = '';
             updateAgentStatus('running', '继续执行中');
@@ -3141,6 +3273,122 @@
             });
         }
 
+        function sceneLayoutHasAnnotations(annotations) {
+            return Boolean((annotations.people || []).length || (annotations.arrows || []).length);
+        }
+
+        async function sceneLayoutAnnotatedDataUrl(stage, annotations) {
+            const img = stage?.querySelector('img');
+            if (!img || !sceneLayoutHasAnnotations(annotations)) return '';
+            if (!img.complete) {
+                await new Promise(resolve => {
+                    img.addEventListener('load', resolve, { once: true });
+                    img.addEventListener('error', resolve, { once: true });
+                });
+            }
+            const width = img.naturalWidth || stage.clientWidth || 1200;
+            const height = img.naturalHeight || stage.clientHeight || 800;
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            if (!ctx) return '';
+            try {
+                ctx.drawImage(img, 0, 0, width, height);
+                ctx.lineWidth = Math.max(4, Math.round(width / 220));
+                ctx.font = `${Math.max(18, Math.round(width / 52))}px sans-serif`;
+                ctx.textBaseline = 'middle';
+
+                annotations.arrows.forEach((arrow) => {
+                    const x1 = arrow.x1 * width;
+                    const y1 = arrow.y1 * height;
+                    const x2 = arrow.x2 * width;
+                    const y2 = arrow.y2 * height;
+                    const angle = Math.atan2(y2 - y1, x2 - x1);
+                    const head = Math.max(18, Math.round(width / 42));
+                    ctx.strokeStyle = '#f97316';
+                    ctx.fillStyle = '#f97316';
+                    ctx.beginPath();
+                    ctx.moveTo(x1, y1);
+                    ctx.lineTo(x2, y2);
+                    ctx.stroke();
+                    ctx.beginPath();
+                    ctx.moveTo(x2, y2);
+                    ctx.lineTo(x2 - head * Math.cos(angle - Math.PI / 6), y2 - head * Math.sin(angle - Math.PI / 6));
+                    ctx.lineTo(x2 - head * Math.cos(angle + Math.PI / 6), y2 - head * Math.sin(angle + Math.PI / 6));
+                    ctx.closePath();
+                    ctx.fill();
+                });
+
+                annotations.people.forEach((person, index) => {
+                    const x = person.x * width;
+                    const y = person.y * height;
+                    const color = scenePersonColor(index, person.color);
+                    const radius = Math.max(10, Math.round(width / 90));
+                    const label = person.label || `人${index + 1}`;
+                    ctx.fillStyle = color;
+                    ctx.beginPath();
+                    ctx.arc(x, y, radius, 0, Math.PI * 2);
+                    ctx.fill();
+                    ctx.lineWidth = Math.max(2, Math.round(width / 500));
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.stroke();
+                    ctx.fillStyle = color;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.lineWidth = Math.max(3, Math.round(width / 260));
+                    ctx.strokeText(label, x + radius + 6, y);
+                    ctx.fillText(label, x + radius + 6, y);
+                });
+                return canvas.toDataURL('image/png');
+            } catch (e) {
+                return '';
+            }
+        }
+
+        async function collectSceneLayoutAnnotationPayloads() {
+            const payloads = [];
+            const stages = Array.from(document.querySelectorAll('.scene-annotation-stage'));
+            for (const stage of stages) {
+                const key = stage.dataset.annotationKey || '';
+                const annotations = loadSceneLayoutAnnotations(key);
+                if (!sceneLayoutHasAnnotations(annotations)) continue;
+                payloads.push({
+                    scene_number: stage.dataset.sceneNumber || '1',
+                    image_path: stage.dataset.sceneImagePath || '',
+                    cache_key: stage.dataset.sceneCacheKey || '',
+                    annotations,
+                    annotated_image: await sceneLayoutAnnotatedDataUrl(stage, annotations),
+                });
+            }
+            return payloads;
+        }
+
+        async function saveSceneLayoutAnnotationsToBackend() {
+            try {
+                const payloads = await collectSceneLayoutAnnotationPayloads();
+                const form = new FormData();
+                form.append('session_id', getSessionId());
+                form.append('annotations_json', JSON.stringify(payloads));
+                const response = await fetch('/api/save_scene_layout_annotations', {
+                    method: 'POST',
+                    body: form,
+                });
+                const data = await response.json();
+                if (!data.success) {
+                    setResultNotice(data.error || '保存场景标注失败。', 'error');
+                    return false;
+                }
+                if (data.state) {
+                    currentPublicState = data.state;
+                    agentOutputs = data.state.agent_outputs || agentOutputs;
+                }
+                return true;
+            } catch (e) {
+                setResultNotice('保存场景标注失败: ' + e.message, 'error');
+                return false;
+            }
+        }
+
         window.addEventListener('resize', refreshSceneLayoutAnnotations);
 
         function selectResultTab(agent) {
@@ -3215,10 +3463,17 @@
                            </div>` : '';
                 const headerActions = [actionHtml, annotationActions].filter(Boolean).join('');
                 const imageContent = enableAnnotation
-                    ? `<div class="scene-annotation-stage" data-annotation-key="${escapeHtml(annotationKey)}" onclick="handleSceneLayoutAnnotationClick(event, this); return false;">
+                    ? `<div class="scene-annotation-stage"
+                            data-annotation-key="${escapeHtml(annotationKey)}"
+                            data-scene-number="${escapeHtml(sceneNumber)}"
+                            data-scene-image-path="${escapeHtml(imagePath)}"
+                            data-scene-cache-key="${escapeHtml(cacheKey)}"
+                            onclick="handleSceneLayoutAnnotationClick(event, this); return false;">
                            <img src="${escapeHtml(imageSrc)}"
                                 alt="${escapeHtml(title)}"
                                 class="storyboard-image scene-annotatable-image"
+                                loading="lazy"
+                                decoding="async"
                                 onload="renderSceneLayoutAnnotations(this.closest('.scene-annotation-stage'))"
                                 onerror="this.closest('.storyboard-image-wrap').innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">
                            <svg class="scene-annotation-svg" aria-hidden="true"></svg>
@@ -3226,6 +3481,8 @@
                     : `<img src="${escapeHtml(imageSrc)}"
                                 alt="${escapeHtml(title)}"
                                 class="storyboard-image"
+                                loading="lazy"
+                                decoding="async"
                                 onerror="this.parentElement.innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">`;
                 return `<div class="storyboard-card" style="margin-bottom:12px;">
                        <div class="storyboard-card-header" style="display:flex; align-items:center; justify-content:space-between; gap:12px;">
@@ -3377,6 +3634,8 @@
                             <img src="${escapeHtml(imageSrc)}"
                                  alt="片段 ${segIndex} 分镜首帧图"
                                  class="storyboard-image"
+                                 loading="lazy"
+                                 decoding="async"
                                  onerror="this.parentElement.innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">
                         </div>` : `<div class="storyboard-image-wrap">
                             <div class="placeholder-text">已生成提示词，尚未调用生图接口。</div>

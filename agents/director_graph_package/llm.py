@@ -503,11 +503,13 @@ def call_llm(
         max_retries = max(1, int(max_retries))
     max_retries = _effective_retry_budget(agent_name, max_retries)
 
-    trust_env = not bypass_proxy
     last_exc: Exception | None = None
     last_retryable = False
     models_to_try = _normalise_model_list([model, *_get_llm_fallback_models(agent_name)])
     attempted_models: list[str] = []
+    proxy_modes: list[tuple[bool, bool, str]] = [(not bypass_proxy, bypass_proxy, "")]
+    if bypass_proxy:
+        proxy_modes.append((True, False, " system-proxy fallback"))
 
     for model_index, active_model in enumerate(models_to_try):
         attempted_models.append(active_model)
@@ -548,40 +550,51 @@ def call_llm(
         )
         timeout = httpx.Timeout(request_timeout, connect=connect_timeout, read=read_timeout, write=write_timeout)
 
-        for attempt in range(1, max_retries + 1):
-            try:
-                with httpx.Client(timeout=timeout, trust_env=trust_env) as client:
-                    response = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-                    response.raise_for_status()
-                    result = response.json()
-                if not isinstance(result, dict):
-                    raise RuntimeError(f"LLM 响应格式异常，期待 dict，得到 {type(result).__name__}：{str(result)[:400]}")
-                choices = result.get("choices")
-                if not choices or not isinstance(choices, list):
-                    raise RuntimeError(f"LLM 响应缺少 choices 字段：{json.dumps(result, ensure_ascii=False)[:500]}")
-                message = (choices[0] or {}).get("message") or {}
-                text = _extract_message_text(message)
-                return text.strip()
-            except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.NetworkError) as exc:
-                last_exc = exc
-                last_retryable = True
-            except httpx.TimeoutException as exc:
-                last_exc = exc
-                last_retryable = True
-            except httpx.HTTPStatusError as exc:
-                last_exc = exc
-                status_code = exc.response.status_code if exc.response is not None else 0
-                last_retryable = status_code >= 500
-            except Exception as exc:
-                last_exc = exc
-                last_retryable = False
+        for proxy_index, (trust_env, active_bypass_proxy, proxy_label) in enumerate(proxy_modes):
+            for attempt in range(1, max_retries + 1):
+                try:
+                    with httpx.Client(timeout=timeout, trust_env=trust_env) as client:
+                        response = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                        response.raise_for_status()
+                        result = response.json()
+                    if not isinstance(result, dict):
+                        raise RuntimeError(f"LLM 响应格式异常，期待 dict，得到 {type(result).__name__}：{str(result)[:400]}")
+                    choices = result.get("choices")
+                    if not choices or not isinstance(choices, list):
+                        raise RuntimeError(f"LLM 响应缺少 choices 字段：{json.dumps(result, ensure_ascii=False)[:500]}")
+                    message = (choices[0] or {}).get("message") or {}
+                    text = _extract_message_text(message)
+                    return text.strip()
+                except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.NetworkError) as exc:
+                    last_exc = exc
+                    last_retryable = True
+                except httpx.TimeoutException as exc:
+                    last_exc = exc
+                    last_retryable = True
+                except httpx.HTTPStatusError as exc:
+                    last_exc = exc
+                    status_code = exc.response.status_code if exc.response is not None else 0
+                    last_retryable = status_code >= 500
+                except Exception as exc:
+                    last_exc = exc
+                    last_retryable = False
 
-            if not last_retryable or attempt == max_retries:
-                break
+                if not last_retryable or attempt == max_retries:
+                    break
 
-            wait_seconds = 2 ** attempt
-            print(f"  [LLM] WARN: attempt {attempt} failed on {active_model} ({type(last_exc).__name__}); retrying in {wait_seconds}s...")
-            _time.sleep(wait_seconds)
+                wait_seconds = 2 ** attempt
+                print(f"  [LLM] WARN: attempt {attempt} failed on {active_model}{proxy_label} ({type(last_exc).__name__}); retrying in {wait_seconds}s...")
+                _time.sleep(wait_seconds)
+
+            if (
+                proxy_index == 0
+                and bypass_proxy
+                and model_index == len(models_to_try) - 1
+                and isinstance(last_exc, (httpx.RemoteProtocolError, httpx.ConnectError, httpx.NetworkError))
+            ):
+                print(f"  [LLM] WARN: direct connection failed on {active_model}; retrying with system proxy environment...")
+                continue
+            break
 
         if last_retryable and model_index < len(models_to_try) - 1:
             next_model = models_to_try[model_index + 1]
@@ -600,5 +613,5 @@ def call_llm(
         connect_timeout_seconds=connect_timeout if "connect_timeout" in locals() else None,
         read_timeout_seconds=read_timeout if "read_timeout" in locals() else None,
         write_timeout_seconds=write_timeout if "write_timeout" in locals() else None,
-        bypass_proxy=bypass_proxy,
+        bypass_proxy=active_bypass_proxy if "active_bypass_proxy" in locals() else bypass_proxy,
     )

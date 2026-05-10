@@ -559,31 +559,46 @@ def _append_scene_card_references(
     for index, image in enumerate(images):
         item = manifest[index] if index < len(manifest) else {}
         role_text = " ".join(str(item.get(key) or "") for key in ("role", "type", "purpose", "name"))
-        if "场景母版图" in role_text or "scene_card" in role_text:
+        if "场景母版图" in role_text or "scene_card" in role_text or "scene_layout" in role_text:
             continue
         kept_images.append(image)
         kept_manifest.append(item)
 
     for scene_card in scene_cards:
-        image_path = scene_card.get("image_path") or ""
-        if not image_path:
-            continue
-        label = f"@图片{len(kept_images) + 1}"
         scene_title = scene_card.get("scene_title") or f"场景{scene_card.get('scene_number') or ''}".strip()
-        kept_images.append(_file_to_image_data_uri(image_path))
-        kept_manifest.append(
-            {
-                "label": label,
-                "filename": os.path.basename(image_path),
-                "purpose": (
+        generated_refs = [
+            (
+                scene_card.get("layout_path") or "",
+                "scene_layout",
+                (
+                    f"{scene_title}场景俯视布局图：保留用户标注的人物位置、移动轨迹、空间边界和固定物体，"
+                    "用于后续分镜流程图与 Seedance 2.0 场景参考"
+                ),
+            ),
+            (
+                scene_card.get("grid_path") or scene_card.get("image_path") or "",
+                "scene_card",
+                (
                     f"{scene_title}场景九宫格机位图：与同批俯视布局图配套，"
                     "用于后续分镜流程图与 Seedance 2.0 场景参考"
                 ),
-                "type": "scene_card",
-                "role": "scene_card",
-                "name": scene_title,
-            }
-        )
+            ),
+        ]
+        for image_path, role, purpose in generated_refs:
+            if not image_path:
+                continue
+            label = f"@图片{len(kept_images) + 1}"
+            kept_images.append(_file_to_image_data_uri(image_path))
+            kept_manifest.append(
+                {
+                    "label": label,
+                    "filename": os.path.basename(image_path),
+                    "purpose": purpose,
+                    "type": role,
+                    "role": role,
+                    "name": scene_title,
+                }
+            )
     return kept_images, kept_manifest
 
 

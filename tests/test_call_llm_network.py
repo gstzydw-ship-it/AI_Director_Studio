@@ -47,6 +47,34 @@ def test_call_llm_bypasses_proxy_environment_by_default(monkeypatch):
     assert captured["trust_env"] is False
 
 
+def test_call_llm_retries_with_system_proxy_after_direct_connect_failure(monkeypatch):
+    _patch_llm_settings(monkeypatch)
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    attempts: list[bool] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.trust_env = kwargs.get("trust_env")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, *args, **kwargs):
+            attempts.append(self.trust_env)
+            if self.trust_env is False:
+                request = httpx.Request("POST", "https://ai.comfly.chat/v1/chat/completions")
+                raise httpx.ConnectError("simulated direct connect failure", request=request)
+            return _FakeResponse()
+
+    monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
+
+    assert director_graph.call_llm("system", "user", agent_name="director_showrunner", max_retries=1) == "ok"
+    assert attempts == [False, True]
+
+
 def test_call_llm_retries_connect_error(monkeypatch):
     _patch_llm_settings(monkeypatch)
     monkeypatch.setattr(time, "sleep", lambda seconds: None)

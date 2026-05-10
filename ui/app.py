@@ -15,9 +15,11 @@ import shutil
 import copy
 import ipaddress
 import socket
+import time
 from io import BytesIO
 from datetime import datetime
 from time import perf_counter
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -112,13 +114,16 @@ def _has_live_task(session_id: str) -> bool:
 
 
 def _register_task_thread(session_id: str, thread: threading.Thread) -> None:
-    active_task_threads[_normalise_session_id(session_id)] = thread
+    session_id = _normalise_session_id(session_id)
+    active_task_threads[session_id] = thread
+    _append_task_log(session_id, "thread_registered", thread_name=thread.name, thread_id=thread.ident)
 
 
 def _unregister_task_thread(session_id: str) -> None:
     session_id = _normalise_session_id(session_id)
     if active_task_threads.get(session_id) is threading.current_thread():
         active_task_threads.pop(session_id, None)
+        _append_task_log(session_id, "thread_unregistered", thread_name=threading.current_thread().name)
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
@@ -132,6 +137,33 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _append_task_log(session_id: str, event: str, **fields: Any) -> None:
+    session_id = _normalise_session_id(session_id)
+    entry = {
+        "ts": _now_iso(),
+        "session_id": session_id,
+        "event": event,
+        **fields,
+    }
+    try:
+        os.makedirs(_session_output_dir(session_id), exist_ok=True)
+        with open(os.path.join(_session_output_dir(session_id), "task_events.log"), "a", encoding="utf-8") as file:
+            file.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except Exception as exc:
+        print(f"  [TaskLog] WARN: unable to write task log for {session_id}: {exc}")
+
+
+def _state_log_summary(state: dict) -> dict:
+    return {
+        "status": state.get("status"),
+        "step": state.get("step"),
+        "message": state.get("message"),
+        "review_agent": state.get("review_agent"),
+        "current_segment_index": state.get("current_segment_index"),
+        "active_segment_index": state.get("active_segment_index"),
+    }
 
 
 def _touch_task_progress(state: dict, now: str | None = None) -> None:
@@ -264,6 +296,59 @@ _AGENT_DISPLAY_NAMES = {
 MAX_REFERENCE_IMAGES = 12
 REFERENCE_IMAGE_MAX_EDGE = 1280
 REFERENCE_IMAGE_JPEG_QUALITY = 82
+REFERENCE_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+
+AUTO_REFERENCE_SCENE_HINTS = (
+    "场景",
+    "空间",
+    "环境",
+    "地点",
+    "场地",
+    "公寓",
+    "客厅",
+    "卧室",
+    "儿童房",
+    "厨房",
+    "餐厅",
+    "门口",
+    "大堂",
+    "集团",
+    "公司",
+    "总部",
+    "办公区",
+    "办公室",
+    "会议室",
+    "小区",
+    "街道",
+    "走廊",
+    "电梯",
+    "酒店",
+    "医院",
+    "学校",
+    "房间",
+    "庭院",
+    "车库",
+    "停车场",
+)
+
+AUTO_REFERENCE_PROP_HINTS = (
+    "道具",
+    "手机",
+    "手提包",
+    "包",
+    "咖啡",
+    "腕表",
+    "文件",
+    "照片",
+    "车",
+    "钥匙",
+    "合同",
+    "戒指",
+    "项链",
+)
+
+AUTO_REFERENCE_WEAK_TOKENS = {"场景", "空间", "环境", "地点", "场地", "集团", "公司", "总部"}
+AUTO_REFERENCE_SPLIT_RE = re.compile(r"[\s_\-—~·,，、.。:：;；()（）\[\]【】]+")
 SEGMENT_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm"}
 
 def _load_latest_results_on_startup():
@@ -305,8 +390,10 @@ def _save_task_state_for_session(
     try:
         with request_scope(session_id=_normalise_session_id(session_id)):
             save_state(dict(state))
+        _append_task_log(session_id, "state_saved", **_state_log_summary(state))
         return True
-    except Exception:
+    except Exception as exc:
+        _append_task_log(session_id, "state_save_failed", error=str(exc), traceback=traceback.format_exc())
         return False
 
 
@@ -446,6 +533,130 @@ def _public_task_state(session_id: str = DEFAULT_SESSION_ID) -> dict:
     if isinstance(error, str) and len(error) > 5000:
         state["error"] = error[:5000] + "\n... traceback truncated ..."
     return state
+
+
+def _clamp_annotation_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number < 0 or number > 1:
+        return None
+    return round(number, 4)
+
+
+def _normalise_scene_layout_annotation(entry: dict[str, Any]) -> dict[str, Any] | None:
+    annotations = entry.get("annotations") if isinstance(entry.get("annotations"), dict) else {}
+    people: list[dict[str, Any]] = []
+    for index, person in enumerate(annotations.get("people") or []):
+        if not isinstance(person, dict):
+            continue
+        x = _clamp_annotation_number(person.get("x"))
+        y = _clamp_annotation_number(person.get("y"))
+        if x is None or y is None:
+            continue
+        people.append(
+            {
+                "label": str(person.get("label") or f"人{index + 1}")[:40],
+                "x": x,
+                "y": y,
+                "color": str(person.get("color") or "")[:16],
+            }
+        )
+
+    arrows: list[dict[str, float]] = []
+    for arrow in annotations.get("arrows") or []:
+        if not isinstance(arrow, dict):
+            continue
+        x1 = _clamp_annotation_number(arrow.get("x1"))
+        y1 = _clamp_annotation_number(arrow.get("y1"))
+        x2 = _clamp_annotation_number(arrow.get("x2"))
+        y2 = _clamp_annotation_number(arrow.get("y2"))
+        if None in (x1, y1, x2, y2):
+            continue
+        arrows.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2})
+
+    if not people and not arrows:
+        return None
+
+    scene_number = str(entry.get("scene_number") or "").strip() or "1"
+    image_path = str(entry.get("image_path") or "").strip()
+    annotated_image = str(entry.get("annotated_image") or "").strip()
+    if annotated_image and not annotated_image.startswith("data:image/"):
+        annotated_image = ""
+
+    summary_people = ", ".join(f"{item['label']}({item['x']:.2f},{item['y']:.2f})" for item in people)
+    summary_arrows = ", ".join(
+        f"({item['x1']:.2f},{item['y1']:.2f})->({item['x2']:.2f},{item['y2']:.2f})"
+        for item in arrows
+    )
+    summary_parts = []
+    if summary_people:
+        summary_parts.append(f"人物标点: {summary_people}")
+    if summary_arrows:
+        summary_parts.append(f"活动轨迹: {summary_arrows}")
+
+    return {
+        "scene_number": scene_number,
+        "image_path": image_path,
+        "cache_key": str(entry.get("cache_key") or "").strip(),
+        "annotations": {"people": people, "arrows": arrows},
+        "annotated_image": annotated_image,
+        "summary": "；".join(summary_parts),
+    }
+
+
+def _upsert_scene_layout_annotations(state: dict, entries: list[dict[str, Any]]) -> int:
+    normalised = [
+        item
+        for item in (_normalise_scene_layout_annotation(entry) for entry in entries if isinstance(entry, dict))
+        if item
+    ]
+    state["scene_layout_annotations"] = normalised
+
+    outputs = state.setdefault("agent_outputs", {})
+    outputs["scene_layout_annotations"] = json.dumps(
+        [{key: value for key, value in item.items() if key != "annotated_image"} for item in normalised],
+        ensure_ascii=False,
+    )
+
+    images = list(state.get("reference_image_b64s") or [])
+    manifest = [item if isinstance(item, dict) else {} for item in list(state.get("reference_image_manifest") or [])]
+    while len(manifest) < len(images):
+        manifest.append({})
+
+    kept_images: list[str] = []
+    kept_manifest: list[dict[str, Any]] = []
+    for index, image in enumerate(images):
+        item = manifest[index] if index < len(manifest) else {}
+        role_text = " ".join(str(item.get(key) or "") for key in ("role", "type", "purpose")).lower()
+        if "annotated_scene_layout" in role_text or "scene_layout_annotation" in role_text:
+            continue
+        kept_images.append(image)
+        kept_manifest.append(item)
+
+    for item in normalised:
+        annotated_image = item.get("annotated_image")
+        if not annotated_image:
+            continue
+        scene_number = item.get("scene_number") or "1"
+        kept_images.append(str(annotated_image))
+        kept_manifest.append(
+            {
+                "label": f"@图片{len(kept_images)}",
+                "role": "annotated_scene_layout",
+                "type": "scene_layout_annotation",
+                "scene_number": str(scene_number),
+                "source_layout_path": str(item.get("image_path") or ""),
+                "purpose": f"场景{scene_number}用户标注后的俯视布局图：包含人物位置、移动轨迹、空间边界和固定物体。",
+                "annotations_summary": str(item.get("summary") or ""),
+            }
+        )
+
+    state["reference_image_b64s"] = kept_images
+    state["reference_image_manifest"] = kept_manifest
+    state["reference_image_count"] = len(kept_images)
+    return len(normalised)
 
 
 def _state_has_visible_outputs(state: dict) -> bool:
@@ -700,6 +911,157 @@ def _encode_reference_image_for_llm(content: bytes, filename: str) -> tuple[str,
     }
     data_url = f"data:image/jpeg;base64,{base64.b64encode(encoded_bytes).decode('ascii')}"
     return data_url, metadata
+
+
+def _reference_asset_type(filename: str) -> str:
+    base_name = os.path.splitext(filename or "")[0]
+    if any(marker in base_name for marker in AUTO_REFERENCE_SCENE_HINTS):
+        return "scene"
+    if any(marker in base_name for marker in AUTO_REFERENCE_PROP_HINTS):
+        return "prop"
+    return "character"
+
+
+def _reference_name_tokens(filename: str) -> list[str]:
+    base_name = os.path.splitext(filename or "")[0].strip()
+    tokens: set[str] = set()
+    if base_name:
+        tokens.add(base_name)
+    for part in AUTO_REFERENCE_SPLIT_RE.split(base_name):
+        part = part.strip()
+        if len(part) >= 2:
+            tokens.add(part)
+    for hint in AUTO_REFERENCE_SCENE_HINTS + AUTO_REFERENCE_PROP_HINTS:
+        if hint in base_name:
+            tokens.add(hint)
+    return sorted(tokens, key=lambda item: (-len(item), item))
+
+
+def _score_reference_asset(script: str, filename: str) -> tuple[int, int, list[str]]:
+    script_text = script or ""
+    score = 0
+    first_index = len(script_text) + 1
+    matched_tokens: list[str] = []
+    base_name = os.path.splitext(filename or "")[0]
+    for token in _reference_name_tokens(filename):
+        pos = script_text.find(token)
+        if pos < 0:
+            continue
+        matched_tokens.append(token)
+        first_index = min(first_index, pos)
+        if token == base_name:
+            score += 100
+        else:
+            score += min(60, max(12, len(token) * 8))
+    if matched_tokens and base_name not in matched_tokens and all(token in AUTO_REFERENCE_WEAK_TOKENS for token in matched_tokens):
+        return 0, first_index, []
+    return score, first_index, matched_tokens
+
+
+def _auto_reference_purpose(asset_type: str, filename: str, matched_tokens: list[str]) -> str:
+    base_name = os.path.splitext(filename or "")[0]
+    matched = "、".join(matched_tokens[:4]) or base_name
+    if asset_type == "scene":
+        return (
+            f"自动匹配场景参考图：{base_name}；命中：{matched}；"
+            "用于场景预分析生成俯视图和九宫格，并锁定空间、轴线、光线和固定物体。"
+        )
+    if asset_type == "prop":
+        return f"自动匹配道具参考图：{base_name}；命中：{matched}；只锁定道具外观、材质和可见状态。"
+    return f"自动匹配人物参考图：{base_name}；命中：{matched}；只锁定身份、五官、发型、身形和服装。"
+
+
+def _build_auto_reference_matches(
+    script: str,
+    existing_manifest: list[dict[str, str]] | None = None,
+    *,
+    max_images: int = MAX_REFERENCE_IMAGES,
+) -> list[dict[str, Any]]:
+    if not script or not os.path.exists(REFERENCE_IMAGES_DIR):
+        return []
+
+    existing_names = {
+        str(item.get("filename") or "").lower()
+        for item in existing_manifest or []
+        if isinstance(item, dict)
+    }
+    candidates: list[dict[str, Any]] = []
+    for filename in os.listdir(REFERENCE_IMAGES_DIR):
+        if not filename.lower().endswith(REFERENCE_IMAGE_EXTENSIONS):
+            continue
+        if filename.lower() in existing_names:
+            continue
+        file_path = os.path.join(REFERENCE_IMAGES_DIR, filename)
+        if not os.path.isfile(file_path):
+            continue
+        score, first_index, matched_tokens = _score_reference_asset(script, filename)
+        if score <= 0:
+            continue
+        asset_type = _reference_asset_type(filename)
+        candidates.append(
+            {
+                "filename": filename,
+                "path": file_path,
+                "asset_type": asset_type,
+                "score": score,
+                "first_index": first_index,
+                "matched_tokens": matched_tokens,
+                "purpose": _auto_reference_purpose(asset_type, filename, matched_tokens),
+            }
+        )
+
+    type_priority = {"character": 0, "scene": 1, "prop": 2}
+    candidates.sort(
+        key=lambda item: (
+            -int(item["score"]),
+            int(item["first_index"]),
+            type_priority.get(str(item["asset_type"]), 9),
+            str(item["filename"]),
+        )
+    )
+    return candidates[:max_images]
+
+
+def _auto_select_reference_images(
+    script: str,
+    existing_manifest: list[dict[str, str]] | None = None,
+    *,
+    max_images: int = MAX_REFERENCE_IMAGES,
+) -> tuple[list[str], list[dict[str, str]], list[dict[str, Any]]]:
+    existing_count = len(existing_manifest or [])
+    remaining = max(0, max_images - existing_count)
+    matches = _build_auto_reference_matches(script, existing_manifest, max_images=remaining)
+    image_data_urls: list[str] = []
+    manifest: list[dict[str, str]] = []
+    selected: list[dict[str, Any]] = []
+    start_index = existing_count + 1
+    for offset, match in enumerate(matches):
+        try:
+            with open(match["path"], "rb") as file_obj:
+                content = file_obj.read()
+            image_data_url, image_metadata = _encode_reference_image_for_llm(content, match["filename"])
+        except (OSError, ValueError, UnidentifiedImageError) as exc:
+            print(f"  [AutoReference] WARN: skip {match['filename']}: {type(exc).__name__}: {exc}")
+            continue
+        label = f"@图片{start_index + len(image_data_urls)}"
+        image_data_urls.append(image_data_url)
+        manifest.append(
+            {
+                "label": label,
+                "filename": str(match["filename"]),
+                "purpose": str(match["purpose"]),
+                "asset_type": str(match["asset_type"]),
+                "selected_by": "auto_reference_matcher",
+                "matched_tokens": "、".join(match["matched_tokens"]),
+                "match_score": str(match["score"]),
+                "processed_size": image_metadata["processed_size"],
+                "processed_bytes": image_metadata["processed_bytes"],
+                "original_size": image_metadata["original_size"],
+                "original_bytes": image_metadata["original_bytes"],
+            }
+        )
+        selected.append({k: v for k, v in match.items() if k != "path"})
+    return image_data_urls, manifest, selected
 
 
 def _parse_reference_manifest(raw_manifest: str) -> list[dict[str, str]]:
@@ -1047,9 +1409,23 @@ def _resume_after_human_review_in_thread(
     """Resume the LangGraph pipeline after the user reviews an agent output."""
     session_id = _normalise_session_id(session_id)
     task_state = _task_state(session_id)
+    started = time.perf_counter()
+    _append_task_log(
+        session_id,
+        "resume_after_review_started",
+        review_agent=review_agent,
+        task_generation=task_generation,
+        edited_chars=len(edited_output or ""),
+    )
     try:
         with request_scope(session_id=session_id):
             if task_generation != _active_task_generation(session_id):
+                _append_task_log(
+                    session_id,
+                    "resume_after_review_aborted_stale_generation",
+                    task_generation=task_generation,
+                    active_generation=_active_task_generation(session_id),
+                )
                 return
             task_state["status"] = "running_phase_1"
             if review_agent in {"prompt_compiler", "quality_inspector"}:
@@ -1057,15 +1433,34 @@ def _resume_after_human_review_in_thread(
             task_state["message"] = "已接收修改内容，正在交给下一个 Agent..."
             task_state["error"] = ""
             _touch_task_progress(task_state)
+            _append_task_log(session_id, "resume_after_review_state_running", **_state_log_summary(task_state))
 
             state = resume_after_human_review(edited_output, review_agent)
             if task_generation != _active_task_generation(session_id):
+                _append_task_log(
+                    session_id,
+                    "resume_after_review_result_discarded_stale_generation",
+                    task_generation=task_generation,
+                    active_generation=_active_task_generation(session_id),
+                )
                 return
             task_state.update(state)
             _touch_task_progress(task_state)
             _save_task_state_for_session(session_id, task_state)
+            _append_task_log(
+                session_id,
+                "resume_after_review_finished",
+                elapsed_seconds=round(time.perf_counter() - started, 3),
+                **_state_log_summary(task_state),
+            )
     except Exception as e:
         if task_generation != _active_task_generation(session_id):
+            _append_task_log(
+                session_id,
+                "resume_after_review_exception_stale_generation",
+                error=str(e),
+                traceback=traceback.format_exc(),
+            )
             return
         _merge_latest_disk_state_for_session(session_id, task_state)
         task_state["status"] = "error"
@@ -1073,6 +1468,14 @@ def _resume_after_human_review_in_thread(
         task_state["message"] = f"人工审核继续失败: {str(e)}"
         task_state["error"] = traceback.format_exc()
         _save_task_state_for_session(session_id, task_state)
+        _append_task_log(
+            session_id,
+            "resume_after_review_failed",
+            elapsed_seconds=round(time.perf_counter() - started, 3),
+            error=str(e),
+            traceback=task_state["error"],
+            **_state_log_summary(task_state),
+        )
     finally:
         _unregister_task_thread(session_id)
 
@@ -1250,6 +1653,32 @@ async def get_reference_library():
             images.append(f)
     return JSONResponse({"success": True, "images": sorted(images)})
 
+@app.post("/api/reference_library/auto_select")
+async def auto_select_reference_library(
+    script: str = Form(...),
+    reference_image_manifest_json: str = Form(""),
+):
+    try:
+        existing_manifest = _parse_reference_manifest(reference_image_manifest_json)
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)})
+    matches = _build_auto_reference_matches(script, existing_manifest)
+    return JSONResponse(
+        {
+            "success": True,
+            "images": [
+                {
+                    "filename": item["filename"],
+                    "asset_type": item["asset_type"],
+                    "purpose": item["purpose"],
+                    "matched_tokens": item["matched_tokens"],
+                    "match_score": item["score"],
+                }
+                for item in matches
+            ],
+        }
+    )
+
 @app.get("/api/reference_library/{filename}")
 async def get_reference_image(filename: str):
     """返回本地库中的指定参考图"""
@@ -1289,6 +1718,17 @@ async def api_run(
             reference_image_files,
             reference_manifest_overrides,
         )
+        auto_b64s, auto_manifest, auto_selected = _auto_select_reference_images(
+            script,
+            reference_image_manifest,
+        )
+        if auto_b64s:
+            reference_image_b64s.extend(auto_b64s)
+            reference_image_manifest.extend(auto_manifest)
+            print(
+                "  [AutoReference] selected "
+                + ", ".join(str(item["filename"]) for item in auto_selected)
+            )
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)})
 
@@ -1426,15 +1866,26 @@ async def api_approve_agent_output(
     session_id = _normalise_session_id(session_id)
     _refresh_task_state_from_disk(session_id)
     task_state = _task_state(session_id)
+    _append_task_log(
+        session_id,
+        "approve_agent_output_request",
+        requested_agent=agent_name,
+        edited_chars=len(edited_output or ""),
+        live_task=_has_live_task(session_id),
+        **_state_log_summary(task_state),
+    )
 
     if _has_live_task(session_id):
+        _append_task_log(session_id, "approve_agent_output_rejected", reason="live_task")
         return JSONResponse({"success": False, "error": "已有任务正在执行，请等待当前步骤完成。"})
     has_review_payload = bool(task_state.get("review_agent") and task_state.get("review_output") is not None)
     is_agent_review = task_state.get("review_mode") == "agent_output" or has_review_payload
     can_resume_failed_review = task_state.get("status") == "error" and is_agent_review
     if task_state.get("status") != "waiting_for_user_input" and not can_resume_failed_review:
+        _append_task_log(session_id, "approve_agent_output_rejected", reason="not_waiting_for_review")
         return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
     if not is_agent_review:
+        _append_task_log(session_id, "approve_agent_output_rejected", reason="not_agent_review")
         return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
     if can_resume_failed_review:
         task_state["status"] = "waiting_for_user_input"
@@ -1446,6 +1897,7 @@ async def api_approve_agent_output(
 
     review_agent = (agent_name or task_state.get("review_agent") or "").strip()
     if not review_agent:
+        _append_task_log(session_id, "approve_agent_output_rejected", reason="missing_review_agent")
         return JSONResponse({"success": False, "error": "缺少要审核的 Agent 名称。"})
     if task_state.get("review_mode") != "agent_output":
         task_state["review_mode"] = "agent_output"
@@ -1460,6 +1912,14 @@ async def api_approve_agent_output(
     task_state["error"] = ""
     task_state["started_at"] = now
     _touch_task_progress(task_state, now)
+    _save_task_state_for_session(session_id, task_state)
+    _append_task_log(
+        session_id,
+        "approve_agent_output_accepted",
+        review_agent=review_agent,
+        task_generation=task_generation,
+        **_state_log_summary(task_state),
+    )
 
     thread = threading.Thread(
         target=_resume_after_human_review_in_thread,
@@ -1933,6 +2393,47 @@ async def api_regenerate_scene_card(
             "success": True,
             "message": task_state["message"],
             "scene_card": new_card,
+            "state": _public_task_state(session_id),
+        }
+    )
+
+
+@app.post("/api/save_scene_layout_annotations")
+async def api_save_scene_layout_annotations(
+    annotations_json: str = Form("[]"),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+):
+    """Persist user-drawn scene-layout markers/routes for downstream shot direction."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "当前流水线正在运行，不能保存场景标注。"})
+
+    try:
+        parsed = json.loads(annotations_json or "[]")
+    except json.JSONDecodeError:
+        return JSONResponse({"success": False, "error": "场景标注数据不是有效 JSON。"})
+    if not isinstance(parsed, list):
+        return JSONResponse({"success": False, "error": "场景标注数据必须是列表。"})
+
+    task_state = _task_state(session_id)
+    saved_count = _upsert_scene_layout_annotations(task_state, parsed)
+    task_state["message"] = (
+        f"已保存 {saved_count} 张俯视图的人物标点和活动轨迹，镜头导演会作为空间调度参考。"
+        if saved_count
+        else "当前俯视图没有可保存的人物标点或活动轨迹。"
+    )
+    task_state["error"] = ""
+    _touch_task_progress(task_state)
+
+    with request_scope(session_id=session_id):
+        save_state(task_state)
+
+    return JSONResponse(
+        {
+            "success": True,
+            "message": task_state["message"],
+            "saved_count": saved_count,
             "state": _public_task_state(session_id),
         }
     )
