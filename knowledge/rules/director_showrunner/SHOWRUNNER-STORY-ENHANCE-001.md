@@ -3,10 +3,12 @@ rule_id: SHOWRUNNER-STORY-ENHANCE-001
 title: 剧情冲突增强与主线保护
 doc_type: rule_card
 rule_type: story_conflict_enhancement
+owner_agent: director_showrunner
 agent_scope:
 - director_showrunner
-priority: P0
+priority: P3
 status: active
+pipeline_stage: story_conflict_enhancement
 runtime_retrieval: true
 retrieval_key:
 - weak_conflict
@@ -21,8 +23,13 @@ applies_when:
 - 原文只有概括动作或静态说明
 - 用户要求增强画面、节奏、冲突或可拍性
 avoid_when:
-- 用户明确要求逐字保留原剧本
-- 增强会改变主线剧情且用户尚未确认
+- "用户要求逐字保留，或增强会改变主线且未确认。"
+failure_mode:
+- "新增剧本外人物、台词、事件或关键道具。"
+- "把动作增强写成镜头方案或文学化心理描写。"
+output_contract: "输出增强版剧本、增强依据、主线保护、节奏总控交接、需用户确认。"
+example_good: "用原有闹钟和文件制造动作压力，原台词不变。"
+example_bad: "新增秘书低语和新误会来制造冲突。"
 risks:
 - script_invention_risk
 - dialogue_invention

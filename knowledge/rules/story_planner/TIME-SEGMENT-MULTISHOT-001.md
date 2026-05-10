@@ -3,6 +3,7 @@ rule_id: TIME-SEGMENT-MULTISHOT-001
 title: 15秒片段是导演片段不是单分镜
 doc_type: rule_card
 rule_type: segment_planning
+owner_agent: story_planner
 agent_scope:
 - story_planner
 - shot_director
@@ -10,6 +11,7 @@ agent_scope:
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: segment_planning
 runtime_retrieval: true
 retrieval_key:
 - time-segment-multishot-001
@@ -23,7 +25,14 @@ applies_when:
 - 15秒片段
 - 主分镜
 - 子分镜
-avoid_when: []
+avoid_when:
+- "用户明确锁定单镜，或片段短到不支持多镜头。"
+failure_mode:
+- "把 15 秒误当单一长镜头。"
+- "主分镜和子分镜共用同一时间标记。"
+output_contract: "输出单层时间轴，显式区分主分镜、子分镜和独立时段。"
+example_good: "0-3秒主分镜，3-5秒子分镜，5-8秒主分镜。"
+example_bad: "外层动作单元下再嵌套子时间轴。"
 signals:
 - dialogue_coverage
 - action_coverage

@@ -3,11 +3,13 @@ rule_id: PROMPT-HARD-CONSTRAINT-DEDUP-001
 title: 硬约束去重与集中收束
 doc_type: rule_card
 rule_type: prompt_constraint
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: constraint_deduplication
 runtime_retrieval: true
 retrieval_key:
 - prompt-hard-constraint-dedup-001
@@ -25,7 +27,13 @@ applies_when:
 - 硬约束
 - 时间轴
 - prompt清洗
-avoid_when: []
+avoid_when:
+- "当前 prompt 没有重复硬约束。"
+failure_mode:
+- "硬约束在每个时间段重复出现，挤占动作描述并诱发模型关注禁忌词。"
+output_contract: "将字幕、角色、轴线、门状态、距离、尾帧等硬约束集中去重。"
+example_good: "【约束】禁止字幕与文字浮层；时间轴写电梯门保持闭合。"
+example_bad: "0-2秒无字幕；2-4秒无字幕；4-6秒无字幕。"
 signals:
 - tailframe_lock
 - action_coverage

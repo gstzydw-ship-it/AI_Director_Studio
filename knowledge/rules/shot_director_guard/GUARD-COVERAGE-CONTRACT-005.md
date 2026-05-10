@@ -3,11 +3,13 @@ rule_id: GUARD-COVERAGE-CONTRACT-005
 title: 最终镜头方案必须具备覆盖合同
 doc_type: rule_card
 rule_type: coverage_contract_guard
+owner_agent: shot_director_guard
 agent_scope:
 - shot_director_guard
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: guard
 runtime_retrieval: true
 retrieval_key:
 - guard-coverage-contract-005
@@ -20,7 +22,14 @@ applies_when:
 - coverage_role
 - cut_reason
 - companion_visibility
-avoid_when: []
+avoid_when:
+- "最终 YAML 已具备 coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role"
+- "需要的是重新设计镜头，而非最小补字段"
+failure_mode:
+- "最终方案缺覆盖合同字段，prompt_compiler 被迫猜测机位功能和尾帧状态。"
+output_contract: "只给已有镜头补缺失合同字段；不得重写全段。"
+example_good: "在 S04 追加 tailframe_role=最后 0.8 秒回到双人半身关系景。"
+example_bad: "发现缺字段后删除原方案，重新设计整组镜头。"
 signals:
 - tailframe_lock
 - continuity_lock

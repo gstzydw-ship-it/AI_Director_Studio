@@ -3,12 +3,14 @@ rule_id: SHOT-ACTION-COVERAGE-001
 title: 动作戏先保全貌再拆冲击
 doc_type: rule_card
 rule_type: shot_calling
+owner_agent: shot_director
 agent_scope:
 - shot_director
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: action_coverage
 runtime_retrieval: true
 retrieval_key:
 - shot-action-coverage-001
@@ -30,7 +32,14 @@ applies_when:
 - 动作戏
 - 爆发戏
 - 竖屏动作
-avoid_when: []
+avoid_when:
+- "non_action_dialogue_scene"
+- "action_already_clear_in_single_main_shot"
+failure_mode:
+- "impact_closeups_without_action_geography"
+output_contract: "Establish action shape, cut close for impact, return to relation or tail state."
+example_good: "中全景建立动作，冲击点切近，回到人物关系。"
+example_bad: "只用局部特写表现整场大范围动作。"
 signals:
 - vertical_framing
 - tailframe_lock

@@ -3,11 +3,13 @@ rule_id: SCENE-INPUT-CARD-001
 title: 场景分析九层输入卡必填
 doc_type: rule_card
 rule_type: scene_analysis
+owner_agent: scene_analyst
 agent_scope:
 - scene_analyst
 - story_planner
 priority: P0
 status: active
+pipeline_stage: scene_input_card
 runtime_retrieval: true
 retrieval_key:
 - scene-input-card-001
@@ -26,7 +28,14 @@ applies_when:
 - 任务层
 - 戏剧层
 - 动作层
-avoid_when: []
+avoid_when:
+- "需要直接设计景别、机位或运镜时交给 shot_director。"
+failure_mode:
+- "九层输入卡缺层或缺字段。"
+- "未声明 segment_function 就给主分镜建议。"
+output_contract: "输出九层输入卡，并用 unresolved 列出 unknown 或 null 字段。"
+example_good: "任务层到约束层齐全，未知字段显式写 null。"
+example_bad: "跳过输入卡，直接给中景和推镜建议。"
 signals:
 - tailframe_lock
 - action_coverage

@@ -3,11 +3,13 @@ rule_id: PROMPT-DIRECTOR-JARGON-TRANSLATION-001
 title: 导演调度口语必须翻译成可见画面语言
 doc_type: rule_card
 rule_type: prompt_language
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: language_downtranslation
 runtime_retrieval: true
 retrieval_key:
 - prompt-director-jargon-translation-001
@@ -34,7 +36,13 @@ applies_when:
 - 导演调度
 - Seedance Prompt
 - 运镜
-avoid_when: []
+avoid_when:
+- "文本不是模型 prompt 或可执行时间轴。"
+failure_mode:
+- "把导演口语、抽象情绪或幕后调度词原样输出给视频模型。"
+output_contract: "将上游已定意图翻译为自然画面句：主体、景别、机位、动作、视线和结束状态。"
+example_good: "严飞微微低头，主管们肩膀收紧，视线避开商北琛。"
+example_bad: "空气收紧，权力压住所有人。"
 signals:
 - tailframe_lock
 - dialogue_coverage

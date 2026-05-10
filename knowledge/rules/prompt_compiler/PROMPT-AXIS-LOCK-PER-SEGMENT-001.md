@@ -3,12 +3,14 @@ rule_id: PROMPT-AXIS-LOCK-PER-SEGMENT-001
 title: 单片段内摄影机必须始终在轴线同侧
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - shot_director
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: camera_axis_validation
 runtime_retrieval: true
 retrieval_key:
 - prompt-axis-lock-per-segment-001
@@ -24,7 +26,13 @@ applies_when:
 - 180度轴线
 - 跨轴
 - 反打
-avoid_when: []
+avoid_when:
+- "当前片段没有轴线或反打描述。"
+failure_mode:
+- "单个 segment 内同时出现左前方、右前方或反打词，造成跨轴。"
+output_contract: "每个 segment 开头明确轴线与摄影机所在侧；整段只使用同一轴线侧。"
+example_good: "摄影机位于商北琛右前方眼平高度，同一机位继续。"
+example_bad: "先从右前方拍摄，随后反打至左前方。"
 signals:
 - tailframe_lock
 - action_coverage

@@ -3,6 +3,7 @@ rule_id: CONT-STATE-CONTRACT-001
 title: 状态合同优先
 doc_type: rule_card
 rule_type: continuity
+owner_agent: story_planner
 agent_scope:
 - story_planner
 - shot_director
@@ -11,6 +12,7 @@ agent_scope:
 - shared
 priority: P0
 status: active
+pipeline_stage: state_contract
 runtime_retrieval: true
 retrieval_key:
 - cont-state-contract-001
@@ -31,7 +33,14 @@ applies_when:
 - active_cast
 - offscreen_cast
 - state_contract
-avoid_when: []
+avoid_when:
+- "无例外；即使为空也要显式写字段。"
+failure_mode:
+- "active_cast 或 offscreen_cast 缺失。"
+- "下游改写 entry_state 或复活退场人物。"
+output_contract: "输出 active_cast、offscreen_cast、state_contract.entry_state、exit_state、object_state_transitions、forbidden_continuity。"
+example_good: "offscreen_cast: []，并写清门和道具状态变化。"
+example_bad: "尾帧可见人物被下游自动加入当前戏份。"
 signals:
 - tailframe_lock
 - dialogue_coverage

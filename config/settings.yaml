@@ -1,90 +1,92 @@
 agent_models:
   director_showrunner:
-    base_url: http://8.nat0.cn:49347/v1
+    base_url: https://www.xkwuai.cn/v1
+    temperature: 0.1
+    timeout_seconds: 180
+    max_retries: 3
+    api_key: ${DIRECTOR_LLM_API_KEY}
     model: gpt-5.5
-    temperature: 0.1
-    timeout_seconds: 180
-    max_retries: 3
-  prompt_compiler:
-    base_url: http://8.nat0.cn:49347/v1
-    model: mimo-v2.5-pro
-    temperature: 0.3
-    timeout_seconds: 180
-    max_retries: 3
-  quality_inspector:
-    base_url: http://8.nat0.cn:49347/v1
-    model: claude-opus-4-7
-    temperature: 0.1
   rhythm_rewrite_director:
-    base_url: http://8.nat0.cn:49347/v1
-    model: gpt-5.5
+    base_url: https://www.xkwuai.cn/v1
     temperature: 0.2
     timeout_seconds: 180
     max_retries: 3
-  scene_analyst:
-    base_url: http://8.nat0.cn:49347/v1
-    model: glm-5.1
-    temperature: 0.1
-    timeout_seconds: 240
-    read_timeout_seconds: 240
-    max_retries: 3
-    fallback_models:
-      - claude-opus-4-7
-  scene_vision_analyst:
-    api_key: ${DIRECTOR_STORYBOARD_IMAGE_API_KEY}
-    base_url: https://ai.comfly.chat/v1
+    api_key: ${DIRECTOR_LLM_API_KEY}
     model: gpt-5.5
+  scene_analyst:
+    base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
     timeout_seconds: 240
     read_timeout_seconds: 240
     max_retries: 3
-  scene_card_designer:
-    api_key: ${DIRECTOR_STORYBOARD_IMAGE_API_KEY}
-    base_url: https://ai.comfly.chat/v1
-    model: gpt-image-2
-    temperature: 0.25
-    timeout_seconds: 180
-    read_timeout_seconds: 180
-    write_timeout_seconds: 60
-    max_retries: 2
-  script_event_validator:
-    base_url: http://8.nat0.cn:49347/v1
-    model: deepseek-v3.2
-    temperature: 0.0
-  shot_director:
-    base_url: http://8.nat0.cn:49347/v1
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    model: glm-5.1
+  story_planner:
+    base_url: https://www.xkwuai.cn/v1
+    temperature: 0.2
+    timeout_seconds: 240
+    api_key: ${DIRECTOR_LLM_API_KEY}
     model: claude-opus-4-7
+  shot_director:
+    base_url: https://www.xkwuai.cn/v1
     temperature: 0.3
     timeout_seconds: 240
     read_timeout_seconds: 240
     write_timeout_seconds: 90
     max_retries: 3
-    fallback_models:
-      - glm-5.1
-      - deepseek-v3.2
-  story_planner:
-    base_url: http://8.nat0.cn:49347/v1
+    api_key: ${DIRECTOR_LLM_API_KEY}
     model: claude-opus-4-7
-    temperature: 0.2
-    timeout_seconds: 240
-  storyboard_prompt_designer:
-    api_key: ${DIRECTOR_STORYBOARD_IMAGE_API_KEY}
+  prompt_compiler:
+    base_url: https://www.xkwuai.cn/v1
+    temperature: 0.3
+    timeout_seconds: 180
+    max_retries: 3
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    model: mimo-v2.5-pro
+  quality_inspector:
+    base_url: https://www.xkwuai.cn/v1
+    temperature: 0.1
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    model: claude-opus-4-7
+  storyboard_designer:
+    api_key: ${DIRECTOR_IMAGE_API_KEY}
     base_url: https://ai.comfly.chat/v1
-    model: gpt-5.5
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 2
-  storyboard_designer:
-    api_key: ${DIRECTOR_STORYBOARD_IMAGE_API_KEY}
+    model: gpt-image-2-all
+  scene_vision_analyst:
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    base_url: https://www.xkwuai.cn/v1
+    model: glm-5.1
+  video_analyst:
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    base_url: https://www.xkwuai.cn/v1
+    model: glm-5.1
+  scene_card_designer:
+    api_key: ${DIRECTOR_IMAGE_API_KEY}
     base_url: https://ai.comfly.chat/v1
     model: gpt-image-2-all
-    temperature: 0.3
-    timeout_seconds: 180
-    max_retries: 2
-  video_analyst:
-    base_url: http://8.nat0.cn:49347/v1
-    model: Moonshot-Vision-128K
-    temperature: 0.1
+  storyboard_prompt_designer:
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    base_url: https://www.xkwuai.cn/v1
+    model: mimo-v2.5-pro
+  script_event_validator:
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    base_url: https://www.xkwuai.cn/v1
+    model: claude-opus-4-7
+  shot_director_layout:
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    base_url: https://www.xkwuai.cn/v1
+    model: claude-opus-4-7
+  shot_director_blocking:
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    base_url: https://www.xkwuai.cn/v1
+    model: claude-opus-4-7
+  shot_director_guard:
+    api_key: ${DIRECTOR_LLM_API_KEY}
+    base_url: https://www.xkwuai.cn/v1
+    model: claude-opus-4-7
 knowledge:
   bm25_top_k: 10
   directory: ./knowledge
@@ -95,7 +97,7 @@ knowledge:
   vector_top_k: 10
 llm:
   api_key: ${DIRECTOR_LLM_API_KEY}
-  base_url: http://8.nat0.cn:49347/v1
+  base_url: https://www.xkwuai.cn/v1
   max_tokens: 8192
   max_retries: 2
   model: claude-opus-4-7
@@ -118,8 +120,8 @@ mcp:
       enabled: false
       server_type: filesystem
   filesystem_roots:
-    - ./knowledge
-    - ./output/sessions
+  - ./knowledge
+  - ./output/sessions
 output:
   directory: ./output
 ui:
@@ -132,3 +134,7 @@ vectordb:
   chunk_size: 800
   collection_name: director_knowledge
   embedding_model: text-embedding-3-large
+image_generation:
+  api_key: ${DIRECTOR_IMAGE_API_KEY}
+  base_url: https://ai.comfly.chat/v1
+  model: gpt-image-2-all

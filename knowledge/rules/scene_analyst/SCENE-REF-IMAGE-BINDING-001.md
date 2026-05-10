@@ -3,6 +3,7 @@ rule_id: SCENE-REF-IMAGE-BINDING-001
 title: 参考图到角色空间尾帧强绑定
 doc_type: rule_card
 rule_type: scene_analysis
+owner_agent: scene_analyst
 agent_scope:
 - scene_analyst
 - prompt_compiler
@@ -10,6 +11,7 @@ agent_scope:
 - story_planner
 priority: P0
 status: active
+pipeline_stage: reference_binding
 runtime_retrieval: true
 retrieval_key:
 - scene-ref-image-binding-001
@@ -22,7 +24,14 @@ applies_when:
 - 参考图绑定
 - 主角身份
 - 对手身份
-avoid_when: []
+avoid_when:
+- "没有输入参考图时，改用缺图降级协议。"
+failure_mode:
+- "参考图只标用于参考，未绑定 target_id。"
+- "同一图绑定多个互斥 role。"
+output_contract: "输出 reference_bindings[]，含 image_id、role、target_id、first_appearance_segment、scope。"
+example_good: "ref_01 绑定 hero_id 到 SUBJ_YANG，scope 为 global。"
+example_bad: "ref_01 同时标 hero_id 和 rival_id。"
 signals:
 - tailframe_lock
 - reference_binding

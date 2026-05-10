@@ -2,6 +2,8 @@ version: "2026-05-06"
 status: active
 runtime_retrieval: false
 purpose: "Define recommended knowledge/case retrieval tag contracts for director agents."
+content_role: "bootstrap_profile_config"
+rag_indexing_note: "Bootstrap/profile configuration for retrieval loaders; do not treat this contract as ordinary RAG content."
 
 precedence:
   rule_cards_first: true
@@ -27,12 +29,16 @@ tag_fields:
   signals: "Runtime textual or structured cues that should boost retrieval."
 
 global_matching_strategy:
+  runtime_retrieval_first_filter: "Only cards with runtime_retrieval: true are eligible before priority, tag, signal, or case weighting is applied."
   include_agent_scope:
     - "{agent_name}"
     - shared
   exclude_status:
     - deprecated
     - draft_unless_explicitly_requested
+    - extraction_test
+    - superseded
+    - raw_source
   retrieval_order:
     - "P0/P1 rule cards matching agent_scope and signals."
     - "P2-P4 rule cards matching rule_type, scene_types, events, risks, dialogue_types, or aspect_ratios."

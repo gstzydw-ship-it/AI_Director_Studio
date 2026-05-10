@@ -3,11 +3,13 @@ rule_id: PROMPT-SMALL-ACTION-STABILITY-001
 title: PROMPT-SMALL-ACTION-STABILITY-001
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P3
 status: active
+pipeline_stage: action_stabilization
 runtime_retrieval: true
 retrieval_key:
 - prompt-small-action-stability-001
@@ -26,8 +28,17 @@ retrieval_key:
 - scene_types.dialogue
 - scene_types.action
 - scene_types.intimacy_privacy
-applies_when: []
-avoid_when: []
+applies_when:
+- "复杂动作"
+- "小动作链"
+- "动作稳定性"
+avoid_when:
+- "上游已提供稳定小动作链且无需重写。"
+failure_mode:
+- "复杂动作未拆链，时间片同时承担过多事件、对白、反应和运镜。"
+output_contract: "将上游动作翻译为小幅连续动作链，写清起点、路径、接触点、终点与结束状态。"
+example_good: "她双手仍抓住西装前襟，手指慢慢松开，再落回身体两侧。"
+example_bad: "她情绪爆发，猛烈转身冲过去又突然停住。"
 signals:
 - dialogue_coverage
 - action_coverage

@@ -3,12 +3,14 @@ rule_id: SHOT-MOVEMENT-BEAT-001
 title: 运镜介入服从节拍功能
 doc_type: rule_card
 rule_type: camera_movement
+owner_agent: shot_director
 agent_scope:
 - shot_director
 - prompt_compiler
 - quality_inspector
 priority: P3
 status: active
+pipeline_stage: movement_rhythm
 runtime_retrieval: true
 retrieval_key:
 - shot-movement-beat-001
@@ -22,7 +24,14 @@ applies_when:
 - 运镜
 - 节拍
 - 停顿
-avoid_when: []
+avoid_when:
+- "static_pause"
+- "movement_has_no_rhythm_function"
+failure_mode:
+- "camera_more_emotional_than_character"
+output_contract: "Choose camera movement by beat function; pauses stay fixed, impact favors cut or hold."
+example_good: "逼近段固定到慢推；停顿段固定不漂移。"
+example_bad: "炸点时机械推脸，停顿时无动机漂移。"
 signals:
 - action_coverage
 scene_types:

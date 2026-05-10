@@ -3,11 +3,13 @@ rule_id: LAYOUT-NO-SANDWICH-CLOSEUP-004
 title: 主分镜禁止中景特写中景碎切
 doc_type: rule_card
 rule_type: shot_scale_cadence
+owner_agent: shot_director_layout
 agent_scope:
 - shot_director_layout
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: layout
 runtime_retrieval: true
 retrieval_key:
 - layout-no-sandwich-closeup-004
@@ -21,7 +23,14 @@ applies_when:
 - 9:16竖屏
 - 主分镜骨架
 - 景别递进
-avoid_when: []
+avoid_when:
+- "特写承担新的视线目标、动作锚点、权力变化或关键信息揭示"
+- "画幅不是 9:16 且特写不会破坏空间关系"
+failure_mode:
+- "中景-特写-中景碎切没有新增信息，诱导拖长大头特写。"
+output_contract: "主分镜优先用半身中景、中近景或关系景承接表情；新信息才短暂切近。"
+example_good: "S02 用胸口以上中近景承接目光变冷；S03 回双人半身关系景。"
+example_bad: "S01 半身中景，S02 眼神特写，S03 同角度半身中景。"
 signals:
 - vertical_framing
 - action_coverage

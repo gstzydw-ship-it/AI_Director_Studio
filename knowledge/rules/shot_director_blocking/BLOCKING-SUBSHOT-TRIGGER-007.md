@@ -3,12 +3,14 @@ rule_id: BLOCKING-SUBSHOT-TRIGGER-007
 title: 子镜头必须由信息增量触发
 doc_type: rule_card
 rule_type: subshot_trigger_strategy
+owner_agent: shot_director_blocking
 agent_scope:
 - shot_director_blocking
 - shot_director_guard
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: blocking
 runtime_retrieval: true
 retrieval_key:
 - blocking-subshot-trigger-007
@@ -32,7 +34,14 @@ applies_when:
 - sub_shots
 - reaction_coverage
 - action_insert_slot
-avoid_when: []
+avoid_when:
+- "当前没有信息增量、动作桥接、受击反应或声音落点"
+- "主镜头已经完整覆盖信息、动作和反应，额外插入会破坏节奏"
+failure_mode:
+- "随机添加无信息子镜头，或过度保守导致关键信息没有可见落点。"
+output_contract: "sub_shots 只能由明确信息增量触发，并含 parent_shot_id、trigger、cut_point、action_phase、duration_hint、state_delta。"
+example_good: "S03-a parent_shot_id=S03，trigger=手机震动暴露信息，duration_hint=0.8s。"
+example_bad: "S03-a 眼神特写，trigger=更有电影感，duration_hint=3s。"
 signals:
 - dialogue_coverage
 - action_coverage

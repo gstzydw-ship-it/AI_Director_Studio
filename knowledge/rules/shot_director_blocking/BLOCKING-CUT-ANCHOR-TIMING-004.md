@@ -3,11 +3,13 @@ rule_id: BLOCKING-CUT-ANCHOR-TIMING-004
 title: 子分镜切镜必须有动作或信息锚点
 doc_type: rule_card
 rule_type: blocking_cut_timing
+owner_agent: shot_director_blocking
 agent_scope:
 - shot_director_blocking
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: blocking
 runtime_retrieval: true
 retrieval_key:
 - blocking-cut-anchor-timing-004
@@ -25,7 +27,14 @@ applies_when:
 - sub_shots
 - reaction_coverage
 - dialogue_coverage
-avoid_when: []
+avoid_when:
+- "没有新增 sub_shots、reaction_coverage 或 dialogue_coverage"
+- "当前子分镜只是 guard 阶段被压缩或删除的最小修复对象"
+failure_mode:
+- "子分镜没有动作、视线、信息、权力或声音锚点，切点落在动作完成后。"
+output_contract: "每个 sub_shot 至少命中一个锚点；cut_point 绑定动作中段、台词落点、视线或声音。"
+example_good: "S02-a trigger=门锁响，cut_point=手指压下把手后半拍。"
+example_bad: "S02-a 切脸部特写，表现紧张，切在动作结束后。"
 signals:
 - dialogue_coverage
 - action_coverage

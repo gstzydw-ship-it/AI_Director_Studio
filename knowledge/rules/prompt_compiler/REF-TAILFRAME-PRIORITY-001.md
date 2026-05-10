@@ -3,11 +3,13 @@ rule_id: REF-TAILFRAME-PRIORITY-001
 title: 尾帧图优先于文字复述
 doc_type: rule_card
 rule_type: reference_control
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: tailframe_reference_binding
 runtime_retrieval: true
 retrieval_key:
 - ref-tailframe-priority-001
@@ -23,7 +25,13 @@ applies_when:
 - 尾帧图
 - 参考图
 - 空间与首帧总控
-avoid_when: []
+avoid_when:
+- "没有上一段尾帧图，或尾帧图不可用且上游已提供替代首帧锁。"
+failure_mode:
+- "把尾帧分析长篇复述进 prompt，或重复调用场景参考图。"
+output_contract: "存在尾帧图时，将其作为最高优先级首帧、场景、构图、光线和空间锚点。"
+example_good: "@图片N 作为本段首帧、场景、构图、光线和空间锚点。"
+example_bad: "长篇复述尾帧里的门窗、沙发、灯光，并再次调用场景参考图。"
 signals:
 - tailframe_lock
 - action_coverage

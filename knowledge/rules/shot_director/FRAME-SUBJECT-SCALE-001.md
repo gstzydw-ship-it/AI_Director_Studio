@@ -3,12 +3,14 @@ rule_id: FRAME-SUBJECT-SCALE-001
 title: 切镜必须写清主体景别与看点
 doc_type: rule_card
 rule_type: framing
+owner_agent: shot_director
 agent_scope:
 - shot_director
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: framing_contract
 runtime_retrieval: true
 retrieval_key:
 - frame-subject-scale-001
@@ -24,7 +26,14 @@ applies_when:
 - 景别显式化
 - 切镜
 - 时间轴
-avoid_when: []
+avoid_when:
+- "no_cut_or_time_axis"
+- "subject_scale_focus_already_explicit"
+failure_mode:
+- "ambiguous_cut_without_subject_scale_or_viewpoint"
+output_contract: "Each cut names subject, shot size or body part, and visible focus."
+example_good: "切至乔熙面部特写，看她把难堪压成反击。"
+example_bad: "镜头切回乔熙。"
 signals:
 - action_coverage
 - continuity_lock

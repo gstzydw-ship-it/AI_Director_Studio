@@ -3,12 +3,14 @@ rule_id: MOTION-MODALITY-001
 title: 运镜模态必须明确区分
 doc_type: rule_card
 rule_type: camera_movement
+owner_agent: shot_director
 agent_scope:
 - shot_director
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: camera_movement_selection
 runtime_retrieval: true
 retrieval_key:
 - motion-modality-001
@@ -20,7 +22,14 @@ applies_when:
 - 推镜
 - 变焦
 - 横移
-avoid_when: []
+avoid_when:
+- "static_shot_required"
+- "no_camera_movement"
+failure_mode:
+- "mixed_or_mislabeled_camera_motion"
+output_contract: "Use one clear motion modality; split stacked motion into timed beats."
+example_good: "先固定，随后缓慢推近，最后轻微摇到受击者。"
+example_bad: "镜头一边推近一边变焦一边横移。"
 signals:
 - action_coverage
 scene_types:

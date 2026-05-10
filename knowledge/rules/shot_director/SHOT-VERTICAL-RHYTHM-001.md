@@ -3,6 +3,7 @@ rule_id: SHOT-VERTICAL-RHYTHM-001
 title: 竖屏景别节奏守则
 doc_type: rule_card
 rule_type: vertical_framing
+owner_agent: shot_director
 agent_scope:
 - story_planner
 - shot_director
@@ -10,6 +11,7 @@ agent_scope:
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: vertical_framing_rhythm
 runtime_retrieval: true
 retrieval_key:
 - shot-vertical-rhythm-001
@@ -23,7 +25,14 @@ applies_when:
 - 9:16竖屏
 - 景别节奏
 - 特写限频
-avoid_when: []
+avoid_when:
+- "non_9_16_output"
+- "very_short_single_beat_shot"
+failure_mode:
+- "vertical_closeup_overuse_or_same_scale_repetition"
+output_contract: "For 9:16 use half/body, medium, and relation shots as base; limit face close-up to one motivated beat."
+example_good: "半身中景承载叙事，炸点才切一次面部特写。"
+example_bad: "连续多个时间段都是同主体同角度面部特写。"
 signals:
 - vertical_framing
 - action_coverage

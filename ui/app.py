@@ -13,9 +13,12 @@ import traceback
 import re
 import shutil
 import copy
+import ipaddress
+import socket
 from io import BytesIO
 from datetime import datetime
 from time import perf_counter
+from urllib.parse import urlparse
 
 import httpx
 import yaml
@@ -31,9 +34,9 @@ import uvicorn
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
-from agents.knowledge_base import build_vectordb, load_config
+from agents.knowledge_base import build_vectordb, knowledge_index_status, load_config
 from agents.request_context import request_scope
-from agents.utils import COMFLY_BASE_URL, get_config_path
+from agents.utils import COMFLY_BASE_URL, get_config_path, get_public_config_path
 
 
 app = FastAPI(title="智能导演多Agent团队", version="0.2.0")
@@ -1990,6 +1993,26 @@ def _load_raw_settings() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _config_source_summary() -> dict:
+    active_path = os.path.abspath(get_config_path())
+    public_path = os.path.abspath(get_public_config_path())
+    root_dir = os.path.abspath(ROOT_DIR)
+
+    def _display_path(path: str) -> str:
+        try:
+            return os.path.relpath(path, root_dir)
+        except ValueError:
+            return path
+
+    return {
+        "active_path": active_path,
+        "active_display": _display_path(active_path),
+        "public_display": _display_path(public_path),
+        "is_private": False,
+        "message": "当前实际生效配置只读取前端保存的 config/settings.yaml。",
+    }
+
+
 def _save_raw_settings(config: dict) -> None:
     config_path = get_config_path()
     os.makedirs(os.path.dirname(config_path), exist_ok=True)
@@ -2033,11 +2056,58 @@ AGENT_CATEGORIES: dict[str, str] = {
     "storyboard_designer": "image",
 }
 
+AGENT_MODEL_UI_NAMES: tuple[str, ...] = (
+    "director_showrunner",
+    "rhythm_rewrite_director",
+    "scene_analyst",
+    "story_planner",
+    "shot_director",
+    "prompt_compiler",
+    "quality_inspector",
+    "storyboard_designer",
+)
+
 MODEL_PROFILE_LABELS: dict[str, str] = {
     "text": "文本/视觉 Agent",
     "image": "生图 Agent",
     "embedding": "向量嵌入",
 }
+
+
+REMOVED_AGENT_MODEL_NAMES: set[str] = {
+    "quality_inspector_llm_a",
+    "quality_inspector_llm_b",
+    "quality_inspector_llm_c",
+    "quality_inspector_merger",
+}
+
+DERIVED_AGENT_MODEL_SOURCES: dict[str, str] = {
+    "scene_vision_analyst": "scene_analyst",
+    "video_analyst": "scene_analyst",
+    "scene_card_designer": "storyboard_designer",
+    "storyboard_prompt_designer": "prompt_compiler",
+    "script_event_validator": "story_planner",
+    "shot_director_layout": "shot_director",
+    "shot_director_blocking": "shot_director",
+    "shot_director_guard": "shot_director",
+}
+
+
+def _is_removed_agent_model(agent_name: str) -> bool:
+    return str(agent_name) in REMOVED_AGENT_MODEL_NAMES
+
+
+def _is_configurable_agent_model(agent_name: str) -> bool:
+    name = str(agent_name)
+    return name in AGENT_MODEL_UI_NAMES and not _is_removed_agent_model(name)
+
+
+def _configured_agent_model_names(raw_config: dict) -> list[str]:
+    agent_models = raw_config.get("agent_models") or {}
+    if not isinstance(agent_models, dict):
+        return []
+    configured_names = {str(name) for name in agent_models}
+    return [name for name in AGENT_MODEL_UI_NAMES if name in configured_names and _is_configurable_agent_model(name)]
 
 
 def _agent_category(agent_name: str) -> str:
@@ -2077,6 +2147,18 @@ def _public_model_profiles(raw_config: dict) -> dict:
     if not profiles["image"].get("base_url"):
         profiles["image"]["base_url"] = COMFLY_BASE_URL
     return profiles
+
+
+def _safe_knowledge_index_status() -> dict:
+    try:
+        return knowledge_index_status()
+    except Exception as exc:
+        return {
+            "status": "error",
+            "needs_rebuild": True,
+            "message": f"知识库状态读取失败: {exc}",
+            "error": str(exc),
+        }
 
 
 def _model_groups(models: list[str]) -> dict[str, list[str]]:
@@ -2121,16 +2203,26 @@ def _public_model_config() -> dict:
     public_config["image_generation"] = _mask_config_key(public_config.get("image_generation") or _profile_source(raw_config, "image"))
     agent_models = public_config.get("agent_models")
     if isinstance(agent_models, dict):
-        for agent_config in agent_models.values():
+        for agent_name in list(agent_models.keys()):
+            if not _is_configurable_agent_model(str(agent_name)):
+                agent_models.pop(agent_name, None)
+                continue
+            agent_config = agent_models[agent_name]
             if isinstance(agent_config, dict):
                 masked = _mask_config_key(agent_config)
                 agent_config.clear()
                 agent_config.update(masked)
+    else:
+        public_config["agent_models"] = {}
     public_config["_config_locked"] = False
-    public_config["_config_note"] = "模型配置可在前端修改，保存后写入本地 config/settings.yaml。"
-    public_config["_agent_labels"] = AGENT_LABELS
-    public_config["_agent_categories"] = {name: _agent_category(name) for name in AGENT_LABELS}
+    public_config["_config_note"] = "模型配置只以前端保存到 config/settings.yaml 的内容为准。"
+    public_config["_config_source"] = _config_source_summary()
+    public_agent_names = _configured_agent_model_names(public_config)
+    public_config["_agent_order"] = public_agent_names
+    public_config["_agent_labels"] = {name: AGENT_LABELS.get(name, name) for name in public_agent_names}
+    public_config["_agent_categories"] = {name: _agent_category(name) for name in public_agent_names}
     public_config["_model_profiles"] = _public_model_profiles(raw_config)
+    public_config["_knowledge_index"] = _safe_knowledge_index_status()
     return public_config
 
 
@@ -2149,6 +2241,42 @@ def _model_list_candidate_urls(base_url: str) -> list[str]:
     if not base_url.lower().endswith("/v1"):
         urls.append(f"{base_url}/v1/models")
     return urls
+
+
+def _model_list_client_modes() -> tuple[tuple[bool, str], ...]:
+    return (
+        (False, "直连/绕开环境代理"),
+        (True, "系统环境代理"),
+    )
+
+
+def _model_list_network_hint(base_url: str) -> str:
+    host = urlparse(base_url).hostname
+    if not host:
+        return ""
+    try:
+        resolved_ips = {
+            item[4][0]
+            for item in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+            if item and item[4]
+        }
+    except OSError:
+        return ""
+    fake_ip_network = ipaddress.ip_network("198.18.0.0/15")
+    fake_ips = []
+    for ip_text in sorted(resolved_ips):
+        try:
+            if ipaddress.ip_address(ip_text) in fake_ip_network:
+                fake_ips.append(ip_text)
+        except ValueError:
+            continue
+    if not fake_ips:
+        return ""
+    return (
+        f"诊断提示：{host} 当前解析到 {', '.join(fake_ips)}，这是 Mihomo/Clash fake-ip 保留网段。"
+        "说明 VPN/TUN 正在接管该域名；如果直连和系统代理都失败，需要在 VPN 里给该域名切换可用节点或直连规则，"
+        "并确认中转站 Base URL 是供应商提供的真实 API 域名。"
+    )
 
 
 def _model_response_preview(response: httpx.Response) -> str:
@@ -2203,36 +2331,48 @@ async def api_model_list(request: Request):
 
     models: list[str] = []
     parsed_model_list = False
+    proxy_mode = ""
     errors: list[str] = []
     try:
-        with httpx.Client(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
-            for url in _model_list_candidate_urls(base_url):
-                try:
-                    resp = client.get(
-                        url,
-                        headers={"Authorization": f"Bearer {api_key}"},
-                    )
-                except httpx.HTTPError as exc:
-                    errors.append(f"{url} 请求失败：{type(exc).__name__}: {exc}")
-                    continue
-                if resp.status_code >= 400:
-                    errors.append(f"{url} 返回 HTTP {resp.status_code}: {resp.text[:500]}")
-                    continue
-                try:
-                    data = resp.json()
-                except ValueError:
-                    errors.append(f"{url} 返回的不是合法 JSON（{_model_response_preview(resp)}）")
-                    continue
-                raw_models = data.get("data") if isinstance(data, dict) else data
-                if not isinstance(raw_models, list):
-                    errors.append(f"{url} JSON 中没有 data 模型数组。")
-                    continue
-                models = _extract_model_ids(raw_models)
-                parsed_model_list = True
+        candidate_urls = _model_list_candidate_urls(base_url)
+        for trust_env, current_proxy_mode in _model_list_client_modes():
+            with httpx.Client(
+                timeout=httpx.Timeout(30.0, connect=10.0),
+                trust_env=trust_env,
+            ) as client:
+                for url in candidate_urls:
+                    try:
+                        resp = client.get(
+                            url,
+                            headers={"Authorization": f"Bearer {api_key}"},
+                        )
+                    except httpx.HTTPError as exc:
+                        errors.append(f"{url} 请求失败（{current_proxy_mode}）：{type(exc).__name__}: {exc}")
+                        continue
+                    if resp.status_code >= 400:
+                        errors.append(f"{url} 返回 HTTP {resp.status_code}（{current_proxy_mode}）: {resp.text[:500]}")
+                        continue
+                    try:
+                        data = resp.json()
+                    except ValueError:
+                        errors.append(f"{url} 返回的不是合法 JSON（{current_proxy_mode}，{_model_response_preview(resp)}）")
+                        continue
+                    raw_models = data.get("data") if isinstance(data, dict) else data
+                    if not isinstance(raw_models, list):
+                        errors.append(f"{url} JSON 中没有 data 模型数组（{current_proxy_mode}）。")
+                        continue
+                    models = _extract_model_ids(raw_models)
+                    parsed_model_list = True
+                    proxy_mode = current_proxy_mode
+                    break
+            if parsed_model_list:
                 break
     except Exception as exc:
         return JSONResponse({"success": False, "error": f"拉取模型列表失败：{type(exc).__name__}: {exc}"}, status_code=500)
     if not parsed_model_list:
+        hint = _model_list_network_hint(base_url)
+        if hint:
+            errors.append(hint)
         return JSONResponse({"success": False, "error": "拉取模型列表失败：" + "；".join(errors)}, status_code=502)
 
     groups = _model_groups(models)
@@ -2244,6 +2384,7 @@ async def api_model_list(request: Request):
         "embedding_models": groups["embedding"],
         "image_models": groups["image"],
         "vision_models": groups["vision"],
+        "proxy_mode": proxy_mode,
     })
 
 
@@ -2252,6 +2393,9 @@ def _resolve_saved_api_key(raw_config: dict, profile: str, submitted_key: str, f
     if submitted_key and submitted_key != "***":
         return submitted_key
     existing_key = str(_profile_source(raw_config, profile).get("api_key") or "").strip()
+    if _looks_like_env_placeholder(existing_key):
+        expanded = os.path.expandvars(existing_key).strip()
+        existing_key = "" if expanded == existing_key else expanded
     return existing_key or fallback_key
 
 
@@ -2352,6 +2496,70 @@ async def _probe_agent_connection(
         return result
 
 
+async def _probe_embedding_connection(*, base_url: str, api_key: str, model: str) -> dict:
+    started = perf_counter()
+    result = {
+        "agent": "embedding",
+        "label": "向量嵌入",
+        "category": "embedding",
+        "base_url": base_url,
+        "model": model,
+        "success": False,
+        "latency_ms": None,
+        "message": "",
+    }
+    if not base_url:
+        result["message"] = "缺少 Base URL"
+        return result
+    if not api_key:
+        result["message"] = "缺少 API Key"
+        return result
+    if not model:
+        result["message"] = "未选择 Embedding 模型"
+        return result
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "input": "connection probe",
+    }
+    timeout = httpx.Timeout(20.0, connect=8.0, read=20.0, write=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            response = await client.post(f"{base_url.rstrip('/')}/embeddings", headers=headers, json=payload)
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        if response.status_code >= 400:
+            result["message"] = f"HTTP {response.status_code}: {_agent_connection_preview(response)}"
+            return result
+        try:
+            data = response.json()
+        except ValueError:
+            result["message"] = f"返回非 JSON: {_agent_connection_preview(response)}"
+            return result
+        embeddings = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(embeddings, list) or not embeddings:
+            result["message"] = "响应缺少 data 字段"
+            return result
+        result["success"] = True
+        result["message"] = "连接正常"
+        return result
+    except httpx.TimeoutException as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"请求超时: {type(exc).__name__}"
+        return result
+    except httpx.HTTPError as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"请求失败: {type(exc).__name__}: {exc}"
+        return result
+    except Exception as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"测试异常: {type(exc).__name__}: {exc}"
+        return result
+
+
 @app.post("/api/config")
 async def api_save_config(request: Request):
     if not _is_local_request(request):
@@ -2407,24 +2615,50 @@ async def api_save_config(request: Request):
     if embedding_model:
         vectordb_config["embedding_model"] = embedding_model
 
-    agent_models = _ensure_config_section(raw_config, "agent_models")
+    existing_agent_models = _ensure_config_section(raw_config, "agent_models")
+    previous_agent_models = {
+        str(name): dict(value)
+        for name, value in existing_agent_models.items()
+        if isinstance(value, dict)
+    }
+    agent_models: dict[str, dict] = {}
+    raw_config["agent_models"] = agent_models
 
-    known_agents = set(AGENT_LABELS.keys())
-    known_agents.update(str(key) for key in agent_models.keys())
-    for agent_name in sorted(known_agents):
-        selected_model = _normalise_optional_model(agent_models_payload.get(agent_name))
-        agent_config = agent_models.setdefault(agent_name, {})
-        if not isinstance(agent_config, dict):
-            agent_config = {}
-            agent_models[agent_name] = agent_config
+    known_agents = {
+        str(name)
+        for name in AGENT_MODEL_UI_NAMES
+        if _is_configurable_agent_model(str(name))
+    }
+    agent_order = {name: index for index, name in enumerate(AGENT_MODEL_UI_NAMES)}
+    selected_models: dict[str, str] = {}
+
+    def write_agent_config(agent_name: str, selected_model: str, category: str) -> None:
+        agent_config = dict(previous_agent_models.get(agent_name) or {})
+        agent_config.pop("model", None)
+        agent_config.pop("fallback_models", None)
+        agent_config.pop("default_model", None)
         if _agent_category(agent_name) == "image":
             _write_profile_credentials(agent_config, image_key, image_base_url)
         else:
             _write_profile_credentials(agent_config, text_key, text_base_url)
         if selected_model:
             agent_config["model"] = selected_model
-            if _agent_category(agent_name) == "image":
-                image_config["model"] = selected_model
+        if category == "image" and selected_model:
+            image_config["model"] = selected_model
+        agent_models[agent_name] = agent_config
+
+    for agent_name in sorted(known_agents, key=lambda name: agent_order.get(name, len(agent_order))):
+        selected_model = _normalise_optional_model(
+            agent_models_payload.get(agent_name) or previous_agent_models.get(agent_name, {}).get("model")
+        )
+        selected_models[agent_name] = selected_model
+        write_agent_config(agent_name, selected_model, _agent_category(agent_name))
+
+    for derived_agent, source_agent in DERIVED_AGENT_MODEL_SOURCES.items():
+        if source_agent not in selected_models:
+            continue
+        source_category = _agent_category(source_agent)
+        write_agent_config(derived_agent, selected_models[source_agent], source_category)
 
     try:
         _save_raw_settings(raw_config)
@@ -2453,11 +2687,31 @@ async def api_test_agent_connections(request: Request):
         image_base_url = _normalise_config_base_url(
             payload.get("image_base_url") or _profile_source(raw_config, "image").get("base_url") or text_base_url
         )
+        embedding_base_url = _normalise_config_base_url(
+            payload.get("embedding_base_url") or _profile_source(raw_config, "embedding").get("base_url") or text_base_url
+        )
         text_key = _resolve_saved_api_key(raw_config, "text", str(payload.get("text_api_key") or payload.get("api_key") or "").strip())
         image_key = _resolve_saved_api_key(raw_config, "image", str(payload.get("image_api_key") or "").strip(), fallback_key=text_key)
+        embedding_key = _resolve_saved_api_key(
+            raw_config,
+            "embedding",
+            str(payload.get("embedding_api_key") or "").strip(),
+            fallback_key=text_key,
+        )
+        embedding_model = _normalise_optional_model(
+            payload.get("embedding_model") or _profile_source(raw_config, "embedding").get("embedding_model")
+        )
         agent_models_payload = payload.get("agent_models") or {}
         if not isinstance(agent_models_payload, dict):
             raise ValueError("agent_models 必须是对象。")
+        requested_agents = payload.get("agent_names")
+        if requested_agents is None:
+            selected_agent_names = None
+        elif isinstance(requested_agents, list):
+            selected_agent_names = {str(name).strip() for name in requested_agents if str(name).strip()}
+        else:
+            raise ValueError("agent_names 必须是数组。")
+        include_embedding = bool(payload.get("include_embedding"))
     except ValueError as exc:
         return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
     except Exception as exc:
@@ -2466,7 +2720,17 @@ async def api_test_agent_connections(request: Request):
     raw_agent_models = raw_config.get("agent_models") or {}
     if not isinstance(raw_agent_models, dict):
         raw_agent_models = {}
-    agent_names = sorted(set(AGENT_LABELS.keys()) | {str(name) for name in raw_agent_models.keys()} | {str(name) for name in agent_models_payload.keys()})
+    all_agent_names = {
+        str(name)
+        for name in set(raw_agent_models.keys()) | set(agent_models_payload.keys())
+        if _is_configurable_agent_model(str(name))
+    }
+    agent_source_names = selected_agent_names if selected_agent_names is not None else all_agent_names
+    agent_order = {name: index for index, name in enumerate(AGENT_MODEL_UI_NAMES)}
+    agent_names = sorted(
+        (name for name in agent_source_names if _is_configurable_agent_model(name)),
+        key=lambda name: agent_order.get(name, len(agent_order)),
+    )
 
     semaphore = asyncio.Semaphore(4)
 
@@ -2486,7 +2750,19 @@ async def api_test_agent_connections(request: Request):
                 model=model,
             )
 
-    results = await asyncio.gather(*(_run_probe(agent_name) for agent_name in agent_names))
+    tasks = [_run_probe(agent_name) for agent_name in agent_names]
+    if include_embedding:
+        async def _run_embedding_probe() -> dict:
+            async with semaphore:
+                return await _probe_embedding_connection(
+                    base_url=embedding_base_url,
+                    api_key=embedding_key,
+                    model=embedding_model,
+                )
+
+        tasks.append(_run_embedding_probe())
+
+    results = await asyncio.gather(*tasks) if tasks else []
     ok_count = sum(1 for item in results if item.get("success"))
     return JSONResponse({
         "success": ok_count == len(results),
@@ -2601,6 +2877,7 @@ async def api_build_vectordb(request: Request):
     return JSONResponse({
         "success": True,
         "status": "running",
+        "knowledge_index": _safe_knowledge_index_status(),
         "message": "向量知识库已开始后台构建",
     })
 
@@ -2612,6 +2889,7 @@ async def api_build_vectordb_status(request: Request):
     with vectordb_build_lock:
         status = dict(vectordb_build_status)
     status["success"] = status.get("status") != "error"
+    status["knowledge_index"] = _safe_knowledge_index_status()
     return JSONResponse(status)
 
 

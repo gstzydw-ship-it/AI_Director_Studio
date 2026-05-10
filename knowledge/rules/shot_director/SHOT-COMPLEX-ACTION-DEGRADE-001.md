@@ -3,12 +3,14 @@ rule_id: SHOT-COMPLEX-ACTION-DEGRADE-001
 title: 复杂物理动作必须蒙太奇降级
 doc_type: rule_card
 rule_type: action_safety
+owner_agent: shot_director
 agent_scope:
 - shot_director
 - quality_inspector
 - prompt_compiler
 priority: P0
 status: active
+pipeline_stage: action_safety_degrade
 runtime_retrieval: true
 retrieval_key:
 - shot-complex-action-degrade-001
@@ -28,7 +30,14 @@ applies_when:
 - 打脸
 - 推搡
 - 抢夺
-avoid_when: []
+avoid_when:
+- "simple_low_risk_action"
+- "explicit_no_contact_contract"
+failure_mode:
+- "unsafe_full_contact_physics_in_one_shot"
+output_contract: "Degrade complex contact into 2-4 safe montage shots: setup, pre-impact cutout, reaction, result hint."
+example_good: "手部前摇后在接触前切走，再给受击反应和散落道具。"
+example_bad: "一个全景完整展示击打、倒地和多人推搡。"
 signals:
 - dialogue_coverage
 - action_coverage

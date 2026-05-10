@@ -3,11 +3,13 @@ rule_id: PROMPT-TIME-INHERIT-UPSTREAM-001
 title: PROMPT-TIME-INHERIT-UPSTREAM-001
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P3
 status: active
+pipeline_stage: upstream_timing_inheritance
 runtime_retrieval: true
 retrieval_key:
 - prompt-time-inherit-upstream-001
@@ -23,8 +25,18 @@ retrieval_key:
 - dialogue_types.argument_escalation
 - dialogue_types.reaction_beat
 - scene_types.action
-applies_when: []
-avoid_when: []
+applies_when:
+- "上游时间段"
+- "duration_hint"
+- "cut_point"
+- "节奏继承"
+avoid_when:
+- "无上游时间结构，仅生成草案且明确允许临时估算。"
+failure_mode:
+- "编译阶段擅自重切时间、合并镜头、压缩反应或重排节奏。"
+output_contract: "严格继承上游 shot duration、duration_hint、cut_point、rhythm、tailframe_role 与 state_chain。"
+example_good: "上游 0-4/4-7/7-9 秒，prompt 保留三段时长并翻译。"
+example_bad: "为了顺口，把三段并成一段长描述。"
 signals:
 - tailframe_lock
 - dialogue_coverage

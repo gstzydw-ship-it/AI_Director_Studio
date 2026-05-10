@@ -3,12 +3,14 @@ rule_id: TAILFRAME-RELATIONSHOT-001
 title: 尾帧连续性与空间关系收束规则
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - shot_director
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: tailframe_closure
 runtime_retrieval: true
 retrieval_key:
 - tailframe-relationshot-001
@@ -22,7 +24,13 @@ retrieval_key:
 - scene_types.elevator
 - scene_types.action
 applies_when: 设计当前片段的最后一个镜头（尾帧）
-avoid_when: 除非下一段的剧本极其明确地要求从该局部特写（如特定道具、伤口特写）开始接续。
+avoid_when:
+- "下一段剧本明确要求从特定局部特写或道具特写开始接续。"
+failure_mode:
+- "以局部特写收尾，下一段失去空间和人物站位锚点。"
+output_contract: "片段最终尾帧默认回到双人/多人关系景或建立镜头，保留位置、朝向、距离与道具状态。"
+example_good: "最后0.5秒切回双人半身关系景收束，电梯门在背景中闭合。"
+example_bad: "片段最后停在乔熙手指拨弄头发的局部特写。"
 signals:
 - tailframe_lock
 - action_coverage

@@ -1489,14 +1489,4 @@ def _run_story_planner_with_schema_repair(*args: Any, **kwargs: Any) -> Any:
     return _impl(*args, **kwargs)
 
 
-def _run_llm_quality_inspector(*args: Any, **kwargs: Any) -> Any:
-    """Package-local compatibility entry for the migrated LLM quality inspector."""
-    from .legacy_impl import _run_llm_quality_inspector as _impl
-
-    return _impl(*args, **kwargs)
-
-
-
-
-
 

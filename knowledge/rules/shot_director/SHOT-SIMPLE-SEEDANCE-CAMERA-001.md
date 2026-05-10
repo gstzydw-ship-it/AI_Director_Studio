@@ -3,12 +3,14 @@ rule_id: SHOT-SIMPLE-SEEDANCE-CAMERA-001
 title: Seedance 镜头必须降级为单任务短句
 doc_type: rule_card
 rule_type: camera_language
+owner_agent: shot_director
 agent_scope:
 - shot_director
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: seedance_camera_simplification
 runtime_retrieval: true
 retrieval_key:
 - shot-simple-seedance-camera-001
@@ -26,7 +28,14 @@ applies_when:
 - Seedance
 - 镜头导演
 - 运镜降级
-avoid_when: []
+avoid_when:
+- "non_seedance_target"
+- "already_single_task_shot"
+failure_mode:
+- "overloaded_live_action_camera_instruction"
+output_contract: "Each shot has one subject, one shot-size base, one simple angle, max one movement, one narrative task."
+example_good: "电梯口固定中景。"
+example_bad: "纵深中全景到半身中景再横移到反应。"
 signals:
 - dialogue_coverage
 - action_coverage

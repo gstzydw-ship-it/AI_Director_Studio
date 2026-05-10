@@ -3,11 +3,13 @@ rule_id: PROMPT-CINEMATIC-DOWNTRANSLATION-002
 title: 复杂分镜必须降维成视频模型可执行动作
 doc_type: rule_card
 rule_type: prompt_compiler_translation
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: prompt_downtranslation
 runtime_retrieval: true
 retrieval_key:
 - prompt-cinematic-downtranslation-002
@@ -32,7 +34,13 @@ applies_when:
 - seedance_prompt
 - prompt_compiler
 - main_shots
-avoid_when: []
+avoid_when:
+- "输入不是最终模型 prompt 编译任务。"
+failure_mode:
+- "逐字保留复杂导演术语、密集分镜或抽象节奏。"
+output_contract: "只把已定导演决策翻译为主体、机位、路径、动作、视线、切入点与尾帧状态。"
+example_good: "镜头从桌侧固定中景开始，台词落点后短切到严飞中近景。"
+example_bad: "过肩、反打、特写、推轨、荷兰角快速交替。"
 signals:
 - tailframe_lock
 - dialogue_coverage

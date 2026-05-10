@@ -236,34 +236,80 @@
                         </section>
 
                         <section class="card result-card">
-                            <div class="card-header">
+                            <div class="card-header result-card-header">
                                 <div>
                                     <span class="section-kicker">Output</span>
                                     <h3>执行结果</h3>
+                                    <p class="result-header-copy">按 Agent 查看输出、审核、重跑和保存继续。</p>
                                 </div>
-                                <button class="btn-small" onclick="copyCurrentTab()">复制当前</button>
+                                <div class="result-header-actions">
+                                    <button class="btn-small" type="button" onclick="copyCurrentTab()">复制当前</button>
+                                </div>
                             </div>
-                            <div class="card-body">
-                                <div class="result-tabs" id="resultTabs" style="display:none;">
+                            <div class="card-body result-card-body">
+                                <div class="agent-result-shell is-empty">
+                                <div class="result-tabs agent-result-rail" id="resultTabs" style="display:none;">
                                     <button class="result-tab active" data-agent="scene_analyst"
-                                        onclick="switchResultTab(this)">场景预分析</button>
+                                        onclick="switchResultTab(this)">
+                                        <span class="result-tab-name">场景预分析</span>
+                                        <small data-tab-status>等待输出</small>
+                                    </button>
                                     <button class="result-tab" data-agent="director_showrunner"
-                                        onclick="switchResultTab(this)">剧情增强</button>
+                                        onclick="switchResultTab(this)">
+                                        <span class="result-tab-name">剧情增强</span>
+                                        <small data-tab-status>等待输出</small>
+                                    </button>
                                     <button class="result-tab" data-agent="rhythm_rewrite_director"
-                                        onclick="switchResultTab(this)">节奏策略</button>
+                                        onclick="switchResultTab(this)">
+                                        <span class="result-tab-name">节奏策略</span>
+                                        <small data-tab-status>等待输出</small>
+                                    </button>
                                     <button class="result-tab" data-agent="story_planner"
-                                        onclick="switchResultTab(this)">拆片规划</button>
+                                        onclick="switchResultTab(this)">
+                                        <span class="result-tab-name">拆片规划</span>
+                                        <small data-tab-status>等待输出</small>
+                                    </button>
                                     <button class="result-tab" data-agent="shot_director"
-                                        onclick="switchResultTab(this)">三段镜头</button>
+                                        onclick="switchResultTab(this)">
+                                        <span class="result-tab-name">三段镜头</span>
+                                        <small data-tab-status>等待输出</small>
+                                    </button>
                                     <button class="result-tab" data-agent="storyboard_designer"
-                                        onclick="switchResultTab(this)">分镜流程图</button>
+                                        onclick="switchResultTab(this)">
+                                        <span class="result-tab-name">分镜流程图</span>
+                                        <small data-tab-status>等待输出</small>
+                                    </button>
                                     <button class="result-tab" data-agent="prompt_compiler"
-                                        onclick="switchResultTab(this)">Seedance编译</button>
+                                        onclick="switchResultTab(this)">
+                                        <span class="result-tab-name">Seedance 编译</span>
+                                        <small data-tab-status>等待输出</small>
+                                    </button>
                                     <button class="result-tab" data-agent="quality_inspector"
-                                        onclick="switchResultTab(this)">质检报告</button>
+                                        onclick="switchResultTab(this)">
+                                        <span class="result-tab-name">质检报告</span>
+                                        <small data-tab-status>等待输出</small>
+                                    </button>
                                 </div>
-                                <div id="resultOutput" class="result-output">
-                                    <div class="placeholder-text">等待执行...</div>
+                                <div class="agent-result-panel">
+                                    <div class="agent-result-toolbar" id="agentResultToolbar" style="display:none;">
+                                        <div class="agent-result-titlebox">
+                                            <span class="section-kicker" id="agentResultKicker">Agent Output</span>
+                                            <h4 id="agentResultTitle">等待输出</h4>
+                                            <small id="agentResultMeta">启动任务后会在这里显示每个 Agent 的结果。</small>
+                                        </div>
+                                        <div class="agent-result-actions">
+                                            <button class="btn-small" type="button" onclick="copyCurrentTab()">复制</button>
+                                            <button class="btn-small" type="button" id="agentRerunButton"
+                                                onclick="rerunCurrentAgentOutput()">重跑</button>
+                                            <button class="btn-secondary" type="button" id="agentContinueButton"
+                                                onclick="continueCurrentAgentOutput()">保存并继续</button>
+                                        </div>
+                                    </div>
+                                    <div id="agentResultNotice" class="agent-result-notice" style="display:none;"></div>
+                                    <div id="resultOutput" class="result-output">
+                                        <div class="placeholder-text">等待执行...</div>
+                                    </div>
+                                </div>
                                 </div>
                                 <div id="interactiveBox"></div>
                             </div>
@@ -301,6 +347,7 @@
                                     <input type="password" id="textApiKey" placeholder="留空则保留已保存密钥">
                                 </div>
                                 <button class="btn-small" type="button" onclick="fetchModelList('text', this)">拉取文本/视觉模型</button>
+                                <button class="btn-small btn-secondary" type="button" onclick="addManualModels('text')">手动添加</button>
                             </div>
                             <div class="config-profile-card">
                                 <div class="config-section-title">生图 Agent</div>
@@ -313,6 +360,7 @@
                                     <input type="password" id="imageApiKey" placeholder="留空则保留已保存密钥">
                                 </div>
                                 <button class="btn-small" type="button" onclick="fetchModelList('image', this)">拉取生图模型</button>
+                                <button class="btn-small btn-secondary" type="button" onclick="addManualModels('image')">手动添加</button>
                             </div>
                             <div class="config-profile-card">
                                 <div class="config-section-title">向量嵌入</div>
@@ -325,12 +373,14 @@
                                     <input type="password" id="embeddingApiKey" placeholder="留空则保留已保存密钥">
                                 </div>
                                 <button class="btn-small" type="button" onclick="fetchModelList('embedding', this)">拉取 Embedding 模型</button>
+                                <button class="btn-small btn-secondary" type="button" onclick="addManualModels('embedding')">手动添加</button>
                             </div>
                         </div>
                         <div class="config-actions">
                             <button class="btn-primary" type="button" onclick="saveSystemConfig(this)">保存当前配置</button>
                             <span id="configStatus" class="config-status"></span>
                         </div>
+                        <div id="configSourceStatus" class="config-source-status"></div>
 
                         <datalist id="modelOptions"></datalist>
                         <datalist id="embeddingModelOptions"></datalist>
@@ -357,7 +407,11 @@
                                     <strong>Agent 连通性测试</strong>
                                     <small>按当前页面配置逐个测试 Agent 模型是否可调用。</small>
                                 </div>
-                                <button class="btn-secondary" type="button" onclick="testAgentConnections(this)">测试全部 Agent</button>
+                                <div class="agent-test-actions">
+                                    <button class="btn-secondary" type="button" onclick="testAgentConnections(this, 'all')">测试全部</button>
+                                    <button class="btn-secondary" type="button" onclick="testAgentConnections(this, 'selected')">测试选中</button>
+                                    <button class="btn-secondary" type="button" onclick="testAgentConnections(this, 'failed')">重测失败项</button>
+                                </div>
                             </div>
                             <div id="agentTestSummary" class="config-status"></div>
                             <div id="agentTestResults" class="agent-test-results"></div>
@@ -390,6 +444,7 @@
                             构建/重建向量知识库
                         </button>
                         <div id="dbStatus" class="status-msg"></div>
+                        <div id="knowledgeIndexStatus" class="knowledge-index-status"></div>
                     </div>
                 </div>
             </div>
@@ -424,6 +479,7 @@
             image: [],
             embedding: [],
         };
+        let lastAgentConnectionResults = [];
 
         function createSessionId() {
             const randomPart = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '');
@@ -454,12 +510,67 @@
             el.className = `config-status ${type}`;
         }
 
+        function renderConfigSourceStatus(config = {}) {
+            const el = document.getElementById('configSourceStatus');
+            if (!el) return;
+            const source = config._config_source || {};
+            if (!source.active_display) {
+                el.textContent = '';
+                el.className = 'config-source-status';
+                return;
+            }
+            el.textContent = `${source.message || '当前实际生效配置'} 读取：${source.active_display}`;
+            el.className = `config-source-status ${source.is_private ? 'warning' : 'info'}`;
+        }
+
+        function shortLocalPath(path = '') {
+            const text = String(path || '');
+            if (!text) return '';
+            const parts = text.split(/[\\/]+/).filter(Boolean);
+            return parts.length > 4 ? `.../${parts.slice(-4).join('/')}` : text;
+        }
+
+        function renderKnowledgeIndexStatus(index = {}) {
+            const el = document.getElementById('knowledgeIndexStatus');
+            if (!el) return;
+            if (!index || !index.status) {
+                el.innerHTML = '';
+                el.className = 'knowledge-index-status';
+                return;
+            }
+            const legacy = index.legacy_vectordb || {};
+            const newerFiles = Array.isArray(index.newer_files) ? index.newer_files : [];
+            const rows = [
+                ['知识库最新文件', `${index.knowledge_latest_mtime || '未知'} ${index.knowledge_latest_file ? ` · ${index.knowledge_latest_file}` : ''}`],
+                ['运行时向量库', `${index.vectordb_mtime || '未构建'} · ${shortLocalPath(index.vectordb_path)}`],
+            ];
+            if (legacy.exists) {
+                rows.push(['旧向量库', `${legacy.mtime || '未知时间'} · ${shortLocalPath(legacy.path)}`]);
+            }
+            const filesHtml = newerFiles.length
+                ? `<ul>${newerFiles.slice(0, 5).map(item => `<li>${escapeHtml(item.mtime_iso || '')} · ${escapeHtml(item.path || '')}</li>`).join('')}</ul>`
+                : '';
+            el.className = `knowledge-index-status ${index.needs_rebuild ? 'warning' : 'fresh'}`;
+            el.innerHTML = `
+                <div class="knowledge-index-title">${escapeHtml(index.message || '')}</div>
+                <dl>
+                    ${rows.map(([label, value]) => `<div><dt>${escapeHtml(label)}</dt><dd>${escapeHtml(value)}</dd></div>`).join('')}
+                </dl>
+                ${legacy.message ? `<div class="knowledge-index-note">${escapeHtml(legacy.message)}</div>` : ''}
+                ${filesHtml}
+            `;
+        }
+
         function modelOptionHtml(models = []) {
             return models.map(model => `<option value="${escapeHtml(model)}"></option>`).join('');
         }
 
         function uniqueModels(models = []) {
             return Array.from(new Set(models.filter(Boolean)));
+        }
+
+        function parseManualModelInput(value = '') {
+            return uniqueModels(value.split(/[\n,，、;；]+/).map(item => item.trim()).filter(Boolean));
         }
 
         function selectOptions(models = [], currentValue = '', placeholder = '请选择模型') {
@@ -530,7 +641,10 @@
             if (!grid) return;
             const agentModels = config.agent_models || {};
             const labels = config._agent_labels || {};
-            const names = Array.from(new Set([...Object.keys(labels), ...Object.keys(agentModels)])).sort();
+            const order = Array.isArray(config._agent_order) ? config._agent_order : [];
+            const names = order.length
+                ? order.filter(name => labels[name] || agentModels[name])
+                : Object.keys(agentModels).sort();
             if (!names.length) {
                 grid.innerHTML = '<div class="placeholder-text">暂无 Agent 配置。</div>';
                 return;
@@ -543,7 +657,8 @@
                 const pool = agentModelPool(name);
                 const placeholder = pool.length ? `请选择${categoryLabel(category)}` : `先拉取${categoryLabel(category)}列表`;
                 return `
-                    <label class="agent-model-row">
+                    <div class="agent-model-row">
+                        <input type="checkbox" data-agent-test-select="${escapeHtml(name)}" checked aria-label="选择 ${escapeHtml(label)} 参与连通性测试">
                         <span>
                             <strong>${escapeHtml(label)}</strong>
                             <small>${escapeHtml(name)} · ${escapeHtml(categoryLabel(category))}</small>
@@ -551,7 +666,7 @@
                         <select data-agent-model="${escapeHtml(name)}">
                             ${selectOptions(pool, value, placeholder)}
                         </select>
-                    </label>
+                    </div>
                 `;
             }).join('');
         }
@@ -581,6 +696,8 @@
                 setProfileInput('embedding', profiles.embedding || systemConfig.vectordb || {});
                 refreshPrimaryModelSelects();
                 renderAgentModelGrid(systemConfig);
+                renderConfigSourceStatus(systemConfig);
+                renderKnowledgeIndexStatus(systemConfig._knowledge_index || {});
                 setConfigStatus(systemConfig._config_note || '配置已读取。', 'info');
             } catch (e) {
                 setConfigStatus('读取配置失败：' + e.message, 'error');
@@ -621,7 +738,7 @@
                 refreshPrimaryModelSelects();
                 renderAgentModelGrid(systemConfig);
                 const count = profile === 'image' ? modelPools.image.length : profile === 'embedding' ? modelPools.embedding.length : modelPools.text.length;
-                setConfigStatus(`已拉取 ${count} 个可用${categoryLabel(profile)}。`, 'success');
+            setConfigStatus(`已拉取 ${count} 个可用${categoryLabel(profile)}。`, 'success');
             } catch (e) {
                 setConfigStatus('拉取模型列表失败：' + e.message, 'error');
             } finally {
@@ -630,6 +747,26 @@
                     button.textContent = originalText;
                 }
             }
+        }
+
+        function addManualModels(profile = 'text') {
+            const label = categoryLabel(profile);
+            const raw = window.prompt(`输入${label}名称；多个模型可用逗号或换行分隔。`);
+            const models = parseManualModelInput(raw || '');
+            if (!models.length) return;
+            syncCurrentAgentSelections();
+            if (profile === 'text') {
+                modelPools.text = uniqueModels([...modelPools.text, ...models]);
+                modelPools.vision = uniqueModels([...modelPools.vision, ...models]);
+            } else if (profile === 'image') {
+                modelPools.image = uniqueModels([...modelPools.image, ...models]);
+            } else if (profile === 'embedding') {
+                modelPools.embedding = uniqueModels([...modelPools.embedding, ...models]);
+            }
+            refreshModelDatalists();
+            refreshPrimaryModelSelects();
+            renderAgentModelGrid(systemConfig);
+            setConfigStatus(`已手动添加 ${models.length} 个${label}，请保存当前配置。`, 'success');
         }
 
         async function saveSystemConfig(button = null) {
@@ -670,9 +807,12 @@
                 });
                 refreshPrimaryModelSelects();
                 renderAgentModelGrid(systemConfig);
+                renderConfigSourceStatus(systemConfig);
                 setConfigStatus(data.message || '配置已保存。', 'success');
+                return true;
             } catch (e) {
                 setConfigStatus('保存失败：' + e.message, 'error');
+                return false;
             } finally {
                 if (button) {
                     button.disabled = false;
@@ -681,36 +821,88 @@
             }
         }
 
-        async function testAgentConnections(button = null) {
-            const originalText = button ? button.textContent : '';
-            const summary = document.getElementById('agentTestSummary');
-            const resultsBox = document.getElementById('agentTestResults');
+        function collectAgentModels() {
             const agentModels = {};
             document.querySelectorAll('[data-agent-model]').forEach(input => {
                 agentModels[input.dataset.agentModel] = input.value.trim();
             });
+            return agentModels;
+        }
+
+        function selectedAgentNames() {
+            return Array.from(document.querySelectorAll('[data-agent-test-select]:checked'))
+                .map(input => input.dataset.agentTestSelect)
+                .filter(Boolean);
+        }
+
+        function failedProbeSelection() {
+            const failed = lastAgentConnectionResults.filter(item => !item.success);
+            return {
+                agentNames: failed
+                    .filter(item => item.category !== 'embedding')
+                    .map(item => item.agent)
+                    .filter(Boolean),
+                includeEmbedding: failed.some(item => item.category === 'embedding'),
+            };
+        }
+
+        async function testAgentConnections(button = null, mode = 'all') {
+            const originalText = button ? button.textContent : '';
+            const summary = document.getElementById('agentTestSummary');
+            const resultsBox = document.getElementById('agentTestResults');
+            const agentModels = collectAgentModels();
+            let agentNames = null;
+            let includeEmbedding = true;
+            if (mode === 'selected') {
+                agentNames = selectedAgentNames();
+                includeEmbedding = false;
+                if (!agentNames.length) {
+                    if (summary) {
+                        summary.textContent = '请先勾选至少一个 Agent。';
+                        summary.className = 'config-status error';
+                    }
+                    return;
+                }
+            } else if (mode === 'failed') {
+                const failed = failedProbeSelection();
+                agentNames = failed.agentNames;
+                includeEmbedding = failed.includeEmbedding;
+                if (!agentNames.length && !includeEmbedding) {
+                    if (summary) {
+                        summary.textContent = '当前没有失败项可重测。';
+                        summary.className = 'config-status success';
+                    }
+                    return;
+                }
+            }
             if (button) {
                 button.disabled = true;
                 button.textContent = '测试中...';
             }
             if (summary) {
-                summary.textContent = '正在逐个测试 Agent 连通性...';
+                summary.textContent = mode === 'failed' ? '正在重测失败项...' : '正在测试连接...';
                 summary.className = 'config-status';
             }
             if (resultsBox) {
                 resultsBox.innerHTML = '<div class="placeholder-text">测试请求已发送，请稍候...</div>';
             }
             try {
+                const payload = {
+                    text_base_url: document.getElementById('textBaseUrl').value.trim(),
+                    text_api_key: document.getElementById('textApiKey').value.trim(),
+                    image_base_url: document.getElementById('imageBaseUrl').value.trim(),
+                    image_api_key: document.getElementById('imageApiKey').value.trim(),
+                    embedding_base_url: document.getElementById('embeddingBaseUrl').value.trim(),
+                    embedding_api_key: document.getElementById('embeddingApiKey').value.trim(),
+                    embedding_model: document.getElementById('configEmbeddingModel').value.trim(),
+                    agent_models: agentModels,
+                    include_embedding: includeEmbedding,
+                };
+                if (agentNames) payload.agent_names = agentNames;
                 const resp = await fetch('/api/test_agent_connections', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        text_base_url: document.getElementById('textBaseUrl').value.trim(),
-                        text_api_key: document.getElementById('textApiKey').value.trim(),
-                        image_base_url: document.getElementById('imageBaseUrl').value.trim(),
-                        image_api_key: document.getElementById('imageApiKey').value.trim(),
-                        agent_models: agentModels,
-                    }),
+                    body: JSON.stringify(payload),
                 });
                 const data = await resp.json();
                 if (!resp.ok || data.error) throw new Error(data.error || '连通性测试失败');
@@ -733,9 +925,10 @@
             const summary = document.getElementById('agentTestSummary');
             const resultsBox = document.getElementById('agentTestResults');
             const items = data.results || [];
+            lastAgentConnectionResults = items;
             const stat = data.summary || { total: items.length, ok: 0, failed: items.length };
             if (summary) {
-                summary.textContent = `完成：${stat.ok}/${stat.total} 个 Agent 连通，${stat.failed} 个异常。`;
+                summary.textContent = `完成：${stat.ok}/${stat.total} 个项目连通，${stat.failed} 个异常。`;
                 summary.className = `config-status ${stat.failed ? 'error' : 'success'}`;
             }
             if (!resultsBox) return;
@@ -756,6 +949,7 @@
                             <span>${escapeHtml(item.model || '未选择模型')}</span>
                             <span>${escapeHtml(latency)}</span>
                         </div>
+                        <small>${escapeHtml(item.base_url || '未配置 Base URL')}</small>
                         <p>${escapeHtml(item.message || (item.success ? '连接正常' : '测试失败'))}</p>
                     </div>
                 `;
@@ -1091,6 +1285,288 @@
             prompt_compiler: 'Seedance 编译',
             quality_inspector: '质检导演',
         };
+
+        const AGENT_RESULT_META = {
+            scene_analyst: { title: '场景预分析', desc: '空间拆解、俯视图、九宫格机位图' },
+            director_showrunner: { title: '剧情增强', desc: '补强动机、冲突和主线保护' },
+            rhythm_rewrite_director: { title: '节奏策略', desc: '短视频节奏、爽点和信息释放' },
+            story_planner: { title: '拆片规划', desc: '把剧情拆成可连续生成的片段' },
+            shot_director: { title: '三段镜头导演', desc: '镜头骨架、人物调度和规则守门' },
+            storyboard_designer: { title: '分镜流程图', desc: '首帧/分镜图提示词与图片' },
+            prompt_compiler: { title: 'Seedance 编译', desc: '最终可用于视频生成的分段 Prompt' },
+            quality_inspector: { title: '质检报告', desc: '机械质检、返修意见和通过状态' },
+        };
+
+        function agentResultMeta(agent) {
+            return AGENT_RESULT_META[agent] || { title: readableAgentLabel(agent), desc: 'Agent 输出详情' };
+        }
+
+        function activeResultAgent() {
+            const activeTab = document.querySelector('.result-tab.active');
+            return activeTab ? activeTab.dataset.agent : 'scene_analyst';
+        }
+
+        function currentSegmentIndex() {
+            return Number(currentPublicState.active_segment_index || currentPublicState.current_segment_index || 1) || 1;
+        }
+
+        function sceneReferenceCards(outputs = {}) {
+            let sceneCards = [];
+            if (outputs.scene_card_images) {
+                try {
+                    const parsed = typeof outputs.scene_card_images === 'string'
+                        ? JSON.parse(outputs.scene_card_images)
+                        : outputs.scene_card_images;
+                    if (Array.isArray(parsed)) sceneCards = parsed;
+                } catch (e) {
+                    sceneCards = [];
+                }
+            }
+            if (sceneCards.length === 0 && (outputs.scene_card_image || outputs.scene_layout_image || outputs.scene_grid_image)) {
+                sceneCards = [{
+                    scene_number: '1',
+                    scene_title: '场景参考图',
+                    image_path: outputs.scene_card_image,
+                    layout_path: outputs.scene_layout_image,
+                    grid_path: outputs.scene_grid_image || outputs.scene_card_image,
+                    layout_prompt: outputs.scene_layout_prompt || '',
+                    grid_prompt: outputs.scene_grid_prompt || outputs.scene_card_prompt || '',
+                    prompt: outputs.scene_card_prompt || '',
+                }];
+            }
+            return sceneCards;
+        }
+
+        function hasSceneReferenceCards(outputs = {}) {
+            return sceneReferenceCards(outputs).length > 0;
+        }
+
+        function hasStoryboardOutput(outputs = {}) {
+            return Object.keys(outputs || {}).some(key => /^storyboard_(prompt|image)_seg\d+$/.test(key))
+                || Boolean(outputs.storyboard_designer);
+        }
+
+        function agentHasOutput(agent, state = currentPublicState) {
+            const outputs = state.agent_outputs || agentOutputs || {};
+            if (agent === 'scene_analyst') return Boolean(outputs.scene_analyst) || hasSceneReferenceCards(outputs);
+            if (agent === 'shot_director') return Boolean(latestShotDirectorOutput(outputs));
+            if (agent === 'storyboard_designer') return hasStoryboardOutput(outputs);
+            if (agent === 'prompt_compiler') {
+                return compiledSegmentEntries(outputs).length > 0 || Boolean(outputs.prompt_compiler || state.result);
+            }
+            if (agent === 'quality_inspector') {
+                return Boolean(outputs.quality_inspector)
+                    || Object.keys(outputs).some(key => /^quality_inspector_segment_\d+$/.test(key));
+            }
+            return Boolean(outputs[agent]);
+        }
+
+        function isCurrentAgentReviewing(agent) {
+            return currentPublicState.status === 'waiting_for_user_input'
+                && currentPublicState.review_mode === 'agent_output'
+                && currentPublicState.review_agent === agent;
+        }
+
+        function updateResultTabsState() {
+            document.querySelectorAll('.result-tab').forEach(tab => {
+                const agent = tab.dataset.agent;
+                const hasOutput = agentHasOutput(agent);
+                const reviewing = isCurrentAgentReviewing(agent);
+                tab.classList.toggle('has-output', hasOutput);
+                tab.classList.toggle('waiting-review', reviewing);
+                const statusEl = tab.querySelector('[data-tab-status]');
+                if (statusEl) {
+                    statusEl.textContent = reviewing ? '等待确认' : (hasOutput ? '已有输出' : '等待输出');
+                }
+            });
+        }
+
+        function setResultNotice(message = '', type = 'info') {
+            const notice = document.getElementById('agentResultNotice');
+            if (!notice) return;
+            if (!message) {
+                notice.style.display = 'none';
+                notice.textContent = '';
+                notice.className = 'agent-result-notice';
+                return;
+            }
+            notice.style.display = 'block';
+            notice.className = `agent-result-notice ${type}`;
+            notice.textContent = message;
+        }
+
+        function hideResultWorkbench() {
+            const tabs = document.getElementById('resultTabs');
+            const toolbar = document.getElementById('agentResultToolbar');
+            const shell = document.querySelector('.agent-result-shell');
+            if (tabs) tabs.style.display = 'none';
+            if (toolbar) toolbar.style.display = 'none';
+            if (shell) shell.classList.add('is-empty');
+            setResultNotice('');
+        }
+
+        function setResultOutput(agent, html, options = {}) {
+            const tabs = document.getElementById('resultTabs');
+            const output = document.getElementById('resultOutput');
+            const toolbar = document.getElementById('agentResultToolbar');
+            const shell = document.querySelector('.agent-result-shell');
+            if (tabs) tabs.style.display = 'flex';
+            if (toolbar) toolbar.style.display = 'flex';
+            if (shell) shell.classList.remove('is-empty');
+            selectResultTab(agent);
+            updateResultTabsState();
+            updateAgentResultToolbar(agent, options);
+            if (output) output.innerHTML = html;
+            setResultNotice(options.notice || '', options.noticeType || 'info');
+        }
+
+        function rerunConfigForAgent(agent) {
+            const outputs = currentPublicState.agent_outputs || agentOutputs || {};
+            const segIdx = currentSegmentIndex();
+            const sceneCards = sceneReferenceCards(outputs);
+            if (agent === 'scene_analyst') {
+                if (sceneCards.length === 1) {
+                    return { enabled: true, label: '重跑场景图', title: '重跑这组俯视图和九宫格图' };
+                }
+                return {
+                    enabled: false,
+                    label: sceneCards.length > 1 ? '在图卡重跑' : '等待场景图',
+                    title: sceneCards.length > 1
+                        ? '多场景时请在具体图卡上点“重跑本场景两张图”。'
+                        : '场景图生成后可重跑。',
+                };
+            }
+            if (agent === 'shot_director') {
+                const canContinue = canRetryShotDirector(currentPublicState) || canContinueShotDirectorFromPlanner(currentPublicState);
+                return {
+                    enabled: canContinue,
+                    label: '重跑镜头导演',
+                    title: canContinue
+                        ? '复用前置规划，从镜头导演阶段继续。'
+                        : '镜头导演最终输出已存在时，当前后端暂不支持只清除并重跑这一段。',
+                };
+            }
+            if (agent === 'storyboard_designer') {
+                return { enabled: Boolean(segIdx), label: '重跑分镜', title: '重新生成当前片段的分镜流程图。' };
+            }
+            if (agent === 'prompt_compiler' || agent === 'quality_inspector') {
+                return {
+                    enabled: Boolean(segIdx && (compiledSegmentEntries(outputs).length || currentPublicState.total_segments)),
+                    label: '重跑当前片段',
+                    title: '清除当前片段及后续 Prompt，然后回到片段生成入口。',
+                };
+            }
+            return {
+                enabled: false,
+                label: '从上游重跑',
+                title: '这个阶段还没有安全的独立重跑接口，需要从上游重新启动。',
+            };
+        }
+
+        function updateAgentResultToolbar(agent, options = {}) {
+            const toolbar = document.getElementById('agentResultToolbar');
+            if (!toolbar) return;
+            const meta = agentResultMeta(agent);
+            const titleEl = document.getElementById('agentResultTitle');
+            const metaEl = document.getElementById('agentResultMeta');
+            const kickerEl = document.getElementById('agentResultKicker');
+            const rerunBtn = document.getElementById('agentRerunButton');
+            const continueBtn = document.getElementById('agentContinueButton');
+            const reviewing = isCurrentAgentReviewing(agent);
+            const hasOutput = agentHasOutput(agent);
+            if (titleEl) titleEl.textContent = meta.title;
+            if (kickerEl) kickerEl.textContent = reviewing ? 'Waiting Review' : 'Agent Output';
+            if (metaEl) {
+                metaEl.textContent = `${meta.desc} · ${reviewing ? '等待你确认' : (hasOutput ? '已生成' : '尚未生成')}`;
+            }
+            if (rerunBtn) {
+                const cfg = rerunConfigForAgent(agent);
+                rerunBtn.textContent = cfg.label;
+                rerunBtn.disabled = !cfg.enabled;
+                rerunBtn.title = cfg.title || '';
+            }
+            if (continueBtn) {
+                const isSceneCards = agent === 'scene_analyst' && hasSceneReferenceCards(currentPublicState.agent_outputs || agentOutputs);
+                continueBtn.style.display = (reviewing || isSceneCards) ? 'inline-flex' : 'none';
+                continueBtn.textContent = isSceneCards ? '保存场景图并继续' : '保存并继续';
+                continueBtn.title = reviewing ? '保存当前审核内容并继续流水线' : '场景图已保存在当前任务中';
+            }
+        }
+
+        function currentAgentOutputText(agent = activeResultAgent()) {
+            const outputs = currentPublicState.agent_outputs || agentOutputs || {};
+            if (agent === 'prompt_compiler') {
+                const entries = compiledSegmentEntries(outputs);
+                if (entries.length) return entries.map(e => `片段 ${e.index}\n${e.text}`).join('\n\n');
+                return outputs.prompt_compiler || currentPublicState.result || '';
+            }
+            if (agent === 'shot_director') return latestShotDirectorOutput(outputs);
+            if (agent === 'scene_analyst') {
+                const cards = sceneReferenceCards(outputs).map(card => {
+                    const title = card.scene_title || `场景${card.scene_number || ''}`;
+                    const layout = card.layout_prompt ? `俯视图提示词：${card.layout_prompt}` : '';
+                    const grid = (card.grid_prompt || card.prompt) ? `九宫格提示词：${card.grid_prompt || card.prompt}` : '';
+                    return [title, layout, grid].filter(Boolean).join('\n');
+                }).filter(Boolean).join('\n\n');
+                return [outputs.scene_analyst || '', cards].filter(Boolean).join('\n\n');
+            }
+            if (agent === 'storyboard_designer') {
+                const promptEntries = Object.keys(outputs)
+                    .filter(key => /^storyboard_prompt_seg\d+$/.test(key))
+                    .sort()
+                    .map(key => `${key}: ${outputs[key]}`);
+                return [outputs.storyboard_designer || '', ...promptEntries].filter(Boolean).join('\n\n');
+            }
+            if (agent === 'quality_inspector') {
+                const entries = Object.keys(outputs)
+                    .filter(key => /^quality_inspector_segment_\d+$/.test(key))
+                    .sort()
+                    .map(key => `${key}: ${outputs[key]}`);
+                return [outputs.quality_inspector || '', ...entries].filter(Boolean).join('\n\n');
+            }
+            return outputs[agent] || '';
+        }
+
+        async function rerunCurrentAgentOutput(agent = activeResultAgent()) {
+            const cfg = rerunConfigForAgent(agent);
+            if (!cfg.enabled) {
+                setResultNotice(cfg.title || '当前 Agent 暂不支持独立重跑。', 'warning');
+                document.getElementById('pipelineMsg').textContent = cfg.title || '当前 Agent 暂不支持独立重跑。';
+                return;
+            }
+            if (agent === 'scene_analyst') {
+                const cards = sceneReferenceCards(currentPublicState.agent_outputs || agentOutputs);
+                const sceneNumber = Number(cards[0]?.scene_number || 1);
+                await regenerateSceneCard(sceneNumber);
+                return;
+            }
+            if (agent === 'shot_director') {
+                await retryShotDirector();
+                return;
+            }
+            if (agent === 'storyboard_designer') {
+                await generateStoryboard(currentSegmentIndex());
+                return;
+            }
+            if (agent === 'prompt_compiler' || agent === 'quality_inspector') {
+                await rerunSegment(currentSegmentIndex());
+                return;
+            }
+            setResultNotice('这个 Agent 需要从上游流程重跑，当前没有独立接口。', 'warning');
+        }
+
+        async function continueCurrentAgentOutput(agent = activeResultAgent()) {
+            if (isCurrentAgentReviewing(agent)) {
+                await approveAgentOutput();
+                return;
+            }
+            if (agent === 'scene_analyst' && hasSceneReferenceCards(currentPublicState.agent_outputs || agentOutputs)) {
+                setResultNotice('俯视图和九宫格已经保存到当前任务，并会作为后续参考图使用。若当前处于审核等待，按钮会继续到下一步。', 'success');
+                document.getElementById('pipelineMsg').textContent = '场景参考图已保存到当前任务。';
+                return;
+            }
+            setResultNotice('当前没有等待确认的 Agent 输出。', 'warning');
+        }
 
         const READABLE_FIELD_LABELS = {
             enhanced_script: '增强版剧本',
@@ -1499,6 +1975,7 @@
             const label = state.review_title || REVIEW_AGENT_LABELS[agent] || agent || 'Agent';
             const text = reviewOutputText(state);
             const isStoryboardReview = agent === 'storyboard_designer';
+            const isSceneCardReview = agent === 'scene_analyst' && hasSceneReferenceCards(state.agent_outputs || {});
             const storyboardReviewImage = isStoryboardReview ? storyboardImagePathForSegment(state) : '';
             const storyboardReviewImageHtml = storyboardReviewImage
                 ? `<div class="storyboard-image-wrap" style="margin-top:12px;">
@@ -1513,16 +1990,18 @@
                    <button class="btn-secondary" onclick="saveStoryboardPromptOnly()">只保存提示词</button>
                    <button class="btn-secondary" onclick="approveAgentOutput()">继续下一步</button>
                    <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>`
+                : isSceneCardReview
+                    ? `<button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存场景图并继续下一步</button>
+                       <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
+                       <button class="btn-secondary" onclick="rerunCurrentAgentOutput('scene_analyst')">重跑场景图</button>`
                 : `<button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存修改并继续下一步</button>
                    <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>`;
-            selectResultTab(agent);
-            document.getElementById('resultTabs').style.display = 'flex';
-            document.getElementById('resultOutput').innerHTML = `
+            const reviewHtml = `
                 <div class="agent-review-panel">
                     <div class="agent-review-banner">
                         <div>
                             <strong>${escapeHtml(label)}已完成，等待你确认</strong>
-                            <span>先看中文速览；需要调整时，直接改下面的可编辑原文。</span>
+                            <span>${isSceneCardReview ? '俯视图和九宫格已生成；确认后会带着这些参考图继续后续 Agent。' : '先看中文速览；需要调整时，直接改下面的可编辑原文。'}</span>
                         </div>
                         <span class="review-badge">可修改</span>
                     </div>
@@ -1530,9 +2009,10 @@
                     <div class="agent-review-actions">
                         ${topActions}
                     </div>
+                    ${isSceneCardReview ? renderSceneAnalystOutput(state.agent_outputs || agentOutputs) : ''}
                     ${storyboardReviewImageHtml}
 
-                    <div class="review-preview">
+                    <div class="review-preview"${isSceneCardReview ? ' style="display:none;"' : ''}>
                         ${renderReadableAgentOutput(agent, text, { hideRaw: true })}
                     </div>
 
@@ -1547,6 +2027,7 @@
                     </div>
                 </div>
             `;
+            setResultOutput(agent, reviewHtml);
             document.getElementById('interactiveBox').innerHTML = '';
             updateAgentStatus('idle', `${label}等待审核`);
             resetBtn();
@@ -1790,9 +2271,8 @@
                 agentOutputs = (data.state && data.state.agent_outputs) || {};
                 currentPublicState = data.state || {};
                 resetBtn();
-                document.getElementById('resultTabs').style.display = 'flex';
                 // 重新渲染多卡片视图（被清除的段此时显示"未生成"）
-                document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, currentPublicState);
+                setResultOutput('prompt_compiler', renderCompiledSegments(agentOutputs, currentPublicState));
                 document.getElementById('pipelineMsg').textContent = data.message || `片段 ${segmentIndex} 已清除`;
                 renderWaitingInputBox(currentPublicState);
             } catch (e) {
@@ -1924,9 +2404,17 @@
             resetSteps();
             agentOutputs = {};
             currentPublicState = {};
-            document.getElementById('resultTabs').style.display = 'none';
+            hideResultWorkbench();
             document.getElementById('resultOutput').innerHTML = '<div class="placeholder-text">Agent 团队已启动，请耐心等待...</div>';
             updateAgentStatus('running', 'Agent 工作中');
+
+            document.getElementById('pipelineMsg').textContent = '正在保存当前模型配置...';
+            const configSaved = await saveSystemConfig();
+            if (!configSaved) {
+                showError('模型配置保存失败，请检查中转站、API Key 和模型选择。');
+                resetBtn();
+                return;
+            }
 
             const formData = new FormData();
             formData.append('script', script);
@@ -1977,8 +2465,7 @@
                         pollingTimer = null;
                         agentOutputs = state.agent_outputs || {};
                         if (Object.keys(agentOutputs).length > 0 || state.result) {
-                            document.getElementById('resultTabs').style.display = 'flex';
-                            document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, state);
+                            setResultOutput('prompt_compiler', renderCompiledSegments(agentOutputs, state));
                         }
                         resetStepBadges();
                         msgEl.textContent = state.message || '当前没有运行中的任务';
@@ -2036,8 +2523,7 @@
                         pollingTimer = null;
 
                         agentOutputs = state.agent_outputs || {};
-                        document.getElementById('resultTabs').style.display = 'flex';
-                        document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, state);
+                        setResultOutput('prompt_compiler', renderCompiledSegments(agentOutputs, state));
                         renderWaitingInputBox(state);
                     }
                 } catch (e) {
@@ -2068,8 +2554,7 @@
                 current_segment_index: segmentIndex,
                 message: `正在生成片段 ${segmentIndex}`
             };
-            document.getElementById('resultTabs').style.display = 'flex';
-            document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, currentPublicState);
+            setResultOutput('prompt_compiler', renderCompiledSegments(agentOutputs, currentPublicState));
             document.getElementById('interactiveBox').innerHTML = '';
             document.getElementById('pipelineMsg').textContent = `已提交上一段视频，正在生成片段 ${segmentIndex}`;
             updateAgentStatus('running', `生成片段 ${segmentIndex}`);
@@ -2294,8 +2779,7 @@
             const hasTailAnalysis = Boolean(state.tail_frame_analysis);
             const qcRetry = Number(state.qc_retry_count || 0);
             if (isPhase2 || compiledSegmentEntries(state.agent_outputs || {}).length > 0) {
-                document.getElementById('resultTabs').style.display = 'flex';
-                document.getElementById('resultOutput').innerHTML = `
+                setResultOutput('prompt_compiler', `
                     <div class="segment-running-note">
                         <strong>${escapeHtml(title)}</strong>
                         <span>${escapeHtml(detail)}</span>
@@ -2303,8 +2787,9 @@
                         ${qcRetry > 0 ? `<span>机械质检已触发第 ${qcRetry} 次自动返修，请稍等。</span>` : ''}
                     </div>
                     ${renderCompiledSegments(state.agent_outputs || agentOutputs, state)}
-                `;
+                `);
             } else {
+                hideResultWorkbench();
                 document.getElementById('resultOutput').innerHTML = `
                     <div class="placeholder-text">
                     <strong>${escapeHtml(title)}</strong><br><br>
@@ -2336,6 +2821,7 @@
             } catch (e) { }
             if (pollingTimer) { clearInterval(pollingTimer); pollingTimer = null; }
             document.getElementById('pipelineMsg').textContent = '任务已中断';
+            hideResultWorkbench();
             document.getElementById('resultOutput').innerHTML = '<div class="placeholder-text">任务已被手动中断</div>';
             updateAgentStatus('idle', 'Agent 就绪');
             resetBtn();
@@ -2364,9 +2850,8 @@
                 agentOutputs = (data.state && data.state.agent_outputs) || {};
                 currentPublicState = data.state || {};
                 resetBtn();
-                document.getElementById('resultTabs').style.display = 'flex';
                 // 多卡片视图：被清除的那段会变成"未生成"，更早的段仍然可见
-                document.getElementById('resultOutput').innerHTML = renderCompiledSegments(agentOutputs, currentPublicState);
+                setResultOutput('prompt_compiler', renderCompiledSegments(agentOutputs, currentPublicState));
                 document.getElementById('pipelineMsg').textContent = data.message || '上一段已清除';
                 updateAgentStatus('idle', 'Agent 就绪');
                 startPolling();
@@ -2399,6 +2884,7 @@
         function renderVectorDbStatus(data) {
             const btn = document.getElementById('btnBuildDB');
             const status = document.getElementById('dbStatus');
+            if (data.knowledge_index) renderKnowledgeIndexStatus(data.knowledge_index);
             const state = data.status || (data.success ? 'done' : 'error');
             if (state === 'running') {
                 status.textContent = data.message || '向量知识库正在后台构建...';
@@ -2666,60 +3152,46 @@
         function showBestAvailableResult(state = {}) {
             agentOutputs = state.agent_outputs || {};
             currentPublicState = state;
-            document.getElementById('resultTabs').style.display = 'flex';
 
             const fallbackCandidates = [
-                ['scene_analyst', agentOutputs.scene_analyst],
+                ['scene_analyst', agentOutputs.scene_analyst || hasSceneReferenceCards(agentOutputs)],
                 ['director_showrunner', agentOutputs.director_showrunner],
                 ['rhythm_rewrite_director', agentOutputs.rhythm_rewrite_director],
                 ['story_planner', agentOutputs.story_planner],
                 ['shot_director', latestShotDirectorOutput(agentOutputs)],
-                ['storyboard_designer', agentOutputs.storyboard_designer],
+                ['storyboard_designer', hasStoryboardOutput(agentOutputs)],
                 ['prompt_compiler', compiledSegmentEntries(agentOutputs).length > 0 || agentOutputs.prompt_compiler || state.result],
-                ['quality_inspector', agentOutputs.quality_inspector],
+                ['quality_inspector', agentOutputs.quality_inspector || Object.keys(agentOutputs).some(key => /^quality_inspector_segment_\d+$/.test(key))],
             ];
             const availableEntry = fallbackCandidates.find(([, text]) => Boolean(text));
             if (availableEntry) {
                 const [availableAgent, text] = availableEntry;
-                selectResultTab(availableAgent);
-                document.getElementById('resultOutput').innerHTML = availableAgent === 'prompt_compiler'
+                const html = availableAgent === 'prompt_compiler'
                     ? renderCompiledSegments(agentOutputs, state)
                     : availableAgent === 'scene_analyst'
                         ? renderSceneAnalystOutput(agentOutputs)
-                        : renderReadableAgentOutput(availableAgent, text);
+                        : availableAgent === 'storyboard_designer'
+                            ? renderStoryboardImages(agentOutputs)
+                            : renderReadableAgentOutput(availableAgent, currentAgentOutputText(availableAgent) || text);
+                setResultOutput(availableAgent, html);
                 return;
             }
 
-            selectResultTab('scene_analyst');
-            document.getElementById('resultOutput').innerHTML =
-                '<div class="placeholder-text">暂无可展示输出。</div>';
+            setResultOutput('scene_analyst', '<div class="placeholder-text">暂无可展示输出。</div>');
         }
 
         function renderSceneAnalystOutput(outputs = {}) {
             const text = outputs.scene_analyst || '';
-            let sceneCards = [];
-            if (outputs.scene_card_images) {
-                try {
-                    const parsed = typeof outputs.scene_card_images === 'string'
-                        ? JSON.parse(outputs.scene_card_images)
-                        : outputs.scene_card_images;
-                    if (Array.isArray(parsed)) sceneCards = parsed;
-                } catch (e) {
-                    sceneCards = [];
-                }
-            }
-            if (sceneCards.length === 0 && (outputs.scene_card_image || outputs.scene_layout_image || outputs.scene_grid_image)) {
-                sceneCards = [{
-                    scene_number: '1',
-                    scene_title: '场景参考图',
-                    image_path: outputs.scene_card_image,
-                    layout_path: outputs.scene_layout_image,
-                    grid_path: outputs.scene_grid_image || outputs.scene_card_image,
-                    layout_prompt: outputs.scene_layout_prompt || '',
-                    grid_prompt: outputs.scene_grid_prompt || outputs.scene_card_prompt || '',
-                    prompt: outputs.scene_card_prompt || '',
-                }];
-            }
+            const sceneCards = sceneReferenceCards(outputs);
+            const sceneActionHtml = sceneCards.length
+                ? `<div class="scene-card-flow-actions">
+                       <div>
+                           <strong>俯视图与九宫格已保存到当前任务</strong>
+                           <span>这些图会作为后续镜头、分镜和首帧生成的空间参考。</span>
+                       </div>
+                       <button class="btn-secondary" type="button" onclick="continueCurrentAgentOutput('scene_analyst')">保存场景图并继续</button>
+                   </div>`
+                : '';
 
             const renderSceneReferenceImage = (imagePath, title, promptText, sceneNumber, cacheKey, actionHtml = '', enableAnnotation = false) => {
                 if (!imagePath) return '';
@@ -2813,13 +3285,21 @@
                         rerunButton,
                     ));
                 }
-                return parts.join('');
+                return `
+                    <section class="scene-reference-set">
+                        <div class="scene-reference-set-title">
+                            <strong>${escapeHtml(title)}</strong>
+                            <span>俯视布局和九宫格机位一组查看，方便核对空间关系。</span>
+                        </div>
+                        <div class="scene-reference-grid">${parts.join('')}</div>
+                    </section>
+                `;
             }).join('');
             const textHtml = text
                 ? renderReadableAgentOutput('scene_analyst', text)
                 : '<div class="placeholder-text">场景预分析文字尚未生成；如果图片也为空，请等待流水线完成或重跑场景参考图。</div>';
             setTimeout(refreshSceneLayoutAnnotations, 0);
-            return imageHtml + textHtml;
+            return sceneActionHtml + imageHtml + textHtml;
         }
 
         async function regenerateSceneCard(sceneNumber, triggerButton = null) {
@@ -2841,7 +3321,10 @@
                 }
                 agentOutputs = (data.state && data.state.agent_outputs) || agentOutputs || {};
                 currentPublicState = data.state || currentPublicState || {};
-                document.getElementById('resultOutput').innerHTML = renderSceneAnalystOutput(agentOutputs);
+                setResultOutput('scene_analyst', renderSceneAnalystOutput(agentOutputs), {
+                    notice: data.message || `场景${sceneNumber}参考图已重跑`,
+                    noticeType: 'success',
+                });
                 document.getElementById('pipelineMsg').textContent = data.message || `场景${sceneNumber}参考图已重跑`;
             } catch (e) {
                 showError('重跑场景参考图失败: ' + e.message);
@@ -2908,6 +3391,27 @@
             }).join('');
         }
 
+        async function generateStoryboard(segmentIndex) {
+            const formData = new FormData();
+            formData.append('session_id', getSessionId());
+            formData.append('segment_index', String(segmentIndex || currentSegmentIndex()));
+            document.getElementById('pipelineMsg').textContent = `正在重跑片段 ${segmentIndex || currentSegmentIndex()} 分镜流程图...`;
+            updateAgentStatus('running', '分镜重跑中');
+            try {
+                const resp = await fetch('/api/generate_storyboard', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    showError(data.error || '分镜流程图生成失败');
+                    updateAgentStatus('error', '分镜重跑失败');
+                    return;
+                }
+                startPolling();
+            } catch (e) {
+                showError('分镜流程图生成请求失败: ' + e.message);
+                updateAgentStatus('error', '分镜重跑失败');
+            }
+        }
+
         async function generateStoryboardImage(segmentIndex) {
             const formData = new FormData();
             formData.append('session_id', getSessionId());
@@ -2941,20 +3445,20 @@
             document.querySelectorAll('.result-tab').forEach(t => t.classList.remove('active'));
             btn.classList.add('active');
             const agent = btn.dataset.agent;
-            const output = document.getElementById('resultOutput');
+            let html = '';
 
             if (agent === 'prompt_compiler') {
-                output.innerHTML = renderCompiledSegments(agentOutputs, currentPublicState);
+                setResultOutput(agent, renderCompiledSegments(agentOutputs, currentPublicState));
                 return;
             }
 
             if (agent === 'storyboard_designer') {
-                output.innerHTML = renderStoryboardImages(agentOutputs);
+                setResultOutput(agent, renderStoryboardImages(agentOutputs));
                 return;
             }
 
             if (agent === 'scene_analyst') {
-                output.innerHTML = renderSceneAnalystOutput(agentOutputs);
+                setResultOutput(agent, renderSceneAnalystOutput(agentOutputs));
                 return;
             }
 
@@ -2962,25 +3466,16 @@
                 ? latestShotDirectorOutput(agentOutputs)
                 : (agentOutputs[agent] || '');
             if (text) {
-                output.innerHTML = renderReadableAgentOutput(agent, text);
+                html = renderReadableAgentOutput(agent, text);
             } else {
-                output.innerHTML = '<div class="placeholder-text">该 Agent 暂无输出</div>';
+                html = '<div class="placeholder-text">该 Agent 暂无输出</div>';
             }
+            setResultOutput(agent, html);
         }
 
         function copyCurrentTab() {
-            const activeTab = document.querySelector('.result-tab.active');
-            if (!activeTab) return;
-            const agent = activeTab.dataset.agent;
-            let text = '';
-            if (agent === 'prompt_compiler') {
-                const entries = compiledSegmentEntries(agentOutputs);
-                text = entries.map(e => e.text).join('\n\n');
-            } else if (agent === 'shot_director') {
-                text = latestShotDirectorOutput(agentOutputs);
-            } else {
-                text = agentOutputs[agent] || '';
-            }
+            const agent = activeResultAgent();
+            const text = currentAgentOutputText(agent);
             if (!text) {
                 alert('当前标签页没有内容可复制');
                 return;

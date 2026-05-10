@@ -282,6 +282,128 @@ def test_scene_analyst_uses_text_agent_without_reference_images(monkeypatch):
     assert captured["images_base64"] is None
 
 
+def test_scene_analyst_falls_back_to_text_agent_when_vision_fails(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
+        calls.append(
+            {
+                "agent_name": kwargs.get("agent_name"),
+                "images_base64": kwargs.get("images_base64"),
+                "user_prompt": user_prompt,
+            }
+        )
+        if kwargs.get("agent_name") == "scene_vision_analyst":
+            raise RuntimeError("vision gateway disconnected")
+        return "scene_info: text fallback scene card"
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+    monkeypatch.setattr(
+        pci,
+        "_generate_scene_card_with_overhead",
+        lambda overhead_prompt, card_prompt, scene_image, session_id, scene_number: (
+            "data:image/png;base64,iVBORw0KGgo=",
+            rf"D:\tmp\scene_layout_{scene_number:02d}.png",
+        ),
+    )
+    monkeypatch.setattr(pci, "_save_scene_card_image", lambda data, session_id, scene_number=1: rf"D:\tmp\scene_grid_{scene_number:02d}.png")
+    monkeypatch.setattr(
+        pci,
+        "_append_scene_card_references",
+        lambda state, scene_cards: (
+            list(state.get("reference_image_b64s") or []) + ["data:image/png;base64,iVBORw0KGgo=" for _ in scene_cards],
+            list(state.get("reference_image_manifest") or []) + [{"purpose": "scene_card", "type": "scene_card"} for _ in scene_cards],
+        ),
+    )
+
+    state = {
+        "script": "test script",
+        "aspect_ratio": "9:16",
+        "reference_image_b64s": ["image-a"],
+        "reference_image_manifest": [{"label": "scene", "purpose": "scene space"}],
+        "reference_images": "",
+        "agent_outputs": {},
+        "knowledge_metadata": {},
+        "speed_mode": False,
+    }
+
+    result = pci.scene_analyst_node(state)
+
+    assert [call["agent_name"] for call in calls] == ["scene_vision_analyst", "scene_analyst"]
+    assert calls[0]["images_base64"] == ["image-a"]
+    assert calls[1]["images_base64"] is None
+    assert "参考图网关连接失败" in str(calls[1]["user_prompt"])
+    assert "text fallback scene card" in result["agent_outputs"]["scene_analyst"]
+
+
+def test_scene_analyst_uses_local_scene_card_when_vision_and_text_fail(monkeypatch):
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
+        calls.append(str(kwargs.get("agent_name")))
+        raise RuntimeError("gateway disconnected")
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+    monkeypatch.setattr(
+        pci,
+        "_generate_scene_card_with_overhead",
+        lambda overhead_prompt, card_prompt, scene_image, session_id, scene_number: (
+            "data:image/png;base64,iVBORw0KGgo=",
+            rf"D:\tmp\scene_layout_{scene_number:02d}.png",
+        ),
+    )
+    monkeypatch.setattr(pci, "_save_scene_card_image", lambda data, session_id, scene_number=1: rf"D:\tmp\scene_grid_{scene_number:02d}.png")
+    monkeypatch.setattr(
+        pci,
+        "_append_scene_card_references",
+        lambda state, scene_cards: (
+            list(state.get("reference_image_b64s") or []) + ["data:image/png;base64,iVBORw0KGgo=" for _ in scene_cards],
+            list(state.get("reference_image_manifest") or []) + [{"purpose": "scene_card", "type": "scene_card"} for _ in scene_cards],
+        ),
+    )
+
+    state = {
+        "script": "test script",
+        "aspect_ratio": "9:16",
+        "reference_image_b64s": ["image-a"],
+        "reference_image_manifest": [{"label": "scene", "purpose": "scene space"}],
+        "reference_images": "",
+        "agent_outputs": {},
+        "knowledge_metadata": {},
+        "speed_mode": False,
+    }
+
+    result = pci.scene_analyst_node(state)
+
+    assert calls == ["scene_vision_analyst", "scene_analyst"]
+    assert "degraded_local_scene_card" in result["agent_outputs"]["scene_analyst"]
+    assert "Do not invent visual details" in result["scene_context_brief"]
+
+
 def test_director_showrunner_obeys_scene_standing_constraints(monkeypatch):
     captured: dict[str, object] = {}
 

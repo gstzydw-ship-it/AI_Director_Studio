@@ -3,11 +3,13 @@ rule_id: TIMELINE-EXECUTION-ONLY-001
 title: 时间轴纯净执行规则
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: timeline_purity_validation
 runtime_retrieval: true
 retrieval_key:
 - timeline-execution-only-001
@@ -22,7 +24,13 @@ retrieval_key:
 - scene_types.action
 - scene_types.intimacy_privacy
 applies_when: 编写 Prompt 时间轴段落时
-avoid_when: ''
+avoid_when:
+- "编写约束区、说明区或非时间轴元信息时。"
+failure_mode:
+- "时间轴混入规则复读、禁忌强调或幕后解释，污染可执行画面指令。"
+output_contract: "时间轴只写画面内可见动作、运镜、调度、表情变化和对白声音。"
+example_good: "乔熙半身中景，她听到声音后抬头，视线对上商北琛。"
+example_bad: "这体现了她紧张退无可退的心理。无字幕无屏幕文字。"
 signals:
 - dialogue_coverage
 - action_coverage

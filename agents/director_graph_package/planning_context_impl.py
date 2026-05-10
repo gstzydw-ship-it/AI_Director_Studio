@@ -967,12 +967,35 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         output = call_llm(system_prompt, user_prompt, images_base64=ref_images, agent_name=agent_for_call)
     except Exception as exc:
         if ref_images:
-            raise
-        print(f"  [scene_analyst] primary text model failed, retrying via story_planner channel: {exc}")
-        # Keep text-only scene analysis away from the prompt_compiler channel.
-        # prompt_compiler may be configured for heavier final prompt models, which
-        # has caused Phase 1 to fail on upstream read timeouts before planning starts.
-        output = call_llm(system_prompt, user_prompt, images_base64=None, agent_name="story_planner", max_retries=1)
+            print(f"  [scene_analyst] vision model failed, retrying text-only scene analysis: {exc}")
+            fallback_prompt = (
+                f"{user_prompt}\n\n"
+                "【降级说明】参考图网关连接失败，本次不要编造图像细节；"
+                "只基于剧本文字和参考图清单中已有的名称、用途、顺序信息生成场景预分析。"
+            )
+            try:
+                output = call_llm(system_prompt, fallback_prompt, images_base64=None, agent_name="scene_analyst", max_retries=1)
+            except Exception as fallback_exc:
+                print(f"  [scene_analyst] text fallback failed, using local scene card: {fallback_exc}")
+                output = (
+                    "mode: degraded_local_scene_card\n"
+                    f"aspect_ratio: {state.get('aspect_ratio', '16:9')}\n"
+                    "source: original_script_and_reference_manifest_only\n"
+                    "scene_info: |\n"
+                    "  LLM vision gateway failed, so only script text and reference-image manifest were used.\n"
+                    "schedule_pending: 人物站位和运动轨迹由用户在俯视图上手动标注；场景预分析不推导。\n"
+                    "reference_manifest: |\n"
+                    f"{_reference_context(state) or '  none'}\n"
+                    "notes:\n"
+                    "  - Do not invent visual details from unavailable images.\n"
+                    "  - Downstream agents must keep to the original script and explicit reference-image labels only.\n"
+                )
+        else:
+            print(f"  [scene_analyst] primary text model failed, retrying via story_planner channel: {exc}")
+            # Keep text-only scene analysis away from the prompt_compiler channel.
+            # prompt_compiler may be configured for heavier final prompt models, which
+            # has caused Phase 1 to fail on upstream read timeouts before planning starts.
+            output = call_llm(system_prompt, user_prompt, images_base64=None, agent_name="story_planner", max_retries=1)
     scene_cards: list[dict[str, str]] = []
     updated_reference_images: list[str] | None = None
     updated_reference_manifest: list[dict[str, str]] | None = None

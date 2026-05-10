@@ -13,9 +13,7 @@ MODELS = [
     ("story_planner",           "gpt-5.5"),
     ("shot_director",           "gpt-5.4"),
     ("prompt_compiler",         "gpt-5.4"),
-    ("quality_inspector_llm_a",  "gpt-5.4"),
-    ("quality_inspector_llm_b",  "deepseek-r1"),
-    ("quality_inspector_llm_c",  "gemini-2.5-pro"),
+    ("quality_inspector",       "gpt-5.4"),
 ]
 
 headers = {

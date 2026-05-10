@@ -3,12 +3,14 @@ rule_id: RHYTHM-CONFLICT-SPEED-CURVE-001
 title: 冲突诊断与速度曲线调度
 doc_type: rule_card
 rule_type: conflict_diagnosis
+owner_agent: rhythm_rewrite_director
 agent_scope:
 - rhythm_rewrite_director
 - story_planner
 - shot_director
 priority: P0
 status: active
+pipeline_stage: rhythm_diagnosis
 runtime_retrieval: true
 retrieval_key:
 - conflict_diagnosis
@@ -24,8 +26,13 @@ applies_when:
 - 原文只有概括动作，需要转成可拍动作密度
 - 需要把快慢节奏传给 story_planner 和 shot_director
 avoid_when:
-- 用户明确要求逐字不做任何节奏增强
-- 增强方案会改变剧情事实且用户尚未确认
+- "用户要求不做节奏增强，或增强会改剧情事实。"
+failure_mode:
+- "只写快慢判断，不给速度曲线。"
+- "把 L1/L2 补强当成原文事实。"
+output_contract: "输出冲突诊断、速度曲线、增强分级和下游交接。"
+example_good: "标明起速点、刹车点、再启动点和钩子落点。"
+example_bad: "简单写节奏偏平，需要更紧张。"
 signals:
 - time_pressure
 - action_density

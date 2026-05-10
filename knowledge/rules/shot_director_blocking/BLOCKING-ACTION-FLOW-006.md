@@ -3,11 +3,13 @@ rule_id: BLOCKING-ACTION-FLOW-006
 title: 动作导演必须交付动作流程表与事件覆盖表
 doc_type: rule_card
 rule_type: blocking_flow_contract
+owner_agent: shot_director_blocking
 agent_scope:
 - shot_director_blocking
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: blocking
 runtime_retrieval: true
 retrieval_key:
 - blocking-action-flow-006
@@ -22,7 +24,14 @@ applies_when:
 - blocking_plan
 - state_chain
 - event_coverage
-avoid_when: []
+avoid_when:
+- "当前仍在 layout 阶段，只允许搭 main_shots 骨架"
+- "当前是 guard 阶段，只做最小修复而非补完整动作调度"
+failure_mode:
+- "blocking 只补零散字段，缺 blocking_plan、state_chain、event_coverage。"
+output_contract: "每个 fragment 补 blocking_plan、state_chain；每个 source_script_event 落到 event_coverage。"
+example_good: "blocking_plan 写清谁先动、谁承接、何时复位；event_coverage 挂到 S01 或 S01-a。"
+example_bad: "动作已覆盖；人物情绪推进自然；子镜头更有电影感。"
 signals:
 - tailframe_lock
 - action_coverage

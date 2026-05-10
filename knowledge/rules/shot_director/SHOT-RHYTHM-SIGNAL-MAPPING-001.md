@@ -3,12 +3,14 @@ rule_id: SHOT-RHYTHM-SIGNAL-MAPPING-001
 title: 戏剧微粒到镜头语言映射
 doc_type: rule_card
 rule_type: shot_calling
+owner_agent: shot_director
 agent_scope:
 - shot_director
 - quality_inspector
 - prompt_compiler
 priority: P0
 status: active
+pipeline_stage: rhythm_to_shot_mapping
 runtime_retrieval: true
 retrieval_key:
 - shot-rhythm-signal-mapping-001
@@ -29,7 +31,14 @@ applies_when:
 - rhythm_function
 - shot_language_reason
 - reaction_plan
-avoid_when: []
+avoid_when:
+- "rhythm_function_missing"
+- "template_request_without_script_basis"
+failure_mode:
+- "template_shot_language_without_dramatic_microbeat"
+output_contract: "Map rhythm_function to shot count, coverage, cut point, reaction_plan, and pause_plan with script_basis."
+example_good: "power_reversal 后给失势方受击反应，并说明 rhythm_basis。"
+example_bad: "所有高能段都套机械正反打。"
 signals:
 - vertical_framing
 - dialogue_coverage

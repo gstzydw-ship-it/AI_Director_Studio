@@ -31,7 +31,7 @@ risks:
 - romanticize_collision
 reusable_pattern: CASE_拍摄剪辑_切出镜头_访谈对话与情感片段技巧_副本
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-拍摄剪辑_切出镜头_访谈对话与情感片段技巧_副本
 title: 视频拆片案例：拍摄剪辑_切出镜头_访谈对话与情感片段技巧_副本
@@ -41,7 +41,8 @@ agent_scope:
 - shot_director_layout
 - shot_director_blocking
 priority: reference
-status: active
+status: superseded
+canonicalized_into: CASE_拍摄剪辑_切出镜头_访谈对话与情感片段技巧.md
 source_video: 拍摄剪辑_切出镜头_访谈对话与情感片段技巧_副本.mp4
 extraction_date: '2026-04-24'
 extraction_model: gemini-3.1-pro-preview-thinking-high

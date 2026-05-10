@@ -9,6 +9,7 @@ import os
 import re
 import json
 import warnings
+from datetime import datetime
 import numpy as np
 import yaml
 from openai import OpenAI
@@ -61,10 +62,11 @@ def _load_session_model_profile() -> dict[str, Any]:
 
 
 def _get_embed_client() -> OpenAI:
-    """获取 OpenAI 兼容 Embedding 客户端，按 key/base_url 隔离缓存。
+    """Return cached OpenAI-compatible embedding client.
 
-    尊重 vectordb.base_url 覆盖——若用户想把 embedding 走另一个中转站（例如阿里百炼或直连
-    Moonshot），只要在 settings.local.yaml 里写清 base_url 就可生效。
+    Runtime embedding settings come from the model profile snapshot first,
+    then config/settings.yaml; the frontend-saved config is the single source
+    of truth.
     """
     config = load_config() or {}
     vdb_config = config.get("vectordb") or {}
@@ -174,6 +176,17 @@ PROFILE_FIELDS = (
     "reusable_pattern",
 )
 
+STANDARD_RULE_METADATA_FIELDS = (
+    "owner_agent",
+    "pipeline_stage",
+    "applies_when",
+    "avoid_when",
+    "failure_mode",
+    "output_contract",
+    "example_good",
+    "example_bad",
+)
+
 
 def _normalise_frontmatter_list(value: Any) -> list[str]:
     if value is None:
@@ -241,9 +254,13 @@ def _metadata_signal_text(metadata: dict[str, Any]) -> str:
         "rule_type",
         "priority",
         "status",
+        "owner_agent",
+        "pipeline_stage",
         "applies_to",
         "applies_when",
         "avoid_when",
+        "failure_mode",
+        "output_contract",
         "retrieval_key",
         "signals",
         "scene_types",
@@ -334,6 +351,7 @@ def _runtime_retrieval_enabled(content: str) -> bool:
 
 
 RULE_REGISTRY_FILENAME = "rule_registry.yaml"
+AGENT_RETRIEVAL_CONTRACTS_FILENAME = "agent_retrieval_contracts.yaml"
 GLOBAL_RULE_PRIORITIES = {"P0", "P1"}
 SOURCE_PREFERENCE_BM25_BOOST = 0.2
 SOURCE_PREFERENCE_VECTOR_BOOST = 0.06
@@ -341,6 +359,7 @@ SOURCE_PREFERENCE_RRF_BOOST = 0.01
 PROFILED_METADATA_BOOST = 0.35
 PROFILED_AVOID_PENALTY = 0.7
 _rule_registry_cache: dict | None = None
+_retrieval_contracts_cache: dict | None = None
 _source_runtime_retrieval_cache: dict[str, bool] = {}
 
 
@@ -368,11 +387,147 @@ def load_rule_registry() -> dict:
 
 # ---------- Agent → 知识文件映射 ----------
 
+def load_agent_retrieval_contracts() -> dict:
+    """Load bootstrap retrieval contracts without adding them to RAG content."""
+    global _retrieval_contracts_cache
+    if _retrieval_contracts_cache is not None:
+        return _retrieval_contracts_cache
+
+    contracts_path = os.path.join(get_knowledge_dir(), AGENT_RETRIEVAL_CONTRACTS_FILENAME)
+    if not os.path.exists(contracts_path):
+        _retrieval_contracts_cache = {}
+        return _retrieval_contracts_cache
+
+    try:
+        with open(contracts_path, "r", encoding="utf-8") as f:
+            contracts = yaml.safe_load(f) or {}
+    except (yaml.YAMLError, OSError) as exc:
+        print(f"  [Registry] WARN: 检索契约加载失败 ({contracts_path}): {exc}")
+        contracts = {}
+
+    _retrieval_contracts_cache = contracts if isinstance(contracts, dict) else {}
+    return _retrieval_contracts_cache
+
+
+def _contract_field_values(section: dict[str, Any], field: str) -> list[str]:
+    value = section.get(field)
+    if isinstance(value, dict):
+        values: list[str] = []
+        for key in ("primary", "secondary", "prefer", "match", "boost"):
+            values.extend(_normalise_frontmatter_list(value.get(key)))
+        return values
+    return _normalise_frontmatter_list(value)
+
+
+def build_agent_bootstrap_retrieval_profile(agent_name: str) -> dict[str, Any]:
+    contracts = load_agent_retrieval_contracts()
+    agents = contracts.get("agents") if isinstance(contracts, dict) else {}
+    agent_contract = agents.get(agent_name) if isinstance(agents, dict) else {}
+    if not isinstance(agent_contract, dict):
+        agent_contract = {}
+
+    profile: dict[str, Any] = {}
+    global_strategy = contracts.get("global_matching_strategy", {}) if isinstance(contracts, dict) else {}
+    if isinstance(global_strategy, dict):
+        exclude_status = _normalise_frontmatter_list(global_strategy.get("exclude_status"))
+        if exclude_status:
+            profile["exclude_status"] = exclude_status
+        case_limits = global_strategy.get("case_card_limits")
+        if isinstance(case_limits, dict):
+            profile["case_card_limits"] = dict(case_limits)
+
+    served_agents = _contract_field_values(agent_contract, "agent_scope")
+    if served_agents:
+        profile["served_agents"] = served_agents
+
+    for field in ("scene_types", "events", "risks", "dialogue_types", "aspect_ratios", "signals"):
+        values = _contract_field_values(agent_contract, field)
+        if values:
+            profile[field] = values
+
+    tags: list[str] = []
+    tags.extend(_contract_field_values(agent_contract, "rule_type"))
+    priority_policy = agent_contract.get("priority_policy")
+    if isinstance(priority_policy, dict):
+        tags.extend(_normalise_frontmatter_list(priority_policy.get("prefer")))
+    if tags:
+        profile["tags"] = tags
+
+    if profile:
+        profile["retrieval_key"] = [agent_name, "agent_retrieval_contracts"]
+    return profile
+
+
 COMMON_KNOWLEDGE_FILES = [
     "00_知识库优先级与冲突裁决规则.md",
     # rule_registry.yaml 不再全量注入（29K chars / ~7400 tokens），
     # 改由 get_smart_knowledge() → query_rule_registry() 按需检索。
 ]
+
+AGENT_WIKI_CONTEXT_MAP = {
+    "director_showrunner": [
+        "wiki/agents/director_showrunner.md",
+        "wiki/playbooks/argument_scene.md",
+        "wiki/playbooks/misunderstanding_reversal.md",
+    ],
+    "rhythm_rewrite_director": [
+        "wiki/agents/rhythm_rewrite_director.md",
+        "wiki/playbooks/argument_scene.md",
+        "wiki/playbooks/misunderstanding_reversal.md",
+    ],
+    "scene_analyst": [
+        "wiki/agents/scene_analyst.md",
+        "wiki/contracts/continuity_contract.md",
+        "wiki/failure_modes/scene_space_unclear.md",
+    ],
+    "story_planner": [
+        "wiki/agents/story_planner.md",
+        "wiki/contracts/story_to_shot_contract.md",
+        "wiki/contracts/continuity_contract.md",
+    ],
+    "shot_director": [
+        "wiki/agents/shot_director.md",
+        "wiki/contracts/story_to_shot_contract.md",
+        "wiki/contracts/shot_to_prompt_contract.md",
+        "wiki/contracts/continuity_contract.md",
+    ],
+    "shot_director_layout": [
+        "wiki/agents/shot_director_layout.md",
+        "wiki/contracts/story_to_shot_contract.md",
+        "wiki/failure_modes/scene_space_unclear.md",
+    ],
+    "shot_director_blocking": [
+        "wiki/agents/shot_director_blocking.md",
+        "wiki/contracts/shot_to_prompt_contract.md",
+        "wiki/contracts/continuity_contract.md",
+        "wiki/failure_modes/action_discontinuity.md",
+    ],
+    "shot_director_guard": [
+        "wiki/agents/shot_director_guard.md",
+        "wiki/contracts/continuity_contract.md",
+        "wiki/failure_modes/action_discontinuity.md",
+        "wiki/failure_modes/scene_space_unclear.md",
+    ],
+    "prompt_compiler": [
+        "wiki/agents/prompt_compiler.md",
+        "wiki/contracts/shot_to_prompt_contract.md",
+        "wiki/contracts/prompt_to_quality_contract.md",
+        "wiki/failure_modes/prompt_too_abstract.md",
+    ],
+    "quality_inspector": [
+        "wiki/agents/quality_inspector.md",
+        "wiki/contracts/prompt_to_quality_contract.md",
+        "wiki/contracts/continuity_contract.md",
+        "wiki/failure_modes/hard_fail_quality.md",
+    ],
+    "storyboard_designer": [
+        "wiki/agents/storyboard_designer.md",
+        "wiki/playbooks/nine_panel_storyboard.md",
+        "wiki/failure_modes/storyboard_inconsistent.md",
+        "wiki/contracts/continuity_contract.md",
+    ],
+}
+
 
 AGENT_KNOWLEDGE_MAP = {
     "rhythm_rewrite_director": [
@@ -677,22 +832,137 @@ def load_knowledge_documents(agent_name: str, filenames: list[str] | None = None
     return docs
 
 
+def get_agent_wiki_files(agent_name: str) -> list[str]:
+    files = list(AGENT_WIKI_CONTEXT_MAP.get(agent_name, []))
+    default_handbook = f"wiki/agents/{agent_name}.md"
+    if default_handbook not in files:
+        files.insert(0, default_handbook)
+
+    knowledge_dir = get_knowledge_dir()
+    runtime_files: list[str] = []
+    seen: set[str] = set()
+    for relpath in files:
+        if relpath in seen:
+            continue
+        seen.add(relpath)
+        filepath = os.path.join(knowledge_dir, relpath)
+        try:
+            with open(filepath, "r", encoding="utf-8") as f:
+                content = f.read()
+        except OSError:
+            continue
+        if _runtime_retrieval_enabled(content):
+            runtime_files.append(relpath)
+    return runtime_files
+
+
+def get_agent_wiki_context(agent_name: str) -> tuple[str, list[str]]:
+    docs = load_knowledge_documents(agent_name, get_agent_wiki_files(agent_name))
+    if not docs:
+        return "", []
+    parts = [f"--- {doc['filename']} (agent_wiki_context) ---\n{doc['content']}" for doc in docs]
+    return "\n\n".join(parts), [doc["filename"] for doc in docs]
+
+
 # ---------- 向量库（纯 Python 实现） ----------
 
 # 向量库文件路径
-def _vectordb_path() -> str:
+def _vectordb_dir() -> str:
     config = load_config() or {}
     vdb_config = config.get("vectordb") or {}
+    persist_dir = vdb_config.get("persist_directory") or "vectordb/chroma_data"
+    if os.path.isabs(str(persist_dir)):
+        return os.path.normpath(str(persist_dir))
+    return os.path.normpath(os.path.join(get_cache_dir(), str(persist_dir)))
+
+
+def _vectordb_path() -> str:
+    return os.path.join(_vectordb_dir(), "vectordb.json")
     # 设置默认 persist_directory，防止配置缺失时 KeyError
-    persist_dir = vdb_config.get("persist_directory") or "./vectordb/chroma_data"
-    return os.path.join(
-        get_cache_dir(),
-        persist_dir,
-        "vectordb.json"
-    )
 
 
 # 全局缓存
+def _legacy_vectordb_path(knowledge_dir: str | None = None) -> str:
+    project_root = os.path.dirname(os.path.abspath(knowledge_dir or get_knowledge_dir()))
+    return os.path.join(project_root, "vectordb", "chroma_data", "vectordb.json")
+
+
+def _format_mtime(timestamp: float | None) -> str:
+    if timestamp is None:
+        return ""
+    return datetime.fromtimestamp(timestamp).isoformat(timespec="seconds")
+
+
+def _knowledge_source_state(knowledge_dir: str | None = None) -> dict:
+    latest_mtime = None
+    latest_file = ""
+    file_count = 0
+    files: list[dict[str, Any]] = []
+    for relpath, filepath in _iter_knowledge_files(knowledge_dir):
+        try:
+            mtime = os.path.getmtime(filepath)
+        except OSError:
+            continue
+        file_count += 1
+        files.append({"path": relpath, "mtime": mtime, "mtime_iso": _format_mtime(mtime)})
+        if latest_mtime is None or mtime > latest_mtime:
+            latest_mtime = mtime
+            latest_file = relpath
+    files.sort(key=lambda item: item["mtime"], reverse=True)
+    return {
+        "file_count": file_count,
+        "latest_mtime": latest_mtime,
+        "latest_mtime_iso": _format_mtime(latest_mtime),
+        "latest_file": latest_file,
+        "files": files,
+    }
+
+
+def knowledge_index_status(knowledge_dir: str | None = None) -> dict:
+    knowledge_root = os.path.abspath(knowledge_dir or get_knowledge_dir())
+    db_path = os.path.abspath(_vectordb_path())
+    source_state = _knowledge_source_state(knowledge_root)
+    db_exists = os.path.exists(db_path)
+    db_mtime = os.path.getmtime(db_path) if db_exists else None
+    newer_files = [
+        item for item in source_state["files"]
+        if db_mtime is None or item["mtime"] > db_mtime
+    ]
+    legacy_path = os.path.abspath(_legacy_vectordb_path(knowledge_root))
+    legacy_exists = os.path.exists(legacy_path) and os.path.normcase(legacy_path) != os.path.normcase(db_path)
+    legacy_mtime = os.path.getmtime(legacy_path) if legacy_exists else None
+    needs_rebuild = (not db_exists) or bool(newer_files)
+    if not db_exists:
+        status = "missing"
+        message = "未找到运行时向量库，需要先构建。"
+    elif newer_files:
+        status = "stale"
+        message = f"知识库有 {len(newer_files)} 个文件比运行时向量库新，需要重建。"
+    else:
+        status = "fresh"
+        message = "知识库索引是最新的。"
+    return {
+        "status": status,
+        "needs_rebuild": needs_rebuild,
+        "message": message,
+        "knowledge_dir": knowledge_root,
+        "knowledge_file_count": source_state["file_count"],
+        "knowledge_latest_file": source_state["latest_file"],
+        "knowledge_latest_mtime": source_state["latest_mtime_iso"],
+        "vectordb_path": db_path,
+        "vectordb_exists": db_exists,
+        "vectordb_mtime": _format_mtime(db_mtime),
+        "newer_file_count": len(newer_files),
+        "newer_files": newer_files[:10],
+        "legacy_vectordb": {
+            "path": legacy_path,
+            "exists": legacy_exists,
+            "mtime": _format_mtime(legacy_mtime),
+            "message": "根目录旧 vectordb 仍存在，仅作旧索引，不是当前运行路径。" if legacy_exists else "",
+        },
+    }
+
+
 _vectordb_cache: dict | None = None
 
 
@@ -840,6 +1110,8 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
             }
             for field in PROFILE_FIELDS:
                 chunk_metadata[field] = ", ".join(_normalise_frontmatter_list(metadata.get(field)))
+            for field in STANDARD_RULE_METADATA_FIELDS:
+                chunk_metadata[field] = ", ".join(_normalise_frontmatter_list(metadata.get(field)))
             all_documents.append(chunk["text"])
             all_metadatas.append(chunk_metadata)
 
@@ -853,12 +1125,18 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
 
     # 持久化到 JSON 文件（含维度/模型元数据，便于后续一致性检查）
     os.makedirs(persist_dir, exist_ok=True)
+    source_state = _knowledge_source_state(knowledge_dir)
     db_data = {
         "documents": all_documents,
         "metadatas": all_metadatas,
         "embeddings": [list(e) for e in all_embeddings],
         "embedding_model": embedding_model,
         "embedding_dim": len(all_embeddings[0]),
+        "built_at": datetime.now().isoformat(timespec="seconds"),
+        "knowledge_dir": os.path.abspath(knowledge_dir),
+        "knowledge_file_count": source_state["file_count"],
+        "knowledge_latest_file": source_state["latest_file"],
+        "knowledge_latest_mtime": source_state["latest_mtime_iso"],
     }
     with open(db_path, "w", encoding="utf-8") as f:
         json.dump(db_data, f, ensure_ascii=False)
@@ -1509,6 +1787,84 @@ def _profile_int(value: Any, default: int, minimum: int = 1) -> int:
     return parsed if parsed >= minimum else default
 
 
+def _merge_retrieval_profiles(base: dict[str, Any], override: dict[str, Any] | None) -> dict[str, Any]:
+    merged = dict(base or {})
+    for key, value in (override or {}).items():
+        if key == "case_card_limits" and isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = {**merged[key], **value}
+        elif key in PROFILE_FIELDS or key in {"exclude_status"}:
+            items = _normalise_frontmatter_list(merged.get(key))
+            items.extend(_normalise_frontmatter_list(value))
+            merged[key] = list(dict.fromkeys(items))
+        else:
+            merged[key] = value
+    return merged
+
+
+def _bootstrap_policy_profile(profile: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: value
+        for key, value in (profile or {}).items()
+        if key in {"exclude_status", "case_card_limits", "retrieval_key"}
+    }
+
+
+def _status_is_excluded(status: Any, excluded_statuses: Any) -> bool:
+    status_value = str(status or "").strip().lower()
+    if not status_value:
+        return False
+    excluded = {str(item).strip().lower() for item in _normalise_frontmatter_list(excluded_statuses)}
+    if status_value in excluded:
+        return True
+    return status_value == "draft" and any(item.startswith("draft") for item in excluded)
+
+
+def _filter_results_by_excluded_status(results: list[dict], excluded_statuses: Any) -> list[dict]:
+    if not excluded_statuses:
+        return results
+    filtered = []
+    for item in results:
+        metadata = item.get("metadata", {}) if isinstance(item.get("metadata"), dict) else {}
+        if _status_is_excluded(metadata.get("status"), excluded_statuses):
+            continue
+        filtered.append(item)
+    return filtered
+
+
+def _case_result_limit(final_top_k: int, profile_options: dict[str, Any]) -> int | None:
+    limits = profile_options.get("case_card_limits")
+    if not isinstance(limits, dict):
+        return None
+    share = limits.get("max_share_of_context")
+    try:
+        max_share = float(share)
+    except (TypeError, ValueError):
+        return None
+    if max_share < 0:
+        return None
+    return max(0, int(final_top_k * max_share))
+
+
+def _is_case_result(item: dict) -> bool:
+    metadata = item.get("metadata", {}) if isinstance(item.get("metadata"), dict) else {}
+    source = str(item.get("source", "")).replace("\\", "/")
+    return metadata.get("doc_type") == "case_card" or source.startswith("cases/") or "/cases/" in source
+
+
+def _limit_case_results(results: list[dict], max_cases: int | None) -> list[dict]:
+    if max_cases is None:
+        return results
+    case_count = 0
+    limited = []
+    for item in results:
+        if _is_case_result(item):
+            if case_count >= max_cases:
+                continue
+            case_count += 1
+        limited.append(item)
+    return limited
+
+
 def get_smart_knowledge(
     agent_name: str,
     context_hint: str = "",
@@ -1529,8 +1885,12 @@ def get_smart_knowledge(
     """
     config = load_config()
     kb_config = config.get("knowledge", {})
-    profile_options = retrieval_profile or {}
     mode = retrieval_mode or kb_config.get("retrieval_mode", "full")
+    bootstrap_profile = build_agent_bootstrap_retrieval_profile(agent_name)
+    if mode == "profiled" and not retrieval_profile:
+        profile_options = bootstrap_profile
+    else:
+        profile_options = _merge_retrieval_profiles(_bootstrap_policy_profile(bootstrap_profile), retrieval_profile)
     final_top_k = _profile_int(
         profile_options.get("final_top_k", profile_options.get("top_k")),
         kb_config.get("final_top_k", 8),
@@ -1547,13 +1907,16 @@ def get_smart_knowledge(
     )
     max_chunks_per_source = _profile_int(profile_options.get("max_chunks_per_source"), 0, minimum=0)
     profiled_mode = mode == "profiled"
-    query_hint = build_retrieval_profile_query(context_hint, retrieval_profile)
+    query_hint = build_retrieval_profile_query(context_hint, profile_options)
+    wiki_text, wiki_sources = get_agent_wiki_context(agent_name)
 
     # 全文模式直接返回
     if mode == "full" or (not query_hint.strip() and not profiled_mode):
         return get_full_knowledge_for_agent(agent_name), {
             "retrieval_mode": mode,
             "used_full_fallback": True,
+            "used_wiki_context": bool(wiki_sources),
+            "wiki_sources": wiki_sources,
             "matched_sources": get_agent_knowledge_files(agent_name),
             "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
             "result_count": 0,
@@ -1561,7 +1924,7 @@ def get_smart_knowledge(
             "registry_rule_ids": [],
             "registry_preferred_sources": [],
             "context_hint": context_hint,
-            "retrieval_profile": retrieval_profile or {},
+            "retrieval_profile": profile_options,
         }
 
     if registry_top_k > 0:
@@ -1612,6 +1975,8 @@ def get_smart_knowledge(
             return full_text, {
                 "retrieval_mode": mode,
                 "used_full_fallback": True,
+                "used_wiki_context": bool(wiki_sources),
+                "wiki_sources": wiki_sources,
                 "matched_sources": get_agent_knowledge_files(agent_name),
                 "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
                 "result_count": 0,
@@ -1620,7 +1985,7 @@ def get_smart_knowledge(
                 "registry_preferred_sources": registry_preferred_sources,
                 "context_hint": context_hint,
                 "query_hint": query_hint,
-                "retrieval_profile": retrieval_profile or {},
+                "retrieval_profile": profile_options,
             }
     except Exception as e:
         fallback_kind = "critical_only" if profiled_mode and allow_critical_fallback else "empty"
@@ -1636,6 +2001,8 @@ def get_smart_knowledge(
             "retrieval_mode": mode,
             "used_full_fallback": not profiled_mode,
             "used_critical_fallback": bool(profiled_mode and allow_critical_fallback),
+            "used_wiki_context": bool(wiki_sources),
+            "wiki_sources": wiki_sources,
             "matched_sources": get_agent_knowledge_files(agent_name),
             "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
             "result_count": 0,
@@ -1644,11 +2011,13 @@ def get_smart_knowledge(
             "registry_preferred_sources": registry_preferred_sources,
             "context_hint": context_hint,
             "query_hint": query_hint,
-            "retrieval_profile": retrieval_profile or {},
+            "retrieval_profile": profile_options,
             "error": str(e),
         }
 
     raw_result_count = len(results)
+    results = _filter_results_by_excluded_status(results, profile_options.get("exclude_status"))
+    results = _limit_case_results(results, _case_result_limit(final_top_k, profile_options))
     if max_chunks_per_source > 0:
         source_counts: dict[str, int] = {}
         filtered_results = []
@@ -1668,6 +2037,8 @@ def get_smart_knowledge(
         return full_text, {
             "retrieval_mode": mode,
             "used_full_fallback": True,
+            "used_wiki_context": bool(wiki_sources),
+            "wiki_sources": wiki_sources,
             "matched_sources": sorted({item.get("source", "") for item in results if item.get("source")}),
             "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
             "result_count": len(results),
@@ -1677,12 +2048,15 @@ def get_smart_knowledge(
             "registry_preferred_sources": registry_preferred_sources,
             "context_hint": context_hint,
             "query_hint": query_hint,
-            "retrieval_profile": retrieval_profile or {},
+            "retrieval_profile": profile_options,
         }
 
     # 拼接检索到的知识片段
     parts = []
     seen_sources = set()
+    if wiki_text:
+        parts.append(wiki_text)
+        seen_sources.update(wiki_sources)
     if registry_text:
         parts.append(registry_text)
         seen_sources.add(RULE_REGISTRY_FILENAME)
@@ -1702,6 +2076,8 @@ def get_smart_knowledge(
         "retrieval_mode": mode,
         "used_full_fallback": False,
         "used_critical_fallback": bool(profiled_mode and allow_critical_fallback and len(results) < min_fallback),
+        "used_wiki_context": bool(wiki_sources),
+        "wiki_sources": wiki_sources,
         "matched_sources": sorted(seen_sources),
         "critical_sources": get_agent_knowledge_files(agent_name, critical_only=True),
         "result_count": len(results),
@@ -1711,7 +2087,7 @@ def get_smart_knowledge(
         "registry_preferred_sources": registry_preferred_sources,
         "context_hint": context_hint,
         "query_hint": query_hint,
-        "retrieval_profile": retrieval_profile or {},
+        "retrieval_profile": profile_options,
     }
 
 

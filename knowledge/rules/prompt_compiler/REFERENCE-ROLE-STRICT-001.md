@@ -3,11 +3,13 @@ rule_id: REFERENCE-ROLE-STRICT-001
 title: 参考图职责边界必须严格
 doc_type: rule_card
 rule_type: reference_control
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: reference_role_validation
 runtime_retrieval: true
 retrieval_key:
 - reference-role-strict-001
@@ -23,7 +25,13 @@ applies_when:
 - 参考图
 - 人物身份
 - 场景空间
-avoid_when: []
+avoid_when:
+- "没有任何参考图进入 prompt。"
+failure_mode:
+- "人物参考图、场景参考图与尾帧图职责互相污染。"
+output_contract: "每张参考图进入 prompt 前必须绑定职责；当前无戏份人物不得被保留。"
+example_good: "人物参考图只用于身份、五官、发型、体态、服装和年龄气质。"
+example_bad: "用人物参考图背景覆盖当前场景，并把图中无戏份人物写入时间轴。"
 signals:
 - tailframe_lock
 - continuity_lock

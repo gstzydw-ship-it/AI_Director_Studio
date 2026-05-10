@@ -3,12 +3,14 @@ rule_id: SHOT-DIALOGUE-COVERAGE-001
 title: 对话戏基础覆盖
 doc_type: rule_card
 rule_type: shot_calling
+owner_agent: shot_director
 agent_scope:
 - shot_director
 - prompt_compiler
 - quality_inspector
 priority: P3
 status: active
+pipeline_stage: dialogue_coverage
 runtime_retrieval: true
 retrieval_key:
 - shot-dialogue-coverage-001
@@ -27,7 +29,14 @@ applies_when:
 - 双人对话
 - OTS
 - 正反切
-avoid_when: []
+avoid_when:
+- "no_two_person_dialogue"
+- "high_impact_conflict_requires_conflict_rule"
+failure_mode:
+- "static_talking_heads_without_listener_reaction"
+output_contract: "Use relationship shot, OTS or reverse coverage, and listener reaction when information lands."
+example_good: "双人中景建立关系，正反切承接对白，信息点给听者反应。"
+example_bad: "整段解释型对白只拍说话者站桩。"
 signals:
 - vertical_framing
 - dialogue_coverage

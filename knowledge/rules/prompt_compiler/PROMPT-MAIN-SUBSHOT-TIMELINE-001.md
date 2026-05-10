@@ -3,6 +3,7 @@ rule_id: PROMPT-MAIN-SUBSHOT-TIMELINE-001
 title: 主分镜与子分镜是内部结构，最终输出只写单层时间轴
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - story_planner
 - shot_director
@@ -10,6 +11,7 @@ agent_scope:
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: timeline_flattening
 runtime_retrieval: true
 retrieval_key:
 - prompt-main-subshot-timeline-001
@@ -28,7 +30,13 @@ applies_when:
 - Seedance Prompt
 - 时间轴
 - 主分镜
-avoid_when: []
+avoid_when:
+- "上游没有 main_shots/sub_shots 结构。"
+failure_mode:
+- "把主分镜、子分镜、动作单元等内部标签输出成嵌套时间轴。"
+output_contract: "最终 Seedance prompt 只写单层时间轴；主/子分镜翻译为普通时间段自然句。"
+example_good: "0-3秒：商北琛正面半身中景，平视后退跟拍。"
+example_bad: "0-3秒 主分镜1；1.5-2.1秒 子分镜1.1。"
 signals:
 - dialogue_coverage
 - action_coverage

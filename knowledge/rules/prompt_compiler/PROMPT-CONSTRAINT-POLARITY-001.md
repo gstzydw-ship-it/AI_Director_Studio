@@ -3,11 +3,13 @@ rule_id: PROMPT-CONSTRAINT-POLARITY-001
 title: 约束集中写入且时间轴正向表达
 doc_type: rule_card
 rule_type: prompt_constraint
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: constraint_formatting
 runtime_retrieval: true
 retrieval_key:
 - prompt-constraint-polarity-001
@@ -26,7 +28,13 @@ applies_when:
 - 硬约束
 - 时间轴
 - 否定词污染
-avoid_when: []
+avoid_when:
+- "当前输出没有硬约束或禁忌约束。"
+failure_mode:
+- "把禁忌串反复贴入时间轴，或用否定句污染画面描述。"
+output_contract: "硬约束集中写在约束区；时间轴内使用正向可见状态。"
+example_good: "电梯门保持闭合；画面仅保留商北琛与乔熙。"
+example_bad: "每段末尾都写无字幕、门不打开、严飞不出现。"
 signals:
 - dialogue_coverage
 - continuity_lock

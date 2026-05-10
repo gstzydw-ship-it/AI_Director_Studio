@@ -3,11 +3,13 @@ rule_id: BLOCKING-DIALOGUE-FIDELITY-003
 title: 对白只允许引用原剧本，不得补写
 doc_type: rule_card
 rule_type: hard_constraint
+owner_agent: shot_director_blocking
 agent_scope:
 - shot_director_blocking
 - quality_inspector
 priority: P1
 status: active
+pipeline_stage: blocking
 runtime_retrieval: true
 retrieval_key:
 - blocking-dialogue-fidelity-003
@@ -19,7 +21,14 @@ retrieval_key:
 applies_when:
 - dialogue_coverage
 - 剧本忠实度
-avoid_when: []
+avoid_when:
+- "当前片段没有 dialogue_coverage"
+- "字段只描述动作状态，不引用或覆盖台词"
+failure_mode:
+- "dialogue_coverage 改写、缩写、合并或新增原剧本没有的台词。"
+output_contract: "dialogue_coverage 只能逐字引用原剧本台词；无台词覆盖时写 none。"
+example_good: "dialogue_coverage: \"你别过来。\""
+example_bad: "dialogue_coverage: \"她低声说自己害怕，让对方不要再逼近。\""
 signals:
 - dialogue_coverage
 - action_coverage

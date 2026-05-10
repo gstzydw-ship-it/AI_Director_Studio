@@ -3,11 +3,13 @@ rule_id: LAYOUT-MAINSHOT-ONLY-001
 title: 主分镜骨架阶段只输出主镜头合同
 doc_type: rule_card
 rule_type: shot_layout_contract
+owner_agent: shot_director_layout
 agent_scope:
 - shot_director_layout
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: layout
 runtime_retrieval: true
 retrieval_key:
 - layout-mainshot-only-001
@@ -22,7 +24,14 @@ applies_when:
 - 主分镜骨架
 - main_shots
 - 输出合同
-avoid_when: []
+avoid_when:
+- "当前阶段是 shot_director_blocking，需要补 reaction_coverage 或 sub_shots"
+- "当前阶段是 shot_director_guard，只允许最小修复既有方案"
+failure_mode:
+- "layout 阶段抢先输出 reaction_coverage、sub_shots 或解释散文。"
+output_contract: "只输出 fragment_id、fragment_intent、continuity_anchor、main_shots。"
+example_good: "fragment_id、fragment_intent、continuity_anchor、main_shots 齐全；受击点留给 blocking。"
+example_bad: "在 main_shots 后继续补 sub_shots、reaction_coverage。"
 signals:
 - action_coverage
 scene_types:

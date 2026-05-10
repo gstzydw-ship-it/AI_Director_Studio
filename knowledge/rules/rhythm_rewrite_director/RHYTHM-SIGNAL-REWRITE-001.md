@@ -3,12 +3,14 @@ rule_id: RHYTHM-SIGNAL-REWRITE-001
 title: 戏剧微粒驱动的节奏改写
 doc_type: rule_card
 rule_type: rhythm_rewrite
+owner_agent: rhythm_rewrite_director
 agent_scope:
 - rhythm_rewrite_director
 - quality_inspector
 - story_planner
 priority: P0
 status: active
+pipeline_stage: rhythm_rewrite
 runtime_retrieval: true
 retrieval_key:
 - rhythm-signal-rewrite-001
@@ -28,7 +30,14 @@ applies_when:
 - atmosphere_strategy
 - 权力反转
 - 悬念揭晓
-avoid_when: []
+avoid_when:
+- "需要具体镜头命令、改写台词或改变主线事件时。"
+failure_mode:
+- "把 atmosphere_strategy 写成镜头清单。"
+- "用抽象隐喻替代可见反应。"
+output_contract: "输出主戏剧微粒、atmosphere_strategy、可见反应和禁越权说明。"
+example_good: "权力反转后写谁停住、谁失控、谁重新掌场。"
+example_bad: "写特写推进、Crash Zoom 和黑屏。"
 signals:
 - dialogue_coverage
 - action_coverage

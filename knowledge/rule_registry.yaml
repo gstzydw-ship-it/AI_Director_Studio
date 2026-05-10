@@ -70,14 +70,18 @@ rules:
   - id: "ACT-ANCHOR-002"
     title: "动作锚点定位"
     owner_agent: "shot_director"
-    priority: "P4"
-    applies_when: "同一动作需要多机位覆盖，剪辑点容易因角度差异产生跳跃。"
-    instruction: "选取手触碰物体、脚落地、门把转动、道具离手等关键帧作为所有机位的对齐剪辑点。"
-    avoid_when: "动作没有明确物理接触点时，改用身体重心变化或视线转向作为锚点。"
+    priority: "P3"
+    applies_when: "同一动作需要多机位覆盖、单机位拼接或开门转身等动作匹配剪辑；剪辑点容易因角度差异产生跳跃、卡顿或断档。"
+    instruction: "选取手触碰门把/物体、门把转动、脚落地、道具离手等关键帧作为所有机位的对齐剪辑点；与 Match-on-Action 配套使用：上一镜在动作 50%-70% 切出，下一镜从 30%-50% 接续，保证同一动作锚点附近无缝衔接。"
+    avoid_when: "动作没有明确物理接触点时，改用身体重心变化、视线转向或动作中间态作为锚点。"
     source_files:
       - "knowledge/21_镜头调用规则与多机位模板.md"
+      - "knowledge/23_视频教学提取_全场景分镜与转场库.md"
+      - "knowledge/22_多机位分镜与镜头多样性规则.md"
     source_rules:
       - "21:R-015"
+      - "23:动作锚点定位法"
+      - "22:多机位切换触发必须由动作锚点、台词落点、受击反应、视线或空间调度触发"
 
   - id: "ACT-DIRECTION-003"
     title: "方向匹配规则"
@@ -877,11 +881,11 @@ rules:
       - "06:规则16"
 
   - id: "PROMPT-STRUCT-001"
-    title: "最终输出像可执行导演 prompt"
+    title: "最终 Seedance prompt 输出结构必须是可执行导演指令"
     owner_agent: "prompt_compiler"
-    priority: "P5"
-    applies_when: "将上游导演决策编译为 Seedance 或视频模型提示词。"
-    instruction: "最终输出必须是自然、具体、可拍、可执行的导演 prompt，而不是分析报告、关键词串或表单。"
+    priority: "P1"
+    applies_when: "将上游分镜编译成 Seedance 提示词；需要最终输出结构、单层时间轴、一镜一主动作、多人同句去歧义。"
+    instruction: "最终输出必须是 Seedance 可直接生成的自然中文导演 prompt：按角色参考总控、空间与首帧总控、时间轴、约束、参考调用组织；时间轴每段先写主体、景别、机位、空间，再写一镜一主动作；关键动作后补表情锚点；多人同句必须写角色名，不用歧义代词；不得输出分析报告、关键词串或表单。"
     avoid_when: "内部推理、诊断或知识库维护场景。"
     source_files:
       - "knowledge/07_Seedance输出词典与模型适配.md"
@@ -1186,22 +1190,31 @@ rules:
   - id: "WORKFLOW-TAILFRAME-002"
     title: "尾帧分析覆盖连续性要素"
     owner_agent: "quality_inspector"
+    agent_scope:
+      - "story_planner"
     priority: "P1"
-    applies_when: "上一段生成后需要分析尾帧或视频末帧。"
-    instruction: "尾帧或视频分析必须覆盖人物位置、动作状态、道具、光线、视线、镜头方向和可继承风险。"
-    avoid_when: "上一段完全失败，应进入返工而不是续接。"
+    applies_when: "上一段生成后需要分析尾帧或视频末帧，并用于下一段首帧继承、连续性续接和不重拆片判断。"
+    instruction: "尾帧或视频分析必须覆盖人物位置、动作状态、道具、光线、视线、镜头方向和可继承风险；分析只服务下一段首帧总控与连续性继承，不得反向修改已锁定的拆片骨架、主分镜边界或完整发言单元。"
+    avoid_when: "上一段完全失败，应进入返工而不是续接；除非用户明确要求重新拆片、重算边界或重做片段规划，否则不得用尾帧触发重拆。"
     source_files:
       - "knowledge/18_情绪锚点与逐段交互与仰拍限制补丁.md"
+      - "knowledge/05_剧本拆分与15秒片段规划规则.md"
+      - "knowledge/07_Seedance输出词典与模型适配.md"
     source_rules:
       - "18:规则07"
       - "18:规则07-1"
+      - "18:规则08"
+      - "05:规则15-1"
+      - "07:规则07-1"
 
   - id: "CONTINUITY-LOWANGLE-001"
     title: "仰拍限制"
     owner_agent: "quality_inspector"
+    agent_scope:
+      - "shot_director"
     priority: "P1"
-    applies_when: "镜头计划中出现仰拍、低机位、俯拍或权力高度表达。"
-    instruction: "默认机位高度为平视；仰拍只允许在穷举合法场景中使用，一个 15 秒片段最多 1 次；俯拍也必须有叙事理由。"
+    applies_when: "镜头计划中出现仰拍、低机位、低角度、低视角、low angle、low-angle shot、俯拍、高机位、high angle、平视机位、eye level 或权力高度表达。"
+    instruction: "默认机位高度为平视/eye level；仰拍、低位仰拍、略仰视角、low camera angle 只允许在穷举合法场景中使用，一个 15 秒片段最多 1 次；俯拍/high angle 也必须有叙事理由。"
     avoid_when: "儿童、脆弱姿态、地面倒伏、私密身体凝视或模型稳定性不足。"
     source_files:
       - "knowledge/18_情绪锚点与逐段交互与仰拍限制补丁.md"
@@ -1239,6 +1252,36 @@ rules:
     source_rules:
       - "22:规则01"
       - "22:规则02"
+
+  - id: "MULTICAM-ONECAMERA-002"
+    title: "AI 多机位生成片段单机位连续拍摄"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director"
+      - "shot_director_layout"
+      - "prompt_compiler"
+    priority: "P1"
+    applies_when: "AI 多机位分镜中，同一动作需要多个角度覆盖，但每个生成片段只能一个机位连续拍摄，单段只保留一两个连贯动作。"
+    instruction: "每个生成片段只落在一个机位/镜头类型上并保持连续拍摄；需要多个角度覆盖时，拆成多个生成片段、主分镜或子分镜，并用动作锚点、台词落点、受击反应或视线触发衔接。"
+    avoid_when: "15 秒导演片段内部已经按 MULTICAM-MULTISHOT-002 规划为有动机的主分镜/子分镜切换时，不把整条 15 秒片段误压成单一机位；最终 prompt 仍只写单层时间轴。"
+    query_terms:
+      - "AI 多机位分镜"
+      - "同一动作 多个角度覆盖"
+      - "每个生成片段 一个机位 连续拍摄"
+      - "单段 一两个 连贯动作"
+      - "single camera per generated clip"
+    signals:
+      - "多机位覆盖"
+      - "一个机位"
+      - "连续拍摄"
+      - "生成片段"
+      - "单段动作限制"
+    source_files:
+      - "knowledge/22_多机位分镜与镜头多样性规则.md"
+    source_rules:
+      - "22:流程C"
+      - "22:规则05"
+      - "22:一句话总纲"
 
   - id: "MULTICAM-MULTISHOT-002"
     title: "15 秒导演片段内部保留主分镜/子分镜，最终只写单层时间轴"

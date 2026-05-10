@@ -3,10 +3,12 @@ rule_id: QC-DIRECTOR-TASTE-SCORE-002
 title: 质检必须评估镜头是否有导演选择
 doc_type: rule_card
 rule_type: director_taste_quality
+owner_agent: quality_inspector
 agent_scope:
 - quality_inspector
-priority: P0
+priority: P4
 status: active
+pipeline_stage: quality_review
 runtime_retrieval: true
 retrieval_key:
 - qc-director-taste-score-002
@@ -27,7 +29,15 @@ applies_when:
 - quality_review
 - shot_director
 - layout
-avoid_when: []
+avoid_when:
+- "review_scope_excludes_shot_design_quality"
+- "input_is_only_raw_story_without_shot_plan"
+- "safety_or_hard_fail_already_blocks_delivery"
+failure_mode:
+- "directorially_flat_but_schema_valid_output"
+output_contract: "输出 director_taste_score 四项评分；低于 7 分必须给出 shot_id 和可执行修正。"
+example_good: "F03-S02 attention_clarity=8；建议改为门框外窥视机位并补反应停顿。"
+example_bad: "整体合理，更电影化即可。"
 signals:
 - tailframe_lock
 - dialogue_coverage

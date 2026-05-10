@@ -3,11 +3,13 @@ rule_id: LAYOUT-VERTICAL-RELATION-FIRST-001
 title: 竖屏摆位优先关系镜头而不是特写堆叠
 doc_type: rule_card
 rule_type: vertical_layout
+owner_agent: shot_director_layout
 agent_scope:
 - shot_director_layout
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: layout
 runtime_retrieval: true
 retrieval_key:
 - layout-vertical-relation-first-001
@@ -17,7 +19,14 @@ applies_when:
 - 9:16竖屏
 - 主镜头摆位
 - 景别主力
-avoid_when: []
+avoid_when:
+- "画幅不是 9:16"
+- "单个特写是唯一能交代剧情信息或心理顶点的主镜头"
+failure_mode:
+- "竖屏主镜头被脸部特写堆满，人物关系和空间位置缺失。"
+output_contract: "9:16 主镜头优先半身、中景、双人关系镜头；微细节不得升成主镜头。"
+example_good: "S01 双人半身关系景建立压迫，S02 中近景反打，S03 回关系景复位。"
+example_bad: "S01 脸部特写，S02 嘴唇特写，S03 眼角特写。"
 signals:
 - vertical_framing
 risks:

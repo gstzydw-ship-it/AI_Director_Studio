@@ -41,6 +41,7 @@ test_output*.txt
 pytest-cache-files-*/
 _session_artifacts/
 vectordb/
+vectordb.legacy_*/
 *.png
 *.exe
 *.nupkg

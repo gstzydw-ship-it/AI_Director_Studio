@@ -3,10 +3,12 @@ rule_id: QC-PACING-SAFETY-CHECKLIST-001
 title: 节奏与物理安全质检清单
 doc_type: rule_card
 rule_type: quality_control
+owner_agent: quality_inspector
 agent_scope:
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: quality_review
 runtime_retrieval: true
 retrieval_key:
 - qc-pacing-safety-checklist-001
@@ -28,7 +30,15 @@ applies_when:
 - 质检
 - 节奏拖沓
 - Hook
-avoid_when: []
+avoid_when:
+- "input_is_not_final_clip_or_final_prompt"
+- "pacing_review_disabled_for_non_narrative_asset"
+- "only_metadata_present_without_timeline_or_dialogue"
+failure_mode:
+- "pacing_or_safety_issue_not_returned_for_repair"
+output_contract: "输出 pacing_checks、safety_checks、failed_items、repair_direction；fail 项必须可执行返修。"
+example_good: "hook_release=fail；将首镜缩到 3.5s 内，并补 1.5s 反应镜头。"
+example_bad: "节奏不好；整体更紧凑。"
 signals:
 - tailframe_lock
 - dialogue_coverage

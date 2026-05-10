@@ -3,6 +3,7 @@ rule_id: SCENE-REF-MISSING-FALLBACK-001
 title: 参考图缺失时的降级协议
 doc_type: rule_card
 rule_type: scene_analysis
+owner_agent: scene_analyst
 agent_scope:
 - scene_analyst
 - prompt_compiler
@@ -10,6 +11,7 @@ agent_scope:
 - story_planner
 priority: P0
 status: active
+pipeline_stage: reference_fallback
 runtime_retrieval: true
 retrieval_key:
 - scene-ref-missing-fallback-001
@@ -23,7 +25,14 @@ applies_when:
 - 无参考图
 - 身份描述降级
 - 风格锚点降级
-avoid_when: []
+avoid_when:
+- "已有可靠参考图绑定时，不触发缺图降级。"
+failure_mode:
+- "缺图仍让下游自由生成身份。"
+- "identity_description 少于六项身份锚点。"
+output_contract: "输出 no_reference_image、identity_description、first_frame_lock、allowed_style、extra_constraints、need_supplement。"
+example_good: "无图主体写六项身份锚点并请求补图。"
+example_bad: "只写一名年轻女性，风格自由发挥。"
 signals:
 - tailframe_lock
 - reference_binding

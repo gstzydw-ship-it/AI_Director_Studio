@@ -175,7 +175,7 @@ def test_llm_settings_validation_reports_missing_required_fields():
         base_url="",
         model="",
         temperature=None,
-        config_path="config/private/settings.local.yaml",
+        config_path="config/settings.yaml",
     )
 
     assert settings.missing_fields() == ["api_key", "base_url", "model"]
@@ -187,7 +187,7 @@ def test_llm_settings_validation_reports_missing_required_fields():
         raise AssertionError("expected missing LLM settings to raise")
 
     assert "story_planner" in message
-    assert "settings.local.yaml" in message
+    assert "settings.yaml" in message
     assert "api_key, base_url, model" in message
 
 

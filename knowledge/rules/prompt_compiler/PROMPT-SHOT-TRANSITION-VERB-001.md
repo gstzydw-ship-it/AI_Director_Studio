@@ -3,11 +3,13 @@ rule_id: PROMPT-SHOT-TRANSITION-VERB-001
 title: PROMPT-SHOT-TRANSITION-VERB-001
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P3
 status: active
+pipeline_stage: transition_verb_selection
 runtime_retrieval: true
 retrieval_key:
 - prompt-shot-transition-verb-001
@@ -18,8 +20,17 @@ retrieval_key:
 - risks.door_state_jump
 - scene_types.elevator
 - scene_types.action
-applies_when: []
-avoid_when: []
+applies_when:
+- "镜头衔接词"
+- "主体变化"
+- "景别变化"
+avoid_when:
+- "没有镜头衔接词、主体变化或景别变化。"
+failure_mode:
+- "主体变化、景别变化与衔接词不匹配，造成假连续或主体错乱。"
+output_contract: "根据变化类型选择衔接词：保持、切至、切近、拉开或固定机位保持人物进出。"
+example_good: "镜头切至严飞胸部以上中近景，严飞低头。"
+example_bad: "同一机位继续，镜头里忽然变成严飞的中近景。"
 signals:
 - action_coverage
 scene_types:

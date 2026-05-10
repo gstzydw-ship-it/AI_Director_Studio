@@ -3,6 +3,7 @@ rule_id: PROMPT-CUT-BUDGET-001
 title: 单片段切镜预算（含隐性切镜识别）
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - story_planner
 - shot_director
@@ -10,6 +11,7 @@ agent_scope:
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: cut_budget_validation
 runtime_retrieval: true
 retrieval_key:
 - prompt-cut-budget-001
@@ -21,7 +23,13 @@ applies_when:
 - 切镜预算
 - 隐性切镜
 - 同一机位继续
-avoid_when: []
+avoid_when:
+- "当前片段没有镜头变化或切镜预算约束。"
+failure_mode:
+- "单段切镜超过时长预算，或用同一机位继续伪装主体变化。"
+output_contract: "按 segment 时长统计显式与隐性切镜；超预算时报硬失败并请求上游拆段。"
+example_good: "8 秒段只保留 2 个镜头变化。"
+example_bad: "13 秒段塞入 5 个切镜，并把主体变化写成同一机位继续。"
 signals:
 - action_coverage
 scene_types:

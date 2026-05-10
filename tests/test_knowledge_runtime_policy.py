@@ -8,6 +8,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agents.knowledge_base import (  # noqa: E402
     build_retrieval_profile_query,
+    get_agent_wiki_files,
     _runtime_retrieval_enabled,
     get_agent_knowledge_files,
     get_full_knowledge_for_agent,
@@ -17,6 +18,7 @@ from agents.knowledge_base import (  # noqa: E402
     query_rule_registry,
 )
 from agents import knowledge_base as kb  # noqa: E402
+from agents import utils as agent_utils  # noqa: E402
 from tools.check_knowledge_policy import run_checks  # noqa: E402
 
 
@@ -77,6 +79,36 @@ def test_common_policy_files_are_first_for_runtime_agents():
         assert get_agent_knowledge_files(agent_name, critical_only=True)[0] == priority_doc
         assert "rule_registry.yaml" not in get_agent_knowledge_files(agent_name)
         assert "rule_registry.yaml" not in get_agent_knowledge_files(agent_name, critical_only=True)
+
+
+def test_get_knowledge_dir_respects_settings_directory(tmp_path, monkeypatch):
+    project_root = tmp_path / "studio"
+    config_dir = project_root / "config"
+    configured_dir = project_root / "runtime_knowledge"
+    config_dir.mkdir(parents=True)
+    configured_dir.mkdir()
+    (config_dir / "settings.yaml").write_text(
+        "knowledge:\n  directory: ./runtime_knowledge\n",
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(agent_utils, "get_base_dir", lambda: str(project_root))
+    monkeypatch.setattr(agent_utils.sys, "frozen", False, raising=False)
+
+    assert Path(agent_utils.get_knowledge_dir()) == configured_dir
+
+
+def test_agent_wiki_context_files_are_agent_scoped():
+    planner_files = get_agent_wiki_files("story_planner")
+    compiler_files = get_agent_wiki_files("prompt_compiler")
+    storyboard_files = get_agent_wiki_files("storyboard_designer")
+
+    assert "wiki/agents/story_planner.md" in planner_files
+    assert "wiki/contracts/story_to_shot_contract.md" in planner_files
+    assert "wiki/README.md" not in planner_files
+    assert "wiki/index.md" not in planner_files
+    assert "wiki/failure_modes/prompt_too_abstract.md" in compiler_files
+    assert "wiki/playbooks/nine_panel_storyboard.md" in storyboard_files
 
 
 def test_dramatic_signal_doc_is_loaded_for_rhythm_agents():
@@ -269,7 +301,9 @@ def test_smart_knowledge_prepends_registry_context(monkeypatch):
     monkeypatch.setattr(kb, "load_config", fake_load_config)
     text, meta = kb.get_smart_knowledge("shot_director", "AI 多机位 单段 一个机位 连续拍摄")
 
-    assert text.startswith("--- rule_registry.yaml")
+    assert text.startswith("--- wiki/agents/shot_director.md (agent_wiki_context) ---")
+    assert "--- rule_registry.yaml" in text
+    assert meta["used_wiki_context"] is True
     assert "MULTICAM-MULTISHOT-002" in meta["registry_rule_ids"]
     assert meta["registry_result_count"] >= 1
     assert "rule_registry.yaml" in meta["matched_sources"]
@@ -328,6 +362,122 @@ def test_smart_knowledge_passes_preferred_sources_to_hybrid(monkeypatch):
     assert source_21 in captured["preferred_sources"]
     assert source_21 in meta["registry_preferred_sources"]
     assert source_21 in meta["matched_sources"]
+
+
+def test_smart_knowledge_prepends_agent_wiki_context(monkeypatch):
+    def fake_load_config():
+        return {
+            "knowledge": {
+                "retrieval_mode": "hybrid",
+                "final_top_k": 1,
+                "min_chunks_fallback": 0,
+                "registry_top_k": 0,
+                "bm25_top_k": 3,
+                "vector_top_k": 3,
+            },
+            "vectordb": {
+                "chunk_size": 800,
+                "chunk_overlap": 100,
+            },
+        }
+
+    def fake_hybrid(query, agent_name, n_results, bm25_k, vector_k, preferred_sources=None):
+        return [{
+            "text": "retrieved rule body",
+            "source": "rules/story_planner/TIME-SEGMENT-MULTISHOT-001.md",
+            "title": "fake",
+            "relevance": 1.0,
+        }]
+
+    monkeypatch.setattr(kb, "load_config", fake_load_config)
+    monkeypatch.setattr(kb, "query_knowledge_hybrid", fake_hybrid)
+
+    text, meta = kb.get_smart_knowledge("story_planner", "15 seconds door conflict")
+
+    assert text.startswith("--- wiki/agents/story_planner.md (agent_wiki_context) ---")
+    assert "retrieved rule body" in text
+    assert meta["used_wiki_context"] is True
+    assert "wiki/agents/story_planner.md" in meta["wiki_sources"]
+    assert "wiki/agents/story_planner.md" in meta["matched_sources"]
+
+
+def test_agent_retrieval_contracts_are_bootstrap_profile_only():
+    kb._retrieval_contracts_cache = None
+
+    profile = kb.build_agent_bootstrap_retrieval_profile("shot_director")
+
+    assert "deprecated" in profile["exclude_status"]
+    assert profile["case_card_limits"]["require_rule_anchor"] is True
+    assert "camera" in profile["signals"]
+    assert "shot_language" in profile["tags"]
+    assert "agent_retrieval_contracts.yaml" not in get_agent_knowledge_files("shot_director")
+    assert load_knowledge_documents("shot_director", ["agent_retrieval_contracts.yaml"]) == []
+
+
+def test_smart_knowledge_applies_contract_profile_filters(monkeypatch):
+    captured = {}
+
+    def fake_load_config():
+        return {
+            "knowledge": {
+                "retrieval_mode": "profiled",
+                "final_top_k": 4,
+                "min_chunks_fallback": 0,
+                "registry_top_k": 0,
+                "bm25_top_k": 3,
+                "vector_top_k": 3,
+            },
+            "vectordb": {
+                "chunk_size": 800,
+                "chunk_overlap": 100,
+            },
+        }
+
+    def fake_profiled(**kwargs):
+        captured["query"] = kwargs["query"]
+        return [
+            {
+                "text": "active case one",
+                "source": "cases/one.md",
+                "title": "case one",
+                "relevance": 1.0,
+                "metadata": {"doc_type": "case_card", "status": "active"},
+            },
+            {
+                "text": "active case two",
+                "source": "cases/two.md",
+                "title": "case two",
+                "relevance": 0.9,
+                "metadata": {"doc_type": "case_card", "status": "active"},
+            },
+            {
+                "text": "draft rule",
+                "source": "rules/shot_director/draft.md",
+                "title": "draft",
+                "relevance": 0.8,
+                "metadata": {"status": "draft"},
+            },
+            {
+                "text": "active rule",
+                "source": "rules/shot_director/active.md",
+                "title": "active",
+                "relevance": 0.7,
+                "metadata": {"status": "active"},
+            },
+        ]
+
+    monkeypatch.setattr(kb, "load_config", fake_load_config)
+    monkeypatch.setattr(kb, "query_knowledge_profiled", fake_profiled)
+
+    text, meta = kb.get_smart_knowledge("shot_director", "coverage")
+
+    assert "signals: shot camera angle coverage reaction transition axis composition" in captured["query"]
+    assert "active case one" in text
+    assert "active case two" not in text
+    assert "draft rule" not in text
+    assert "active rule" in text
+    assert meta["result_count"] == 2
+    assert meta["retrieval_profile"]["case_card_limits"]["max_share_of_context"] == 0.35
 
 
 def test_profiled_retrieval_reranks_with_rule_metadata(monkeypatch):

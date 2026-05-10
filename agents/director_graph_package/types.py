@@ -26,6 +26,11 @@ AGENT_CONFIG_PARENTS = {
     "shot_director_layout": "shot_director",
     "shot_director_blocking": "shot_director",
     "shot_director_guard": "shot_director",
+    "scene_vision_analyst": "scene_analyst",
+    "video_analyst": "scene_analyst",
+    "scene_card_designer": "storyboard_designer",
+    "storyboard_prompt_designer": "prompt_compiler",
+    "script_event_validator": "story_planner",
 }
 DEFAULT_LLM_MODEL = "gpt-5.4"
 

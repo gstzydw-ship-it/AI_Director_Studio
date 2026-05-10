@@ -3,11 +3,13 @@ rule_id: PROMPT-REFERENCE-BINDING-001
 title: 参考图先绑定职责再进入时间轴
 doc_type: rule_card
 rule_type: reference_control
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: reference_binding
 runtime_retrieval: true
 retrieval_key:
 - prompt-reference-binding-001
@@ -19,7 +21,13 @@ applies_when:
 - 参考图
 - 人物身份
 - 场景参考
-avoid_when: []
+avoid_when:
+- "没有使用任何人物、场景或尾帧参考图。"
+failure_mode:
+- "参考图职责未绑定，人物图背景污染场景，或同一时间段反复调用图片。"
+output_contract: "先写清每张参考图职责，再进入时间轴；人物图只管身份外观，场景图只管空间光线。"
+example_good: "@图片1 仅用于商北琛的人物身份、五官、发型、身形、服装一致性。"
+example_bad: "反复在每个时间段调用 @图片1，并继承人物参考图里的背景。"
 signals:
 - reference_binding
 events:

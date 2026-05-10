@@ -3,12 +3,14 @@ rule_id: RHYTHM-SIGNAL-TAXONOMY-001
 title: 戏剧微粒识别与 Hook 权重判定
 doc_type: rule_card
 rule_type: rhythm_signal_identification
+owner_agent: story_planner
 agent_scope:
 - story_planner
 - quality_inspector
 - shot_director
 priority: P0
 status: active
+pipeline_stage: segment_signal_planning
 runtime_retrieval: true
 retrieval_key:
 - rhythm-signal-taxonomy-001
@@ -28,7 +30,14 @@ applies_when:
 - 权力反转
 - 冲突升级
 - 悬念揭晓
-avoid_when: []
+avoid_when:
+- "需要改写剧本或下具体镜头执行指令时。"
+failure_mode:
+- "低权重过场被标成 power_reversal。"
+- "story_planner 新增动作、道具或龙套反应。"
+output_contract: "输出 rhythm_function、hook_weight、script_basis、boundary_reason、reaction_need。"
+example_good: "用原文台词命中 suspense_reveal，并说明边界理由。"
+example_bad: "写仰拍特写来表现权力反转。"
 signals:
 - dialogue_coverage
 - action_coverage

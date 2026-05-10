@@ -3,11 +3,13 @@ rule_id: PROMPT-NO-SAME-CAMERA-ABUSE-001
 title: PROMPT-NO-SAME-CAMERA-ABUSE-001
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P3
 status: active
+pipeline_stage: hidden_cut_detection
 runtime_retrieval: true
 retrieval_key:
 - prompt-no-same-camera-abuse-001
@@ -15,8 +17,17 @@ retrieval_key:
 - events.cut
 - scene_types.elevator
 - scene_types.action
-applies_when: []
-avoid_when: []
+applies_when:
+- "同一机位继续"
+- "隐性切镜"
+- "主体或景别变化"
+avoid_when:
+- "没有使用同一机位继续或隐性切镜。"
+failure_mode:
+- "滥用同一机位继续掩盖主体变化、景别变化或画面中心变化。"
+output_contract: "仅在同主体、同景别基底或固定场景机位真延续时使用同一机位继续。"
+example_good: "镜头保持在乔熙身上，她从低头停住到慢慢抬头。"
+example_bad: "同一机位继续，严飞胸部以上中近景落在画面中心。"
 signals:
 - action_coverage
 scene_types:

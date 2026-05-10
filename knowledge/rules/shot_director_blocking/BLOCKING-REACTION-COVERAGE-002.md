@@ -3,11 +3,13 @@ rule_id: BLOCKING-REACTION-COVERAGE-002
 title: reaction_coverage 必须明确落到主镜头或子镜头
 doc_type: rule_card
 rule_type: hard_constraint
+owner_agent: shot_director_blocking
 agent_scope:
 - shot_director_blocking
 - quality_inspector
 priority: P2
 status: active
+pipeline_stage: blocking
 runtime_retrieval: true
 retrieval_key:
 - blocking-reaction-coverage-002
@@ -19,7 +21,14 @@ retrieval_key:
 applies_when:
 - reaction_coverage
 - 受击落点
-avoid_when: []
+avoid_when:
+- "当前片段是纯环境建立且已显式声明无需受击覆盖"
+- "layout 阶段尚未进入反应落点补齐"
+failure_mode:
+- "reaction_coverage 只写有反应或情绪传递，没有落到具体镜头编号。"
+output_contract: "reaction_coverage 必须写明受击或信息冲击落在哪个 shot_id；无需要时显式说明。"
+example_good: "reaction_coverage: 受击停顿落在 S02-a；本段无额外独立受击镜头。"
+example_bad: "reaction_coverage: 这里要表现她被击中的复杂情绪。"
 signals:
 - action_coverage
 scene_types:

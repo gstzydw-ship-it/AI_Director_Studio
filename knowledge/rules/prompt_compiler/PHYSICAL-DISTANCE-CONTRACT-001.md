@@ -3,11 +3,13 @@ rule_id: PHYSICAL-DISTANCE-CONTRACT-001
 title: 物理距离与亲密接触冲突消解规则
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
 - prompt_compiler
 - quality_inspector
 priority: P0
 status: active
+pipeline_stage: constraint_normalization
 runtime_retrieval: true
 retrieval_key:
 - physical-distance-contract-001
@@ -17,7 +19,13 @@ retrieval_key:
 - dialogue_types.argument_escalation
 - scene_types.intimacy_privacy
 applies_when: 处理包含“零亲密接触”或“物理距离”等距离契约的片段
-avoid_when: ''
+avoid_when:
+- "片段没有零亲密接触、保持距离或类似物理距离契约。"
+failure_mode:
+- "距离约束与扶腰、贴身、怀里、极近脸距等词共存。"
+output_contract: "生效距离契约时，时间轴只写可见距离、空隙与对峙状态。"
+example_good: "两人保持半步距离，胸前可见明显空隙。"
+example_bad: "他扶住她的腰，两人贴得很近。"
 signals:
 - continuity_lock
 scene_types:
