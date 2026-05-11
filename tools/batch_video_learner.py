@@ -127,7 +127,7 @@ def main():
                     safe_content = content[:30].strip().encode('gbk', 'ignore').decode('gbk')
                     try:
                         print(f"   [OK] 成功提取分镜法则！缩影: {safe_content}...")
-                    except:
+                    except Exception:
                         print(f"   [OK] 成功提取分镜法则！")
                     
                     append_to_kbase(filename, content)

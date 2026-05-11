@@ -61,6 +61,16 @@ REVIEW_AGENT_STEPS = {
     "quality_inspector": "step_6_inspect",
 }
 
+NEXT_REVIEW_AGENT_AFTER_APPROVAL = {
+    "scene_analyst": "director_showrunner",
+    "director_showrunner": "rhythm_rewrite_director",
+    "rhythm_rewrite_director": "story_planner",
+    "story_planner": "shot_director",
+    "shot_director": "storyboard_designer",
+    "storyboard_designer": "prompt_compiler",
+    "prompt_compiler": "quality_inspector",
+}
+
 _NEXT_NODE_TO_REVIEW_AGENT = {
     "director_showrunner": "scene_analyst",
     "rhythm_rewrite_director": "director_showrunner",
@@ -329,6 +339,9 @@ def _apply_human_review_edit(
     state.pop("review_title", None)
     state.pop("review_output", None)
     state["status"] = "running_phase_2" if agent in {"prompt_compiler", "quality_inspector"} else "running_phase_1"
+    next_agent = NEXT_REVIEW_AGENT_AFTER_APPROVAL.get(agent)
+    if next_agent:
+        state["step"] = REVIEW_AGENT_STEPS.get(next_agent, state.get("step") or "")
     state["message"] = f"已确认 {REVIEW_AGENT_LABELS.get(agent, agent)} 输出，正在交给下一个 Agent..."
     state["error"] = ""
     return state

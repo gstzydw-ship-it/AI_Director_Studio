@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import re
+import time
 from typing import Any
 
 import yaml
@@ -140,6 +141,84 @@ def _director_showrunner_user_intent(state: DirectorState) -> str:
         if text:
             lines.append(f"{key}: {text}")
     return "\n".join(lines)
+
+
+def _run_director_showrunner_logic_review(
+    *,
+    source_script: str,
+    scene_context: str,
+    aspect_ratio: str,
+    primary_output: str,
+) -> tuple[str, dict[str, Any], str]:
+    """Run a second-pass logic debate before accepting story enhancement output."""
+    started = time.perf_counter()
+    primary_script = _extract_enhanced_script(primary_output, source_script)
+    system_prompt = (
+        "你是剧情增强流程里的逻辑审查反方 agent。\n"
+        "你的任务不是重新发挥，而是和剧情增强导演的初稿进行辩论：先挑出动作施事、人物动机、道具占手、空间前置状态、群体调度、时间因果里的逻辑漏洞，"
+        "再只修正这些问题，输出一份可直接交给下游的最终 YAML。\n"
+        "如果初稿已经合理，可以保留；如果发现不合理动作，必须改成更符合现实和原剧情的动作。\n"
+        "禁止新增原剧本外人物、台词、关键道具、误会、反转或剧情结果；原台词必须原样保留。\n"
+        "输出必须是完整 YAML，字段名使用中文。"
+    )
+    user_prompt = (
+        "【原始剧本】\n"
+        f"{source_script}\n\n"
+        "【场景预分析约束】\n"
+        f"{scene_context or '无'}\n\n"
+        "【画幅】\n"
+        f"{aspect_ratio}\n\n"
+        "【剧情增强导演初稿】\n"
+        f"{primary_output}\n\n"
+        "【辩论审查清单】\n"
+        "1. 施事逻辑：动作发起者必须合理。衣角、文件、咖啡杯、照片等无生命物不能像有意志一样“乱动/躲/停住”；应改成角色身体、手、孩子、车、人群等在动。\n"
+        "2. 人物动机：角色正在做的事必须符合当下目标。例如迎接新老板的人群应从楼内或入口附近急促聚拢、整理仪表并列队；不要写成他们原本就在门口工作后停下手里的活。\n"
+        "3. 群体调度：秘书、主管、同事等群体动作要有合理来源、集合原因和参与者归属；如果苏小可属于人群，应保留她在人群中并让她靠近乔熙传递消息。\n"
+        "4. 道具占手：手机、咖啡、书包、照片、文件等必须写清被谁拿起、放下、滑落或收回，不能同时占用同一只手完成矛盾动作。\n"
+        "5. 空间与时间：动作不能越过场景约束，不写未经确认的路线、距离、方位；时间跳转和闪回回到现实必须有清楚落点。\n"
+        "6. 主线保护：只修逻辑与可拍性，不改变人物关系、公司易主、新老板到达、前夫揭示、孩子愿望等核心事实。\n\n"
+        "【必须输出的 YAML 字段】\n"
+        "增强版剧本: 使用 YAML 多行文本，输出审查后的完整可施工剧本。\n"
+        "逻辑审查: 列表；每条包含 问题 / 判断 / 修正方式。没有问题也要写“未发现硬逻辑错误”。\n"
+        "增强依据: 保留或修正初稿依据；每条包含 原文锚点 / 增强方式 / 权限级别 / 是否改动主线。\n"
+        "主线保护: 列出没有改变的核心剧情事实。\n"
+        "节奏总控交接: 给节奏总控导演的简短说明。\n"
+        "需用户确认: 只列 L3 剧情层新增想法；没有就写 无。\n"
+    )
+    try:
+        reviewed_output = call_llm(
+            system_prompt,
+            user_prompt,
+            agent_name="director_showrunner_logic_reviewer",
+            max_retries=1,
+        )
+        reviewed_output = _localize_director_showrunner_output((reviewed_output or "").strip())
+        reviewed_script = _extract_enhanced_script(reviewed_output, "")
+        if not reviewed_output or not reviewed_script:
+            raise ValueError("logic reviewer returned no enhanced script")
+        runtime = {
+            "agent_name": "director_showrunner_logic_reviewer",
+            "mode": "logic_review_debate",
+            "status": "reviewed",
+            "elapsed_seconds": round(time.perf_counter() - started, 3),
+            "input_chars": len(primary_output),
+            "output_chars": len(reviewed_output),
+            "enhanced_script_chars": len(reviewed_script),
+        }
+        return reviewed_output, runtime, "logic reviewer accepted final YAML"
+    except Exception as exc:
+        runtime = {
+            "agent_name": "director_showrunner_logic_reviewer",
+            "mode": "logic_review_debate",
+            "status": "fallback_primary",
+            "elapsed_seconds": round(time.perf_counter() - started, 3),
+            "input_chars": len(primary_output),
+            "output_chars": len(primary_output),
+            "enhanced_script_chars": len(primary_script),
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:500],
+        }
+        return primary_output, runtime, f"logic reviewer failed; kept primary output: {type(exc).__name__}"
 
 
 def _record_knowledge_metadata(
@@ -740,8 +819,6 @@ def _compact_scene_context_for_showrunner(scene_context: str, max_chars: int = 7
 
 
 def director_showrunner_node(state: DirectorState) -> DirectorState:
-    import time
-
     outputs = _agent_outputs(state)
     source_script = str(state.get("script") or "")
     original_script = str(state.get("original_script") or source_script)
@@ -807,6 +884,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "禁止直接改动主线剧情、人物关系、剧情结果和原台词；禁止新增未确认的新人物、新台词、新关键道具、新误会或新反转。\n"
         "道具处理必须保持因果清晰：只使用原剧本已经出现或由原台词明确暗示的道具；每个道具只在必要时变化一次，不要为了细节堆动作。\n"
         "手机/电话尤其要谨慎：如果原台词暗示正在通话，可以写乔熙拿着或放下手机；通话结束后必须写清手机去向，不能让手机持续占手却又同时完成双手动作。\n"
+        "输出前必须进行逻辑审查：动作施事必须合理，无生命道具不能像有意志一样行动；群体调度必须符合人物当下目标和场景前置状态。\n"
         "如果某个想法属于剧情层新增，必须放入“需用户确认”，不能写进增强版剧本。\n"
         "输出必须是 YAML，字段名和说明内容全部使用中文；只有原剧本台词或专有名词可以保留原文。",
         "director_showrunner",
@@ -839,21 +917,32 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "9. 不得改变主线剧情：人物关系、公司易主、新老板到达、前夫揭示等核心事实不能变。\n"
         "10. 不得新增台词；原台词必须原样保留。\n"
         "11. 除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
+        "12. 输出前做一次硬逻辑自检：施事是否真实可动，人物是否有合理动机，群体是否从合理位置进入/聚拢，道具是否占手冲突，空间前置状态是否成立。\n"
     )
 
     started = time.perf_counter()
     try:
-        output = call_llm(system_prompt, user_prompt, agent_name="director_showrunner")
-        output = (output or "").strip() or _fallback_director_brief(state, "empty_showrunner_output")
-        output = _localize_director_showrunner_output(output)
+        primary_output = call_llm(system_prompt, user_prompt, agent_name="director_showrunner")
+        primary_output = (primary_output or "").strip() or _fallback_director_brief(state, "empty_showrunner_output")
+        primary_output = _localize_director_showrunner_output(primary_output)
+        output, review_runtime, review_report = _run_director_showrunner_logic_review(
+            source_script=source_script,
+            scene_context=showrunner_scene_context,
+            aspect_ratio=str(state.get("aspect_ratio", "16:9")),
+            primary_output=primary_output,
+        )
         enhanced_script = _extract_enhanced_script(output, source_script)
         director_brief = _director_enhancement_contract(output, enhanced_script)
         runtime = {
             "agent_name": "director_showrunner",
-            "mode": "direct",
+            "mode": "logic_review_debate",
             "status": "success",
+            "elapsed_seconds": round(time.perf_counter() - started, 3),
+            "primary_output_chars": len(primary_output),
             "output_chars": len(output),
             "enhanced_script_chars": len(enhanced_script),
+            "logic_review": review_runtime,
+            "logic_review_report": review_report,
         }
     except Exception as exc:
         output = _fallback_director_brief(state, f"{type(exc).__name__}: {exc}")
@@ -967,14 +1056,13 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         "5. 固定家具和空间锚点必须作为场景母版锁定：茶几、沙发、窗户、门、地毯、床、柜子、台面等一旦在参考图中可见，后续不得移动、替换或重排。\n"
         "6. 如果参考图与剧本文字冲突，不得新增剧情，只能把参考图作为空间和环境基底说明。\n\n"
         f"{_script_fidelity_rules()}\n"
-        "【输出 YAML 字段】\n"
-        "场景信息: 列出空间类型、入口、主要家具/门/走廊/公司门口等锚点。\n"
-        "调度待定: 固定写“场景开局初始站位、固定物和基础轴线可由俯视图/标注锁定；后续片段不要求逐段标点，运动过程由片段出入场状态和视频尾帧承接；场景预分析不推导完整运动路线”。\n"
-        "道具锚点: 只列原剧本或参考图可见的关键道具及位置；不新增手机、照片、咖啡等未确认道具。\n"
-        "光线与材质: 列出参考图里的主光方向、材质气质和空间尺度。\n"
-        "场景参考图需求: 一句话说明需要输出两张独立图片：第一张是俯视布局图，只锁定新场景开局初始站位参考、空间边界、固定物和基础轴线；第二张是 16:9 的 3x3 九宫格机位图，严格依据俯视图生成东西南北四个正向平视图，并补充高位看全场、正对主墙、入口看里面、道具近景、里面看入口。不要要求生成左侧俯视图+右侧九宫格的十格场景卡。\n"
-        "固定物体锁定: 列出参考图中不可移动的固定家具和空间锚点，强调后续只能换机位或裁切，不能移动物体。\n"
-        "增强约束: 给剧情增强导演的简短物理空间边界，只提醒场景开局空间、固定家具、门窗通道、基础轴线和道具不能改乱；不要写逐段动作路线。\n"
+        "【输出 YAML，最多 6 行】\n"
+        "场景信息: 一句话列空间类型、入口、主要家具/门/走廊/公司门口等锚点。\n"
+        "道具锚点: 一句话列原剧本或参考图可见的关键道具及位置；无确认道具写“无确认道具”。\n"
+        "固定物体锁定: 一句话列不可移动的固定家具和空间锚点；只能换机位或裁切，不能移动物体。\n"
+        "光线与材质: 一句话列参考图里的主光方向、材质气质和空间尺度；无法确认写“未确认”。\n"
+        "增强约束: 一句话给剧情增强导演物理空间边界，只提醒场景开局空间、固定家具、门窗通道、基础轴线和道具不能改乱。\n"
+        "调度边界: 固定写“只锁开局空间、固定物和基础轴线；不推导逐段标点或完整运动路线”。\n"
     )
     scene_ref_items = _scene_reference_items(state)
     ref_images = [item["image"] for item in scene_ref_items] or None
@@ -1000,7 +1088,7 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
                     "source: original_script_and_reference_manifest_only\n"
                     "scene_info: |\n"
                     "  LLM vision gateway failed, so only script text and reference-image manifest were used.\n"
-                    "schedule_pending: 场景开局初始站位、固定物和基础轴线可由俯视图/标注锁定；后续片段不要求逐段标点，运动过程由片段出入场状态和视频尾帧承接；场景预分析不推导完整运动路线。\n"
+                    "调度边界: 只锁开局空间、固定物和基础轴线；不推导逐段标点或完整运动路线。\n"
                     "reference_manifest: |\n"
                     f"{_reference_context(state) or '  none'}\n"
                     "notes:\n"
@@ -1072,8 +1160,6 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
             f"{output.rstrip()}\n\n"
             "场景参考图: |\n"
             f"{scene_card_lines}\n"
-            "  流程：每个场景输出两张独立图片：一张俯视布局图，一张 3x3 九宫格机位图。\n"
-            "  用途：俯视图只锁新场景开局初始站位参考、固定物、基础轴线和空间结构；后续片段不要求逐段标点，运动过程由片段出入场状态和视频尾帧承接。\n"
         )
         outputs["scene_card_prompt"] = scene_cards[0]["prompt"]
         outputs["scene_card_image"] = scene_cards[0]["image_path"]

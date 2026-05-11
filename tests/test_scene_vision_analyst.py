@@ -124,7 +124,7 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
         captured["user_prompt"] = user_prompt
         return (
             "scene_id: test_scene\n"
-            "调度待定: 场景开局初始站位、固定物和基础轴线可由俯视图/标注锁定；后续片段不要求逐段标点，运动过程由片段出入场状态和视频尾帧承接；场景预分析不推导完整运动路线。\n"
+            "调度边界: 只锁开局空间、固定物和基础轴线；不推导逐段标点或完整运动路线。\n"
             "场景信息: 大堂入口在北侧，前台在东侧。\n"
         )
 
@@ -170,18 +170,19 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
     assert "场景开局初始站位参考、固定物、基础轴线和入口通道" in str(captured["user_prompt"])
     assert "后续片段不要求逐段标点" in str(captured["user_prompt"])
     assert "视频尾帧承接" in str(captured["user_prompt"])
-    assert "调度待定" in str(captured["user_prompt"])
-    assert "场景预分析不推导完整运动路线" in str(captured["user_prompt"])
+    assert "输出 YAML，最多 6 行" in str(captured["user_prompt"])
+    assert "调度边界" in str(captured["user_prompt"])
+    assert "不推导逐段标点或完整运动路线" in str(captured["user_prompt"])
     assert "每个片段" not in str(captured["user_prompt"])
     assert "全过程运动路线" not in str(captured["user_prompt"])
     assert "场景信息" in str(captured["user_prompt"])
     assert "道具锚点" in str(captured["user_prompt"])
     assert "光线与材质" in str(captured["user_prompt"])
-    assert "场景参考图需求" in str(captured["user_prompt"])
-    assert "输出两张独立图片" in str(captured["user_prompt"])
-    assert "第一张是俯视布局图" in str(captured["user_prompt"])
-    assert "第二张是 16:9 的 3x3 九宫格机位图" in str(captured["user_prompt"])
-    assert "不要要求生成左侧俯视图+右侧九宫格的十格场景卡" in str(captured["user_prompt"])
+    assert "场景参考图需求" not in str(captured["user_prompt"])
+    assert "输出两张独立图片" not in str(captured["user_prompt"])
+    assert "第一张是俯视布局图" not in str(captured["user_prompt"])
+    assert "第二张是 16:9 的 3x3 九宫格机位图" not in str(captured["user_prompt"])
+    assert "不要要求生成左侧俯视图+右侧九宫格的十格场景卡" not in str(captured["user_prompt"])
     assert "左侧俯视图，右侧" not in str(captured["user_prompt"])
     assert "人物占位" not in str(captured["user_prompt"])
     assert "站位姿势" not in str(captured["user_prompt"])
@@ -258,15 +259,15 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
     assert captured["scene_card_images"] == ["image-a"]
     assert captured["scene_card_scene_number"] == 1
     assert "scene_id: test_scene" in result["agent_outputs"]["scene_analyst"]
-    assert "调度待定" in result["agent_outputs"]["scene_analyst"]
-    assert "场景开局初始站位" in result["agent_outputs"]["scene_analyst"]
+    assert "调度边界" in result["agent_outputs"]["scene_analyst"]
+    assert "只锁开局空间" in result["agent_outputs"]["scene_analyst"]
     assert "固定物" in result["agent_outputs"]["scene_analyst"]
     assert "基础轴线" in result["agent_outputs"]["scene_analyst"]
-    assert "后续片段不要求逐段标点" in result["agent_outputs"]["scene_analyst"]
     assert "全过程运动路线" not in result["agent_outputs"]["scene_analyst"]
-    assert "3x3 九宫格机位图" in result["agent_outputs"]["scene_analyst"]
-    assert "每个场景输出两张独立图片" in result["agent_outputs"]["scene_analyst"]
+    assert "3x3 九宫格机位图" not in result["agent_outputs"]["scene_analyst"]
+    assert "每个场景输出两张独立图片" not in result["agent_outputs"]["scene_analyst"]
     assert "场景参考图" in result["agent_outputs"]["scene_analyst"]
+    assert "九宫格 →" in result["agent_outputs"]["scene_analyst"]
     assert result["agent_outputs"]["scene_card_image"] == r"D:\tmp\scene_grid_01.png"
     assert result["agent_outputs"]["scene_grid_image"] == r"D:\tmp\scene_grid_01.png"
     assert result["agent_outputs"]["scene_layout_image"] == r"D:\tmp\scene_layout_01.png"
@@ -521,8 +522,9 @@ def test_director_showrunner_obeys_scene_standing_constraints(monkeypatch):
     monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
 
     def fake_call_llm(system_prompt, user_prompt, **kwargs):
-        captured["agent_name"] = kwargs.get("agent_name")
-        captured["user_prompt"] = user_prompt
+        if "agent_name" not in captured:
+            captured["agent_name"] = kwargs.get("agent_name")
+            captured["user_prompt"] = user_prompt
         return (
             "增强版剧本: |\n"
             "  商北琛从门口走进大堂。\n"

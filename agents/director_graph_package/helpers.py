@@ -26,6 +26,12 @@ from ..knowledge_base import (
 from ..utils import COMFLY_BASE_URL, load_yaml_config
 
 
+_BODY_MECHANICS_ACTION_RE = re.compile(
+    r"进入|走进|冲入|冲向|穿过|越过|进电梯|进门|出门|碰撞|撞上|扶住|松开|擦身而过|过阈值|转身|离开|"
+    r"拿起|放下|递给|交给|推开|拉开|关上|打开|下车|上车|起身|坐下|后退|让出|站到|移动|行走|奔跑"
+)
+
+
 def load_config() -> dict[str, Any]:
     try:
         return load_yaml_config(CONFIG_FILE)

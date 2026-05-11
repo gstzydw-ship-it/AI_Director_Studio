@@ -31,6 +31,7 @@ AGENT_CONFIG_PARENTS = {
     "scene_card_designer": "storyboard_designer",
     "storyboard_prompt_designer": "prompt_compiler",
     "script_event_validator": "story_planner",
+    "director_showrunner_logic_reviewer": "director_showrunner",
 }
 DEFAULT_LLM_MODEL = "gpt-5.4"
 

@@ -1464,9 +1464,10 @@
         }
 
         function isCurrentAgentReviewing(agent) {
-            return currentPublicState.status === 'waiting_for_user_input'
-                && currentPublicState.review_mode === 'agent_output'
-                && currentPublicState.review_agent === agent;
+            const status = String(currentPublicState.status || '');
+            return currentPublicState.review_mode === 'agent_output'
+                && currentPublicState.review_agent === agent
+                && !status.startsWith('running');
         }
 
         function updateResultTabsState() {
@@ -1552,6 +1553,14 @@
                         : '场景图生成后可重跑。',
                 };
             }
+            if (agent === 'director_showrunner' || agent === 'rhythm_rewrite_director' || agent === 'story_planner') {
+                return {
+                    enabled: Boolean((document.getElementById('scriptInput')?.value || currentPublicState.input_script || '').trim()),
+                    label: '重跑规划',
+                    action: 'phase1',
+                    title: '从场景预分析重新运行宏观规划；会保留当前会话已保存的参考图。',
+                };
+            }
             if (agent === 'shot_director') {
                 const canContinue = canRetryShotDirector(currentPublicState) || canContinueShotDirectorFromPlanner(currentPublicState);
                 return {
@@ -1598,7 +1607,8 @@
             if (rerunBtn) {
                 const cfg = rerunConfigForAgent(agent);
                 rerunBtn.textContent = cfg.label;
-                rerunBtn.disabled = !cfg.enabled;
+                rerunBtn.disabled = false;
+                rerunBtn.style.opacity = cfg.enabled ? '1' : '0.65';
                 rerunBtn.title = cfg.title || '';
             }
             if (continueBtn) {
@@ -1660,6 +1670,10 @@
                 await retryShotDirector();
                 return;
             }
+            if (cfg.action === 'phase1') {
+                await rerunPhase1FromCurrentInputs(agent);
+                return;
+            }
             if (agent === 'storyboard_designer') {
                 await generateStoryboard(currentSegmentIndex());
                 return;
@@ -1671,6 +1685,41 @@
             setResultNotice('这个 Agent 需要从上游流程重跑，当前没有独立接口。', 'warning');
         }
 
+        async function rerunPhase1FromCurrentInputs(agent = activeResultAgent()) {
+            const script = document.getElementById('scriptInput')?.value.trim() || currentPublicState.input_script || '';
+            if (!script.trim()) {
+                setResultNotice('缺少剧本内容，无法重跑规划流程。', 'error');
+                showError('缺少剧本内容，无法重跑规划流程。');
+                return;
+            }
+            const formData = new FormData();
+            formData.append('session_id', getSessionId());
+            formData.append('script', script);
+            formData.append('agent_name', agent);
+            document.getElementById('pipelineMsg').textContent = '正在从场景预分析重新运行宏观规划...';
+            document.getElementById('interactiveBox').innerHTML = '';
+            updateAgentStatus('running', '规划重跑中');
+            try {
+                const resp = await fetch('/api/rerun_phase1', { method: 'POST', body: formData });
+                const raw = await resp.text();
+                let data;
+                try {
+                    data = raw ? JSON.parse(raw) : {};
+                } catch (parseError) {
+                    throw new Error(raw ? raw.slice(0, 240) : `HTTP ${resp.status}`);
+                }
+                if (!data.success) {
+                    showError(data.error || '规划重跑启动失败');
+                    updateAgentStatus('error', '规划重跑失败');
+                    return;
+                }
+                startPolling();
+            } catch (e) {
+                showError('规划重跑启动失败: ' + e.message);
+                updateAgentStatus('error', '规划重跑失败');
+            }
+        }
+
         async function continueCurrentAgentOutput(agent = activeResultAgent()) {
             if (agent === 'scene_analyst' && hasSceneReferenceCards(currentPublicState.agent_outputs || agentOutputs)) {
                 const saved = await saveSceneLayoutAnnotationsToBackend();
@@ -1680,7 +1729,7 @@
                     await approveAgentOutput();
                     return;
                 }
-                if (isCurrentAgentReviewing(agent)) {
+                if ((pendingReviewAgent === agent && currentPublicState.review_mode === 'agent_output') || isCurrentAgentReviewing(agent)) {
                     await approveAgentOutput();
                     return;
                 }
@@ -2190,7 +2239,13 @@
             updateAgentStatus('running', '继续执行中');
             try {
                 const resp = await fetch('/api/approve_agent_output', { method: 'POST', body: formData });
-                const data = await resp.json();
+                const raw = await resp.text();
+                let data;
+                try {
+                    data = raw ? JSON.parse(raw) : {};
+                } catch (parseError) {
+                    throw new Error(raw ? raw.slice(0, 240) : `HTTP ${resp.status}`);
+                }
                 if (!data.success) {
                     showError(data.error || '确认失败');
                     updateAgentStatus('error', '确认失败');
@@ -2794,12 +2849,13 @@
 
         function inferActiveStepIndex(state = {}) {
             const outputs = state.agent_outputs || {};
-            const message = `${state.message || ''} ${state.error || ''}`;
+            const statusMessage = String(state.message || '');
+            const diagnosticMessage = `${statusMessage} ${state.error || ''}`;
             if (
                 state.step === 'step_1_analyze'
                 && !outputs.rhythm_rewrite_director
-                && /节奏总控|rhythm/i.test(message)
-                && !/场景分析|scene_analyst/i.test(message)
+                && /节奏总控|rhythm/i.test(statusMessage)
+                && !/场景分析|scene_analyst/i.test(statusMessage)
             ) {
                 return 2;
             }
@@ -2807,14 +2863,23 @@
             const stepIdx = STEP_KEY_MAP[state.step];
             if (stepIdx !== undefined) return stepIdx;
 
-            if (/质检|quality|inspect/i.test(message)) return 7;
-            if (/Seedance|编译|Prompt|compile/i.test(message)) return 6;
-            if (/分镜流程图|storyboard/i.test(message)) return 5;
-            if (/镜头导演|动作调度|守门|shot_director|blocking|layout|guard/i.test(message)) return 4;
-            if (/结构规划|拆片|story_planner|plan/i.test(message)) return 3;
-            if (/场景预分析|场景分析|scene_analyst/i.test(message)) return 0;
-            if (/节奏总控|rhythm/i.test(message)) return 2;
-            if (/剧情增强|director_showrunner|enhance/i.test(message)) return 1;
+            if (/quality_inspector/i.test(diagnosticMessage)) return 7;
+            if (/prompt_compiler/i.test(diagnosticMessage)) return 6;
+            if (/storyboard_designer/i.test(diagnosticMessage)) return 5;
+            if (/shot_director/i.test(diagnosticMessage)) return 4;
+            if (/story_planner/i.test(diagnosticMessage)) return 3;
+            if (/rhythm_rewrite_director/i.test(diagnosticMessage)) return 2;
+            if (/director_showrunner/i.test(diagnosticMessage)) return 1;
+            if (/scene_analyst/i.test(diagnosticMessage)) return 0;
+
+            if (/质检|quality|inspect/i.test(statusMessage)) return 7;
+            if (/Seedance|编译|Prompt|compile/i.test(statusMessage)) return 6;
+            if (/分镜流程图|storyboard/i.test(statusMessage)) return 5;
+            if (/镜头导演|动作调度|守门|shot_director|blocking|layout|guard/i.test(statusMessage)) return 4;
+            if (/结构规划|拆片|story_planner|plan/i.test(statusMessage)) return 3;
+            if (/场景预分析|场景分析|scene_analyst/i.test(statusMessage)) return 0;
+            if (/节奏总控|rhythm/i.test(statusMessage)) return 2;
+            if (/剧情增强|director_showrunner|enhance/i.test(statusMessage)) return 1;
 
             if (hasQualityOutput(outputs)) return 7;
             if (hasCompiledPrompt(outputs, state)) return 6;

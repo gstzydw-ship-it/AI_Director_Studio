@@ -27,19 +27,32 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
     )
     monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
 
+    captured: dict[str, str] = {}
+
     def fake_call_llm(system_prompt, user_prompt, **kwargs):
+        if kwargs["agent_name"] == "director_showrunner_logic_reviewer":
+            captured["review_system"] = system_prompt
+            captured["review_user"] = user_prompt
+            return (
+                "增强版剧本: |\n"
+                "  A rushes into the room.\n"
+                "  A: Hello.\n"
+                "逻辑审查:\n"
+                "  - 未发现硬逻辑错误\n"
+                "增强依据:\n"
+                "  - 原文锚点: A enters the room.\n"
+                "    增强方式: 将进入改成急匆匆进入\n"
+                "    权限级别: L1_动作层增强\n"
+                "    是否改动主线: 否\n"
+                "主线保护:\n"
+                "  - 人物和台词不变\n"
+                "节奏总控交接:\n"
+                "  - 入口动作需要起速\n"
+                "需用户确认: 无\n"
+            )
         assert kwargs["agent_name"] == "director_showrunner"
-        assert "剧情冲突增强导演" in system_prompt
-        assert "必须输出的 YAML 字段" in user_prompt
-        assert "增强版剧本" in user_prompt
-        assert "不得新增台词" in user_prompt
-        assert "禁止输出状态合同" in system_prompt
-        assert "手机/电话尤其要谨慎" in system_prompt
-        assert "每两句原台词之间最多补 1-2 个动作节拍" in user_prompt
-        assert "通话结束后必须写清手机去向" in system_prompt
-        assert "不要写“状态合同/入场状态/出场状态/道具状态变化/禁止连续性/特写/音效”" in user_prompt
-        assert "【场景预分析约束】" in user_prompt
-        assert "门在左侧，乔熙站在床边" in user_prompt
+        captured["primary_system"] = system_prompt
+        captured["primary_user"] = user_prompt
         return (
             "增强版剧本: |\n"
             "  A rushes into the room.\n"
@@ -62,7 +75,7 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
         {
             "script": "A enters the room.",
             "original_script": "A enters the room.",
-            "scene_context_brief": "人物占位: 乔熙和小豆丁\n站位姿势: 门在左侧，乔熙站在床边",
+            "scene_context_brief": "增强约束: 门在左侧，乔熙站在床边",
             "aspect_ratio": "9:16",
             "agent_outputs": {},
             "knowledge_metadata": {},
@@ -73,10 +86,99 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
     assert result["script"].startswith("A rushes into the room.")
     assert result["enhanced_script"] == result["script"]
     assert result["original_script"] == "A enters the room."
+    assert "剧情冲突增强导演" in captured["primary_system"]
+    assert "必须输出的 YAML 字段" in captured["primary_user"]
+    assert "增强版剧本" in captured["primary_user"]
+    assert "不得新增台词" in captured["primary_user"]
+    assert "禁止输出状态合同" in captured["primary_system"]
+    assert "手机/电话尤其要谨慎" in captured["primary_system"]
+    assert "每两句原台词之间最多补 1-2 个动作节拍" in captured["primary_user"]
+    assert "通话结束后必须写清手机去向" in captured["primary_system"]
+    assert "不要写“状态合同/入场状态/出场状态/道具状态变化/禁止连续性/特写/音效”" in captured["primary_user"]
+    assert "【场景预分析约束】" in captured["primary_user"]
+    assert "门在左侧，乔熙站在床边" in captured["primary_user"]
+    assert "辩论审查清单" in captured["review_user"]
+    assert "施事逻辑" in captured["review_user"]
     assert "增强版剧本" in result["agent_outputs"]["director_showrunner"]
     assert "增强版剧本" not in result["director_brief"]
     assert "增强依据" in result["director_brief"]
     assert "节奏总控交接" in result["director_brief"]
+
+
+def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch):
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    calls: list[str] = []
+
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
+        agent_name = kwargs["agent_name"]
+        calls.append(agent_name)
+        if agent_name == "director_showrunner":
+            assert "输出前必须进行逻辑审查" in system_prompt
+            assert "施事是否真实可动" in user_prompt
+            return (
+                "增强版剧本: |\n"
+                "  乔熙压住小豆丁乱动的衣角。\n"
+                "增强依据:\n"
+                "  - 原文锚点: 小豆丁扭来扭去。\n"
+                "    增强方式: 用衣角乱动强化动作。\n"
+                "    权限级别: L1 动作层增强\n"
+                "    是否改动主线: 否\n"
+                "主线保护:\n"
+                "  - 母女关系不变\n"
+                "节奏总控交接:\n"
+                "  - 晨间节奏快\n"
+                "需用户确认: 无\n"
+            )
+        assert agent_name == "director_showrunner_logic_reviewer"
+        assert "衣角、文件、咖啡杯、照片等无生命物不能像有意志一样" in user_prompt
+        return (
+            "增强版剧本: |\n"
+            "  小豆丁坐在沙发边扭动，衣摆被她攥皱。乔熙按住她的手，继续给她扣衣服。\n"
+            "逻辑审查:\n"
+            "  - 问题: 衣角不能主动乱动。\n"
+            "    判断: 施事错误。\n"
+            "    修正方式: 改为小豆丁身体和手在动。\n"
+            "增强依据:\n"
+            "  - 原文锚点: 小豆丁扭来扭去。\n"
+            "    增强方式: 改成孩子扭动和攥皱衣摆的可执行动作。\n"
+            "    权限级别: L1 动作层增强\n"
+            "    是否改动主线: 否\n"
+            "主线保护:\n"
+            "  - 母女关系不变\n"
+            "节奏总控交接:\n"
+            "  - 晨间节奏快\n"
+            "需用户确认: 无\n"
+        )
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+
+    result = pci.director_showrunner_node(
+        {
+            "script": "小豆丁扭来扭去。",
+            "original_script": "小豆丁扭来扭去。",
+            "scene_context_brief": "",
+            "aspect_ratio": "9:16",
+            "agent_outputs": {},
+            "knowledge_metadata": {},
+            "speed_mode": False,
+        }
+    )
+
+    assert calls == ["director_showrunner", "director_showrunner_logic_reviewer"]
+    assert "衣摆被她攥皱" in result["enhanced_script"]
+    assert "衣角不能主动乱动" in result["director_brief"]
+    assert result["knowledge_metadata"]["director_showrunner"]["runtime"]["logic_review"]["status"] == "reviewed"
 
 
 def test_review_board_accepts_primary_output(monkeypatch):

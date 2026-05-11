@@ -1010,7 +1010,8 @@ class DirectorStudioApp(ctk.CTk if ctk else object):
         headers = {"Accept": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        response = requests.get(url, headers=headers, timeout=25, verify=False)
+        verify_tls = os.environ.get("DIRECTOR_DISABLE_TLS_VERIFY") != "1"
+        response = requests.get(url, headers=headers, timeout=25, verify=verify_tls)
         response.raise_for_status()
         data = response.json()
         rows = data.get("data", data if isinstance(data, list) else [])

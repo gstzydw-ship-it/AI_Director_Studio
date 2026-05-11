@@ -50,6 +50,11 @@ AGENT_CONFIG_PARENTS = {
 }
 DEFAULT_LLM_MODEL = "gpt-5.4"
 
+_BODY_MECHANICS_ACTION_RE = re.compile(
+    r"进入|走进|冲入|冲向|穿过|越过|进电梯|进门|出门|碰撞|撞上|扶住|松开|擦身而过|过阈值|转身|离开|"
+    r"拿起|放下|递给|交给|推开|拉开|关上|打开|下车|上车|起身|坐下|后退|让出|站到|移动|行走|奔跑"
+)
+
 
 @dataclass(frozen=True)
 class LLMSettings:
@@ -4518,6 +4523,27 @@ def _shot_director_blocking_rule_block(aspect_ratio: str) -> str:
     )
 
 
+def _body_mechanics_contract_rules() -> str:
+    return (
+        "[Body Mechanics Contract]\n"
+        "1. When a shot contains body contact, movement path, entering/exiting, collision, handoff, or threshold crossing, keep the full body path readable.\n"
+        "2. Do not carry body mechanics with face-only, eye-only, hand-only, or prop-only closeups unless they are short sub_shots attached to a readable parent shot.\n"
+        "3. Preserve start point, path, contact point, and end state in action and state_delta fields.\n"
+        "4. Keep camera placement on a safe axis side and include companion_visibility when another character's position matters.\n"
+    )
+
+
+def _run_shot_director_review_board(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], str]:
+    """Lazy wrapper for the split shot_director review board.
+
+    Keep this import inside the function so legacy imports do not create a
+    story_planner -> legacy_impl -> shot_director_impl -> story_planner cycle.
+    """
+    from . import shot_director_impl
+
+    return shot_director_impl._run_shot_director_review_board(*args, **kwargs)
+
+
 def _shot_director_layout_rule_block(aspect_ratio: str) -> str:
     return (
         "[Layout Scope]\n"
@@ -6182,21 +6208,21 @@ from .rhythm_rewrite_impl import (  # noqa: E402
     _validate_rhythm_structure_lock,
     _rhythm_insert_continuity_rules,
     _validate_rhythm_insert_continuity,
-    rhythm_rewrite_director_node,
+    rhythm_rewrite_director_node,  # noqa: F811
 )
 
 
 # --- planning_context shim: re-export from planning_context_impl for backward compatibility ---
 from .planning_context_impl import (  # noqa: E402
-    director_showrunner_node,
-    scene_analyst_node,
+    director_showrunner_node,  # noqa: F811
+    scene_analyst_node,  # noqa: F811
 )
 
 
 # --- segment_flow shim: re-export from segment_flow_impl for backward compatibility ---
 from .segment_flow_impl import (  # noqa: E402
-    route_after_segment,
-    segment_complete_node,
-    wait_for_segment_request_node,
+    route_after_segment,  # noqa: F811
+    segment_complete_node,  # noqa: F811
+    wait_for_segment_request_node,  # noqa: F811
 )
 

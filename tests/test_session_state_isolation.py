@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import asyncio
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 
@@ -165,6 +166,62 @@ def test_status_refresh_uses_disk_progress_for_live_task(tmp_path, monkeypatch):
     assert task_state["agent_outputs"]["shot_director_blocking"] == "blocking yaml"
 
 
+def test_status_refresh_restores_idle_agent_review_payload(tmp_path, monkeypatch):
+    import ui.app as web_app
+    from agents import director_graph
+    from agents.request_context import request_scope
+
+    monkeypatch.setattr(director_graph, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(web_app, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(web_app, "_has_live_task", lambda _session_id: False)
+
+    session_id = "web_idle_review"
+    task_state = web_app._task_state(session_id)
+    task_state.clear()
+
+    with request_scope(session_id=session_id):
+        director_graph.save_state(
+            {
+                "status": "idle",
+                "step": "",
+                "message": "当前俯视图没有可保存的人物标点或活动轨迹。",
+                "review_mode": "agent_output",
+                "review_agent": "scene_analyst",
+                "review_title": "场景预分析",
+                "review_output": "scene ok",
+                "agent_outputs": {"scene_analyst": "scene ok"},
+            }
+        )
+
+    web_app._refresh_task_state_from_disk(session_id)
+
+    assert task_state["status"] == "waiting_for_user_input"
+    assert task_state["review_agent"] == "scene_analyst"
+    assert "审核/修改后继续" in task_state["message"]
+    with request_scope(session_id=session_id):
+        assert director_graph.load_state()["status"] == "waiting_for_user_input"
+
+
+def test_scene_review_handoff_marks_director_showrunner_active():
+    from agents.director_graph_package.runners import _apply_human_review_edit
+
+    state = {
+        "status": "waiting_for_user_input",
+        "step": "step_0_scene",
+        "agent_outputs": {},
+        "review_mode": "agent_output",
+        "review_agent": "scene_analyst",
+        "review_title": "场景预分析",
+        "review_output": "scene ok",
+    }
+
+    updated = _apply_human_review_edit(state, "scene_analyst", "scene ok")
+
+    assert updated["status"] == "running_phase_1"
+    assert updated["step"] == "step_0_enhance"
+    assert updated["agent_outputs"]["scene_analyst"] == "scene ok"
+
+
 def test_ui_pipeline_starts_with_story_enhancement_step(tmp_path, monkeypatch):
     import ui.app as web_app
 
@@ -209,3 +266,88 @@ def test_ui_pipeline_starts_with_story_enhancement_step(tmp_path, monkeypatch):
     assert "场景预分析" in captured["message_before_graph"]
     assert web_app._STEP_LABELS["场景分析师"][0] == "step_0_scene"
     assert web_app._STEP_LABELS["剧情增强导演"][0] == "step_0_enhance"
+
+
+def test_approve_agent_output_failure_returns_json_and_restores_review(tmp_path, monkeypatch):
+    import ui.app as web_app
+
+    session_id = "web_approve_failure"
+    task_state = web_app._task_state(session_id)
+    task_state.clear()
+    task_state.update(
+        {
+            "status": "waiting_for_user_input",
+            "step": "step_0_scene",
+            "message": "场景预分析已完成，请审核/修改后继续。",
+            "review_mode": "agent_output",
+            "review_agent": "scene_analyst",
+            "review_title": "场景预分析",
+            "review_output": "scene ok",
+            "agent_outputs": {"scene_analyst": "scene ok"},
+        }
+    )
+
+    monkeypatch.setattr(web_app, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(web_app, "_refresh_task_state_from_disk", lambda _session_id: None)
+    monkeypatch.setattr(web_app, "_has_live_task", lambda _session_id: False)
+
+    def fail_register(_session_id, _thread):
+        raise RuntimeError("thread registry unavailable")
+
+    monkeypatch.setattr(web_app, "_register_task_thread", fail_register)
+
+    response = asyncio.run(
+        web_app.api_approve_agent_output(
+            session_id=session_id,
+            agent_name="scene_analyst",
+            edited_output="edited scene",
+        )
+    )
+    payload = json.loads(response.body.decode("utf-8"))
+
+    assert response.status_code == 500
+    assert payload["success"] is False
+    assert "thread registry unavailable" in payload["error"]
+    assert task_state["status"] == "waiting_for_user_input"
+    assert task_state["review_mode"] == "agent_output"
+    assert task_state["review_agent"] == "scene_analyst"
+    assert task_state["review_output"] == "edited scene"
+
+
+def test_resume_after_review_failure_marks_failing_downstream_step(tmp_path, monkeypatch):
+    import ui.app as web_app
+
+    session_id = "web_rhythm_failure"
+    task_state = web_app._task_state(session_id)
+    task_state.clear()
+    task_state.update(
+        {
+            "status": "running_phase_1",
+            "step": "step_0_rhythm",
+            "message": "已确认 剧情增强 输出，正在交给下一个 Agent...",
+            "review_mode": "agent_output",
+            "review_agent": "director_showrunner",
+            "review_title": "剧情增强",
+            "agent_outputs": {"director_showrunner": "enhanced"},
+        }
+    )
+
+    monkeypatch.setattr(web_app, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(web_app, "_merge_latest_disk_state_for_session", lambda _session_id, _state: None)
+
+    def fail_resume(_edited_output, _review_agent):
+        raise RuntimeError("LLM 接口返回 HTTP 504（agent=rhythm_rewrite_director）")
+
+    monkeypatch.setattr(web_app, "resume_after_human_review", fail_resume)
+    web_app.active_task_generations[session_id] = 1
+
+    web_app._resume_after_human_review_in_thread(
+        "enhanced",
+        "director_showrunner",
+        task_generation=1,
+        session_id=session_id,
+    )
+
+    assert task_state["status"] == "error"
+    assert task_state["step"] == "step_0_rhythm"
+    assert "rhythm_rewrite_director" in task_state["message"]

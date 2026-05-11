@@ -503,6 +503,18 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
     if disk_state:
         has_live_task = _has_live_task(session_id)
         live_status_fields = {}
+        if (
+            not has_live_task
+            and disk_state.get("status") in {"idle", ""}
+            and disk_state.get("review_mode") == "agent_output"
+            and disk_state.get("review_agent")
+            and disk_state.get("review_output") is not None
+        ):
+            title = disk_state.get("review_title") or disk_state.get("review_agent") or "Agent 输出"
+            disk_state["status"] = "waiting_for_user_input"
+            disk_state["message"] = f"{title}已完成，请审核/修改后继续。"
+            disk_state["error"] = ""
+            _save_task_state_for_session(session_id, disk_state)
         if has_live_task and task_state.get("status") in RUNNING_STATUSES:
             # LangGraph persists phase progress directly to disk while the worker is
             # running. Keep disk step/message authoritative so /api/status reflects
@@ -1714,9 +1726,25 @@ def _resume_after_human_review_in_thread(
             return
         _merge_latest_disk_state_for_session(session_id, task_state)
         task_state["status"] = "error"
-        task_state["step"] = "error"
         task_state["message"] = f"人工审核继续失败: {str(e)}"
         task_state["error"] = traceback.format_exc()
+        failure_text = f"{str(e)}\n{task_state['error']}"
+        failed_step = {
+            "scene_analyst": "step_0_scene",
+            "director_showrunner": "step_0_enhance",
+            "rhythm_rewrite_director": "step_0_rhythm",
+            "story_planner": "step_2_plan",
+            "shot_director": "step_3_direct",
+            "storyboard_designer": "step_4_storyboard",
+            "prompt_compiler": "step_5_compile",
+            "quality_inspector": "step_6_inspect",
+        }
+        for agent_name, step_name in failed_step.items():
+            if agent_name in failure_text:
+                task_state["step"] = step_name
+                break
+        else:
+            task_state["step"] = "error"
         _save_task_state_for_session(session_id, task_state)
         _append_task_log(
             session_id,
@@ -2138,13 +2166,14 @@ async def api_approve_agent_output(
     has_review_payload = bool(task_state.get("review_agent") and task_state.get("review_output") is not None)
     is_agent_review = task_state.get("review_mode") == "agent_output" or has_review_payload
     can_resume_failed_review = task_state.get("status") == "error" and is_agent_review
-    if task_state.get("status") != "waiting_for_user_input" and not can_resume_failed_review:
+    can_resume_idle_review = task_state.get("status") in {"idle", ""} and is_agent_review
+    if task_state.get("status") != "waiting_for_user_input" and not can_resume_failed_review and not can_resume_idle_review:
         _append_task_log(session_id, "approve_agent_output_rejected", reason="not_waiting_for_review")
         return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
     if not is_agent_review:
         _append_task_log(session_id, "approve_agent_output_rejected", reason="not_agent_review")
         return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
-    if can_resume_failed_review:
+    if can_resume_failed_review or can_resume_idle_review:
         task_state["status"] = "waiting_for_user_input"
         task_state["step"] = task_state.get("step") if task_state.get("step") != "error" else ""
         task_state["error"] = ""
@@ -2160,32 +2189,140 @@ async def api_approve_agent_output(
         task_state["review_mode"] = "agent_output"
         _save_task_state_for_session(session_id, task_state)
 
-    task_generation = _bump_task_generation(session_id)
-    now = _now_iso()
-    task_state["status"] = "running_phase_1"
-    if review_agent in {"prompt_compiler", "quality_inspector"}:
-        task_state["status"] = "running_phase_2"
-    task_state["message"] = "已收到修改内容，正在继续流水线..."
-    task_state["error"] = ""
-    task_state["started_at"] = now
-    _touch_task_progress(task_state, now)
-    _save_task_state_for_session(session_id, task_state)
-    _append_task_log(
-        session_id,
-        "approve_agent_output_accepted",
-        review_agent=review_agent,
-        task_generation=task_generation,
-        **_state_log_summary(task_state),
+    restore_fields = {
+        "status": task_state.get("status"),
+        "step": task_state.get("step"),
+        "message": task_state.get("message"),
+        "error": task_state.get("error"),
+        "started_at": task_state.get("started_at"),
+        "review_mode": task_state.get("review_mode"),
+        "review_agent": task_state.get("review_agent"),
+        "review_title": task_state.get("review_title"),
+        "review_output": task_state.get("review_output"),
+    }
+    try:
+        task_generation = _bump_task_generation(session_id)
+        now = _now_iso()
+        task_state["status"] = "running_phase_1"
+        if review_agent in {"prompt_compiler", "quality_inspector"}:
+            task_state["status"] = "running_phase_2"
+        task_state["message"] = "已收到修改内容，正在继续流水线..."
+        task_state["error"] = ""
+        task_state["started_at"] = now
+        _touch_task_progress(task_state, now)
+        _append_task_log(
+            session_id,
+            "approve_agent_output_accepted",
+            approved_agent=review_agent,
+            task_generation=task_generation,
+            **_state_log_summary(task_state),
+        )
+
+        thread = threading.Thread(
+            target=_resume_after_human_review_in_thread,
+            args=(edited_output, review_agent, task_generation, session_id),
+            daemon=True,
+        )
+        _register_task_thread(session_id, thread)
+        thread.start()
+        return JSONResponse({"success": True, "message": "已确认，正在继续执行。"})
+    except Exception as exc:
+        task_state.update({key: value for key, value in restore_fields.items() if value is not None})
+        task_state["status"] = "waiting_for_user_input"
+        task_state["review_mode"] = "agent_output"
+        task_state["review_agent"] = review_agent
+        task_state["review_output"] = edited_output
+        task_state["message"] = f"确认失败: {type(exc).__name__}: {exc}"
+        task_state["error"] = traceback.format_exc()
+        _touch_task_progress(task_state)
+        _save_task_state_for_session(session_id, task_state)
+        _append_task_log(
+            session_id,
+            "approve_agent_output_failed_before_thread",
+            failed_agent=review_agent,
+            error=str(exc),
+            traceback=task_state["error"],
+            **_state_log_summary(task_state),
+        )
+        return JSONResponse(
+            {"success": False, "error": task_state["message"]},
+            status_code=500,
+        )
+
+
+@app.post("/api/rerun_phase1")
+async def api_rerun_phase1(
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    script: str = Form(""),
+    agent_name: str = Form(""),
+):
+    """Restart the macro planning flow from saved inputs.
+
+    This is intentionally coarse-grained: scene analysis, story enhancement,
+    rhythm rewrite, and story planning are tightly coupled, so the safe rerun
+    path is to restart Phase 1 with the current script and saved references.
+    """
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    disk_state = load_state() or {}
+    source_script = (
+        script.strip()
+        or str(task_state.get("input_script") or "").strip()
+        or str(disk_state.get("script") or "").strip()
+        or str(disk_state.get("original_script") or "").strip()
     )
+    if not source_script:
+        return JSONResponse({"success": False, "error": "缺少剧本内容，无法重跑规划流程。"})
+
+    aspect_ratio = (
+        str(task_state.get("input_aspect_ratio") or "").strip()
+        or str(disk_state.get("aspect_ratio") or "").strip()
+        or "9:16"
+    )
+    reference_images = str(disk_state.get("reference_images") or task_state.get("reference_images") or "")
+    reference_image_b64s = list(disk_state.get("reference_image_b64s") or task_state.get("reference_image_b64s") or [])
+    reference_image_manifest = list(
+        disk_state.get("reference_image_manifest")
+        or task_state.get("reference_image_manifest")
+        or []
+    )
+    speed_mode = bool(disk_state.get("speed_mode") or task_state.get("speed_mode"))
+
+    task_generation = _bump_task_generation(session_id)
+    task_state["input_script"] = source_script
+    task_state["input_aspect_ratio"] = aspect_ratio
+    task_state["status"] = "running_phase_1"
+    task_state["step"] = "step_0_scene"
+    task_state["message"] = (
+        f"正在从场景预分析重新运行规划流程"
+        f"{f'（由 {agent_name} 重跑触发）' if agent_name else ''}..."
+    )
+    task_state["error"] = ""
+    task_state["started_at"] = _now_iso()
+    _touch_task_progress(task_state, task_state["started_at"])
+    _save_task_state_for_session(session_id, task_state)
 
     thread = threading.Thread(
-        target=_resume_after_human_review_in_thread,
-        args=(edited_output, review_agent, task_generation, session_id),
+        target=_run_pipeline_in_thread,
+        args=(
+            source_script,
+            aspect_ratio,
+            reference_images,
+            reference_image_b64s,
+            reference_image_manifest,
+            speed_mode,
+            task_generation,
+            session_id,
+        ),
         daemon=True,
     )
     _register_task_thread(session_id, thread)
     thread.start()
-    return JSONResponse({"success": True, "message": "已确认，正在继续执行。"})
+    return JSONResponse({"success": True, "message": "已从场景预分析重新启动规划流程。"})
 
 
 @app.post("/api/retry_shot_director")
@@ -2257,8 +2394,10 @@ async def api_retry_shot_director(
         
         # 获取其他必要的输入参数
         aspect_ratio = task_state.get("input_aspect_ratio", "9:16")
-        reference_images = ""
-        ref_manifest = task_state.get("input_ref_manifest", [])
+        reference_images = str(disk_state.get("reference_images") or task_state.get("reference_images") or "")
+        reference_image_b64s = list(disk_state.get("reference_image_b64s") or task_state.get("reference_image_b64s") or [])
+        ref_manifest = list(disk_state.get("reference_image_manifest") or task_state.get("reference_image_manifest") or [])
+        speed_mode = bool(task_state.get("speed_mode"))
         
         thread = threading.Thread(
             target=_run_pipeline_in_thread,
@@ -2266,11 +2405,12 @@ async def api_retry_shot_director(
                 script.strip(),
                 aspect_ratio,
                 reference_images,
-                [],  # reference_image_b64s
+                reference_image_b64s,
+                ref_manifest,
+                speed_mode,
                 task_generation,
                 session_id,
             ),
-            kwargs={"reference_image_manifest": ref_manifest},
             daemon=True,
         )
         _register_task_thread(session_id, thread)
