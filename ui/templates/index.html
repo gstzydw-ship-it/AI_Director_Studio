@@ -3618,10 +3618,16 @@
                 `;
             }).join('');
             const textHtml = text
-                ? renderReadableAgentOutput('scene_analyst', text)
+                ? renderReadableAgentOutput('scene_analyst', text, { hideRaw: true })
                 : '<div class="placeholder-text">场景预分析文字尚未生成；如果图片也为空，请等待流水线完成或重跑场景参考图。</div>';
+            const compactTextHtml = text && imageHtml
+                ? `<details class="scene-analysis-text-details">
+                       <summary>查看场景分析文本</summary>
+                       ${textHtml}
+                   </details>`
+                : textHtml;
             setTimeout(refreshSceneLayoutAnnotations, 0);
-            return sceneActionHtml + imageHtml + textHtml;
+            return sceneActionHtml + imageHtml + compactTextHtml;
         }
 
         async function regenerateSceneCard(sceneNumber, triggerButton = null) {

@@ -1509,6 +1509,25 @@ select option {
     flex: 0 0 auto;
 }
 
+.scene-analysis-text-details {
+    margin-top: 12px;
+    border: 1px solid rgba(76, 201, 216, 0.22);
+    border-radius: 8px;
+    background: rgba(76, 201, 216, 0.045);
+}
+
+.scene-analysis-text-details summary {
+    cursor: pointer;
+    padding: 10px 12px;
+    color: #b6f4fb;
+    font-size: 13px;
+    font-weight: 700;
+}
+
+.scene-analysis-text-details .readable-output {
+    padding: 0 12px 12px;
+}
+
 .scene-reference-set {
     margin-bottom: 14px;
 }
@@ -2172,7 +2191,11 @@ input:focus {
 }
 
 .result-card {
-    min-height: calc(100vh - 176px);
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    height: calc(100vh - 176px);
+    height: calc(100dvh - 176px);
 }
 
 .result-card-header {
@@ -2194,13 +2217,16 @@ input:focus {
 }
 
 .result-card .result-card-body {
+    flex: 1 1 auto;
+    min-height: 0;
     padding: 0;
 }
 
 .agent-result-shell {
     display: grid;
     grid-template-columns: minmax(180px, 232px) minmax(0, 1fr);
-    min-height: calc(100vh - 238px);
+    height: 100%;
+    min-height: 0;
 }
 
 .agent-result-shell.is-empty {
@@ -2216,7 +2242,8 @@ input:focus {
     border-right: 1px solid var(--border-color);
     overflow-x: hidden;
     overflow-y: auto;
-    max-height: calc(100vh - 238px);
+    min-height: 0;
+    max-height: none;
 }
 
 .result-tab {
@@ -2269,6 +2296,7 @@ input:focus {
 .agent-result-panel {
     display: flex;
     min-width: 0;
+    min-height: 0;
     flex-direction: column;
 }
 
@@ -2342,9 +2370,9 @@ input:focus {
 }
 
 .result-output {
-    flex: 1;
-    min-height: clamp(560px, 68vh, 780px);
-    max-height: calc(100vh - 316px);
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
     padding: 14px 16px 16px;
     overflow-y: auto;
     overscroll-behavior: contain;
@@ -2544,11 +2572,13 @@ input:focus {
     }
 
     .result-card {
-        min-height: auto;
+        min-height: 0;
+        height: calc(100vh - 176px);
+        height: calc(100dvh - 176px);
     }
 
     .result-output {
-        max-height: 720px;
+        max-height: none;
     }
 }
 
@@ -2617,9 +2647,15 @@ input:focus {
         grid-template-columns: repeat(4, minmax(104px, 1fr));
     }
 
+    .result-card {
+        height: auto;
+        min-height: 0;
+    }
+
     .agent-result-shell {
         grid-template-columns: 1fr;
-        min-height: auto;
+        height: auto;
+        min-height: 0;
     }
 
     .result-tabs.agent-result-rail {
