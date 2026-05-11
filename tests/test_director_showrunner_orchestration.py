@@ -34,11 +34,30 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
             captured["review_system"] = system_prompt
             captured["review_user"] = user_prompt
             return (
+                "审查结论: PASS\n"
                 "增强版剧本: |\n"
                 "  A rushes into the room.\n"
                 "  A: Hello.\n"
+                "多维审查:\n"
+                "  - 角色: 物理逻辑审查员\n"
+                "    通过: true\n"
+                "    发现: 未发现硬逻辑错误\n"
+                "    处理: 保留\n"
+                "硬错误: 无\n"
+                "评分:\n"
+                "  施事逻辑: 5\n"
+                "  道具连续性: 5\n"
+                "  人物动机: 5\n"
+                "  空间调度: 5\n"
+                "  主线保护: 5\n"
+                "  可拍性: 5\n"
                 "逻辑审查:\n"
                 "  - 未发现硬逻辑错误\n"
+                "最终处理:\n"
+                "  是否返修: false\n"
+                "  返修轮次: 1\n"
+                "  采纳意见: []\n"
+                "  剩余风险: 无\n"
                 "增强依据:\n"
                 "  - 原文锚点: A enters the room.\n"
                 "    增强方式: 将进入改成急匆匆进入\n"
@@ -97,8 +116,9 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
     assert "不要写“状态合同/入场状态/出场状态/道具状态变化/禁止连续性/特写/音效”" in captured["primary_user"]
     assert "【场景预分析约束】" in captured["primary_user"]
     assert "门在左侧，乔熙站在床边" in captured["primary_user"]
-    assert "辩论审查清单" in captured["review_user"]
+    assert "严格审查清单" in captured["review_user"]
     assert "施事逻辑" in captured["review_user"]
+    assert "多维审查" in captured["review_user"]
     assert "增强版剧本" in result["agent_outputs"]["director_showrunner"]
     assert "增强版剧本" not in result["director_brief"]
     assert "增强依据" in result["director_brief"]
@@ -143,12 +163,38 @@ def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch
         assert agent_name == "director_showrunner_logic_reviewer"
         assert "衣角、文件、咖啡杯、照片等无生命物不能像有意志一样" in user_prompt
         return (
+            "审查结论: PASS\n"
             "增强版剧本: |\n"
             "  小豆丁坐在沙发边扭动，衣摆被她攥皱。乔熙按住她的手，继续给她扣衣服。\n"
+            "多维审查:\n"
+            "  - 角色: 物理逻辑审查员\n"
+            "    通过: true\n"
+            "    发现: 衣角施事错误已修复\n"
+            "    处理: 采纳修复\n"
+            "硬错误:\n"
+            "  - 类型: 施事错误\n"
+            "    原句: 乔熙压住小豆丁乱动的衣角。\n"
+            "    问题: 衣角不能主动乱动。\n"
+            "    严重级别: P0\n"
+            "    必须修复: true\n"
+            "    修复结果: 改为小豆丁身体和手在动。\n"
+            "评分:\n"
+            "  施事逻辑: 5\n"
+            "  道具连续性: 5\n"
+            "  人物动机: 5\n"
+            "  空间调度: 5\n"
+            "  主线保护: 5\n"
+            "  可拍性: 5\n"
             "逻辑审查:\n"
             "  - 问题: 衣角不能主动乱动。\n"
             "    判断: 施事错误。\n"
             "    修正方式: 改为小豆丁身体和手在动。\n"
+            "最终处理:\n"
+            "  是否返修: true\n"
+            "  返修轮次: 1\n"
+            "  采纳意见:\n"
+            "    - 把衣角乱动改为孩子身体和手在动\n"
+            "  剩余风险: 无\n"
             "增强依据:\n"
             "  - 原文锚点: 小豆丁扭来扭去。\n"
             "    增强方式: 改成孩子扭动和攥皱衣摆的可执行动作。\n"
@@ -179,6 +225,200 @@ def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch
     assert "衣摆被她攥皱" in result["enhanced_script"]
     assert "衣角不能主动乱动" in result["director_brief"]
     assert result["knowledge_metadata"]["director_showrunner"]["runtime"]["logic_review"]["status"] == "reviewed"
+
+
+def test_director_showrunner_strict_review_runs_second_round_when_repair_required(monkeypatch):
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    review_rounds: list[str] = []
+
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
+        agent_name = kwargs["agent_name"]
+        if agent_name == "director_showrunner":
+            return (
+                "增强版剧本: |\n"
+                "  秘书和主管们停下手里的工作，在门口排开。\n"
+                "增强依据: []\n"
+                "主线保护: []\n"
+                "节奏总控交接: []\n"
+                "需用户确认: 无\n"
+            )
+        assert agent_name == "director_showrunner_logic_reviewer"
+        review_rounds.append(user_prompt)
+        if len(review_rounds) == 1:
+            return (
+                "审查结论: PASS\n"
+                "增强版剧本: |\n"
+                "  秘书和主管们从玻璃主入口附近聚拢到台阶前，整理衣服和文件。\n"
+                "多维审查:\n"
+                "  - 角色: 场景调度审查员\n"
+                "    通过: false\n"
+                "    发现: 群体来源已修，但需要二次门禁确认\n"
+                "    处理: 返修后复审\n"
+                "硬错误:\n"
+                "  - 类型: 人物动机\n"
+                "    原句: 秘书和主管们停下手里的工作。\n"
+                "    问题: 迎接老板的人不应像在门口办公。\n"
+                "    严重级别: P1\n"
+                "    必须修复: true\n"
+                "    修复结果: 改为从入口附近聚拢。\n"
+                "评分:\n"
+                "  施事逻辑: 5\n"
+                "  道具连续性: 5\n"
+                "  人物动机: 3\n"
+                "  空间调度: 4\n"
+                "  主线保护: 5\n"
+                "  可拍性: 4\n"
+                "逻辑审查: []\n"
+                "最终处理:\n"
+                "  是否返修: true\n"
+                "  返修轮次: 1\n"
+                "  采纳意见: []\n"
+                "  剩余风险: 需要复审\n"
+                "增强依据: []\n"
+                "主线保护: []\n"
+                "节奏总控交接: []\n"
+                "需用户确认: 无\n"
+            )
+        return (
+            "审查结论: PASS\n"
+            "增强版剧本: |\n"
+            "  秘书和主管们从玻璃主入口附近聚拢到台阶前，整理衣服和文件，快速排成迎接队列。\n"
+            "多维审查:\n"
+            "  - 角色: 场景调度审查员\n"
+            "    通过: true\n"
+            "    发现: 群体调度合理\n"
+            "    处理: 通过\n"
+            "硬错误: 无\n"
+            "评分:\n"
+            "  施事逻辑: 5\n"
+            "  道具连续性: 5\n"
+            "  人物动机: 5\n"
+            "  空间调度: 5\n"
+            "  主线保护: 5\n"
+            "  可拍性: 5\n"
+            "逻辑审查: []\n"
+            "最终处理:\n"
+            "  是否返修: true\n"
+            "  返修轮次: 2\n"
+            "  采纳意见: []\n"
+            "  剩余风险: 无\n"
+            "增强依据: []\n"
+            "主线保护: []\n"
+            "节奏总控交接: []\n"
+            "需用户确认: 无\n"
+        )
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+
+    result = pci.director_showrunner_node(
+        {
+            "script": "秘书和主管们列队等候。",
+            "original_script": "秘书和主管们列队等候。",
+            "scene_context_brief": "",
+            "aspect_ratio": "9:16",
+            "agent_outputs": {},
+            "knowledge_metadata": {},
+            "speed_mode": False,
+        }
+    )
+
+    runtime = result["knowledge_metadata"]["director_showrunner"]["runtime"]["logic_review"]
+    assert len(review_rounds) == 2
+    assert runtime["verdict"] == "PASS"
+    assert [item["verdict"] for item in runtime["rounds"]] == ["REPAIR_REQUIRED", "PASS"]
+    assert runtime["rounds"][0]["reported_verdict"] == "PASS"
+    assert runtime["rounds"][0]["gate_reason"] == "score_below_4:人物动机"
+    assert "快速排成迎接队列" in result["enhanced_script"]
+
+
+def test_director_showrunner_blocks_unapproved_enhancement_after_max_rounds(monkeypatch):
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
+        agent_name = kwargs["agent_name"]
+        if agent_name == "director_showrunner":
+            return (
+                "增强版剧本: |\n"
+                "  乔熙压住小豆丁乱动的衣角。\n"
+                "增强依据: []\n"
+                "主线保护: []\n"
+                "节奏总控交接: []\n"
+                "需用户确认: 无\n"
+            )
+        return (
+            "审查结论: PASS\n"
+            "增强版剧本: |\n"
+            "  乔熙压住小豆丁乱动的衣角。\n"
+            "多维审查:\n"
+            "  - 角色: 物理逻辑审查员\n"
+            "    通过: false\n"
+            "    发现: 施事错误仍未修复\n"
+            "    处理: 需要阻断\n"
+            "硬错误:\n"
+            "  - 类型: 施事错误\n"
+            "    原句: 乔熙压住小豆丁乱动的衣角。\n"
+            "    问题: 衣角不能主动乱动。\n"
+            "    严重级别: P0\n"
+            "    必须修复: true\n"
+            "    修复结果: 未修复\n"
+            "评分:\n"
+            "  施事逻辑: 2\n"
+            "  道具连续性: 5\n"
+            "  人物动机: 5\n"
+            "  空间调度: 5\n"
+            "  主线保护: 5\n"
+            "  可拍性: 4\n"
+            "逻辑审查: []\n"
+            "最终处理:\n"
+            "  是否返修: true\n"
+            "  返修轮次: 1\n"
+            "  采纳意见: []\n"
+            "  剩余风险: 施事错误仍在\n"
+            "增强依据: []\n"
+            "主线保护: []\n"
+            "节奏总控交接: []\n"
+            "需用户确认: 施事错误两轮未修复\n"
+        )
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+
+    result = pci.director_showrunner_node(
+        {
+            "script": "小豆丁扭来扭去，不肯配合。",
+            "original_script": "小豆丁扭来扭去，不肯配合。",
+            "scene_context_brief": "",
+            "aspect_ratio": "9:16",
+            "agent_outputs": {},
+            "knowledge_metadata": {},
+            "speed_mode": False,
+        }
+    )
+
+    runtime = result["knowledge_metadata"]["director_showrunner"]["runtime"]
+    assert runtime["status"] == "blocked_original_script_kept"
+    assert runtime["logic_review"]["verdict"] == "BLOCKED"
+    assert result["enhanced_script"] == "小豆丁扭来扭去，不肯配合。"
 
 
 def test_review_board_accepts_primary_output(monkeypatch):

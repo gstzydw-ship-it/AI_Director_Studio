@@ -150,66 +150,155 @@ def _run_director_showrunner_logic_review(
     aspect_ratio: str,
     primary_output: str,
 ) -> tuple[str, dict[str, Any], str]:
-    """Run a second-pass logic debate before accepting story enhancement output."""
+    """Run strict multi-dimensional review before accepting story enhancement output."""
     started = time.perf_counter()
     primary_script = _extract_enhanced_script(primary_output, source_script)
     system_prompt = (
-        "你是剧情增强流程里的逻辑审查反方 agent。\n"
-        "你的任务不是重新发挥，而是和剧情增强导演的初稿进行辩论：先挑出动作施事、人物动机、道具占手、空间前置状态、群体调度、时间因果里的逻辑漏洞，"
-        "再只修正这些问题，输出一份可直接交给下游的最终 YAML。\n"
-        "如果初稿已经合理，可以保留；如果发现不合理动作，必须改成更符合现实和原剧情的动作。\n"
+        "你是剧情增强流程里的严格审查组与仲裁修复器。\n"
+        "你的任务不是重新发挥，而是对剧情增强导演的初稿进行多维审查、门禁判定和最小修复。\n"
+        "你必须同时扮演四个审查维度：\n"
+        "1. 物理逻辑审查员：检查施事、身体动作、道具占手、无生命物主动行为。\n"
+        "2. 剧情因果审查员：检查人物动机、信息流、情绪触发、主线保护。\n"
+        "3. 场景调度审查员：检查空间前置状态、群体来源、入场/离场、集合原因。\n"
+        "4. 制片可拍性审查员：检查演员能否执行、动作密度、是否镜头化、是否过度微动作。\n"
+        "最后由仲裁修复器合并意见，只修硬错误和明显可拍性问题，输出最终 YAML。\n"
+        "如果发现 P0/P1 硬错误，必须在最终增强版剧本里修掉；如果无法在不改主线的前提下修掉，审查结论写 BLOCKED 并放入需用户确认。\n"
         "禁止新增原剧本外人物、台词、关键道具、误会、反转或剧情结果；原台词必须原样保留。\n"
         "输出必须是完整 YAML，字段名使用中文。"
     )
-    user_prompt = (
-        "【原始剧本】\n"
-        f"{source_script}\n\n"
-        "【场景预分析约束】\n"
-        f"{scene_context or '无'}\n\n"
-        "【画幅】\n"
-        f"{aspect_ratio}\n\n"
-        "【剧情增强导演初稿】\n"
-        f"{primary_output}\n\n"
-        "【辩论审查清单】\n"
-        "1. 施事逻辑：动作发起者必须合理。衣角、文件、咖啡杯、照片等无生命物不能像有意志一样“乱动/躲/停住”；应改成角色身体、手、孩子、车、人群等在动。\n"
-        "2. 人物动机：角色正在做的事必须符合当下目标。例如迎接新老板的人群应从楼内或入口附近急促聚拢、整理仪表并列队；不要写成他们原本就在门口工作后停下手里的活。\n"
-        "3. 群体调度：秘书、主管、同事等群体动作要有合理来源、集合原因和参与者归属；如果苏小可属于人群，应保留她在人群中并让她靠近乔熙传递消息。\n"
-        "4. 道具占手：手机、咖啡、书包、照片、文件等必须写清被谁拿起、放下、滑落或收回，不能同时占用同一只手完成矛盾动作。\n"
-        "5. 空间与时间：动作不能越过场景约束，不写未经确认的路线、距离、方位；时间跳转和闪回回到现实必须有清楚落点。\n"
-        "6. 主线保护：只修逻辑与可拍性，不改变人物关系、公司易主、新老板到达、前夫揭示、孩子愿望等核心事实。\n\n"
-        "【必须输出的 YAML 字段】\n"
-        "增强版剧本: 使用 YAML 多行文本，输出审查后的完整可施工剧本。\n"
-        "逻辑审查: 列表；每条包含 问题 / 判断 / 修正方式。没有问题也要写“未发现硬逻辑错误”。\n"
-        "增强依据: 保留或修正初稿依据；每条包含 原文锚点 / 增强方式 / 权限级别 / 是否改动主线。\n"
-        "主线保护: 列出没有改变的核心剧情事实。\n"
-        "节奏总控交接: 给节奏总控导演的简短说明。\n"
-        "需用户确认: 只列 L3 剧情层新增想法；没有就写 无。\n"
-    )
-    try:
-        reviewed_output = call_llm(
-            system_prompt,
-            user_prompt,
-            agent_name="director_showrunner_logic_reviewer",
-            max_retries=1,
+    def _review_user_prompt(candidate_output: str, round_index: int) -> str:
+        return (
+            "【原始剧本】\n"
+            f"{source_script}\n\n"
+            "【场景预分析约束】\n"
+            f"{scene_context or '无'}\n\n"
+            "【画幅】\n"
+            f"{aspect_ratio}\n\n"
+            f"【待审查增强稿｜第 {round_index} 轮】\n"
+            f"{candidate_output}\n\n"
+            "【P0/P1 硬错误门禁】\n"
+            "P0 必须返修：无生命物主动行动；同一角色同一时间占手冲突；新增原文外台词/人物/关键道具；改变主线事实；空间前置状态明显不成立。\n"
+            "P1 必须返修：人物动机不符合当下目标；群体来源/集合原因不清；道具出现/去向不清；闪回/现实落点重复或矛盾；动作不可执行。\n"
+            "P2 建议优化：可拍性弱、动作略笼统、节奏略拖，但不影响主线和硬逻辑。\n\n"
+            "【严格审查清单】\n"
+            "1. 施事逻辑：衣角、文件、咖啡杯、照片等无生命物不能像有意志一样“乱动/躲/停住”；应改成角色身体、手、孩子、车、人群等在动。\n"
+            "2. 人物动机：角色正在做的事必须符合当下目标。例如迎接新老板的人群应从楼内或入口附近急促聚拢、整理仪表并列队；不要写成他们原本就在门口工作后停下手里的活。\n"
+            "3. 群体调度：秘书、主管、同事等群体动作要有合理来源、集合原因和参与者归属；如果苏小可属于人群，应保留她在人群中并让她靠近乔熙传递消息。\n"
+            "4. 道具占手：手机、咖啡、书包、照片、文件等必须写清被谁拿起、放下、滑落或收回，不能同时占用同一只手完成矛盾动作。\n"
+            "5. 空间与时间：动作不能越过场景约束，不写未经确认的路线、距离、方位；时间跳转和闪回回到现实必须有清楚落点。\n"
+            "6. 主线保护：只修逻辑与可拍性，不改变人物关系、公司易主、新老板到达、前夫揭示、孩子愿望等核心事实。\n\n"
+            "【必须输出的 YAML 字段】\n"
+            "审查结论: PASS 或 REPAIR_REQUIRED 或 BLOCKED。若已经修完所有 P0/P1，写 PASS；若本轮仍需要再次审查，写 REPAIR_REQUIRED；无法安全修复写 BLOCKED。\n"
+            "增强版剧本: 使用 YAML 多行文本，输出审查/修复后的完整可施工剧本。\n"
+            "多维审查: 四项列表，分别包含 角色 / 通过 / 发现 / 处理。\n"
+            "硬错误: 列表；每条包含 类型 / 原句 / 问题 / 严重级别 / 必须修复 / 修复结果。没有硬错误写 无。\n"
+            "评分: 包含 施事逻辑 / 道具连续性 / 人物动机 / 空间调度 / 主线保护 / 可拍性，每项 1-5 分；任一项低于 4 不得 PASS。\n"
+            "逻辑审查: 列表；每条包含 问题 / 判断 / 修正方式。没有问题也要写“未发现硬逻辑错误”。\n"
+            "最终处理: 包含 是否返修 / 返修轮次 / 采纳意见 / 剩余风险。\n"
+            "增强依据: 保留或修正初稿依据；每条包含 原文锚点 / 增强方式 / 权限级别 / 是否改动主线。\n"
+            "主线保护: 列出没有改变的核心剧情事实。\n"
+            "节奏总控交接: 给节奏总控导演的简短说明。\n"
+            "需用户确认: 只列 L3 剧情层新增想法或 BLOCKED 原因；没有就写 无。\n"
         )
-        reviewed_output = _localize_director_showrunner_output((reviewed_output or "").strip())
-        reviewed_script = _extract_enhanced_script(reviewed_output, "")
-        if not reviewed_output or not reviewed_script:
-            raise ValueError("logic reviewer returned no enhanced script")
+
+    def _review_verdict(output: str) -> str:
+        payload = _parse_director_showrunner_yaml(output)
+        value = payload.get("审查结论") or payload.get("review_verdict") or payload.get("verdict")
+        verdict = str(value or "PASS").strip().upper()
+        if "BLOCK" in verdict:
+            return "BLOCKED"
+        if "REPAIR" in verdict or "返修" in verdict:
+            return "REPAIR_REQUIRED"
+        return "PASS"
+
+    def _gate_verdict(output: str, reported_verdict: str) -> tuple[str, str]:
+        if reported_verdict == "BLOCKED":
+            return "BLOCKED", "reviewer_reported_blocked"
+        payload = _parse_director_showrunner_yaml(output)
+        required_fields = (
+            "审查结论",
+            "增强版剧本",
+            "多维审查",
+            "硬错误",
+            "评分",
+            "逻辑审查",
+            "最终处理",
+            "增强依据",
+            "主线保护",
+            "节奏总控交接",
+            "需用户确认",
+        )
+        missing_fields = [field for field in required_fields if field not in payload]
+        if missing_fields:
+            return "REPAIR_REQUIRED", f"missing_required_fields:{','.join(missing_fields)}"
+        scores = payload.get("评分")
+        if not isinstance(scores, dict):
+            return "REPAIR_REQUIRED", "invalid_scores"
+        low_scores: list[str] = []
+        for key, value in scores.items():
+            match = re.search(r"\d+(?:\.\d+)?", str(value))
+            if not match:
+                low_scores.append(str(key))
+                continue
+            if float(match.group(0)) < 4:
+                low_scores.append(str(key))
+        if low_scores:
+            return "REPAIR_REQUIRED", f"score_below_4:{','.join(low_scores)}"
+        return reported_verdict, "accepted"
+
+    try:
+        candidate_output = primary_output
+        rounds: list[dict[str, Any]] = []
+        reviewed_output = primary_output
+        reviewed_script = primary_script
+        final_verdict = "PASS"
+        for round_index in range(1, 3):
+            reviewed_output = call_llm(
+                system_prompt,
+                _review_user_prompt(candidate_output, round_index),
+                agent_name="director_showrunner_logic_reviewer",
+                max_retries=1,
+            )
+            reviewed_output = _localize_director_showrunner_output((reviewed_output or "").strip())
+            reviewed_script = _extract_enhanced_script(reviewed_output, "")
+            if not reviewed_output or not reviewed_script:
+                raise ValueError("logic reviewer returned no enhanced script")
+            reported_verdict = _review_verdict(reviewed_output)
+            final_verdict, gate_reason = _gate_verdict(reviewed_output, reported_verdict)
+            rounds.append(
+                {
+                    "round": round_index,
+                    "verdict": final_verdict,
+                    "reported_verdict": reported_verdict,
+                    "gate_reason": gate_reason,
+                    "output_chars": len(reviewed_output),
+                    "enhanced_script_chars": len(reviewed_script),
+                }
+            )
+            if final_verdict != "REPAIR_REQUIRED":
+                break
+            candidate_output = reviewed_output
+        if final_verdict == "REPAIR_REQUIRED":
+            final_verdict = "BLOCKED"
+            if rounds:
+                rounds[-1]["verdict"] = "BLOCKED"
+                rounds[-1]["gate_reason"] = f"{rounds[-1]['gate_reason']};max_rounds_exhausted"
         runtime = {
             "agent_name": "director_showrunner_logic_reviewer",
-            "mode": "logic_review_debate",
-            "status": "reviewed",
+            "mode": "strict_review_panel",
+            "status": "blocked" if final_verdict == "BLOCKED" else "reviewed",
+            "verdict": final_verdict,
+            "rounds": rounds,
             "elapsed_seconds": round(time.perf_counter() - started, 3),
             "input_chars": len(primary_output),
             "output_chars": len(reviewed_output),
             "enhanced_script_chars": len(reviewed_script),
         }
-        return reviewed_output, runtime, "logic reviewer accepted final YAML"
+        return reviewed_output, runtime, f"strict review panel finished with verdict={final_verdict}"
     except Exception as exc:
         runtime = {
             "agent_name": "director_showrunner_logic_reviewer",
-            "mode": "logic_review_debate",
+            "mode": "strict_review_panel",
             "status": "fallback_primary",
             "elapsed_seconds": round(time.perf_counter() - started, 3),
             "input_chars": len(primary_output),
@@ -931,12 +1020,13 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
             aspect_ratio=str(state.get("aspect_ratio", "16:9")),
             primary_output=primary_output,
         )
-        enhanced_script = _extract_enhanced_script(output, source_script)
+        review_blocked = review_runtime.get("status") == "blocked" or review_runtime.get("verdict") == "BLOCKED"
+        enhanced_script = source_script if review_blocked else _extract_enhanced_script(output, source_script)
         director_brief = _director_enhancement_contract(output, enhanced_script)
         runtime = {
             "agent_name": "director_showrunner",
             "mode": "logic_review_debate",
-            "status": "success",
+            "status": "blocked_original_script_kept" if review_blocked else "success",
             "elapsed_seconds": round(time.perf_counter() - started, 3),
             "primary_output_chars": len(primary_output),
             "output_chars": len(output),
