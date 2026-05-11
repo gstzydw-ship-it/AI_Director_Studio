@@ -39,9 +39,15 @@ def test_append_scene_card_references_keeps_layout_and_grid(tmp_path):
     assert images[1].startswith("data:image/png;base64,")
     assert images[2].startswith("data:image/png;base64,")
     assert [item.get("role") for item in manifest] == ["character", "scene_layout", "scene_card"]
-    assert "用户标注" in manifest[1]["purpose"]
-    assert "人物位置" in manifest[1]["purpose"]
-    assert "移动轨迹" in manifest[1]["purpose"]
+    layout_purpose = manifest[1]["purpose"]
+    assert "场景开局" in layout_purpose
+    assert "初始站位" in layout_purpose
+    assert "固定物" in layout_purpose
+    assert "基础轴线" in layout_purpose
+    assert "后续片段不要求逐段标点" in layout_purpose
+    assert "视频尾帧承接" in layout_purpose
+    assert "每个片段" not in layout_purpose
+    assert "全过程运动路线" not in layout_purpose
 
     rerun_images, rerun_manifest = pci._append_scene_card_references(
         {"reference_image_b64s": images, "reference_image_manifest": manifest},
@@ -118,7 +124,7 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
         captured["user_prompt"] = user_prompt
         return (
             "scene_id: test_scene\n"
-            "调度待定: 人物站位和运动轨迹由用户在俯视图上手动标注；场景预分析不推导。\n"
+            "调度待定: 场景开局初始站位、固定物和基础轴线可由俯视图/标注锁定；后续片段不要求逐段标点，运动过程由片段出入场状态和视频尾帧承接；场景预分析不推导完整运动路线。\n"
             "场景信息: 大堂入口在北侧，前台在东侧。\n"
         )
 
@@ -159,10 +165,15 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
     assert captured["agent_name"] == "scene_vision_analyst"
     assert captured["images_base64"] == ["image-a"]
     assert "场景预分析卡" in str(captured["user_prompt"])
-    assert "不从参考图固定人物站位、人物姿势、人物朝向、人物间距离或视线轴线" in str(captured["user_prompt"])
-    assert "不推导人物站位和行动路径" in str(captured["user_prompt"])
+    assert "不从参考图固定人物姿势、人物朝向、人物间距离或视线轴线" in str(captured["user_prompt"])
+    assert "场景参考资产只服务新场景开局空间定盘" in str(captured["user_prompt"])
+    assert "场景开局初始站位参考、固定物、基础轴线和入口通道" in str(captured["user_prompt"])
+    assert "后续片段不要求逐段标点" in str(captured["user_prompt"])
+    assert "视频尾帧承接" in str(captured["user_prompt"])
     assert "调度待定" in str(captured["user_prompt"])
-    assert "人物站位和运动轨迹由用户在俯视图上手动标注" in str(captured["user_prompt"])
+    assert "场景预分析不推导完整运动路线" in str(captured["user_prompt"])
+    assert "每个片段" not in str(captured["user_prompt"])
+    assert "全过程运动路线" not in str(captured["user_prompt"])
     assert "场景信息" in str(captured["user_prompt"])
     assert "道具锚点" in str(captured["user_prompt"])
     assert "光线与材质" in str(captured["user_prompt"])
@@ -177,7 +188,7 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
     assert "本场景在场人物" not in str(captured["user_prompt"])
     assert "左前方" not in str(captured["user_prompt"])
     assert "右前方" not in str(captured["user_prompt"])
-    assert "第一步：只根据随请求发送的这一张场景参考图，生成一张独立的俯视布局图" in str(captured["overhead_prompt"])
+    assert "第一步：只根据随请求发送的这一张场景参考图，生成一张独立的俯视布局图，用于新场景开局空间定盘" in str(captured["overhead_prompt"])
     assert "输出只允许是一张俯视布局图" in str(captured["overhead_prompt"])
     assert "不要场景卡" in str(captured["overhead_prompt"])
     assert "不要九宫格" in str(captured["overhead_prompt"])
@@ -188,7 +199,8 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
     assert "禁止白边、留白、底板、图例、编号、箭头、机位点、站位点和人物" in str(captured["overhead_prompt"])
     assert "基于随请求上传的两张参考图，生成一张独立的 3x3 多机位参考图 / cinematic camera-angle coverage sheet" in str(captured["scene_card_prompt"])
     assert "参考图1：只用于锁定真实场景的材质、家具外观、色彩、光线、氛围和渲染风格" in str(captured["scene_card_prompt"])
-    assert "参考图2：只用于锁定俯视空间布局、方向、门窗、入口、通道、家具和固定物体位置" in str(captured["scene_card_prompt"])
+    assert "参考图2：只用于锁定新场景开局空间定盘" in str(captured["scene_card_prompt"])
+    assert "初始站位可参照的空间边界、基础轴线" in str(captured["scene_card_prompt"])
     assert "两张参考图都只是参考，不得被复制、裁切、拼贴或直接画进最终图" in str(captured["scene_card_prompt"])
     assert "禁止出现俯视图、说明卡、十格布局、海报拼贴、白边、留白、背景底色、标题栏或未绘制区域" in str(captured["scene_card_prompt"])
     assert "以参考图2为唯一布局依据，图上方=北，右侧=东，下方=南，左侧=西" in str(captured["scene_card_prompt"])
@@ -247,6 +259,11 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
     assert captured["scene_card_scene_number"] == 1
     assert "scene_id: test_scene" in result["agent_outputs"]["scene_analyst"]
     assert "调度待定" in result["agent_outputs"]["scene_analyst"]
+    assert "场景开局初始站位" in result["agent_outputs"]["scene_analyst"]
+    assert "固定物" in result["agent_outputs"]["scene_analyst"]
+    assert "基础轴线" in result["agent_outputs"]["scene_analyst"]
+    assert "后续片段不要求逐段标点" in result["agent_outputs"]["scene_analyst"]
+    assert "全过程运动路线" not in result["agent_outputs"]["scene_analyst"]
     assert "3x3 九宫格机位图" in result["agent_outputs"]["scene_analyst"]
     assert "每个场景输出两张独立图片" in result["agent_outputs"]["scene_analyst"]
     assert "场景参考图" in result["agent_outputs"]["scene_analyst"]

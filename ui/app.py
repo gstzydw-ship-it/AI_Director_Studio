@@ -350,6 +350,11 @@ AUTO_REFERENCE_PROP_HINTS = (
 AUTO_REFERENCE_WEAK_TOKENS = {"场景", "空间", "环境", "地点", "场地", "集团", "公司", "总部"}
 AUTO_REFERENCE_SPLIT_RE = re.compile(r"[\s_\-—~·,，、.。:：;；()（）\[\]【】]+")
 SEGMENT_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm"}
+PREVIOUS_SEGMENT_TAIL_FRAME_ROLE = "previous_segment_tail_frame"
+PREVIOUS_SEGMENT_TAIL_FRAME_PURPOSE = (
+    "Carry only the visible ending state of the previous segment into the next segment; "
+    "do not use this as a character, scene, or style master."
+)
 
 def _load_latest_results_on_startup():
     """在服务器启动时，只恢复本机会话的 LangGraph 状态快照。"""
@@ -1206,6 +1211,249 @@ def _extract_tail_frame_b64_from_video(video_path: str) -> str | None:
                 pass
 
 
+def _tail_frame_data_url(raw_b64: str) -> str:
+    raw_b64 = (raw_b64 or "").strip()
+    if raw_b64.startswith("data:image/"):
+        return raw_b64
+    return f"data:image/jpeg;base64,{raw_b64}"
+
+
+def _tail_frame_raw_b64(image_b64: str) -> str:
+    image_b64 = (image_b64 or "").strip()
+    if "," in image_b64 and image_b64.startswith("data:"):
+        return image_b64.split(",", 1)[1]
+    return image_b64
+
+
+def _previous_tail_frame_manifest(
+    *,
+    filename: str,
+    segment_index: int,
+    source: str,
+    saved_path: str = "",
+    video_path: str = "",
+) -> dict[str, str]:
+    previous_segment = max(int(segment_index or 0) - 1, 0)
+    return {
+        "filename": filename,
+        "role": PREVIOUS_SEGMENT_TAIL_FRAME_ROLE,
+        "type": "continuity_reference",
+        "asset_type": "continuity",
+        "selected_by": "previous_continuity_asset_helper",
+        "source": source,
+        "source_video_path": video_path,
+        "saved_path": saved_path,
+        "previous_segment_index": str(previous_segment),
+        "target_segment_index": str(segment_index or ""),
+        "purpose": PREVIOUS_SEGMENT_TAIL_FRAME_PURPOSE,
+    }
+
+
+def _extract_tail_frame_data_from_video(video_path: str, segment_index: int) -> tuple[str | None, str | None]:
+    if not video_path or not os.path.exists(video_path):
+        return None, None
+    cap = None
+    try:
+        import cv2
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return None, None
+
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        candidate_positions = []
+        if frame_count > 0:
+            candidate_positions.extend([
+                max(frame_count - 2, 0),
+                max(frame_count - 6, 0),
+                max(int(frame_count * 0.95), 0),
+                max(int(frame_count * 0.70), 0),
+            ])
+        candidate_positions.append(0)
+
+        frame = None
+        for pos in dict.fromkeys(candidate_positions):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+            ok, candidate = cap.read()
+            if ok and candidate is not None:
+                frame = candidate
+                break
+        if frame is None:
+            return None, None
+
+        ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 86])
+        if not ok:
+            return None, None
+
+        encoded_bytes = encoded.tobytes()
+        output_dir = os.path.join(OUTPUT_DIR, "auto_tail_frames")
+        os.makedirs(output_dir, exist_ok=True)
+        safe_stem = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in os.path.splitext(os.path.basename(video_path))[0]
+        ).strip("._") or "segment"
+        frame_name = (
+            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_"
+            f"seg{int(segment_index or 0):02d}_{safe_stem}_tail.jpg"
+        )
+        output_path = os.path.join(output_dir, frame_name)
+        with open(output_path, "wb") as f:
+            f.write(encoded_bytes)
+        return base64.b64encode(encoded_bytes).decode("utf-8"), output_path
+    except Exception as exc:
+        print(f"  [Video] WARN: continuity tail frame extraction failed: {exc}")
+        return None, None
+    finally:
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+
+
+def _build_previous_segment_video_tail_frame_asset(video_path: str, segment_index: int) -> dict[str, Any] | None:
+    """Extract and register metadata for the previous segment video tail frame."""
+    raw_b64, saved_path = _extract_tail_frame_data_from_video(video_path, segment_index)
+    if not raw_b64:
+        return None
+
+    saved_path = saved_path or ""
+    filename = os.path.basename(saved_path or "") or f"seg{int(segment_index or 0):02d}_tail_frame.jpg"
+    return {
+        "source": "previous_segment_video_tail_frame",
+        "raw_b64": raw_b64,
+        "image_data_url": _tail_frame_data_url(raw_b64),
+        "saved_path": saved_path,
+        "filename": filename,
+        "manifest_item": _previous_tail_frame_manifest(
+            filename=filename,
+            segment_index=segment_index,
+            source="previous_segment_video_tail_frame",
+            saved_path=saved_path,
+            video_path=video_path,
+        ),
+    }
+
+
+def _previous_storyboard_tail_placeholder(state: dict, segment_index: int) -> dict[str, Any] | None:
+    previous_segment = int(segment_index or 0) - 1
+    if previous_segment < 1:
+        return None
+    outputs = state.get("agent_outputs") or {}
+    storyboard_images = state.get("storyboard_images_by_segment") or {}
+    image_path = (
+        storyboard_images.get(str(previous_segment))
+        or outputs.get(f"storyboard_image_seg{previous_segment:02d}")
+        or outputs.get(f"storyboard_image_seg{previous_segment}")
+    )
+    if not image_path:
+        return None
+    return {
+        "source": "previous_storyboard_last_panel_placeholder",
+        "previous_segment_index": previous_segment,
+        "target_segment_index": segment_index,
+        "storyboard_image_path": str(image_path),
+        "todo": "Crop the previous storyboard last panel into a real continuity image asset.",
+    }
+
+
+def _previous_out_state_text(state: dict, segment_index: int) -> str:
+    previous_segment = int(segment_index or 0) - 1
+    if previous_segment < 1:
+        return ""
+    outputs = state.get("agent_outputs") or {}
+    text = str(outputs.get(f"compiled_segment_{previous_segment}") or "").strip()
+    if text:
+        return text
+    return str(state.get("tail_frame_analysis") or "").strip()
+
+
+def _select_previous_continuity_asset(
+    state: dict,
+    *,
+    segment_index: int,
+    video_path: str | None = None,
+    tail_frame_b64: str = "",
+) -> dict[str, Any]:
+    if video_path:
+        video_asset = _build_previous_segment_video_tail_frame_asset(video_path, segment_index)
+        if video_asset:
+            return video_asset
+
+    raw_tail_frame = _tail_frame_raw_b64(tail_frame_b64)
+    if raw_tail_frame:
+        filename = f"seg{int(segment_index or 0):02d}_provided_tail_frame.jpg"
+        return {
+            "source": "provided_tail_frame",
+            "raw_b64": raw_tail_frame,
+            "image_data_url": _tail_frame_data_url(raw_tail_frame),
+            "filename": filename,
+            "manifest_item": _previous_tail_frame_manifest(
+                filename=filename,
+                segment_index=segment_index,
+                source="provided_tail_frame",
+            ),
+        }
+
+    storyboard_placeholder = _previous_storyboard_tail_placeholder(state, segment_index)
+    if storyboard_placeholder:
+        return storyboard_placeholder
+
+    out_state_text = _previous_out_state_text(state, segment_index)
+    if out_state_text:
+        return {
+            "source": "previous_out_state_text",
+            "previous_segment_index": int(segment_index or 0) - 1,
+            "target_segment_index": segment_index,
+            "out_state_text": out_state_text,
+        }
+
+    return {
+        "source": "none",
+        "previous_segment_index": int(segment_index or 0) - 1,
+        "target_segment_index": segment_index,
+    }
+
+
+def _apply_previous_continuity_asset_to_state(state: dict, asset: dict[str, Any] | None) -> None:
+    if not asset:
+        return
+    state["previous_continuity_asset"] = {
+        key: value
+        for key, value in asset.items()
+        if key not in {"image_data_url", "raw_b64", "manifest_item"}
+    }
+
+    image_data_url = str(asset.get("image_data_url") or "")
+    manifest_item = asset.get("manifest_item")
+    if not image_data_url or not isinstance(manifest_item, dict):
+        return
+
+    images = list(state.get("reference_image_b64s") or [])
+    manifest = [item if isinstance(item, dict) else {} for item in list(state.get("reference_image_manifest") or [])]
+    while len(manifest) < len(images):
+        manifest.append({})
+
+    kept_images: list[str] = []
+    kept_manifest: list[dict[str, Any]] = []
+    for index, image in enumerate(images):
+        item = manifest[index] if index < len(manifest) else {}
+        role_text = " ".join(str(item.get(key) or "") for key in ("role", "type", "purpose", "source"))
+        if PREVIOUS_SEGMENT_TAIL_FRAME_ROLE in role_text:
+            continue
+        kept_images.append(image)
+        kept_manifest.append(item)
+
+    new_manifest_item = dict(manifest_item)
+    new_manifest_item["label"] = str(new_manifest_item.get("label") or f"@image{len(kept_images) + 1}")
+    kept_images.append(image_data_url)
+    kept_manifest.append(new_manifest_item)
+
+    state["reference_image_b64s"] = kept_images
+    state["reference_image_manifest"] = kept_manifest
+    state["reference_image_count"] = len(kept_images)
+
+
 def _run_pipeline_in_thread(
     script: str,
     aspect_ratio: str,
@@ -1305,6 +1553,7 @@ def _resume_pipeline_in_thread(
     video_path: str = None,
     task_generation: int = 0,
     session_id: str = DEFAULT_SESSION_ID,
+    continuity_asset: dict[str, Any] | None = None,
 ):
     """在后台线程中恢复执行流水线阶段二（单段编译）"""
     session_id = _normalise_session_id(session_id)
@@ -1330,6 +1579,7 @@ def _resume_pipeline_in_thread(
             if task_generation != _active_task_generation(session_id):
                 return
             task_state.update(state)
+            _apply_previous_continuity_asset_to_state(task_state, continuity_asset)
             _touch_task_progress(task_state)
         
         # 强制用 normalised 版本覆写 task_state 中的流式累积脏数据
@@ -1826,8 +2076,13 @@ async def api_resume(
         video_path = await _save_segment_video_upload(previous_video_file)
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)})
-    if video_path and not tail_frame_b64:
-        tail_frame_b64 = _extract_tail_frame_b64_from_video(video_path) or ""
+    continuity_asset = _select_previous_continuity_asset(
+        task_state,
+        segment_index=segment_index,
+        video_path=video_path,
+        tail_frame_b64=tail_frame_b64,
+    )
+    tail_frame_b64 = str(continuity_asset.get("raw_b64") or _tail_frame_raw_b64(tail_frame_b64) or "")
 
     task_generation = _bump_task_generation(session_id)
     now = _now_iso()
@@ -1838,6 +2093,7 @@ async def api_resume(
     task_state["current_segment_index"] = segment_index
     task_state["active_segment_index"] = segment_index
     task_state["started_at"] = now
+    _apply_previous_continuity_asset_to_state(task_state, continuity_asset)
     _touch_task_progress(task_state, now)
     _save_task_state_for_session(session_id, task_state)
     thread = threading.Thread(
@@ -1848,6 +2104,7 @@ async def api_resume(
             video_path,
             task_generation,
             session_id,
+            continuity_asset,
         ),
         daemon=True
     )

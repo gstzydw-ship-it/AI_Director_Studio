@@ -139,25 +139,217 @@ def _format_shot_for_storyboard(shot: dict[str, str], index: int) -> str:
     )
 
 
+def _reference_usage_for_item(item: dict[str, Any]) -> str:
+    """Describe how one image reference may influence the storyboard prompt."""
+    role_text = " ".join(
+        str(item.get(key) or "")
+        for key in ("role", "type", "purpose", "name", "filename", "label", "description", "note")
+    ).lower()
+
+    if any(marker in role_text for marker in ("previous_segment_tail_frame", "tail_frame", "上一段", "尾帧")):
+        return "上一片段尾帧图，只锁片段承接状态：人物最终站位、朝向、姿态、道具状态和可见空间关系；只在同场景连续时用于第一格承接。"
+    if any(marker in role_text for marker in ("previous_segment_storyboard_crop", "last_storyboard_crop", "分镜裁切")):
+        return "上一段最后一格分镜裁切图，在没有视频尾帧时锁可见出场状态；只作为同场景第一格承接的次级依据。"
+    if any(marker in role_text for marker in ("annotated_scene_layout", "scene_layout_annotation", "scene_layout", "俯视", "标点", "站位")):
+        return "场景开局标点图，只锁当前场景开局的初始站位、固定物和基础轴线；不要求逐段运动轨迹，不把标点当成每个镜头必须复刻的动作路径。"
+    if any(marker in role_text for marker in ("character", "portrait", "人物", "角色", "服装", "外观", "演员")):
+        return "人物图，只锁人物外观：脸型、五官、发型、服装、身份一致性和可见随身道具。"
+    if any(marker in role_text for marker in ("scene", "space", "location", "room", "场景", "空间", "地点", "母版", "九宫格")):
+        return "场景图，只锁空间结构、光线方向、色调、固定家具、主要道具和相对位置关系。"
+    return "视觉参考图，只锁已标明的外观、空间或道具事实；不得新增剧情、人物、道具或空间。"
+
+
+def _previous_segment_tail_frame_b64(state: DirectorState) -> str:
+    """Return a previous-segment tail frame image when the caller provided one."""
+    for key in ("previous_segment_tail_frame", "previous_segment_tail_frame_b64", "tail_frame_b64"):
+        value = state.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _has_previous_segment_tail_frame_reference(state: DirectorState) -> bool:
+    """Return whether a tail-frame continuity reference is present in state."""
+    if _previous_segment_tail_frame_b64(state):
+        return True
+    asset = state.get("previous_continuity_asset")
+    if isinstance(asset, dict):
+        source = str(asset.get("source") or "")
+        if "tail_frame" in source:
+            return True
+    manifest = state.get("reference_image_manifest") or []
+    for item in manifest:
+        if not isinstance(item, dict):
+            continue
+        role_text = " ".join(str(item.get(key) or "") for key in ("role", "type", "purpose", "source"))
+        if "previous_segment_tail_frame" in role_text or "上一片段尾帧" in role_text or "上一段尾帧" in role_text:
+            return True
+    return False
+
+
+def _previous_segment_storyboard_crop_b64(state: DirectorState) -> str:
+    """Return the previous segment's last storyboard-panel crop if available."""
+    for key in (
+        "previous_segment_last_storyboard_crop",
+        "previous_segment_last_storyboard_crop_b64",
+        "previous_segment_storyboard_crop",
+        "previous_segment_storyboard_crop_b64",
+    ):
+        value = state.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+    return ""
+
+
+def _reference_images_for_storyboard(state: DirectorState) -> list[str]:
+    """Return images in the exact order sent to the image-generation API."""
+    images = list(state.get("reference_image_b64s") or [])
+    tail_frame = _previous_segment_tail_frame_b64(state)
+    storyboard_crop = _previous_segment_storyboard_crop_b64(state)
+    if tail_frame:
+        images.append(tail_frame)
+    elif storyboard_crop:
+        images.append(storyboard_crop)
+    return images
+
+
+def _line_field_by_names(block: str, names: tuple[str, ...]) -> str:
+    pattern = "|".join(re.escape(name) for name in names)
+    match = re.search(rf"(?m)^\s*-?\s*(?:{pattern})\s*:\s*(.+?)\s*$", block or "")
+    return match.group(1).strip().strip("\"'") if match else ""
+
+
+def _segment_scene_label(planner_segment: str) -> str:
+    return _line_field_by_names(
+        planner_segment,
+        ("scene", "scene_id", "场景", "场景编号", "场景名称", "地点", "空间"),
+    )
+
+
+def _segment_exit_state(planner_segment: str) -> str:
+    return _line_field_by_names(
+        planner_segment,
+        ("出场状态", "exit_state", "final_state", "承接要求"),
+    )
+
+
+def _normalise_scene_label(scene: str) -> str:
+    return re.sub(r"\s+", "", scene or "").strip().lower()
+
+
+def _tail_analysis_requests_reset(tail_frame_analysis: str) -> bool:
+    text = tail_frame_analysis or ""
+    return bool(
+        re.search(r"(?im)^\s*mode\s*:\s*direct_cut\s*$", text)
+        or re.search(r"(?im)^\s*must_reset_space\s*:\s*true\s*$", text)
+    )
+
+
+def _build_storyboard_continuity_notes(
+    state: DirectorState,
+    *,
+    segment_index: int,
+    planner_output: str,
+    current_fragment_id: str,
+) -> str:
+    """Compile segment-to-segment continuity rules for storyboard prompts."""
+    if segment_index <= 1:
+        return (
+            "【片段连续性编译规则】\n"
+            "本段是第一段或没有上一段承接输入：用人物参考图锁外观，用场景参考图锁空间，"
+            "用场景开局标点图锁初始站位、固定物和基础轴线。"
+        )
+
+    current_planner = _planner_segment_block(planner_output, segment_index, current_fragment_id)
+    previous_fragment_id = _fragment_id_for_segment_index(state.get("segment_names") or [], segment_index - 1)
+    previous_planner = _planner_segment_block(planner_output, segment_index - 1, previous_fragment_id)
+    current_scene = _segment_scene_label(current_planner)
+    previous_scene = _segment_scene_label(previous_planner)
+    previous_exit_state = _segment_exit_state(previous_planner)
+    tail_frame = _has_previous_segment_tail_frame_reference(state)
+    storyboard_crop = _previous_segment_storyboard_crop_b64(state)
+    tail_analysis = str(state.get("tail_frame_analysis") or "")
+    reset_requested = _tail_analysis_requests_reset(tail_analysis)
+
+    current_key = _normalise_scene_label(current_scene)
+    previous_key = _normalise_scene_label(previous_scene)
+    is_new_scene = bool(current_key and previous_key and current_key != previous_key)
+    relation = "新场景" if is_new_scene else "同场景后续片段"
+    if not current_key or not previous_key:
+        relation = "场景关系未明，按镜头导演与桥接分析保守处理"
+
+    lines = [
+        "【片段连续性编译规则】",
+        f"场景关系：{relation}。上一段场景：{previous_scene or '未标明'}；当前场景：{current_scene or '未标明'}。",
+        "同场景后续片段：不强制新标点；第一格承接优先级为上一段视频尾帧，其次上一段最后一格分镜裁切图，最后用上一段出场状态文字。",
+        "新场景：不强行承接上一段尾帧；重新用当前新场景参考图和场景开局标点图定盘，重建初始站位、固定物和基础轴线。",
+    ]
+
+    if is_new_scene or reset_requested:
+        reason = "新场景" if is_new_scene else "视频桥接分析要求 direct_cut 或 must_reset_space"
+        lines.append(f"当前执行：{reason}，第一格不要照搬上一段尾帧人物站位；只继承剧本明确保留的道具事实。")
+    elif tail_frame:
+        lines.append("当前执行：有 previous_segment_tail_frame，第一格必须承接上一段视频尾帧的可见人物站位、朝向、姿态、道具状态和空间关系。")
+    elif storyboard_crop:
+        lines.append("当前执行：没有上一段视频尾帧，第一格承接上一段最后一格分镜裁切图中的可见出场状态。")
+    elif previous_exit_state:
+        lines.append(f"当前执行：没有可用视觉承接图，第一格改用上一段出场状态文字承接：{previous_exit_state}")
+    else:
+        lines.append("当前执行：没有可用上一段视觉或出场状态，只按当前片段镜头导演、人物图、场景图和开局标点图定盘。")
+
+    if tail_analysis:
+        lines.append("上一段尾帧/视频桥接分析摘要：")
+        lines.append(_truncate_for_prompt(tail_analysis, 900))
+
+    return "\n".join(lines)
+
+
 def _build_character_reference_notes(state: DirectorState) -> str:
     """Assemble character/scene reference notes from uploaded images."""
-    manifest = state.get("reference_image_manifest") or []
-    if not manifest:
+    manifest = [dict(item) if isinstance(item, dict) else {} for item in list(state.get("reference_image_manifest") or [])]
+    api_images = _reference_images_for_storyboard(state)
+    if not manifest and not api_images:
         return ""
 
-    notes: list[str] = ["【参考图使用规则】"]
-    for index, item in enumerate(manifest, start=1):
+    while len(manifest) < len(state.get("reference_image_b64s") or []):
+        manifest.append({})
+
+    tail_frame = _previous_segment_tail_frame_b64(state)
+    storyboard_crop = _previous_segment_storyboard_crop_b64(state)
+    if len(api_images) > len(manifest):
+        if tail_frame:
+            manifest.append(
+                {
+                    "label": f"@图片{len(manifest) + 1}",
+                    "filename": "previous_segment_tail_frame",
+                    "purpose": "上一片段尾帧图",
+                    "role": "previous_segment_tail_frame",
+                }
+            )
+        elif storyboard_crop:
+            manifest.append(
+                {
+                    "label": f"@图片{len(manifest) + 1}",
+                    "filename": "previous_segment_last_storyboard_crop",
+                    "purpose": "上一段最后一格分镜裁切图",
+                    "role": "previous_segment_storyboard_crop",
+                }
+            )
+
+    notes: list[str] = ["【参考图使用规则】严格按 API 输入顺序"]
+    for index, item in enumerate(manifest[:len(api_images) or len(manifest)], start=1):
         label = item.get("label") or f"@图片{index}"
         filename = item.get("filename") or "未命名参考图"
-        purpose = item.get("purpose") or "视觉参考"
+        purpose = item.get("purpose") or item.get("role") or item.get("type") or "视觉参考"
         desc = item.get("description") or item.get("note") or ""
         suffix = f"：{desc}" if desc else ""
-        notes.append(f"- {label}（{filename}）：{purpose}{suffix}")
+        usage = _reference_usage_for_item(item)
+        notes.append(f"- 参考图{index}（API输入第{index}张；{label}；{filename}）：{usage} 原始用途：{purpose}{suffix}")
     notes.append(
-        "人物参考图只用于锁定脸型、五官、发型、服装和身份一致性；"
-        "场景参考图用于强制锁定空间结构、光线方向、色调、固定家具和主要道具的相对位置；"
-        "茶几、沙发、窗户、门、地毯等固定空间锚点不得移动、替换或重新摆放；"
-        "多人位置图只用于锁定站位关系和空间轴线；不得照抄参考图里的动作。"
+        "总规则：人物图锁外观，人物参考图只用于锁定脸型、五官、发型、服装和身份一致性；"
+        "场景图锁空间，场景开局标点图锁初始站位/固定物/基础轴线，"
+        "上一片段尾帧锁片段承接状态。茶几、沙发、窗户、门、地毯等固定空间锚点不得移动、替换或重新摆放；"
+        "标点和布局参考只用于开局定盘，不要求逐段运动轨迹，也不得照抄参考图里的动作。"
     )
     return "\n".join(notes)
 
@@ -220,6 +412,7 @@ def _build_storyboard_user_prompt(
     script_context: str,
     reference_notes: str,
     aspect_ratio: str,
+    continuity_notes: str = "",
 ) -> str:
     """Construct the prompt that turns shot design into first-frame panels."""
     lines: list[str] = [
@@ -256,13 +449,18 @@ def _build_storyboard_user_prompt(
         lines.append(reference_notes)
         lines.append("")
 
+    if continuity_notes:
+        lines.append(continuity_notes)
+        lines.append("")
+
     lines.append(_STORYBOARD_OUTPUT_CONTRACT)
     lines.append("")
     lines.append(
-        "现在只输出最终给生图接口使用的一段中文提示词。"
+        "现在只输出最终给 gpt-image-2 生图接口使用的一段中文提示词。"
         f"必须是一张 {aspect_ratio} 比例的图，包含本片段全部镜头首帧格子；"
-        "每个格子左上角必须有“镜头1 / 镜头2 / 镜头3...”编号；每格只画静止起始状态，"
-        "不出现台词文字、字幕、对白气泡、动作线、运动轨迹、人物运动箭头或解释性文字；"
+        "每个格子左上角必须有“镜头1 / 镜头2 / 镜头3...”编号；"
+        "每格只画首帧/关键静止瞬间，禁止对白气泡、字幕、运动箭头、动作轨迹，"
+        "也不出现台词文字、动作线、人物运动箭头或解释性文字；"
         "每格都要写清固定家具位置锁定，尤其茶几、沙发、窗户和地毯必须保持参考场景里的相对位置，"
         "不能出现“旁边台面”“床头边缘”“另一个桌面”等会改变空间位置的替代说法。"
     )
@@ -288,7 +486,7 @@ def _call_image_generation_api(
         "你是分镜首帧图生成模型。请把下面的中文提示词渲染成一张专业分镜首帧图："
         "一段一张图，整张图必须严格遵守提示词写明的视频画幅比例。"
         "每个格子对应一个镜头编号，并且必须在格子左上角写清“镜头1 / 镜头2 / 镜头3...”。"
-        "只画镜头开始瞬间的静止状态。"
+        "每格只画首帧/关键静止瞬间，禁止对白气泡、字幕、运动箭头、动作轨迹。"
         "场景参考图中的固定家具和空间锚点必须保持原始相对位置；近景只能裁切或推近，不得移动茶几、沙发、窗户、地毯等固定物。"
         "不要生成台词文字、对白气泡、字幕、动作线、运动轨迹、人物运动箭头或解释性文字。"
     )
@@ -445,6 +643,12 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
     planner_context = _planner_segment_block(planner_output, segment_index, current_fragment_id)
     script_context = _current_script_excerpt(state, segment_index, current_fragment_id)
     reference_notes = _build_character_reference_notes(state)
+    continuity_notes = _build_storyboard_continuity_notes(
+        state,
+        segment_index=segment_index,
+        planner_output=planner_output,
+        current_fragment_id=current_fragment_id,
+    )
     aspect_ratio = str(state.get("aspect_ratio") or "16:9")
 
     segment_name = (
@@ -466,6 +670,7 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
         script_context=script_context,
         reference_notes=reference_notes,
         aspect_ratio=aspect_ratio,
+        continuity_notes=continuity_notes,
     )
 
     storyboard_prompt = call_llm(
@@ -517,7 +722,7 @@ def generate_storyboard_image_for_segment(
     if not prompt:
         raise RuntimeError(f"第 {selected_index} 段还没有分镜首帧图提示词，无法生图。")
 
-    reference_b64s = state.get("reference_image_b64s") or []
+    reference_b64s = _reference_images_for_storyboard(state)
     image_result = _call_image_generation_api(
         prompt=prompt,
         images_base64=reference_b64s if reference_b64s else None,

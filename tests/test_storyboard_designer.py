@@ -12,10 +12,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from agents.director_graph_package.storyboard_designer_impl import (
     _build_storyboard_user_prompt,
     _build_character_reference_notes,
+    _build_storyboard_continuity_notes,
     _current_script_excerpt,
     _extract_fragment_task_and_rhythm,
     _extract_shots_from_director_segment,
     _format_shot_for_storyboard,
+    _reference_images_for_storyboard,
     _save_storyboard_image,
     _segment_block,
     generate_storyboard_image_for_segment,
@@ -198,6 +200,147 @@ class TestReferenceNotes:
         assert "人物参考图只用于锁定" in notes
         assert "固定空间锚点不得移动" in notes
 
+    def test_reference_notes_list_api_order_and_usage(self):
+        state: DirectorState = {
+            "reference_image_b64s": ["char-b64", "scene-b64", "layout-b64"],
+            "reference_image_manifest": [
+                {"label": "@图片1", "filename": "hero.jpg", "role": "character", "purpose": "人物外观"},
+                {"label": "@图片2", "filename": "office.jpg", "role": "scene", "purpose": "办公室空间"},
+                {
+                    "label": "@图片3",
+                    "filename": "layout.png",
+                    "role": "annotated_scene_layout",
+                    "purpose": "人物位置与移动轨迹",
+                },
+            ],
+        }
+
+        notes = _build_character_reference_notes(state)
+
+        assert "参考图1（API输入第1张" in notes
+        assert "参考图2（API输入第2张" in notes
+        assert "参考图3（API输入第3张" in notes
+        assert "人物图，只锁人物外观" in notes
+        assert "场景图，只锁空间结构" in notes
+        assert "场景开局标点图，只锁当前场景开局的初始站位、固定物和基础轴线" in notes
+        assert "不要求逐段运动轨迹" in notes
+
+    def test_previous_tail_frame_is_appended_after_uploaded_refs(self):
+        state: DirectorState = {
+            "reference_image_b64s": ["char-b64", "scene-b64"],
+            "reference_image_manifest": [
+                {"filename": "hero.jpg", "role": "character"},
+                {"filename": "office.jpg", "role": "scene"},
+            ],
+            "previous_segment_tail_frame": "tail-b64",
+        }
+
+        notes = _build_character_reference_notes(state)
+        images = _reference_images_for_storyboard(state)
+
+        assert images == ["char-b64", "scene-b64", "tail-b64"]
+        assert "参考图3（API输入第3张" in notes
+        assert "上一片段尾帧图，只锁片段承接状态" in notes
+
+
+class TestContinuityNotes:
+    def test_previous_tail_frame_prompts_first_panel_handoff_for_same_scene(self):
+        planner_output = """
+fragment_id: F01
+scene: office
+出场状态: 乔熙站在沙发左侧，面向商北琛。
+---
+fragment_id: F02
+scene: office
+入场状态: 承接上一段。
+"""
+        state: DirectorState = {
+            "segment_names": ["一", "二"],
+            "previous_segment_tail_frame": "tail-b64",
+        }
+
+        notes = _build_storyboard_continuity_notes(
+            state,
+            segment_index=2,
+            planner_output=planner_output,
+            current_fragment_id="F02",
+        )
+
+        assert "同场景后续片段：不强制新标点" in notes
+        assert "有 previous_segment_tail_frame，第一格必须承接上一段视频尾帧" in notes
+
+    def test_tail_frame_manifest_prompts_first_panel_handoff_for_same_scene(self):
+        planner_output = """
+fragment_id: F01
+scene: office
+出场状态: 乔熙站在桌边，手里拿着合同。
+---
+fragment_id: F02
+scene: office
+"""
+        state: DirectorState = {
+            "segment_names": ["一", "二"],
+            "reference_image_b64s": ["tail-data-url"],
+            "reference_image_manifest": [
+                {
+                    "role": "previous_segment_tail_frame",
+                    "purpose": "上一片段尾帧，只承接上一段结束状态",
+                }
+            ],
+        }
+
+        notes = _build_storyboard_continuity_notes(
+            state,
+            segment_index=2,
+            planner_output=planner_output,
+            current_fragment_id="F02",
+        )
+
+        assert "有 previous_segment_tail_frame，第一格必须承接上一段视频尾帧" in notes
+
+    def test_new_scene_does_not_force_tail_frame_handoff(self):
+        planner_output = """
+fragment_id: F01
+scene: office
+出场状态: 乔熙站在沙发左侧。
+---
+fragment_id: F02
+scene: rooftop
+入场状态: 重新开场。
+"""
+        state: DirectorState = {
+            "segment_names": ["一", "二"],
+            "previous_segment_tail_frame": "tail-b64",
+        }
+
+        notes = _build_storyboard_continuity_notes(
+            state,
+            segment_index=2,
+            planner_output=planner_output,
+            current_fragment_id="F02",
+        )
+
+        assert "场景关系：新场景" in notes
+        assert "第一格不要照搬上一段尾帧人物站位" in notes
+
+    def test_scene_layout_annotation_does_not_require_per_segment_motion_path(self):
+        state: DirectorState = {
+            "reference_image_b64s": ["layout-b64"],
+            "reference_image_manifest": [
+                {
+                    "label": "@图片1",
+                    "filename": "layout.png",
+                    "role": "scene_layout_annotation",
+                    "purpose": "人物位置和活动轨迹",
+                }
+            ],
+        }
+
+        notes = _build_character_reference_notes(state)
+
+        assert "场景开局标点图" in notes
+        assert "不要求逐段运动轨迹" in notes
+
 
 class TestPromptBuilder:
     def test_build_user_prompt_structure(self):
@@ -224,6 +367,9 @@ class TestPromptBuilder:
         assert "【当前片段增强剧本参考】" in prompt
         assert "只用它核对人物、道具、台词事实和动作起点" in prompt
         assert "【分镜首帧图输出合同】" in prompt
+        assert "gpt-image-2" in prompt
+        assert "每格只画首帧/关键静止瞬间" in prompt
+        assert "禁止对白气泡、字幕、运动箭头、动作轨迹" in prompt
         assert "不出现台词文字" in prompt
         assert "人物运动箭头" in prompt
         assert "固定家具位置锁定" in prompt
