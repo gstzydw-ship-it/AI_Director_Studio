@@ -44,7 +44,23 @@ def load_config():
 
 # ---------- Embedding 客户端 ----------
 
-_embed_clients: dict[tuple[str, str], OpenAI] = {}
+_embed_clients: dict[tuple[str, str, float, int], OpenAI] = {}
+
+
+def _coerce_positive_float(value: Any, default: float) -> float:
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed > 0 else default
+
+
+def _coerce_non_negative_int(value: Any, default: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        return default
+    return parsed if parsed >= 0 else default
 
 
 def _load_session_model_profile() -> dict[str, Any]:
@@ -73,11 +89,21 @@ def _get_embed_client() -> OpenAI:
     profile = _load_session_model_profile()
     api_key = profile.get("vectordb_api_key") or profile.get("api_key") or vdb_config.get("api_key") or ""
     base_url = profile.get("vectordb_base_url") or vdb_config.get("base_url") or COMFLY_BASE_URL
+    timeout_seconds = _coerce_positive_float(
+        profile.get("vectordb_timeout_seconds") or vdb_config.get("timeout_seconds"),
+        120.0,
+    )
+    max_retries = _coerce_non_negative_int(vdb_config.get("max_retries"), 2)
     if not api_key:
         raise RuntimeError("vectordb.api_key 未配置，无法创建 Embedding 客户端。")
-    cache_key = (api_key, base_url)
+    cache_key = (api_key, base_url, timeout_seconds, max_retries)
     if cache_key not in _embed_clients:
-        _embed_clients[cache_key] = OpenAI(api_key=api_key, base_url=base_url)
+        _embed_clients[cache_key] = OpenAI(
+            api_key=api_key,
+            base_url=base_url,
+            timeout=timeout_seconds,
+            max_retries=max_retries,
+        )
     return _embed_clients[cache_key]
 
 

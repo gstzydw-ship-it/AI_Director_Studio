@@ -141,6 +141,8 @@ class TestShotExtraction:
         assert "商北琛" in formatted
         assert "中全景" in formatted
         assert "不画完整动作过程" in formatted
+        assert "故事板行版式" in formatted
+        assert "右栏机位图" in formatted
         assert "固定空间锁定" in formatted
         assert "不得把道具移动到旁边台面、床头或新位置" in formatted
 
@@ -366,12 +368,17 @@ class TestPromptBuilder:
         assert "hero.jpg" in prompt
         assert "【当前片段增强剧本参考】" in prompt
         assert "只用它核对人物、道具、台词事实和动作起点" in prompt
-        assert "【分镜首帧图输出合同】" in prompt
+        assert "【分镜故事板输出合同】" in prompt
         assert "gpt-image-2" in prompt
-        assert "每格只画首帧/关键静止瞬间" in prompt
-        assert "禁止对白气泡、字幕、运动箭头、动作轨迹" in prompt
+        assert "左栏只画首帧/关键静止瞬间" in prompt
+        assert "禁止对白气泡、字幕、人物运动箭头、动作轨迹" in prompt
         assert "不出现台词文字" in prompt
         assert "人物运动箭头" in prompt
+        assert "每行三栏" in prompt
+        assert "左栏分镜首帧图" in prompt
+        assert "右栏俯视机位图" in prompt
+        assert "CAM 摄影机三角形" in prompt
+        assert "FOV 视野扇形" in prompt
         assert "固定家具位置锁定" in prompt
         assert "不能出现“旁边台面”“床头边缘”“另一个桌面”" in prompt
 
@@ -432,20 +439,21 @@ class TestStoryboardDesignerNode:
 
 
 class TestGraphIntegration:
-    def test_graph_contains_storyboard_node(self):
+    def test_graph_defers_storyboard_until_segment_assets_exist(self):
         from agents.director_graph_package.graph_api import create_director_graph
 
         graph = create_director_graph()
-        assert "storyboard_designer" in graph.nodes
+        assert "storyboard_designer" not in graph.nodes
+        assert "wait_for_segment_request" in graph.nodes
 
-    def test_storyboard_node_is_between_shot_director_and_wait(self):
+    def test_story_planner_waits_before_segment_level_generation(self):
         from agents.director_graph_package.graph_api import create_director_graph
 
         graph = create_director_graph()
-        # Check edges: shot_director -> storyboard_designer -> wait_for_segment_request
         edges = list(graph.edges)
-        assert ("shot_director", "storyboard_designer") in edges
-        assert ("storyboard_designer", "wait_for_segment_request") in edges
+        assert ("story_planner", "wait_for_segment_request") in edges
+        assert ("shot_director", "storyboard_designer") not in edges
+        assert ("storyboard_designer", "wait_for_segment_request") not in edges
 
 
 # ---------------------------------------------------------------------------

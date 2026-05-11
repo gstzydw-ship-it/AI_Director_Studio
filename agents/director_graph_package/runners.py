@@ -33,8 +33,6 @@ HUMAN_REVIEW_NODES = [
     "director_showrunner",
     "rhythm_rewrite_director",
     "story_planner",
-    "shot_director",
-    "storyboard_designer",
     "prompt_compiler",
     "quality_inspector",
 ]
@@ -44,7 +42,7 @@ REVIEW_AGENT_LABELS = {
     "rhythm_rewrite_director": "节奏总控",
     "scene_analyst": "场景预分析",
     "story_planner": "结构规划",
-    "shot_director": "三段镜头导演",
+    "shot_director": "镜头导演",
     "storyboard_designer": "分镜流程图",
     "prompt_compiler": "Seedance编译",
     "quality_inspector": "质检导演",
@@ -65,7 +63,7 @@ NEXT_REVIEW_AGENT_AFTER_APPROVAL = {
     "scene_analyst": "director_showrunner",
     "director_showrunner": "rhythm_rewrite_director",
     "rhythm_rewrite_director": "story_planner",
-    "story_planner": "shot_director",
+    "story_planner": "prompt_compiler",
     "shot_director": "storyboard_designer",
     "storyboard_designer": "prompt_compiler",
     "prompt_compiler": "quality_inspector",
@@ -77,7 +75,7 @@ _NEXT_NODE_TO_REVIEW_AGENT = {
     "story_planner": "rhythm_rewrite_director",
     "shot_director": "story_planner",
     "storyboard_designer": "shot_director",
-    "wait_for_segment_request": "storyboard_designer",
+    "wait_for_segment_request": "story_planner",
     "quality_inspector": "prompt_compiler",
     "qc_router": "quality_inspector",
 }
@@ -144,11 +142,11 @@ def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
 
     state = _load_runner_state()
     if not state:
-        raise RuntimeError("没有已保存的流水线状态，无法续跑镜头导演。")
+        raise RuntimeError("No saved pipeline state; cannot rerun shot director.")
 
     outputs = _agent_outputs(state)
     if not outputs.get("story_planner"):
-        raise RuntimeError("缺少 story_planner 输出，无法续跑镜头导演。")
+        raise RuntimeError("Missing story_planner output; cannot rerun shot director.")
     if outputs.get("shot_director") and not clear_knowledge_metadata:
         return state
 
@@ -170,9 +168,9 @@ def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
     state["status"] = "running_phase_1"
     state["step"] = "step_3_direct"
     state["message"] = (
-        "已复用前三步宏观规划，正在重新启动镜头导演...（4/6）"
+        "Reusing previous planning outputs and restarting shot director..."
         if clear_knowledge_metadata
-        else "已复用宏观规划，正在重新运行镜头导演...（4/6）"
+        else "Resuming shot director from saved partial output..."
     )
     state["error"] = ""
     _save_runner_state(state)
@@ -282,7 +280,7 @@ def _mark_human_review_state(state: dict[str, Any], next_nodes: Any) -> dict[str
     state["review_title"] = label
     state["review_output"] = _review_output_for_agent(state, agent)
     state["step"] = REVIEW_AGENT_STEPS.get(agent, state.get("step") or "")
-    state["message"] = f"{label}已完成，请审核/修改后继续。"
+    state["message"] = f"{label} completed. Please review or edit before continuing."
     _save_runner_state(dict(state))
     return state
 
@@ -342,7 +340,7 @@ def _apply_human_review_edit(
     next_agent = NEXT_REVIEW_AGENT_AFTER_APPROVAL.get(agent)
     if next_agent:
         state["step"] = REVIEW_AGENT_STEPS.get(next_agent, state.get("step") or "")
-    state["message"] = f"已确认 {REVIEW_AGENT_LABELS.get(agent, agent)} 输出，正在交给下一个 Agent..."
+    state["message"] = f"Confirmed {REVIEW_AGENT_LABELS.get(agent, agent)} output; continuing..."
     state["error"] = ""
     return state
 
@@ -366,10 +364,19 @@ def _invoke_graph(input_value: Any, thread_id: str) -> Any:
             if saved_state:
                 app.update_state(config, saved_state)
         result = app.invoke(input_value, config=config)
+        interrupted = bool(result.get("__interrupt__")) if isinstance(result, dict) else False
         snapshot = app.get_state(config)
     state = _normalise_graph_result(result, thread_id)
-    if review_enabled and getattr(snapshot, "next", ()):
-        state = _mark_human_review_state(dict(state), getattr(snapshot, "next", ()))
+    next_nodes = getattr(snapshot, "next", ())
+    next_node = ""
+    if isinstance(next_nodes, (list, tuple)) and next_nodes:
+        next_node = str(next_nodes[0])
+    elif isinstance(next_nodes, str):
+        next_node = next_nodes
+
+    is_segment_request_interrupt = interrupted and next_node == "wait_for_segment_request"
+    if review_enabled and next_nodes and not is_segment_request_interrupt:
+        state = _mark_human_review_state(dict(state), next_nodes)
     return state
 
 
@@ -394,12 +401,21 @@ def _run_phase_2_compile_direct(
     tail_frame_b64: str | None = None,
     video_path: str | None = None,
 ) -> Any:
-    from .nodes import segment_complete_node
+    from .nodes import segment_complete_node, storyboard_designer_node
     from .prompt_compiler_impl import prompt_compiler_node
     from .quality_inspector_impl import quality_inspector_node, qc_router_node
+    from .shot_director_impl import run_shot_director_for_segment
 
     prepared_update = _prepare_phase_2_compile_state(state, segment_index, tail_frame_b64, video_path)
     working_state = _merge_state_update(state, prepared_update)
+    _save_runner_state(dict(working_state))
+
+    shot_update = run_shot_director_for_segment(working_state, segment_index)
+    working_state = _merge_state_update(working_state, shot_update)
+    _save_runner_state(dict(working_state))
+
+    storyboard_update = storyboard_designer_node(working_state)
+    working_state = _merge_state_update(working_state, storyboard_update)
     _save_runner_state(dict(working_state))
 
     while True:
@@ -424,10 +440,22 @@ def _run_phase_2_until_review(
     tail_frame_b64: str | None = None,
     video_path: str | None = None,
 ) -> Any:
+    from .nodes import storyboard_designer_node
     from .prompt_compiler_impl import prompt_compiler_node
+    from .shot_director_impl import run_shot_director_for_segment
 
     prepared_update = _prepare_phase_2_compile_state(state, segment_index, tail_frame_b64, video_path)
     working_state = _merge_state_update(state, prepared_update)
+    working_state["human_review_enabled"] = True
+    _save_runner_state(dict(working_state))
+
+    shot_update = run_shot_director_for_segment(working_state, segment_index)
+    working_state = _merge_state_update(working_state, shot_update)
+    working_state["human_review_enabled"] = True
+    _save_runner_state(dict(working_state))
+
+    storyboard_update = storyboard_designer_node(working_state)
+    working_state = _merge_state_update(working_state, storyboard_update)
     working_state["human_review_enabled"] = True
     _save_runner_state(dict(working_state))
 
@@ -490,7 +518,7 @@ def run_phase_1_planning(
         "thread_id": thread_id,
         "status": "running_phase_1",
         "step": "step_0_scene",
-        "message": "场景预分析正在读取参考图、人物站位和空间信息...（1/8）",
+        "message": "Scene analysis is reading references and spatial context...",
         "script": script,
         "original_script": script,
         "enhanced_script": "",
@@ -531,26 +559,20 @@ def run_phase_2_compile_segment(
 ) -> Any:
     state = _load_runner_state()
     if not state:
-        raise RuntimeError("没有已保存的流水线状态，无法生成片段。")
+        raise RuntimeError("No saved pipeline state; cannot generate a segment.")
 
     outputs = _agent_outputs(state)
     if not outputs.get("story_planner"):
-        raise RuntimeError("缺少 story_planner 输出，无法生成片段。")
+        raise RuntimeError("Missing story_planner output; cannot generate a segment.")
 
-    if outputs.get("shot_director"):
-        if state.get("human_review_enabled"):
-            result = _run_phase_2_until_review(state, segment_index, tail_frame_b64, video_path)
-            _save_runner_state(dict(result))
-            return result
-        result = _run_phase_2_compile_direct(state, segment_index, tail_frame_b64, video_path)
+    if state.get("human_review_enabled"):
+        result = _run_phase_2_until_review(state, segment_index, tail_frame_b64, video_path)
         _save_runner_state(dict(result))
         return result
 
-    thread_id = state.get("thread_id")
-    if not thread_id:
-        raise RuntimeError("缺少 thread_id，无法恢复图执行。")
-    return _invoke_runner_graph(state, thread_id)
-
+    result = _run_phase_2_compile_direct(state, segment_index, tail_frame_b64, video_path)
+    _save_runner_state(dict(result))
+    return result
 
 def run_full_pipeline(
     script: str,

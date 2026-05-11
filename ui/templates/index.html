@@ -238,6 +238,48 @@
                             </div>
                         </section>
 
+                        <section class="card generation-workbench-card">
+                            <div class="card-header generation-workbench-header">
+                                <div>
+                                    <span class="section-kicker">Generation Desk</span>
+                                    <h3>生成任务与分镜看板</h3>
+                                    <p class="generation-workbench-copy">队列、候选抽卡、Shot 卡片和 A/B 对比集中在这里。</p>
+                                </div>
+                                <div class="generation-summary" id="generationSummary">
+                                    <span>队列 0</span>
+                                    <span>候选 0</span>
+                                </div>
+                            </div>
+                            <div class="card-body generation-workbench-body">
+                                <section class="generation-queue-panel">
+                                    <div class="workbench-section-head">
+                                        <div>
+                                            <strong>生成队列</strong>
+                                            <span>排队、运行、失败恢复、取消与重试</span>
+                                        </div>
+                                        <span class="queue-badge" id="generationQueueBadge">空</span>
+                                    </div>
+                                    <div id="generationQueueList" class="generation-queue-list">
+                                        <div class="generation-empty">还没有图片/视频生成任务。启动分镜图片后，这里会显示队列状态。</div>
+                                    </div>
+                                </section>
+                                <section class="storyboard-workbench-panel">
+                                    <div class="workbench-section-head">
+                                        <div>
+                                            <strong>分镜可视化</strong>
+                                            <span>Shot card、候选图/视频抽卡、A/B 复核</span>
+                                        </div>
+                                    </div>
+                                    <div id="storyboardWorkbench" class="storyboard-workbench">
+                                        <div class="storyboard-workbench-empty">
+                                            <strong>等待分镜输出</strong>
+                                            <span>生成后会按片段聚合 Shot 卡片、首帧图、候选版本和对比入口。</span>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+                        </section>
+
                         <section class="card result-card">
                             <div class="card-header result-card-header">
                                 <div>
@@ -470,6 +512,8 @@
         let pollingTimer = null;
         let agentOutputs = {};  // 存储各Agent的输出
         let currentPublicState = {};
+        let generationJobsCache = [];
+        let generationArtifactsCache = [];
         let referenceItems = [];
         const MAX_REFERENCE_IMAGES = 12;
         const SESSION_STORAGE_KEY = 'director_session_id';
@@ -1445,7 +1489,10 @@
 
         function hasStoryboardOutput(outputs = {}) {
             return Object.keys(outputs || {}).some(key => /^storyboard_(prompt|image)_seg\d+$/.test(key))
-                || Boolean(outputs.storyboard_designer);
+                || Boolean(outputs.storyboard_designer)
+                || asArrayValue(outputs.generation_artifacts).length > 0
+                || asArrayValue(outputs.storyboard_artifacts).length > 0
+                || asArrayValue(outputs.generation_jobs).some(job => asArrayValue(job.artifacts || job.outputs || job.candidates).length > 0);
         }
 
         function agentHasOutput(agent, state = currentPublicState) {
@@ -2320,7 +2367,7 @@
                 document.getElementById('pipelineMsg').textContent = readableStatusMessage(state.message) || '等待审核当前 Agent 输出';
                 return;
             }
-            if (canContinueShotDirectorFromPlanner(state)) {
+            if (false && canContinueShotDirectorFromPlanner(state)) {
                 showBestAvailableResult(state);
                 renderShotDirectorRetryBox(state);
                 document.getElementById('pipelineMsg').textContent = readableStatusMessage(state.message) || '结构规划已完成，请继续镜头导演。';
@@ -2330,11 +2377,11 @@
             const totalSegments = Number(state.total_segments || segIdx || 1);
             const completedSegment = Math.max(0, segIdx - 1);
             const titleText = completedSegment > 0
-                ? `第 ${completedSegment} 段完成：上传视频后生成第 ${segIdx} 段`
-                : `宏观规划完成：准备生成第 ${segIdx} 段 Prompt`;
+                ? `第 ${completedSegment} 段完成：上传视频后生成第 ${segIdx} 段分镜故事板`
+                : `拆片完成：准备生成第 ${segIdx} 段分镜故事板`;
             const helpText = completedSegment > 0
-                ? `直接上传第 ${completedSegment} 段完整视频即可，系统会自动抽取最后一帧作为第 ${segIdx} 段首帧锚点。`
-                : `现在可以直接生成第 ${segIdx} 段 Prompt，无需上传视频。`;
+                ? `上传第 ${completedSegment} 段完整视频或尾帧图后，系统会先生成第 ${segIdx} 段镜头导演，再生成分镜故事板，最后编译 Seedance Prompt。`
+                : `现在可以直接生成第 ${segIdx} 段：镜头导演 -> 分镜故事板 -> Seedance Prompt。`;
             const videoInputHtml = completedSegment > 0
                 ? `
                     <div style="flex:1; min-width: 200px;">
@@ -2355,7 +2402,7 @@
                             <input type="file" id="tailFrameUpload" accept="image/png, image/jpeg, image/webp" />
                         </div>
                     </div>
-                    <button class="btn-primary" style="width: 100%;" onclick="resumePipeline(${segIdx})">生成片段 ${segIdx} / ${totalSegments}</button>
+                    <button class="btn-primary" style="width: 100%;" onclick="resumePipeline(${segIdx})">生成第 ${segIdx} 段分镜故事板 / ${totalSegments}</button>
                 </div>
             `;
             markWaitingForInput(state);
@@ -2490,6 +2537,7 @@
                 const resp = await fetch(statusUrl());
                 let state = await resp.json();
                 currentPublicState = state;
+                await refreshGenerationAssets();
                 const hasOutputs = Object.keys(state.agent_outputs || {}).length > 0 || Boolean(state.result);
 
                 // 恢复用户输入（剧本 + 参考图）
@@ -2591,6 +2639,9 @@
             resetSteps();
             agentOutputs = {};
             currentPublicState = {};
+            generationJobsCache = [];
+            generationArtifactsCache = [];
+            renderGenerationWorkbench(currentPublicState, agentOutputs);
             hideResultWorkbench();
             document.getElementById('resultOutput').innerHTML = '<div class="placeholder-text">Agent 团队已启动，请耐心等待...</div>';
             updateAgentStatus('running', 'Agent 工作中');
@@ -2637,7 +2688,12 @@
                 try {
                     const resp = await fetch(statusUrl());
                     const state = await resp.json();
-                    currentPublicState = state;
+                    currentPublicState = {
+                        ...state,
+                        generation_jobs: generationJobsCache,
+                        generation_artifacts: generationArtifactsCache,
+                    };
+                    await refreshGenerationAssets();
                     const status = String(state.status || '');
                     const isRunning = status.startsWith('running');
 
@@ -2829,7 +2885,11 @@
         }
 
         function hasStoryboardOutput(outputs = {}) {
-            return Object.keys(outputs).some(key => /^storyboard_(?:prompt|image)_seg\d+$/.test(key));
+            return Object.keys(outputs).some(key => /^storyboard_(?:prompt|image)_seg\d+$/.test(key))
+                || Boolean(outputs.storyboard_designer)
+                || asArrayValue(outputs.generation_artifacts).length > 0
+                || asArrayValue(outputs.storyboard_artifacts).length > 0
+                || asArrayValue(outputs.generation_jobs).some(job => asArrayValue(job.artifacts || job.outputs || job.candidates).length > 0);
         }
 
         function inferCompletedStepIndex(state = {}) {
@@ -3464,7 +3524,12 @@
 
         function showBestAvailableResult(state = {}) {
             agentOutputs = state.agent_outputs || {};
-            currentPublicState = state;
+            currentPublicState = {
+                ...state,
+                generation_jobs: generationJobsCache,
+                generation_artifacts: generationArtifactsCache,
+            };
+            renderGenerationWorkbench(currentPublicState, agentOutputs);
 
             const fallbackCandidates = [
                 ['scene_analyst', agentOutputs.scene_analyst || hasSceneReferenceCards(agentOutputs)],
@@ -3485,7 +3550,9 @@
                         ? renderSceneAnalystOutput(agentOutputs)
                         : availableAgent === 'storyboard_designer'
                             ? renderStoryboardImages(agentOutputs)
-                            : renderReadableAgentOutput(availableAgent, currentAgentOutputText(availableAgent) || text);
+                            : availableAgent === 'shot_director'
+                                ? renderShotDirectorOutput(currentAgentOutputText('shot_director') || text, state)
+                                : renderReadableAgentOutput(availableAgent, currentAgentOutputText(availableAgent) || text);
                 setResultOutput(availableAgent, html);
                 return;
             }
@@ -3665,6 +3732,518 @@
         }
         window.regenerateSceneCard = regenerateSceneCard;
 
+        let artifactCompareGroups = {};
+
+        function parseStructuredValue(value, fallback = null) {
+            if (value == null || value === '') return fallback;
+            if (typeof value !== 'string') return value;
+            const trimmed = value.trim();
+            if (!trimmed) return fallback;
+            if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+                try {
+                    return JSON.parse(trimmed);
+                } catch (e) {
+                    return fallback;
+                }
+            }
+            return fallback;
+        }
+
+        function asArrayValue(value) {
+            const parsed = parseStructuredValue(value, value);
+            if (Array.isArray(parsed)) return parsed;
+            if (parsed && typeof parsed === 'object') return Object.values(parsed).flatMap(item => Array.isArray(item) ? item : [item]);
+            return [];
+        }
+
+        async function refreshGenerationAssets() {
+            try {
+                const resp = await fetch(`/api/generation_jobs?session_id=${encodeURIComponent(getSessionId())}`);
+                const data = await resp.json();
+                if (!data.success) return;
+                generationJobsCache = Array.isArray(data.jobs) ? data.jobs : [];
+                generationArtifactsCache = Array.isArray(data.artifacts) ? data.artifacts : [];
+                currentPublicState = {
+                    ...currentPublicState,
+                    generation_jobs: generationJobsCache,
+                    generation_artifacts: generationArtifactsCache,
+                };
+                renderGenerationWorkbench(currentPublicState, currentPublicState.agent_outputs || agentOutputs);
+            } catch (e) {
+                console.warn('generation asset refresh failed', e);
+            }
+        }
+
+        function generationJobStatusLabel(status = '') {
+            const value = String(status || '').toLowerCase();
+            const labels = {
+                queued: '排队',
+                running: '运行中',
+                retrying: '重试中',
+                succeeded: '完成',
+                failed: '失败',
+                cancel_requested: '取消中',
+                canceled: '已取消',
+                stale: '待恢复',
+            };
+            return labels[value] || (value ? value : '未知');
+        }
+
+        function generationJobStatusClass(status = '') {
+            const value = String(status || '').toLowerCase();
+            if (['succeeded'].includes(value)) return 'is-success';
+            if (['failed', 'stale'].includes(value)) return 'is-error';
+            if (['running', 'retrying', 'cancel_requested'].includes(value)) return 'is-running';
+            if (['canceled'].includes(value)) return 'is-muted';
+            return 'is-queued';
+        }
+
+        function generationJobKindLabel(kind = '') {
+            const value = String(kind || '').toLowerCase();
+            if (value.includes('video')) return '视频生成';
+            if (value.includes('storyboard')) return '分镜图片';
+            if (value.includes('image')) return '图片生成';
+            return value || '生成任务';
+        }
+
+        function generationJobTargetLabel(item = {}) {
+            const shot = item.shot_id || item.shot || '';
+            const segment = Number(item.segment_index || item.segment || item.seg_index || 0) || 0;
+            if (segment && shot) return `片段 ${segment} / ${shot}`;
+            if (segment) return `片段 ${segment}`;
+            if (shot) return String(shot);
+            return '全局';
+        }
+
+        function generationJobTimeLabel(value = '') {
+            if (!value) return '';
+            const date = new Date(value);
+            if (Number.isNaN(date.getTime())) return String(value).slice(0, 16);
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+
+        function generationJobAttemptLabel(job = {}) {
+            const attempts = Number(job.attempt_count || job.attempts || job.retry_count || 0) || 0;
+            const maxAttempts = Number(job.max_attempts || 0) || 0;
+            if (maxAttempts) return `${attempts}/${maxAttempts}`;
+            return String(attempts || 0);
+        }
+
+        function generationWorkbenchSegmentIndexes(state = currentPublicState, outputs = agentOutputs) {
+            const indexes = new Set();
+            const total = Number(state.total_segments || state.segment_count || 0) || 0;
+            for (let i = 1; i <= total; i += 1) indexes.add(i);
+            Object.keys(outputs || {}).forEach(key => {
+                const match = key.match(/(?:seg|segment)(\d+)/i);
+                if (match) indexes.add(Number(match[1]));
+            });
+            generationArtifactsForState(state, outputs).forEach(artifact => {
+                const seg = artifactSegmentIndex(artifact);
+                if (seg) indexes.add(seg);
+            });
+            generationJobsCache.forEach(job => {
+                const seg = Number(job.segment_index || job.segment || 0) || 0;
+                if (seg) indexes.add(seg);
+            });
+            if (!indexes.size) indexes.add(currentSegmentIndex());
+            return Array.from(indexes).filter(Boolean).sort((a, b) => a - b).slice(0, 12);
+        }
+
+        async function cancelGenerationJob(jobId) {
+            if (!jobId) return;
+            try {
+                const formData = new FormData();
+                formData.append('session_id', getSessionId());
+                const resp = await fetch(`/api/generation_jobs/${encodeURIComponent(jobId)}/cancel`, { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error || '取消失败');
+                await refreshGenerationAssets();
+            } catch (e) {
+                showError(`取消生成任务失败: ${e.message}`);
+            }
+        }
+
+        async function retryGenerationJob(jobId) {
+            if (!jobId) return;
+            try {
+                const formData = new FormData();
+                formData.append('session_id', getSessionId());
+                const resp = await fetch(`/api/generation_jobs/${encodeURIComponent(jobId)}/retry`, { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error || '重试失败');
+                await refreshGenerationAssets();
+            } catch (e) {
+                showError(`重试生成任务失败: ${e.message}`);
+            }
+        }
+
+        async function selectGenerationArtifact(artifactId) {
+            if (!artifactId) return;
+            try {
+                const formData = new FormData();
+                formData.append('session_id', getSessionId());
+                const resp = await fetch(`/api/generation_artifacts/${encodeURIComponent(artifactId)}/select`, { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error || '选择失败');
+                if (data.state) {
+                    currentPublicState = data.state;
+                    agentOutputs = data.state.agent_outputs || agentOutputs;
+                }
+                await refreshGenerationAssets();
+                if (activeResultAgent() === 'storyboard_designer') {
+                    setResultOutput('storyboard_designer', renderStoryboardImages(agentOutputs));
+                }
+            } catch (e) {
+                showError(`选择候选失败: ${e.message}`);
+            }
+        }
+
+        function renderGenerationWorkbench(state = currentPublicState, outputs = agentOutputs) {
+            const queueEl = document.getElementById('generationQueueList');
+            const boardEl = document.getElementById('storyboardWorkbench');
+            if (!queueEl || !boardEl) return;
+
+            const jobs = asArrayValue(generationJobsCache.length ? generationJobsCache : state.generation_jobs)
+                .filter(job => job && typeof job === 'object')
+                .slice()
+                .sort((a, b) => String(b.updated_at || b.created_at || '').localeCompare(String(a.updated_at || a.created_at || '')));
+            const artifacts = generationArtifactsForState(state, outputs);
+            const activeJobs = jobs.filter(job => ['queued', 'running', 'retrying', 'cancel_requested'].includes(String(job.status || '').toLowerCase()));
+            const failedJobs = jobs.filter(job => ['failed', 'stale'].includes(String(job.status || '').toLowerCase()));
+            const summaryEl = document.getElementById('generationSummary');
+            if (summaryEl) {
+                summaryEl.innerHTML = `
+                    <span>队列 ${activeJobs.length}</span>
+                    <span>失败 ${failedJobs.length}</span>
+                    <span>候选 ${artifacts.length}</span>
+                `;
+            }
+            const badgeEl = document.getElementById('generationQueueBadge');
+            if (badgeEl) badgeEl.textContent = activeJobs.length ? `${activeJobs.length} 活跃` : (jobs.length ? `${jobs.length} 条` : '空');
+
+            if (!jobs.length) {
+                queueEl.innerHTML = '<div class="generation-empty">还没有图片/视频生成任务。点击“生成分镜图片”后，队列、重试、取消和恢复状态会在这里出现。</div>';
+            } else {
+                queueEl.innerHTML = jobs.slice(0, 8).map(job => {
+                    const status = String(job.status || '').toLowerCase();
+                    const jobId = String(job.job_id || job.id || '');
+                    const canCancel = ['queued', 'running', 'retrying'].includes(status);
+                    const canRetry = ['failed', 'canceled', 'stale'].includes(status);
+                    return `
+                        <article class="generation-job-row ${generationJobStatusClass(status)}">
+                            <div class="generation-job-main">
+                                <span class="generation-job-status">${generationJobStatusLabel(status)}</span>
+                                <strong>${escapeHtml(generationJobKindLabel(job.kind || job.job_type))}</strong>
+                                <small>${escapeHtml(generationJobTargetLabel(job))} · 尝试 ${escapeHtml(generationJobAttemptLabel(job))}</small>
+                            </div>
+                            <div class="generation-job-side">
+                                <time>${escapeHtml(generationJobTimeLabel(job.updated_at || job.created_at))}</time>
+                                <div class="generation-job-actions">
+                                    ${canCancel ? `<button class="btn-small btn-ghost" type="button" onclick="cancelGenerationJob('${escapeHtml(jobId)}')">取消</button>` : ''}
+                                    ${canRetry ? `<button class="btn-small" type="button" onclick="retryGenerationJob('${escapeHtml(jobId)}')">重试</button>` : ''}
+                                </div>
+                            </div>
+                        </article>
+                    `;
+                }).join('');
+            }
+
+            const cards = shotCardDataForState(state, outputs);
+            const parsedCards = cards.length ? cards : parseShotCardsFromText(latestShotDirectorOutput(outputs));
+            const cardHtml = renderShotCards(parsedCards);
+            const segmentHtml = generationWorkbenchSegmentIndexes(state, outputs).map(segIndex => {
+                const imagePath = outputs[`storyboard_image_seg${String(segIndex).padStart(2, '0')}`] || outputs[`storyboard_image_seg${segIndex}`] || '';
+                const promptText = outputs[`storyboard_prompt_seg${String(segIndex).padStart(2, '0')}`] || outputs[`storyboard_prompt_seg${segIndex}`] || '';
+                const imageSrc = storyboardImageSrc(imagePath);
+                const stripHtml = renderCandidateStrip(segIndex, state, outputs);
+                const segmentArtifacts = artifacts.filter(item => artifactSegmentIndex(item) === Number(segIndex) || artifactSegmentIndex(item) === 0);
+                return `
+                    <article class="workbench-shot-lane">
+                        <div class="workbench-shot-preview">
+                            ${imageSrc
+                                ? `<img src="${escapeHtml(imageSrc)}" alt="片段 ${segIndex} 分镜图" loading="lazy" decoding="async">`
+                                : `<div class="workbench-shot-placeholder">SEG ${String(segIndex).padStart(2, '0')}</div>`}
+                        </div>
+                        <div class="workbench-shot-body">
+                            <div class="workbench-shot-top">
+                                <strong>片段 ${segIndex}</strong>
+                                <span>${segmentArtifacts.length} 个候选</span>
+                            </div>
+                            <p>${escapeHtml(String(promptText || '等待分镜 Prompt / 图片输出').slice(0, 120))}</p>
+                            ${stripHtml || '<div class="mini-candidate-empty">暂无候选图/视频，生成后可抽卡和 A/B 对比。</div>'}
+                        </div>
+                    </article>
+                `;
+            }).join('');
+
+            if (cardHtml || segmentHtml || artifacts.length) {
+                boardEl.innerHTML = `
+                    ${cardHtml ? `<div class="workbench-shot-cards">${cardHtml}</div>` : ''}
+                    <div class="workbench-shot-lanes">${segmentHtml}</div>
+                `;
+            } else {
+                boardEl.innerHTML = `
+                    <div class="storyboard-workbench-empty">
+                        <strong>等待分镜输出</strong>
+                        <span>生成后会按片段聚合 Shot 卡片、首帧图、候选版本和对比入口。</span>
+                    </div>
+                `;
+            }
+        }
+
+        function candidateArtifactUrl(artifact = {}) {
+            return artifact.url || artifact.preview_url || artifact.thumbnail_url || artifact.thumbnail_path
+                || artifact.image_url || artifact.image_path || artifact.video_url || artifact.video_path
+                || artifact.path || artifact.file_path || '';
+        }
+
+        function candidateArtifactSrc(artifact = {}) {
+            const url = candidateArtifactUrl(artifact);
+            return url ? storyboardImageSrc(url) : '';
+        }
+
+        function candidateArtifactKind(artifact = {}) {
+            const explicit = String(artifact.kind || artifact.type || artifact.media_type || '').toLowerCase();
+            const url = candidateArtifactUrl(artifact).toLowerCase();
+            if (explicit.includes('video') || /\.(mp4|webm|mov|m4v)(\?|$)/i.test(url)) return 'video';
+            return 'image';
+        }
+
+        function artifactSegmentIndex(artifact = {}, fallback = 0) {
+            return Number(artifact.segment_index || artifact.segment || artifact.seg_index || artifact.segIndex || artifact.segment_id || fallback) || 0;
+        }
+
+        function selectedArtifactKeys(state = {}, outputs = {}) {
+            const selected = parseStructuredValue(state.selected_artifacts, state.selected_artifacts)
+                || parseStructuredValue(outputs.selected_artifacts, outputs.selected_artifacts)
+                || parseStructuredValue(outputs.selected_generation_artifacts, outputs.selected_generation_artifacts)
+                || {};
+            const keys = new Set();
+            if (Array.isArray(selected)) {
+                selected.forEach(item => keys.add(String(item?.id || item?.artifact_id || item || '')));
+            } else if (selected && typeof selected === 'object') {
+                Object.values(selected).forEach(item => keys.add(String(item?.id || item?.artifact_id || item || '')));
+            }
+            return keys;
+        }
+
+        function generationArtifactsForState(state = currentPublicState, outputs = agentOutputs) {
+            const sources = [
+                generationArtifactsCache,
+                state.generation_artifacts,
+                outputs.generation_artifacts,
+                outputs.storyboard_artifacts,
+                outputs.candidate_artifacts,
+            ];
+            asArrayValue(generationJobsCache.length ? generationJobsCache : (state.generation_jobs || outputs.generation_jobs)).forEach(job => {
+                sources.push(job.artifacts, job.outputs, job.candidates);
+            });
+            const artifacts = sources.flatMap(asArrayValue).filter(item => item && typeof item === 'object');
+            Object.keys(outputs || {})
+                .filter(key => /^storyboard_image_seg\d+$/.test(key) && outputs[key])
+                .forEach(key => {
+                    const match = key.match(/^storyboard_image_seg(\d+)$/);
+                    artifacts.push({
+                        id: key,
+                        segment_index: match ? Number(match[1]) : 0,
+                        image_path: outputs[key],
+                        title: 'Storyboard image',
+                        selected: true,
+                        source: 'storyboard',
+                    });
+                });
+            return artifacts.map((artifact, index) => ({
+                ...artifact,
+                _index: index,
+                _id: String(artifact.id || artifact.artifact_id || artifact.key || `artifact-${index}`),
+            })).filter(artifact => candidateArtifactUrl(artifact));
+        }
+
+        function renderArtifactMedia(artifact = {}, cssClass = 'candidate-artifact-media') {
+            const src = candidateArtifactSrc(artifact);
+            const title = artifact.title || artifact.label || artifact.prompt || artifact._id || 'candidate';
+            if (!src) return '<div class="placeholder-text">No preview</div>';
+            if (candidateArtifactKind(artifact) === 'video') {
+                return `<video class="${cssClass}" src="${escapeHtml(src)}" controls muted playsinline preload="metadata"></video>`;
+            }
+            return `<img class="${cssClass}" src="${escapeHtml(src)}" alt="${escapeHtml(title)}" loading="lazy" decoding="async" onerror="this.outerHTML='<div class=\\'placeholder-text\\'>Preview failed</div>'">`;
+        }
+
+        function renderCandidateStrip(segIndex, state = currentPublicState, outputs = agentOutputs) {
+            const groupKey = String(segIndex || 'all');
+            const artifacts = generationArtifactsForState(state, outputs)
+                .filter(item => !segIndex || artifactSegmentIndex(item) === Number(segIndex) || artifactSegmentIndex(item) === 0);
+            if (!artifacts.length) return '';
+            const selectedKeys = selectedArtifactKeys(state, outputs);
+            artifactCompareGroups[groupKey] = artifacts;
+            const compareButton = artifacts.length >= 2
+                ? `<button class="btn-small" type="button" onclick="openArtifactCompareModal('${escapeHtml(groupKey)}', 0, 1)">A/B Compare</button>`
+                : '';
+            const items = artifacts.map((artifact, index) => {
+                const isSelected = artifact.selected || selectedKeys.has(artifact._id) || selectedKeys.has(candidateArtifactUrl(artifact));
+                const title = artifact.title || artifact.label || artifact.provider || `${candidateArtifactKind(artifact)} ${index + 1}`;
+                const artifactId = artifact.artifact_id || (artifact.source === 'storyboard' ? '' : artifact.id) || '';
+                const selectButton = artifactId
+                    ? `<button class="btn-small btn-ghost" type="button" onclick="event.stopPropagation(); selectGenerationArtifact('${escapeHtml(String(artifactId))}')">${isSelected ? '已选' : '选用'}</button>`
+                    : '';
+                return `
+                    <div class="candidate-artifact${isSelected ? ' selected' : ''}" role="button" tabindex="0"
+                        onclick="openArtifactCompareModal('${escapeHtml(groupKey)}', ${index}, ${Math.min(index + 1, artifacts.length - 1)})">
+                        <span class="candidate-artifact-thumb">${renderArtifactMedia(artifact)}</span>
+                        <span class="candidate-artifact-meta">
+                            <strong>${escapeHtml(title)}</strong>
+                            <small>${escapeHtml(candidateArtifactKind(artifact).toUpperCase())}${isSelected ? ' / Selected' : ''}</small>
+                            ${selectButton}
+                        </span>
+                    </div>
+                `;
+            }).join('');
+            return `
+                <div class="candidate-strip">
+                    <div class="candidate-strip-head">
+                        <div>
+                            <strong>Candidate generations</strong>
+                            <span>Consumes generation_jobs / generation_artifacts when present</span>
+                        </div>
+                        ${compareButton}
+                    </div>
+                    <div class="candidate-strip-scroll">${items}</div>
+                </div>
+            `;
+        }
+
+        function openArtifactCompareModal(groupKey, leftIndex = 0, rightIndex = 1) {
+            const artifacts = artifactCompareGroups[String(groupKey)] || [];
+            if (!artifacts.length) return;
+            const left = artifacts[Math.max(0, Math.min(Number(leftIndex) || 0, artifacts.length - 1))];
+            const right = artifacts[Math.max(0, Math.min(Number(rightIndex) || 0, artifacts.length - 1))] || left;
+            const optionHtml = artifacts.map((artifact, index) => {
+                const label = artifact.title || artifact.label || artifact._id || `Candidate ${index + 1}`;
+                return `<option value="${index}">${escapeHtml(label)}</option>`;
+            }).join('');
+            const modal = document.getElementById('artifactCompareModal') || document.createElement('div');
+            modal.id = 'artifactCompareModal';
+            modal.className = 'artifact-compare-modal';
+            modal.innerHTML = `
+                <div class="artifact-compare-backdrop" onclick="closeArtifactCompareModal()"></div>
+                <div class="artifact-compare-dialog" role="dialog" aria-modal="true" aria-label="A/B compare">
+                    <div class="artifact-compare-header">
+                        <div>
+                            <strong>A/B Compare</strong>
+                            <span>Candidate image / video review</span>
+                        </div>
+                        <button class="btn-small" type="button" onclick="closeArtifactCompareModal()">Close</button>
+                    </div>
+                    <div class="artifact-compare-pickers">
+                        <label>A <select onchange="openArtifactCompareModal('${escapeHtml(String(groupKey))}', Number(this.value), ${Number(rightIndex) || 0})">${optionHtml}</select></label>
+                        <label>B <select onchange="openArtifactCompareModal('${escapeHtml(String(groupKey))}', ${Number(leftIndex) || 0}, Number(this.value))">${optionHtml}</select></label>
+                    </div>
+                    <div class="artifact-compare-grid">
+                        <section>
+                            <h4>A / ${escapeHtml(left.title || left.label || left._id || 'Candidate')}</h4>
+                            ${renderArtifactMedia(left, 'artifact-compare-media')}
+                        </section>
+                        <section>
+                            <h4>B / ${escapeHtml(right.title || right.label || right._id || 'Candidate')}</h4>
+                            ${renderArtifactMedia(right, 'artifact-compare-media')}
+                        </section>
+                    </div>
+                </div>
+            `;
+            if (!modal.parentElement) document.body.appendChild(modal);
+            const selects = modal.querySelectorAll('select');
+            if (selects[0]) selects[0].value = String(Number(leftIndex) || 0);
+            if (selects[1]) selects[1].value = String(Number(rightIndex) || 0);
+        }
+
+        function closeArtifactCompareModal() {
+            const modal = document.getElementById('artifactCompareModal');
+            if (modal) modal.remove();
+        }
+
+        function shotCardDataForState(state = currentPublicState, outputs = agentOutputs) {
+            const explicit = parseStructuredValue(state.shot_card_data, state.shot_card_data)
+                || parseStructuredValue(outputs.shot_card_data, outputs.shot_card_data)
+                || parseStructuredValue(outputs.shot_cards, outputs.shot_cards);
+            if (Array.isArray(explicit)) return explicit;
+            if (explicit && typeof explicit === 'object') {
+                if (Array.isArray(explicit.shots)) return explicit.shots;
+                if (Array.isArray(explicit.cards)) return explicit.cards;
+                if (Array.isArray(explicit.segments)) return explicit.segments.flatMap(seg => seg.shots || seg.cards || []);
+            }
+            return [];
+        }
+
+        function parseShotCardsFromText(text = '') {
+            const cleaned = stripMarkdownFence(text);
+            if (!cleaned) return [];
+            const cards = [];
+            let current = null;
+            cleaned.split(/\r?\n/).forEach(rawLine => {
+                const line = rawLine.trim();
+                if (!line) return;
+                if (/^(?:[-*]\s*)?(?:shot[_\s-]?id|shot|镜头|鏡頭)\s*[:：#-]?\s*([A-Za-z0-9_.-]+)?/i.test(line)) {
+                    if (current) cards.push(current);
+                    current = { title: line.replace(/^[-*]\s*/, '') };
+                    return;
+                }
+                if (!current) return;
+                const pair = line.match(/^[-*]?\s*([^:：]{1,28})\s*[:：]\s*(.+)$/);
+                if (pair) {
+                    current[pair[1].trim()] = pair[2].trim();
+                } else if (!current.summary && line.length < 140) {
+                    current.summary = line;
+                }
+            });
+            if (current) cards.push(current);
+            return cards.slice(0, 24);
+        }
+
+        function renderShotCards(cards = []) {
+            if (!cards.length) return '';
+            const priorityKeys = ['shot_id', 'shot', '镜头', '景别', 'shot_size', 'camera', 'camera_angle', 'movement', 'camera_movement', 'duration', 'action', 'dialogue', 'composition', 'lighting'];
+            return `
+                <div class="shot-card-board">
+                    ${cards.map((card, index) => {
+                        const title = card.title || card.shot_id || card.shot || card['镜头'] || `Shot ${index + 1}`;
+                        const bodyKeys = Object.keys(card).filter(key => key !== 'title').sort((a, b) => {
+                            const ai = priorityKeys.indexOf(a);
+                            const bi = priorityKeys.indexOf(b);
+                            return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+                        }).slice(0, 8);
+                        const body = bodyKeys.map(key => `
+                            <div class="shot-card-field">
+                                <span>${escapeHtml(readableFieldLabel(key))}</span>
+                                <p>${escapeHtml(String(card[key] || ''))}</p>
+                            </div>
+                        `).join('');
+                        return `
+                            <article class="shot-card">
+                                <div class="shot-card-top">
+                                    <strong>${escapeHtml(title)}</strong>
+                                    <span>${String(index + 1).padStart(2, '0')}</span>
+                                </div>
+                                ${body || `<p class="shot-card-summary">${escapeHtml(card.summary || '')}</p>`}
+                            </article>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        function renderShotDirectorOutput(text = '', state = currentPublicState) {
+            const outputs = state.agent_outputs || agentOutputs || {};
+            const cards = shotCardDataForState(state, outputs);
+            const parsedCards = cards.length ? cards : parseShotCardsFromText(text);
+            const cardHtml = renderShotCards(parsedCards);
+            return `
+                <div class="shot-director-shell">
+                    ${cardHtml}
+                    ${renderReadableAgentOutput('shot_director', text, { showRaw: Boolean(cardHtml) })}
+                </div>
+            `;
+        }
+
         function renderStoryboardImages(outputs = {}) {
             const imageEntries = Object.keys(outputs)
                 .filter(key => /^storyboard_image_seg\d+$/.test(key))
@@ -3683,10 +4262,18 @@
                 });
             const promptMap = new Map(promptEntries.map(p => [p.segIndex, p.text]));
             const imageMap = new Map(imageEntries.map(p => [p.segIndex, p.path]));
+            const allArtifacts = generationArtifactsForState(currentPublicState, outputs);
+            const artifactSegments = allArtifacts
+                .map(item => artifactSegmentIndex(item))
+                .filter(Boolean);
             const segIndexes = Array.from(new Set([
                 ...promptEntries.map(item => item.segIndex),
                 ...imageEntries.map(item => item.segIndex),
+                ...artifactSegments,
             ])).filter(Boolean).sort((a, b) => a - b);
+            if (segIndexes.length === 0 && allArtifacts.length > 0) {
+                segIndexes.push(currentSegmentIndex());
+            }
 
             if (segIndexes.length === 0) {
                 return '<div class="placeholder-text">暂无分镜首帧提示词</div>';
@@ -3716,6 +4303,7 @@
                             <pre class="result-text" style="display:none; margin-top:8px;">${escapeHtml(promptText)}</pre>` : ''}
                             <button class="btn-small" style="margin-left:8px;" onclick="generateStoryboardImage(${segIndex})">生成/重生成图片</button>
                         </div>
+                        ${renderCandidateStrip(segIndex, currentPublicState, outputs)}
                     </div>
                 `;
             }).join('');
@@ -3796,7 +4384,9 @@
                 ? latestShotDirectorOutput(agentOutputs)
                 : (agentOutputs[agent] || '');
             if (text) {
-                html = renderReadableAgentOutput(agent, text);
+                html = agent === 'shot_director'
+                    ? renderShotDirectorOutput(text, currentPublicState)
+                    : renderReadableAgentOutput(agent, text);
             } else {
                 html = '<div class="placeholder-text">该 Agent 暂无输出</div>';
             }

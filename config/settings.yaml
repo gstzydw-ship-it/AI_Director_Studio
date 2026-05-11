@@ -20,7 +20,7 @@ agent_models:
     read_timeout_seconds: 240
     max_retries: 3
     api_key: ${DIRECTOR_LLM_API_KEY}
-    model: glm-5.1
+    model: claude-opus-4-7
   story_planner:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.2
@@ -42,7 +42,7 @@ agent_models:
     timeout_seconds: 180
     max_retries: 3
     api_key: ${DIRECTOR_LLM_API_KEY}
-    model: mimo-v2.5-pro
+    model: gpt-5.5
   quality_inspector:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
@@ -58,11 +58,11 @@ agent_models:
   scene_vision_analyst:
     api_key: ${DIRECTOR_LLM_API_KEY}
     base_url: https://www.xkwuai.cn/v1
-    model: glm-5.1
+    model: claude-opus-4-7
   video_analyst:
     api_key: ${DIRECTOR_LLM_API_KEY}
     base_url: https://www.xkwuai.cn/v1
-    model: glm-5.1
+    model: claude-opus-4-7
   scene_card_designer:
     api_key: ${DIRECTOR_IMAGE_API_KEY}
     base_url: https://ai.comfly.chat/v1
@@ -70,7 +70,7 @@ agent_models:
   storyboard_prompt_designer:
     api_key: ${DIRECTOR_LLM_API_KEY}
     base_url: https://www.xkwuai.cn/v1
-    model: mimo-v2.5-pro
+    model: gpt-5.5
   script_event_validator:
     api_key: ${DIRECTOR_LLM_API_KEY}
     base_url: https://www.xkwuai.cn/v1

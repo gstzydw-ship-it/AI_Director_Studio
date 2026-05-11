@@ -333,7 +333,23 @@ def test_resume_after_review_failure_marks_failing_downstream_step(tmp_path, mon
     )
 
     monkeypatch.setattr(web_app, "OUTPUT_DIR", str(tmp_path))
-    monkeypatch.setattr(web_app, "_merge_latest_disk_state_for_session", lambda _session_id, _state: None)
+
+    def merge_disk_state_without_review(_session_id, state):
+        state.update(
+            {
+                "status": "running_phase_1",
+                "step": "step_0_rhythm",
+                "message": "已确认 剧情增强 输出，正在交给下一个 Agent...",
+                "agent_outputs": {"director_showrunner": "enhanced"},
+            }
+        )
+        state.pop("review_mode", None)
+        state.pop("review_agent", None)
+        state.pop("review_title", None)
+        state.pop("review_output", None)
+        return True
+
+    monkeypatch.setattr(web_app, "_merge_latest_disk_state_for_session", merge_disk_state_without_review)
 
     def fail_resume(_edited_output, _review_agent):
         raise RuntimeError("LLM 接口返回 HTTP 504（agent=rhythm_rewrite_director）")
@@ -350,4 +366,8 @@ def test_resume_after_review_failure_marks_failing_downstream_step(tmp_path, mon
 
     assert task_state["status"] == "error"
     assert task_state["step"] == "step_0_rhythm"
+    assert task_state["review_mode"] == "agent_output"
+    assert task_state["review_agent"] == "director_showrunner"
+    assert task_state["review_title"] == "剧情增强"
+    assert task_state["review_output"] == "enhanced"
     assert "rhythm_rewrite_director" in task_state["message"]

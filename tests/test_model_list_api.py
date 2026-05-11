@@ -356,7 +356,7 @@ def test_save_config_does_not_recreate_deleted_or_hidden_agents(monkeypatch):
         "image_generation": {"api_key": "old-image-key", "base_url": "https://old-image.example/v1"},
         "vectordb": {"api_key": "old-embedding-key", "base_url": "https://old-embedding.example/v1"},
         "agent_models": {
-            "director_showrunner": {"model": "old-director-model"},
+            "director_showrunner": {"model": "old-director-model", "fallback_models": ["backup-director-model"]},
             "shot_director_layout": {"model": "hidden-layout-model"},
         },
     }
@@ -389,6 +389,7 @@ def test_save_config_does_not_recreate_deleted_or_hidden_agents(monkeypatch):
     agent_models = saved["config"]["agent_models"]
     assert "quality_inspector_llm_a" not in agent_models
     assert agent_models["director_showrunner"]["model"] == "new-director-model"
+    assert agent_models["director_showrunner"]["fallback_models"] == ["backup-director-model"]
     assert agent_models["shot_director_layout"].get("model", "") != "hidden-layout-model"
     assert agent_models["scene_vision_analyst"].get("model", "") == agent_models["scene_analyst"].get("model", "")
 

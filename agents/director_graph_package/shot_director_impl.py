@@ -2458,6 +2458,195 @@ def _run_shot_director_three_stage(*args: Any, **kwargs: Any) -> tuple[str, dict
     return _run_shot_director_single_pass(*args, **kwargs)
 
 
+def run_shot_director_for_segment(
+    state: DirectorState,
+    segment_index: int | None = None,
+    *,
+    force: bool = False,
+) -> DirectorState:
+    """Generate and merge shot-director YAML for only the requested segment."""
+    outputs = _agent_outputs(state)
+    planner_output = outputs.get("story_planner", "")
+    segment_names = list(state.get("segment_names") or [])
+    total_segments = int(state.get("total_segments") or 0)
+    if not segment_names:
+        derived_total, segment_names = _derive_segments_from_planner_output(planner_output)
+        if not total_segments:
+            total_segments = derived_total
+
+    selected_index = int(
+        segment_index
+        or state.get("active_segment_index")
+        or state.get("current_segment_index")
+        or 1
+    )
+    selected_index = max(1, min(selected_index, max(total_segments or len(segment_names) or 1, 1)))
+    segment_name = (
+        segment_names[selected_index - 1]
+        if 0 <= selected_index - 1 < len(segment_names)
+        else f"片段{selected_index:02d}"
+    )
+    fragment_id = _segment_name_to_fragment_id(segment_name) or f"F{selected_index:02d}"
+
+    existing_fragment = _filter_yaml_sections_by_fragment_ids(outputs.get("shot_director", ""), [fragment_id])
+    if existing_fragment.strip() and not force:
+        return _persist_update(
+            state,
+            {
+                "status": "running_phase_2",
+                "step": "step_4_compile",
+                "message": f"第 {selected_index} 段镜头导演已存在，正在进入 Prompt 编译。",
+                "agent_outputs": outputs,
+                "total_segments": total_segments,
+                "segment_names": segment_names,
+                "active_segment_index": selected_index,
+                "current_segment_index": selected_index,
+            },
+        )
+
+    fragment_planner_output = _filter_yaml_sections_by_fragment_ids(planner_output, [fragment_id]) or planner_output
+    director_brief_text = _director_brief(state)
+    tail_frame_analysis = (state.get("tail_frame_analysis") or "").strip()
+    planner_source_context = _planner_source_event_context(
+        fragment_planner_output,
+        [fragment_id],
+        char_limit=1200,
+    )
+    director_hint = (
+        "shot_director 单片段 镜头导演 当前片段 镜头序列 连续性 尾帧承接 "
+        f"{fragment_id} {planner_source_context[:300]}"
+    )
+    if tail_frame_analysis:
+        director_hint = f"{director_hint} tail_frame_bridge {tail_frame_analysis[:300]}"
+    if director_brief_text:
+        director_hint = f"{director_hint} director_showrunner {director_brief_text[:300]}"
+
+    scene_reference_context = _reference_image_manifest_prompt(state)
+    if tail_frame_analysis:
+        scene_reference_context = (
+            f"{scene_reference_context.strip()}\n\n" if scene_reference_context.strip() else ""
+        ) + (
+            "[Previous Video Tail / Bridge]\n"
+            "Use these constraints when deciding the first shot of this segment.\n"
+            f"{tail_frame_analysis}\n"
+        )
+
+    shot_runtime_started = time.perf_counter()
+    stage_runtimes: dict[str, dict[str, Any]] = {}
+
+    def persist_stage(
+        stage_name: str,
+        stage_output: str,
+        stage_runtime: dict[str, Any],
+        stage_meta_snapshot: dict[str, dict[str, Any]],
+    ) -> None:
+        stage_runtimes[stage_name] = dict(stage_runtime)
+        partial_outputs = dict(outputs)
+        partial_outputs[f"shot_director_segment_{fragment_id}"] = stage_output
+        partial_outputs[f"shot_director_fragment_{fragment_id}"] = stage_output
+        if stage_name == "final":
+            partial_outputs["shot_director"] = _merge_repaired_yaml_sections(
+                partial_outputs.get("shot_director", ""),
+                stage_output,
+                [fragment_id],
+            )
+            partial_outputs["shot_director_final"] = partial_outputs["shot_director"]
+        retrieval_key = "final" if "final" in stage_meta_snapshot else stage_name
+        knowledge_metadata = _record_knowledge_metadata(
+            state,
+            "shot_director",
+            director_hint,
+            stage_meta_snapshot.get(retrieval_key, {}),
+        )
+        knowledge_metadata.setdefault("shot_director", {})["runtime"] = {
+            **stage_runtimes,
+            "mode": "per_segment",
+            "active_fragment_id": fragment_id,
+            "path": "direct_llm_only",
+            "mcp_enabled": False,
+            "total_elapsed_seconds": round(time.perf_counter() - shot_runtime_started, 3),
+        }
+        knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta_snapshot
+        _persist_update(
+            state,
+            {
+                "status": "running_phase_2",
+                "step": "step_3_direct",
+                "message": f"第 {selected_index} 段镜头导演正在生成：{fragment_id}。",
+                "agent_outputs": partial_outputs,
+                "knowledge_metadata": knowledge_metadata,
+                "total_segments": total_segments,
+                "segment_names": segment_names,
+                "active_segment_index": selected_index,
+                "current_segment_index": selected_index,
+            },
+        )
+
+    reference_images = _reference_images(state) or None
+    output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_single_pass(
+        script=state.get("script", ""),
+        planner_output=fragment_planner_output,
+        atmosphere_strategy=state.get("atmosphere_strategy", ""),
+        aspect_ratio=state.get("aspect_ratio", "16:9"),
+        expected_segments=[fragment_id],
+        images_base64=reference_images,
+        director_hint=director_hint,
+        scene_reference_context=scene_reference_context,
+        director_brief=director_brief_text,
+        stage_callback=persist_stage,
+        resume_stage_outputs={},
+        resume_stage_runtime={},
+        resume_stage_meta={},
+    )
+    output = _repair_shot_director_output_contracts(output, state.get("script", ""))
+    merged_output = _merge_repaired_yaml_sections(outputs.get("shot_director", ""), output, [fragment_id])
+    outputs[f"shot_director_segment_{fragment_id}"] = output
+    outputs[f"shot_director_fragment_{fragment_id}"] = output
+    outputs["shot_director"] = merged_output
+    outputs["shot_director_final"] = merged_output
+
+    director_issues = _collect_shot_director_issues(
+        output,
+        expected_segments=[fragment_id],
+        script=state.get("script", ""),
+        planner_output=fragment_planner_output,
+        aspect_ratio=state.get("aspect_ratio", ""),
+    )
+    hard_director_issues = _hard_shot_director_issues(director_issues)
+    shot_runtime["total_elapsed_seconds"] = round(time.perf_counter() - shot_runtime_started, 3)
+    shot_runtime["mode"] = "per_segment"
+    shot_runtime["active_fragment_id"] = fragment_id
+    shot_runtime["path"] = "direct_llm_only"
+    shot_runtime["mcp_enabled"] = False
+    shot_runtime["validation_issues"] = director_issues
+    shot_runtime["hard_validation_issues"] = hard_director_issues
+
+    knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta.get("final", {}))
+    knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
+    knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
+
+    original_by_segment = dict(state.get("shot_director_original_by_segment") or {})
+    original_by_segment[str(selected_index)] = output
+    original_by_segment[fragment_id] = output
+
+    return _persist_update(
+        state,
+        {
+            "status": "running_phase_2",
+            "step": "step_4_compile",
+            "message": f"第 {selected_index} 段镜头导演完成，正在进入 Prompt 编译。",
+            "agent_outputs": outputs,
+            "knowledge_metadata": knowledge_metadata,
+            "total_segments": total_segments,
+            "segment_names": segment_names,
+            "active_segment_index": selected_index,
+            "current_segment_index": selected_index,
+            "shot_director_original_by_segment": original_by_segment,
+            "shot_director_approved_by_segment": dict(state.get("shot_director_approved_by_segment") or {}),
+        },
+    )
+
+
 def _validate_shot_director_dialogue_coverage(output: str) -> list[str]:
     """Ensure shot_director, not compiler, owns long-dialogue coverage design."""
     issues: list[str] = []
