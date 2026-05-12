@@ -72,7 +72,7 @@ def _story_planner_rhythm_boundary_rules() -> str:
     return (
         "【结构规划师权限边界】\n"
         "1. 结构规划师只负责把当前施工剧本拆成给镜头导演使用的片段清单。\n"
-        "2. 节奏总控只提供拆片边界、目标时长、反应归属、卡断和尾帧承接；不能被当成新剧情事件来源。\n"
+        "2. 节奏总控只提供拆片边界、目标时长、反应归属、段尾是否停在未完成状态和尾帧承接；不能被当成新剧情事件来源。\n"
         "3. 施工剧本原文事件必须逐条引用当前施工剧本中的原文子串，不得概括、改写、合并或补写。\n"
         "4. 承接要求只能写结构判断，例如\"反应留在本段\"\"下一段承接\"\"尾帧停在照片仍在手中\"；不得新增动作、道具、龙套反应或人物调度。\n"
         "5. 只定义\"这一段从哪到哪\"和\"交给下个 agent 时需要怎样承接\"；不定义镜头语言、不定义机位、不定义具体运镜。\n"
@@ -83,9 +83,9 @@ def _story_planner_granularity_rules() -> str:
         "【结构规划师拆片指南（Seedance 2.0 15秒剧情任务版）】\n"
         "1. 核心目标：每个片段承载一个 15 秒以内可完成的剧情任务；不追求多拆，也不允许把多个任务粗暴塞进一段。\n"
         "2. 单段推荐 4-8 条施工剧本原文事件。超过 8 条必须拆开；少于 4 条通常合并到相邻片段。\n"
-        "3. 少于 4 条仍可独立的例外：明确钩子、卡断、尾帧承接、重大反转落点或下一段必须从该状态接起。\n"
+        "3. 少于 4 条仍可独立的例外：明确结尾悬念、段尾停在未完成状态、尾帧承接、重大反转落点或下一段必须从该状态接起。\n"
         "4. 普通停顿、受击反应、信息揭示默认留在当前片段内部，由镜头导演处理，不自动拆成新片段。\n"
-        "5. 拆片必须服从节奏总控施工指令：时长范围、停顿、不拆、压缩、卡断、反应归属和尾帧承接。\n"
+        "5. 拆片必须服从节奏总控给结构规划师的操作单：时长范围、停顿、不拆、压缩、段尾状态、反应归属和尾帧承接。\n"
         "6. 反应归属只做高层判断：留在本段、下一段承接、无须独立反应；不要替镜头导演设计具体镜头。\n"
         "7. 一个片段只承担一个核心剧情任务；若同一段里同时包含入场、对白、群体反应、道具动作、空间变化、情绪重音，应优先拆开，而不是把所有任务压进一个片段。\n"
         "8. 大动作优先拆成连续小任务链，例如进入门缝→撞上→扶住→停住；不要把复杂动作整包塞成一句笼统事件后再期待下游补救。\n"
@@ -636,9 +636,84 @@ def _extract_segments(planner_output: str) -> tuple[int, list[str]]:
         return 1, ["片段01"]
     return len(sections), [f"片段{index:02d}" for index in range(1, len(sections) + 1)]
 
+def _extract_labeled_rhythm_sections(
+    text: str,
+    labels: tuple[str, ...],
+    stop_labels: tuple[str, ...],
+) -> str:
+    source = (text or "").strip()
+    if not source:
+        return ""
+
+    label_re = "|".join(re.escape(label) for label in labels)
+    stop_re = "|".join(re.escape(label) for label in stop_labels)
+    start_pattern = re.compile(
+        rf"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?(?:{label_re})\s*[：:]\s*(.*)$"
+    )
+    stop_pattern = re.compile(
+        rf"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?(?:{stop_re})\s*[：:]"
+    )
+
+    sections: list[str] = []
+    for match in start_pattern.finditer(source):
+        lines: list[str] = []
+        first_line = match.group(1).strip()
+        if first_line:
+            lines.append(first_line)
+        for line in source[match.end() :].splitlines():
+            if stop_pattern.match(line):
+                break
+            lines.append(line.rstrip())
+        section = "\n".join(lines).strip()
+        if section and section not in sections:
+            sections.append(section)
+    return "\n\n".join(sections).strip()
+
+def _extract_rhythm_story_planner_notes(atmosphere_strategy: str) -> str:
+    """Keep only the rhythm supervisor handoff that affects segmentation."""
+    text = (atmosphere_strategy or "").strip()
+    if not text:
+        return ""
+
+    preferred = _extract_labeled_rhythm_sections(
+        text,
+        ("给结构规划师", "结构规划师操作单", "story_planner_notes"),
+        (
+            "节奏诊断",
+            "给结构规划师",
+            "结构规划师操作单",
+            "story_planner_notes",
+            "给镜头导演",
+            "镜头导演操作单",
+            "镜头导演节奏执行约束",
+            "风险提醒",
+        ),
+    )
+    if preferred:
+        return preferred
+
+    legacy = _extract_labeled_rhythm_sections(
+        text,
+        ("结构规划施工指令", "拆片边界建议", "反应归属", "尾帧承接", "construction_notes"),
+        (
+            "节奏诊断",
+            "节奏总合同",
+            "拆片边界建议",
+            "反应归属",
+            "尾帧承接",
+            "结构规划施工指令",
+            "给结构规划师",
+            "给镜头导演",
+            "镜头导演节奏执行约束",
+            "风险提醒",
+        ),
+    )
+    return legacy or text
+
 def story_planner_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
-    rhythm_guidance = state.get("atmosphere_strategy", "") or outputs.get("rhythm_rewrite_director", "")
+    rhythm_guidance_full = state.get("atmosphere_strategy", "") or outputs.get("rhythm_rewrite_director", "")
+    rhythm_guidance = _extract_rhythm_story_planner_notes(rhythm_guidance_full)
     truncated_script = _truncate_for_prompt(state.get("script", ""), 12000)
     planner_hint = f"story_planner 纯拆片 15秒 片段边界 原文事件 不做分镜 {truncated_script[:200]}"
     slim_rules, retrieval_meta = _story_planner_slim_rule_digest(planner_hint)
@@ -654,7 +729,7 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         "请把以下【当前施工剧本】拆成若干片段。当前施工剧本可能已经由前序 agent 改写并经用户确认；"
         "施工剧本原文事件必须引用这个版本，不要退回原始剧本。\n\n"
         f"【当前施工剧本】\n{truncated_script}\n\n"
-        "【少量节奏提示】\n"
+        "【给结构规划师的节奏操作单】\n"
         f"{_truncate_for_prompt(rhythm_guidance or 'none', 1200)}\n\n"
         "【知识库极简规则】\n"
         f"{slim_rules or '无额外规则；按下方分段规则执行。'}\n\n"

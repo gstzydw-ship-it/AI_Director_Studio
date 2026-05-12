@@ -121,7 +121,7 @@ def _shot_director_workflow_contract() -> str:
         "【shot_director 显式工作流】\n"
         "在输出最终 YAML 前，必须按顺序完成以下内部步骤，不能直接套模板生成镜头：\n"
         "1. 事实提取：只提取当前片段的人物、地点、动作、道具、对白和可见事实；禁止补剧情。\n"
-        "2. 节奏意图读取：只提取节奏总控里的快慢、停顿、反应归属、卡断、尾帧要求；不得把建议当成改剧情命令。\n"
+        "2. 节奏意图读取：只提取节奏总控给镜头导演的操作单，包括必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面；不得把建议当成改剧情命令。\n"
         "3. 剪辑策略判断：判断哪些位移/开门/上车/走路等无戏剧增量动作应省略，哪些点必须切镜或给反应。\n"
         "4. 戏剧任务判断：判断片段任务与节奏功能，例如建立关系、冲突升级、悬念揭示、情绪极点、钩子结尾。\n"
         "5. 镜头骨架：先决定主镜头数量、每镜拍谁、承担什么覆盖职责和必须承载的信息。\n"
@@ -191,7 +191,7 @@ def _build_shot_director_workflow_trace(
         "required_shot_fields": list(_SHOT_CONSTRUCTION_REQUIRED_FIELDS),
         "coverage_contract_fields": list(_SHOT_COVERAGE_CONTRACT_FIELDS),
         "aspect_ratio": aspect_ratio,
-        "rhythm_guidance_present": bool((atmosphere_strategy or "").strip()),
+        "rhythm_guidance_present": bool(rhythm_shot_notes),
         "rhythm_shot_director_notes_present": bool(rhythm_shot_notes),
         "rhythm_shot_director_notes_preview": _truncate_for_prompt(rhythm_shot_notes, 360),
         "director_brief_present": bool((director_brief or "").strip()),
@@ -467,14 +467,14 @@ def _shot_director_source_event_rules() -> str:
         "8. 9:16 竖屏默认以半身、中景、双人关系景别承担叙事；特写只给炸点、受击、情绪峰值或关键信息插入。一个片段的面部特写最多一次，不得把特写当默认景别。\n"
         "9. 没必要每个细节动作都给镜头：如果主镜头已经能看清动作和关系，就不要再为手指、掌心、鞋尖、袖口、嘴唇、眼角等微细节单独开镜头；只有线索揭示、动作前摇或受击落点无法看清时才允许插入。\n"
         "10. 悬念揭示优先采用\"停顿/发现前逼近 -> 关键物或文字 -> 人物反应\"；冲突升级优先采用\"施压 -> 受击 -> 短暂停顿\"；误解错位优先提升听者反应镜头，而不是让说话者一直占满画面。\n"
-        "11. shot_director 不得重新判断整体节奏，必须服从 atmosphere_strategy / rhythm supervisor 给出的快慢、停顿、卡断、反应归属、尾帧承接。\n"
+        "11. shot_director 不得重新判断整体节奏，只执行 rhythm supervisor 给镜头导演的精简操作单。\n"
         "12. 若节奏建议与剧本事实、台词原文、动作道具连续性、人物位置、空间轴线安全冲突，后者优先。\n"
     )
 
 def _shot_director_rhythm_match_rules() -> str:
     return (
         "【节奏与镜头匹配规则（参考《AI 导演系统工程文档规范》）】\n"
-        "0. shot_director 只执行 story_planner 与 rhythm supervisor 给出的片段节奏指令，不得重新判断整体节奏；必须服从 atmosphere_strategy 的快慢、停顿、卡断、反应归属、尾帧承接。\n"
+        "0. shot_director 只执行 story_planner 与 rhythm supervisor 给出的片段操作单，不得重新判断整体节奏；必须把必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面落到镜头设计里。\n"
         "1. 先识别戏剧微粒，再决定镜头：权力反转看压制与失势，冲突升级看施压与受击，悬念揭示看发现与停顿，误解错位看听者反应，情绪极点看停住后的内压，钩子结尾看最后的悬住点。\n"
         "2. 镜头数量由节奏任务决定，不由镜头库模板决定；能用 1 个主镜头讲清的动作，不要硬拆成 3 个细碎镜头。\n"
         "3. 需要切镜时，只切信息增量最大的节点：动作前摇、揭示落点、受击反应、关系变化、关键道具或文字出现。走近、弯腰、拿起、站定等中间过渡默认省略。\n"
@@ -1558,40 +1558,79 @@ def _planner_source_event_context(
         chunks.append(_truncate_for_prompt(planner_output, char_limit))
     return _truncate_for_prompt("\n\n".join(chunks), char_limit)
 
+def _extract_labeled_rhythm_sections(
+    text: str,
+    labels: tuple[str, ...],
+    stop_labels: tuple[str, ...],
+) -> str:
+    source = (text or "").strip()
+    if not source:
+        return ""
+
+    label_re = "|".join(re.escape(label) for label in labels)
+    stop_re = "|".join(re.escape(label) for label in stop_labels)
+    start_pattern = re.compile(
+        rf"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?(?:{label_re})\s*[：:]\s*(.*)$"
+    )
+    stop_pattern = re.compile(
+        rf"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?(?:{stop_re})\s*[：:]"
+    )
+
+    sections: list[str] = []
+    for match in start_pattern.finditer(source):
+        lines: list[str] = []
+        first_line = match.group(1).strip()
+        if first_line:
+            lines.append(first_line)
+        for line in source[match.end() :].splitlines():
+            if stop_pattern.match(line):
+                break
+            lines.append(line.rstrip())
+        section = "\n".join(lines).strip()
+        if section and section not in sections:
+            sections.append(section)
+    return "\n\n".join(sections).strip()
+
 def _extract_rhythm_shot_director_notes(atmosphere_strategy: str) -> str:
     """Extract rhythm supervisor notes that are explicitly addressed to shot_director."""
     text = (atmosphere_strategy or "").strip()
     if not text:
         return ""
 
-    label_pattern = re.compile(
-        r"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?"
-        r"(?:shot_director_notes|镜头导演节奏执行约束|镜头导演执行约束|给镜头导演的节奏执行约束)"
-        r"\s*[：:]\s*(.*)$"
+    notes = _extract_labeled_rhythm_sections(
+        text,
+        (
+            "给镜头导演",
+            "镜头导演操作单",
+            "shot_director_notes",
+            "镜头导演节奏执行约束",
+            "镜头导演执行约束",
+            "给镜头导演的节奏执行约束",
+        ),
+        (
+            "节奏诊断",
+            "节奏总合同",
+            "拆片边界建议",
+            "反应归属",
+            "尾帧承接",
+            "结构规划施工指令",
+            "给结构规划师",
+            "结构规划师操作单",
+            "给镜头导演",
+            "镜头导演操作单",
+            "shot_director_notes",
+            "construction_notes",
+            "risk_flags",
+            "atmosphere_strategy",
+            "rewritten_script",
+            "改写后剧本",
+            "镜头导演节奏执行约束",
+            "镜头导演执行约束",
+            "给镜头导演的节奏执行约束",
+            "风险提醒",
+        ),
     )
-    match = label_pattern.search(text)
-    if not match:
-        return ""
-
-    stop_pattern = re.compile(
-        r"(?im)^\s*(?:[-*]\s*)?(?:#+\s*)?"
-        r"(?:rhythm_diagnosis|rhythm_contract|segment_boundary_advice|reaction_ownership|tailframe_handoff|"
-        r"construction_notes|shot_director_notes|risk_flags|atmosphere_strategy|rewritten_script|改写后剧本|"
-        r"节奏总合同|拆片边界建议|反应归属|尾帧承接|结构规划施工指令|"
-        r"镜头导演节奏执行约束|镜头导演执行约束|给镜头导演的节奏执行约束|风险提醒)"
-        r"\s*[：:]"
-    )
-    lines: list[str] = []
-    first_line = match.group(1).strip()
-    if first_line:
-        lines.append(first_line)
-
-    for line in text[match.end() :].splitlines():
-        if stop_pattern.match(line):
-            break
-        lines.append(line.rstrip())
-
-    return "\n".join(lines).strip()
+    return notes
 
 def _rhythm_shot_director_notes_prompt(atmosphere_strategy: str) -> str:
     notes = _extract_rhythm_shot_director_notes(atmosphere_strategy)
@@ -1599,7 +1638,7 @@ def _rhythm_shot_director_notes_prompt(atmosphere_strategy: str) -> str:
         return ""
     return (
         "[节奏总控给镜头导演的执行约束]\n"
-        "这是上游给镜头施工层的节奏约束，主要控制反应归属、停顿、切点、无效过渡压缩和尾帧承接。"
+        "这里只包含上游给镜头施工层的精简操作单，主要控制必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面。"
         "若它与结构规划原文事件、原始台词、道具连续性或空间轴线安全冲突，以后者为准。\n"
         f"{_truncate_for_prompt(notes, 1200)}\n"
     )
@@ -1621,14 +1660,6 @@ def _shot_director_downstream_context(
     rhythm_shot_notes_prompt = _rhythm_shot_director_notes_prompt(atmosphere_strategy)
     if rhythm_shot_notes_prompt:
         lines.extend(["", rhythm_shot_notes_prompt.strip()])
-    if atmosphere_strategy:
-        lines.extend(
-            [
-                "",
-                "[Atmosphere Excerpt]",
-                _truncate_for_prompt(atmosphere_strategy, 1600),
-            ]
-        )
     return "\n".join(lines).strip() + "\n\n"
 
 def _shot_stage_should_split(
@@ -1796,7 +1827,7 @@ _SHOT_SIGNAL_TAG_HINTS = {
     "vertical_framing": ("9:16", "竖屏", "画幅"),
     "editing_ellipsis": ("省略", "压缩", "跳切", "无用动作", "垃圾时间", "起点帧", "终点帧"),
     "shot_variety": ("多机位", "多角度", "景别变化", "镜头多样", "反站桩", "正反打"),
-    "rhythm_alignment": ("节奏总控", "节奏执行", "停顿", "卡断", "反应归属", "快慢"),
+    "rhythm_alignment": ("节奏总控", "节奏执行", "停顿", "段尾状态", "反应归属", "必须拍完整", "可以省略"),
 }
 
 _SHOT_SCENE_TYPE_HINTS = {
@@ -1815,7 +1846,7 @@ _SHOT_LIBRARY_TASK_KEYWORDS = {
     "authority_pressure": ("命令", "压迫", "沉默", "上司", "新老板", "退让", "让路", "质问"),
     "editing_ellipsis": ("无用", "省略", "压缩", "跳切", "走向", "走到", "位移", "上车", "下车", "进入新空间"),
     "shot_language_variety": ("多机位", "多角度", "景别", "机位", "站桩", "正反打", "镜头多样", "一镜到底"),
-    "rhythm_alignment": ("节奏总控", "节奏执行", "快慢", "停顿", "卡断", "反应归属", "尾帧要求"),
+    "rhythm_alignment": ("节奏总控", "节奏执行", "必须拍完整", "可以省略", "不能省略", "停顿", "反应归属", "尾帧要求"),
 }
 
 _SHOT_LIBRARY_TASK_RULES = {
@@ -1851,7 +1882,7 @@ _SHOT_LIBRARY_TASK_RULES = {
         "不得连续三个镜头重复同一景别、同一机位或同一主体。"
     ),
     "rhythm_alignment": (
-        "调用节奏联动规则：继承节奏总控的快慢、停顿、反应归属和尾帧意图；"
+        "调用节奏联动规则：继承节奏总控给镜头导演的精简操作单；"
         "若与原剧本事实、拆片边界、空间连续性冲突，按上游事实和连续性优先。"
     ),
 }
@@ -2075,7 +2106,7 @@ def _build_shot_director_signal_retrieval_profile(
             [
                 "必须把检索到的剪辑/镜头库规则转成镜头、切镜点、连续性、声音，不得只写原则",
                 "必须优先使用本片段剧情信号匹配到的 CASE 案例和规则卡",
-                "节奏总控建议只负责快慢、停顿、反应归属、卡断和尾帧意图；镜头导演必须按原剧本事实、拆片边界和连续性规则合法落地",
+                "节奏总控建议只负责镜头层操作约束；镜头导演必须按原剧本事实、拆片边界和连续性规则合法落地",
                 "同一片段不得无理由连续重复同一景别/视角/主体；需要用有动机的镜头语言变化避免一镜到底和站桩正反打",
             ]
         ),
@@ -2102,7 +2133,7 @@ def _shot_library_signal_task_card(
     lines = [
         "[镜头库调用任务单]",
         "先读上游导演资产，再按剧情信号调用镜头库；镜头库只能服务拆片规划里的原剧本事件，不能扩写新剧情。",
-        "节奏总控只提供快慢、停顿、反应归属、卡断和尾帧意图；若与原剧本事实、拆片边界、空间连续性冲突，必须以后者为准。",
+        "节奏总控只提供给镜头导演的精简操作单；若与原剧本事实、拆片边界、空间连续性冲突，必须以后者为准。",
         "每个片段必须先判断剪辑省略点和镜头语言变化策略，再生成镜头列表；不要默认一镜到底或机械正反打。",
         f"画幅约束: {aspect_ratio}",
     ]
@@ -2125,7 +2156,7 @@ def _shot_library_signal_task_card(
     for index, section in enumerate(sections, start=1):
         fragment_id = _extract_fragment_id(section) or f"F{index:02d}"
         source_events = _source_script_events(section)
-        signal_text = "\n".join([section, "\n".join(source_events), atmosphere_strategy, director_brief])
+        signal_text = "\n".join([section, "\n".join(source_events), rhythm_notes, director_brief])
         task_keys = _detect_shot_library_tasks(signal_text)
         knowledge_hints = _knowledge_hints_for_tasks(task_keys)
         event_preview = " / ".join(_truncate_for_prompt(event, 80) for event in source_events[:3])
@@ -2229,12 +2260,12 @@ def _run_shot_director_single_pass_impl(
             "你必须先根据【镜头库调用任务单】识别当前片段属于对白覆盖、受击/碰撞、信息揭示、门/电梯阈值、尾帧承接或权力压迫等哪类镜头任务，"
             "再从知识库里的镜头库、多机位模板和连续性规则中选择合适结构。"
             "镜头选择必须继承总导演意图、节奏总控和 story_planner 的 source_script_events；不得为了套模板新增剧情。"
-            "节奏总控是节奏意图来源，不是镜头硬模板；你负责把快慢、停顿、反应归属、卡断和尾帧要求合法转译成镜头语言。\n\n"
+            "节奏总控只提供给镜头导演的操作单，不是镜头硬模板；你负责把必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面合法转译成镜头语言。\n\n"
             "【输出语言硬规则】\n"
             "最终 YAML 必须使用中文字段名，不要输出 fragment_id、shot_id、duration、task、subject、must_carry、cut_point、continuity 等英文字段名。\n\n"
             "【每个片段必须交付】\n"
             "1. 片段任务 — 本片段的剧情施工任务，例如建立关系、冲突升级、信息揭示、反应落点、权力反转、喜剧泄压、尾帧钩子。\n"
-            "2. 节奏 — 继承节奏总控和拆片规划的节奏意图，例如压缩、放慢、停顿、卡断、短促泄压；若发生冲突，说明按原剧本/连续性优先。\n\n"
+            "2. 节奏 — 继承节奏总控给镜头导演的操作单，写清哪些内容拍完整、哪些内容可以省略、哪里必须停留、最多几个镜头；若发生冲突，说明按原剧本/连续性优先。\n\n"
             "【每个镜头必须回答】\n"
             "1. 时长 — 该镜头在片段内的时间段，必须连续，例如 0-2秒、2-5秒。\n"
             "2. 镜头任务 — 这个镜头负责什么：建立关系、承载对白、动作推进、信息揭示、反应落点、尾帧承接等。\n"
@@ -2250,7 +2281,7 @@ def _run_shot_director_single_pass_impl(
             "- 声音 — 只在需要画外音、声音先行或声音延续时写。\n\n"
             "【镜头设计原则】\n"
             "1. 事实红线高于一切：不新增剧本外的人物、台词、动作、道具或情节。\n"
-            "2. 节奏总控决定快慢、停顿、反应归属、卡断和尾帧意图；镜头导演决定用哪些景别、机位、主体、声音和剪辑方式合法落地。\n"
+            "2. 节奏总控决定必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面；镜头导演决定用哪些景别、机位、主体、声音和剪辑方式合法落地。\n"
             "3. 长台词或高压命令必须拆出视觉覆盖：说话者起句、同侧听者反应/过肩、必要时后半句以画外音、声音先行或声音延续落到反应上。\n"
             "4. 切镜点不许只写\"切出/继续/增强情绪\"，必须写清触发物，例如动作顶点、台词断点、信息看清、反应出现、门关闭完成、尾帧状态稳定。\n"
             "5. 片段编号必须沿用拆片方案的 F01/F02/F03...，不得改名合并跳号。\n"
@@ -2288,7 +2319,7 @@ def _run_shot_director_single_pass_impl(
             "      声音: 画外音/声音先行/声音延续（需要时写）\n\n"
             "【关键要求】\n"
             "1. 必须覆盖拆片方案的所有片段编号。\n"
-            "2. 必须继承节奏总控施工意图，把快慢、停顿、卡断、反应归属落实到时长、镜头任务、画面动作、切镜点、连续性；冲突时以原剧本、拆片边界和连续性为准。\n"
+            "2. 必须继承节奏总控给镜头导演的操作单，把必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面落实到时长、镜头任务、画面动作、切镜点、连续性；冲突时以原剧本、拆片边界和连续性为准。\n"
             "3. 长台词或高压命令必须插入听者反应覆盖，不能站桩正反打。\n"
             "4. 保持片段编号和镜头编号稳定，遵循 F01/F02... 和 F01-S01/F01-S02... 格式。\n"
             "5. 台词只能使用原剧本文字、原剧本画外音或写 ~；不得新增台词。\n"

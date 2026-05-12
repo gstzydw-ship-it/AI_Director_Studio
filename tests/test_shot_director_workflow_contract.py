@@ -169,7 +169,8 @@ def test_shot_director_downstream_context_includes_rhythm_shot_notes():
 
     assert "[节奏总控给镜头导演的执行约束]" in context
     assert "反应归乔熙" in context
-    assert "[Atmosphere Excerpt]" in context
+    assert "[Atmosphere Excerpt]" not in context
+    assert "结构规划施工指令" not in context
 
 
 def test_shot_director_builds_signal_based_shot_library_tasks():

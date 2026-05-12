@@ -237,7 +237,7 @@ def test_story_planner_repairs_short_non_yaml_output(monkeypatch):
         user_prompt="initial",
         original_script="Shang walks into the lobby.\nThe employees stand straight.",
         scene_output="current_main_action: Shang enters the lobby.",
-        rhythm_guidance="卡断留在 F01 尾帧，普通受击反应留在片段内部。",
+        rhythm_guidance="段尾停在 F01 尾帧，普通受击反应留在片段内部。",
     )
 
     assert calls["n"] == 2
@@ -403,7 +403,7 @@ def test_story_planner_granularity_rules_state_merge_policy():
     assert "15 秒以内" in rules
     assert "4-8 条" in rules
     assert "普通停顿、受击反应、信息揭示默认留在当前片段内部" in rules
-    assert "明确钩子、卡断、尾帧承接" in rules
+    assert "明确结尾悬念、段尾停在未完成状态、尾帧承接" in rules
 
 
 def test_story_planner_agent_validator_can_release_soft_density_warning(monkeypatch):
@@ -514,7 +514,7 @@ def test_story_planner_prompt_uses_current_script_with_slim_rule_digest(monkeypa
     result = spi.story_planner_node(
         {
             "script": "增强后施工剧本：乔熙拿起书包，照片滑落。",
-            "director_brief": "主线保护: 不改变人物关系\n节奏总控交接: 照片滑落后必须刹车。",
+            "director_brief": "主线保护: 不改变人物关系\n节奏总控交接: 照片滑落后必须保护人物反应。",
             "atmosphere_strategy": "拆片边界建议: 照片滑落后不拆；尾帧承接: 乔熙低头停住。",
             "agent_outputs": {"scene_analyst": "道具锚点: 书包在乔熙手边。"},
             "aspect_ratio": "9:16",
@@ -524,7 +524,7 @@ def test_story_planner_prompt_uses_current_script_with_slim_rule_digest(monkeypa
     prompt = str(captured["user_prompt"])
     assert "【当前施工剧本】" in prompt
     assert "增强后施工剧本" in prompt
-    assert "【少量节奏提示】" in prompt
+    assert "【给结构规划师的节奏操作单】" in prompt
     assert "【知识库极简规则】" in prompt
     assert "SEG-NOT-EQUAL-002" in prompt
     assert "只做分段" in str(captured["system_prompt"])
@@ -537,4 +537,4 @@ def test_story_planner_prompt_uses_current_script_with_slim_rule_digest(monkeypa
     assert captured["retrieval_meta"]["retrieval_mode"] == "rule_registry_slim"
     assert captured["retrieval_meta"]["matched_sources"] == ["rule_registry.yaml"]
     assert captured["retrieval_meta"]["registry_rule_ids"] == ["SEG-NOT-EQUAL-002"]
-    assert captured["rhythm_guidance"] == result["atmosphere_strategy"]
+    assert "照片滑落后不拆" in captured["rhythm_guidance"]
