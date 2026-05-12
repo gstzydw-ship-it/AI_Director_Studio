@@ -9,7 +9,7 @@ from typing import Any
 import httpx
 import yaml
 
-from ..request_context import request_session_id
+from ..request_context import emit_runtime_event, request_session_id
 from ..utils import COMFLY_BASE_URL, load_yaml_config
 from .types import AGENT_CONFIG_PARENTS, CONFIG_FILE, DEFAULT_LLM_MODEL, LLMSettings, OUTPUT_DIR, SESSION_ID_RE
 
@@ -103,6 +103,7 @@ def _profile_global_layer(profile: dict[str, Any]) -> dict[str, Any]:
         "connect_timeout_seconds": profile.get("connect_timeout_seconds"),
         "read_timeout_seconds": profile.get("read_timeout_seconds"),
         "write_timeout_seconds": profile.get("write_timeout_seconds"),
+        "fallback_routes": profile.get("fallback_routes"),
         "extra_params": profile.get("extra_params"),
     }
     return {key: value for key, value in layer.items() if value not in (None, "", [])}
@@ -286,6 +287,62 @@ def _get_llm_fallback_models(agent_name: str = "") -> list[str]:
     return _normalise_model_list(value)
 
 
+def _normalise_fallback_routes(value: Any) -> list[dict[str, Any]]:
+    if isinstance(value, dict):
+        candidates = [value]
+    elif isinstance(value, (list, tuple)):
+        candidates = list(value)
+    else:
+        candidates = []
+
+    routes: list[dict[str, Any]] = []
+    for candidate in candidates:
+        route = _as_mapping(candidate)
+        base_url = _normalise_base_url(route.get("base_url"))
+        model = _normalise_model_name(route.get("model") or route.get("default_model"))
+        if not base_url and not model:
+            continue
+        routes.append(
+            {
+                "api_key": str(route.get("api_key") or "").strip(),
+                "base_url": base_url,
+                "model": model,
+                "fallback_models": _normalise_model_list(route.get("fallback_models", [])),
+            }
+        )
+    return routes
+
+
+def _get_llm_fallback_routes(agent_name: str = "") -> list[dict[str, Any]]:
+    full_config = load_config()
+    routes: list[dict[str, Any]] = []
+
+    global_routes = _normalise_fallback_routes(_as_mapping(full_config.get("llm")).get("fallback_routes"))
+    routes.extend(global_routes)
+
+    for _layer_name, layer in _agent_config_layers(full_config, agent_name):
+        if "fallback_routes" in layer:
+            routes.extend(_normalise_fallback_routes(layer.get("fallback_routes")))
+
+    profile = _load_session_model_profile()
+    profile_global = _profile_global_layer(profile)
+    if "fallback_routes" in profile_global:
+        routes.extend(_normalise_fallback_routes(profile_global.get("fallback_routes")))
+    for _layer_name, layer in _profile_agent_layers(profile, agent_name):
+        if "fallback_routes" in layer:
+            routes.extend(_normalise_fallback_routes(layer.get("fallback_routes")))
+
+    deduped: list[dict[str, Any]] = []
+    seen: set[tuple[str, str, tuple[str, ...]]] = set()
+    for route in routes:
+        key = (route.get("base_url", ""), route.get("model", ""), tuple(route.get("fallback_models") or []))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(route)
+    return deduped
+
+
 def _effective_retry_budget(agent_name: str, max_retries: int) -> int:
     if agent_name == "story_planner":
         return max(1, min(max_retries, 1))
@@ -443,6 +500,13 @@ def _extract_message_text(message: dict[str, Any]) -> str:
     return str(content)
 
 
+def _runtime_event_base_url_host(base_url: str) -> str:
+    try:
+        return base_url.split("//", 1)[1].split("/", 1)[0] if "//" in base_url else base_url
+    except Exception:
+        return str(base_url or "")
+
+
 def call_llm(
     system_prompt: str,
     user_prompt: str,
@@ -505,103 +569,214 @@ def call_llm(
 
     last_exc: Exception | None = None
     last_retryable = False
-    models_to_try = _normalise_model_list([model, *_get_llm_fallback_models(agent_name)])
+    primary_models = _normalise_model_list([model, *_get_llm_fallback_models(agent_name)])
+    routes_to_try: list[dict[str, Any]] = [
+        {
+            "api_key": api_key,
+            "base_url": base_url,
+            "models": primary_models,
+            "label": "primary",
+        }
+    ]
+    for route in _get_llm_fallback_routes(agent_name):
+        route_api_key = str(route.get("api_key") or api_key).strip()
+        route_base_url = _normalise_base_url(route.get("base_url") or base_url)
+        route_model = _normalise_model_name(route.get("model") or model)
+        route_models = _normalise_model_list([route_model, *(route.get("fallback_models") or [])])
+        if not route_api_key or not route_base_url or not route_models:
+            continue
+        routes_to_try.append(
+            {
+                "api_key": route_api_key,
+                "base_url": route_base_url,
+                "models": route_models,
+                "label": "fallback route",
+            }
+        )
+
     attempted_models: list[str] = []
     proxy_modes: list[tuple[bool, bool, str]] = [(not bypass_proxy, bypass_proxy, "")]
     if bypass_proxy:
         proxy_modes.append((True, False, " system-proxy fallback"))
 
-    for model_index, active_model in enumerate(models_to_try):
-        attempted_models.append(active_model)
-        payload = dict(base_payload)
-        payload["model"] = active_model
+    for route_index, route in enumerate(routes_to_try):
+        active_base_url = str(route["base_url"]).rstrip("/")
+        route_headers = dict(headers)
+        route_headers["Authorization"] = f"Bearer {route['api_key']}"
+        route_host = _runtime_event_base_url_host(active_base_url)
+        models_to_try = route["models"]
 
-        if agent_name:
-            fallback_note = " fallback" if model_index else ""
-            print(f"  [LLM] {agent_name} -> {active_model} @ {settings.host}{fallback_note}")
+        if route_index and agent_name:
+            print(f"  [LLM] WARN: switching {agent_name} to fallback route @{route_host} after retryable failure.")
+            emit_runtime_event(
+                "llm_route_fallback",
+                agent_name=agent_name,
+                route_host=route_host,
+                route_label=route.get("label", "fallback route"),
+            )
 
-        default_timeout = _default_llm_timeout_seconds(active_model, extra_params)
-        request_timeout = _coerce_float(
-            _get_llm_runtime_option(agent_name, "timeout_seconds", default_timeout),
-            default_timeout,
-            minimum=30.0,
-        )
-        connect_timeout = _coerce_float(
-            _get_llm_runtime_option(agent_name, "connect_timeout_seconds", min(30.0, request_timeout)),
-            min(30.0, request_timeout),
-            minimum=5.0,
-        )
-        read_timeout = _coerce_float(
-            _get_llm_runtime_option(agent_name, "read_timeout_seconds", request_timeout),
-            request_timeout,
-            minimum=30.0,
-        )
-        write_timeout = _coerce_float(
-            _get_llm_runtime_option(agent_name, "write_timeout_seconds", min(60.0, request_timeout)),
-            min(60.0, request_timeout),
-            minimum=10.0,
-        )
-        request_timeout, connect_timeout, read_timeout, write_timeout = _effective_timeout_settings(
-            agent_name,
-            request_timeout,
-            connect_timeout,
-            read_timeout,
-            write_timeout,
-        )
-        timeout = httpx.Timeout(request_timeout, connect=connect_timeout, read=read_timeout, write=write_timeout)
+        for model_index, active_model in enumerate(models_to_try):
+            attempted_models.append(active_model)
+            payload = dict(base_payload)
+            payload["model"] = active_model
 
-        for proxy_index, (trust_env, active_bypass_proxy, proxy_label) in enumerate(proxy_modes):
-            for attempt in range(1, max_retries + 1):
-                try:
-                    with httpx.Client(timeout=timeout, trust_env=trust_env) as client:
-                        response = client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
-                        response.raise_for_status()
-                        result = response.json()
-                    if not isinstance(result, dict):
-                        raise RuntimeError(f"LLM 响应格式异常，期待 dict，得到 {type(result).__name__}：{str(result)[:400]}")
-                    choices = result.get("choices")
-                    if not choices or not isinstance(choices, list):
-                        raise RuntimeError(f"LLM 响应缺少 choices 字段：{json.dumps(result, ensure_ascii=False)[:500]}")
-                    message = (choices[0] or {}).get("message") or {}
-                    text = _extract_message_text(message)
-                    return text.strip()
-                except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.NetworkError) as exc:
-                    last_exc = exc
-                    last_retryable = True
-                except httpx.TimeoutException as exc:
-                    last_exc = exc
-                    last_retryable = True
-                except httpx.HTTPStatusError as exc:
-                    last_exc = exc
-                    status_code = exc.response.status_code if exc.response is not None else 0
-                    last_retryable = status_code >= 500
-                except Exception as exc:
-                    last_exc = exc
-                    last_retryable = False
+            if agent_name:
+                fallback_note = " fallback" if model_index or route_index else ""
+                print(f"  [LLM] {agent_name} -> {active_model} @ {route_host}{fallback_note}")
+                emit_runtime_event(
+                    "llm_model_selected",
+                    agent_name=agent_name,
+                    model=active_model,
+                    route_host=route_host,
+                    route_label=route.get("label", "primary"),
+                    fallback=bool(model_index or route_index),
+                    image_count=len(images_base64 or []),
+                )
 
-                if not last_retryable or attempt == max_retries:
-                    break
+            default_timeout = _default_llm_timeout_seconds(active_model, extra_params)
+            request_timeout = _coerce_float(
+                _get_llm_runtime_option(agent_name, "timeout_seconds", default_timeout),
+                default_timeout,
+                minimum=30.0,
+            )
+            connect_timeout = _coerce_float(
+                _get_llm_runtime_option(agent_name, "connect_timeout_seconds", min(30.0, request_timeout)),
+                min(30.0, request_timeout),
+                minimum=5.0,
+            )
+            read_timeout = _coerce_float(
+                _get_llm_runtime_option(agent_name, "read_timeout_seconds", request_timeout),
+                request_timeout,
+                minimum=30.0,
+            )
+            write_timeout = _coerce_float(
+                _get_llm_runtime_option(agent_name, "write_timeout_seconds", min(60.0, request_timeout)),
+                min(60.0, request_timeout),
+                minimum=10.0,
+            )
+            request_timeout, connect_timeout, read_timeout, write_timeout = _effective_timeout_settings(
+                agent_name,
+                request_timeout,
+                connect_timeout,
+                read_timeout,
+                write_timeout,
+            )
+            timeout = httpx.Timeout(request_timeout, connect=connect_timeout, read=read_timeout, write=write_timeout)
 
-                wait_seconds = 2 ** attempt
-                print(f"  [LLM] WARN: attempt {attempt} failed on {active_model}{proxy_label} ({type(last_exc).__name__}); retrying in {wait_seconds}s...")
-                _time.sleep(wait_seconds)
+            for proxy_index, (trust_env, active_bypass_proxy, proxy_label) in enumerate(proxy_modes):
+                for attempt in range(1, max_retries + 1):
+                    attempt_started = _time.perf_counter()
+                    emit_runtime_event(
+                        "llm_attempt_started",
+                        agent_name=agent_name,
+                        model=active_model,
+                        route_host=route_host,
+                        attempt=attempt,
+                        max_retries=max_retries,
+                        proxy_mode="system" if trust_env else "direct",
+                        timeout_seconds=request_timeout,
+                    )
+                    try:
+                        with httpx.Client(timeout=timeout, trust_env=trust_env) as client:
+                            response = client.post(f"{active_base_url}/chat/completions", headers=route_headers, json=payload)
+                            response.raise_for_status()
+                            result = response.json()
+                        if not isinstance(result, dict):
+                            raise RuntimeError(f"LLM 响应格式异常，期待 dict，得到 {type(result).__name__}：{str(result)[:400]}")
+                        choices = result.get("choices")
+                        if not choices or not isinstance(choices, list):
+                            raise RuntimeError(f"LLM 响应缺少 choices 字段：{json.dumps(result, ensure_ascii=False)[:500]}")
+                        message = (choices[0] or {}).get("message") or {}
+                        text = _extract_message_text(message)
+                        emit_runtime_event(
+                            "llm_attempt_succeeded",
+                            agent_name=agent_name,
+                            model=active_model,
+                            route_host=route_host,
+                            attempt=attempt,
+                            elapsed_seconds=round(_time.perf_counter() - attempt_started, 3),
+                            output_chars=len(text or ""),
+                        )
+                        return text.strip()
+                    except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.NetworkError) as exc:
+                        last_exc = exc
+                        last_retryable = True
+                    except httpx.TimeoutException as exc:
+                        last_exc = exc
+                        last_retryable = True
+                    except httpx.HTTPStatusError as exc:
+                        last_exc = exc
+                        status_code = exc.response.status_code if exc.response is not None else 0
+                        last_retryable = status_code >= 500
+                    except Exception as exc:
+                        last_exc = exc
+                        last_retryable = False
 
-            if (
-                proxy_index == 0
-                and bypass_proxy
-                and model_index == len(models_to_try) - 1
-                and isinstance(last_exc, (httpx.RemoteProtocolError, httpx.ConnectError, httpx.NetworkError))
-            ):
-                print(f"  [LLM] WARN: direct connection failed on {active_model}; retrying with system proxy environment...")
+                    emit_runtime_event(
+                        "llm_attempt_failed",
+                        agent_name=agent_name,
+                        model=active_model,
+                        route_host=route_host,
+                        attempt=attempt,
+                        elapsed_seconds=round(_time.perf_counter() - attempt_started, 3),
+                        error_type=type(last_exc).__name__ if last_exc else "UnknownError",
+                        retryable=last_retryable,
+                        proxy_mode="system" if trust_env else "direct",
+                    )
+
+                    if not last_retryable or attempt == max_retries:
+                        break
+
+                    wait_seconds = 2 ** attempt
+                    print(f"  [LLM] WARN: attempt {attempt} failed on {active_model}{proxy_label} ({type(last_exc).__name__}); retrying in {wait_seconds}s...")
+                    emit_runtime_event(
+                        "llm_retry_wait",
+                        agent_name=agent_name,
+                        model=active_model,
+                        wait_seconds=wait_seconds,
+                        next_attempt=attempt + 1,
+                    )
+                    _time.sleep(wait_seconds)
+
+                if (
+                    proxy_index == 0
+                    and bypass_proxy
+                    and model_index == len(models_to_try) - 1
+                    and isinstance(last_exc, (httpx.RemoteProtocolError, httpx.ConnectError, httpx.NetworkError))
+                ):
+                    print(f"  [LLM] WARN: direct connection failed on {active_model}; retrying with system proxy environment...")
+                    emit_runtime_event(
+                        "llm_proxy_fallback",
+                        agent_name=agent_name,
+                        model=active_model,
+                        route_host=route_host,
+                    )
+                    continue
+                break
+
+            if last_retryable and model_index < len(models_to_try) - 1:
+                next_model = models_to_try[model_index + 1]
+                print(f"  [LLM] WARN: {active_model} failed after {max_retries} attempts; trying fallback model {next_model}...")
+                emit_runtime_event(
+                    "llm_model_fallback",
+                    agent_name=agent_name,
+                    failed_model=active_model,
+                    next_model=next_model,
+                    max_retries=max_retries,
+                )
                 continue
             break
 
-        if last_retryable and model_index < len(models_to_try) - 1:
-            next_model = models_to_try[model_index + 1]
-            print(f"  [LLM] WARN: {active_model} failed after {max_retries} attempts; trying fallback model {next_model}...")
+        if last_retryable and route_index < len(routes_to_try) - 1:
             continue
         break
 
+    emit_runtime_event(
+        "llm_failed",
+        agent_name=agent_name,
+        attempted_models=attempted_models,
+        error_type=type(last_exc).__name__ if last_exc else "UnknownError",
+    )
     _raise_llm_failure(
         last_exc,
         agent_name=agent_name,

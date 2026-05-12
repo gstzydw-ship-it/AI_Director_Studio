@@ -162,79 +162,102 @@
                             </div>
                             <div class="card-body">
                                 <div class="pipeline-steps">
-                                    <div class="step" id="step-analyze">
+                                    <button type="button" class="step" id="step-analyze" data-agent="scene_analyst"
+                                        onclick="switchPipelineStepOutput(this)" aria-label="查看场景预分析输出">
                                         <div class="step-icon">01</div>
                                         <div class="step-info">
                                             <div class="step-name">场景预分析</div>
                                             <div class="step-desc">参考图/站位/空间</div>
                                         </div>
                                         <div class="step-status">等待</div>
-                                    </div>
+                                    </button>
                                     <div class="step-arrow">→</div>
-                                    <div class="step" id="step-enhance">
+                                    <button type="button" class="step" id="step-enhance" data-agent="director_showrunner"
+                                        onclick="switchPipelineStepOutput(this)" aria-label="查看剧情增强输出">
                                         <div class="step-icon">02</div>
                                         <div class="step-info">
                                             <div class="step-name">剧情增强</div>
                                             <div class="step-desc">弱冲突可拍化</div>
                                         </div>
                                         <div class="step-status">等待</div>
-                                    </div>
+                                    </button>
                                     <div class="step-arrow">→</div>
-                                    <div class="step" id="step-rhythm">
+                                    <button type="button" class="step" id="step-rhythm" data-agent="rhythm_rewrite_director"
+                                        onclick="switchPipelineStepOutput(this)" aria-label="查看节奏总控输出">
                                         <div class="step-icon">03</div>
                                         <div class="step-info">
                                             <div class="step-name">节奏总控</div>
                                             <div class="step-desc">快慢/停顿/卡断</div>
                                         </div>
                                         <div class="step-status">等待</div>
-                                    </div>
+                                    </button>
                                     <div class="step-arrow">→</div>
-                                    <div class="step" id="step-plan">
+                                    <button type="button" class="step" id="step-plan" data-agent="story_planner"
+                                        onclick="switchPipelineStepOutput(this)" aria-label="查看结构规划输出">
                                         <div class="step-icon">04</div>
                                         <div class="step-info">
                                             <div class="step-name">结构规划</div>
                                             <div class="step-desc">拆片/连续性</div>
                                         </div>
                                         <div class="step-status">等待</div>
-                                    </div>
+                                    </button>
                                     <div class="step-arrow">→</div>
-                                    <div class="step" id="step-direct">
+                                    <button type="button" class="step" id="step-direct" data-agent="shot_director"
+                                        onclick="switchPipelineStepOutput(this)" aria-label="查看三段镜头导演输出">
                                         <div class="step-icon">05</div>
                                         <div class="step-info">
                                             <div class="step-name">三段镜头导演</div>
                                             <div class="step-desc">摆位/调度/守门</div>
                                         </div>
                                         <div class="step-status">等待</div>
-                                    </div>
+                                    </button>
                                     <div class="step-arrow">→</div>
-                                    <div class="step" id="step-storyboard">
+                                    <button type="button" class="step" id="step-storyboard" data-agent="storyboard_designer"
+                                        onclick="switchPipelineStepOutput(this)" aria-label="查看分镜流程图输出">
                                         <div class="step-icon">06</div>
                                         <div class="step-info">
                                             <div class="step-name">分镜流程图</div>
                                             <div class="step-desc">可视化设计</div>
                                         </div>
                                         <div class="step-status">等待</div>
-                                    </div>
+                                    </button>
                                     <div class="step-arrow">→</div>
-                                    <div class="step" id="step-compile">
+                                    <button type="button" class="step" id="step-compile" data-agent="prompt_compiler"
+                                        onclick="switchPipelineStepOutput(this)" aria-label="查看 Seedance 编译输出">
                                         <div class="step-icon">07</div>
                                         <div class="step-info">
                                             <div class="step-name">Seedance编译</div>
                                             <div class="step-desc">单段Prompt</div>
                                         </div>
                                         <div class="step-status">等待</div>
-                                    </div>
+                                    </button>
                                     <div class="step-arrow">→</div>
-                                    <div class="step" id="step-inspect">
+                                    <button type="button" class="step" id="step-inspect" data-agent="quality_inspector"
+                                        onclick="switchPipelineStepOutput(this)" aria-label="查看质检导演输出">
                                         <div class="step-icon">08</div>
                                         <div class="step-info">
                                             <div class="step-name">质检导演</div>
                                             <div class="step-desc">判例/返修</div>
                                         </div>
                                         <div class="step-status">等待</div>
-                                    </div>
+                                    </button>
                                 </div>
                                 <div id="pipelineMsg" class="pipeline-msg"></div>
+                                <div class="agent-process-panel">
+                                    <div class="agent-process-head">
+                                        <div>
+                                            <span class="section-kicker">Live Trace</span>
+                                            <strong>Agent 任务过程</strong>
+                                        </div>
+                                        <span id="agentProcessSummary">等待启动</span>
+                                    </div>
+                                    <div class="agent-process-progress" aria-hidden="true">
+                                        <span id="agentProcessProgressBar"></span>
+                                    </div>
+                                    <div id="agentProcessLog" class="agent-process-log">
+                                        <div class="agent-process-empty">等待真实运行事件...</div>
+                                    </div>
+                                </div>
                             </div>
                         </section>
 
@@ -1719,6 +1742,7 @@
             if (tabs) tabs.style.display = 'none';
             if (toolbar) toolbar.style.display = 'none';
             if (shell) shell.classList.add('is-empty');
+            selectPipelineStep('');
             lastResultOutputAgent = '';
             lastResultOutputHtml = '';
             setResultNotice('');
@@ -2749,6 +2773,7 @@
                 currentPublicState = state;
                 await refreshGenerationAssets();
                 const hasOutputs = Object.keys(state.agent_outputs || {}).length > 0 || Boolean(state.result);
+                renderAgentProcess(state);
 
                 // 恢复用户输入（剧本 + 参考图）
                 _restoreUserInputs(state);
@@ -2903,6 +2928,7 @@
                         generation_jobs: generationJobsCache,
                         generation_artifacts: generationArtifactsCache,
                     };
+                    renderAgentProcess(currentPublicState);
                     await refreshGenerationAssets();
                     const status = String(state.status || '');
                     const isRunning = status.startsWith('running');
@@ -3223,6 +3249,69 @@
                 el.classList.add('done');
                 el.querySelector('.step-status').textContent = '✓';
             });
+        }
+
+        function processProgressPercent(state = {}) {
+            const status = String(state.status || '');
+            if (status === 'done') return 100;
+            if (status === 'error') return Math.max(8, Math.round(((inferCompletedStepIndex(state) + 1) / STEP_ORDER.length) * 100));
+            const doneIdx = inferCompletedStepIndex(state);
+            const activeIdx = inferActiveStepIndex(state);
+            const base = Math.max(doneIdx + 1, 0);
+            const activeBoost = status.startsWith('running') ? 0.45 : 0;
+            const idx = Math.max(base, activeIdx + activeBoost);
+            return Math.max(0, Math.min(98, Math.round((idx / STEP_ORDER.length) * 100)));
+        }
+
+        function renderAgentProcess(state = {}) {
+            const log = document.getElementById('agentProcessLog');
+            const summary = document.getElementById('agentProcessSummary');
+            const progressBar = document.getElementById('agentProcessProgressBar');
+            if (!log || !summary || !progressBar) return;
+
+            const events = Array.isArray(state.agent_process_events) ? state.agent_process_events : [];
+            const status = String(state.status || '');
+            const percent = processProgressPercent(state);
+            progressBar.style.width = `${percent}%`;
+            const running = status.startsWith('running');
+            summary.textContent = running
+                ? `运行中 · ${percent}% · ${events.length} 条事件`
+                : `${readableStatusMessage(state.message || status || '等待启动') || '等待启动'} · ${events.length} 条事件`;
+
+            if (!events.length) {
+                log.innerHTML = '<div class="agent-process-empty">等待真实运行事件...</div>';
+                return;
+            }
+
+            const wasNearBottom = log.scrollTop + log.clientHeight >= log.scrollHeight - 24;
+            log.innerHTML = events.slice(-80).map((item, index) => {
+                const statusClass = `is-${escapeHtml(item.status || 'info')}`;
+                const phase = escapeHtml(item.phase || 'system');
+                const timeText = item.ts ? String(item.ts).slice(11, 19) : '';
+                const rules = Array.isArray(item.rules) && item.rules.length
+                    ? `<div class="agent-process-tags">${item.rules.slice(0, 8).map(rule => `<span>${escapeHtml(rule)}</span>`).join('')}</div>`
+                    : '';
+                const sources = Array.isArray(item.sources) && item.sources.length
+                    ? `<div class="agent-process-sources">${item.sources.slice(0, 6).map(source => `<span>${escapeHtml(source)}</span>`).join('')}</div>`
+                    : '';
+                return `
+                    <div class="agent-process-event ${statusClass}" data-phase="${phase}">
+                        <span class="agent-process-dot"></span>
+                        <div class="agent-process-main">
+                            <div class="agent-process-line">
+                                <strong>${escapeHtml(item.title || item.event || `事件 ${index + 1}`)}</strong>
+                                <small>${escapeHtml(timeText)} · ${phase}</small>
+                            </div>
+                            ${item.detail ? `<p>${escapeHtml(item.detail)}</p>` : ''}
+                            ${rules}
+                            ${sources}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            if (wasNearBottom || running) {
+                log.scrollTop = log.scrollHeight;
+            }
         }
 
         function markWaitingForInput(state = {}) {
@@ -3730,6 +3819,60 @@
             document.querySelectorAll('.result-tab').forEach(t => t.classList.remove('active'));
             const tab = document.querySelector(`.result-tab[data-agent="${agent}"]`);
             if (tab) tab.classList.add('active');
+            selectPipelineStep(agent);
+        }
+
+        function selectPipelineStep(agent) {
+            document.querySelectorAll('.step[data-agent]').forEach(step => {
+                const selected = step.dataset.agent === agent;
+                step.classList.toggle('selected-output', selected);
+                step.setAttribute('aria-pressed', selected ? 'true' : 'false');
+            });
+        }
+
+        function renderAgentResultHtml(agent) {
+            const outputs = currentPublicState.agent_outputs || agentOutputs || {};
+            if (agent === 'prompt_compiler') {
+                return renderCompiledSegments(outputs, currentPublicState);
+            }
+            if (agent === 'storyboard_designer') {
+                return renderStoryboardImages(outputs);
+            }
+            if (agent === 'scene_analyst') {
+                return renderSceneAnalystOutput(outputs);
+            }
+
+            const text = agent === 'shot_director'
+                ? latestShotDirectorOutput(outputs)
+                : (outputs[agent] || '');
+            if (!text) {
+                return '<div class="placeholder-text">该 Agent 暂无输出</div>';
+            }
+            return agent === 'shot_director'
+                ? renderShotDirectorOutput(text, currentPublicState)
+                : renderReadableAgentOutput(agent, text);
+        }
+
+        function showAgentOutput(agent, options = {}) {
+            if (!agent) return;
+            setResultOutput(agent, renderAgentResultHtml(agent), options);
+        }
+
+        function switchPipelineStepOutput(step) {
+            const agent = typeof step === 'string' ? step : (step?.dataset?.agent || '');
+            if (!agent) return;
+            const meta = agentResultMeta(agent);
+            const hasOutput = agentHasOutput(agent);
+            showAgentOutput(agent, {
+                forceRender: true,
+                preserveScroll: false,
+                notice: hasOutput ? '' : `${meta.title} 暂无输出。`,
+                noticeType: hasOutput ? 'info' : 'warning',
+            });
+            const resultCard = document.querySelector('.result-card');
+            if (resultCard && typeof resultCard.scrollIntoView === 'function') {
+                resultCard.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+            }
         }
 
         function showBestAvailableResult(state = {}) {
@@ -4570,37 +4713,8 @@
         }
 
         function switchResultTab(btn) {
-            document.querySelectorAll('.result-tab').forEach(t => t.classList.remove('active'));
-            btn.classList.add('active');
-            const agent = btn.dataset.agent;
-            let html = '';
-
-            if (agent === 'prompt_compiler') {
-                setResultOutput(agent, renderCompiledSegments(agentOutputs, currentPublicState));
-                return;
-            }
-
-            if (agent === 'storyboard_designer') {
-                setResultOutput(agent, renderStoryboardImages(agentOutputs));
-                return;
-            }
-
-            if (agent === 'scene_analyst') {
-                setResultOutput(agent, renderSceneAnalystOutput(agentOutputs));
-                return;
-            }
-
-            const text = agent === 'shot_director'
-                ? latestShotDirectorOutput(agentOutputs)
-                : (agentOutputs[agent] || '');
-            if (text) {
-                html = agent === 'shot_director'
-                    ? renderShotDirectorOutput(text, currentPublicState)
-                    : renderReadableAgentOutput(agent, text);
-            } else {
-                html = '<div class="placeholder-text">该 Agent 暂无输出</div>';
-            }
-            setResultOutput(agent, html);
+            const agent = typeof btn === 'string' ? btn : (btn?.dataset?.agent || '');
+            showAgentOutput(agent, { forceRender: true, preserveScroll: false });
         }
 
         function copyCurrentTab() {

@@ -6,7 +6,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def test_rhythm_supervisor_does_not_replace_source_script(monkeypatch):
-    from agents.director_graph_package import helpers, legacy_impl, nodes
+    from agents.director_graph_package import helpers, legacy_impl, nodes, rhythm_rewrite_impl
 
     original_script = "乔熙：Wait a second!\n商北琛扶住她。"
 
@@ -16,7 +16,7 @@ def test_rhythm_supervisor_does_not_replace_source_script(monkeypatch):
         lambda prompt, agent_name, context_hint="", **kwargs: (prompt, {"retrieval_mode": "test"}),
     )
     monkeypatch.setattr(
-        legacy_impl,
+        rhythm_rewrite_impl,
         "call_llm",
         lambda *args, **kwargs: "节奏总合同: F01 保持快速进入；结构规划施工指令: 普通反应留在片段内部。",
     )
@@ -44,7 +44,7 @@ def test_rhythm_supervisor_does_not_replace_source_script(monkeypatch):
 
 
 def test_rhythm_supervisor_outputs_time_and_segment_contract(monkeypatch):
-    from agents.director_graph_package import helpers, legacy_impl, nodes
+    from agents.director_graph_package import helpers, legacy_impl, nodes, rhythm_rewrite_impl
 
     captured: dict[str, object] = {}
 
@@ -104,7 +104,7 @@ def test_rhythm_supervisor_outputs_time_and_segment_contract(monkeypatch):
         )
 
     monkeypatch.setattr(helpers, "build_system_prompt", fake_build_system_prompt)
-    monkeypatch.setattr(legacy_impl, "call_llm", fake_call_llm)
+    monkeypatch.setattr(rhythm_rewrite_impl, "call_llm", fake_call_llm)
     monkeypatch.setattr(legacy_impl, "_record_knowledge_metadata", lambda *args, **kwargs: {})
     monkeypatch.setattr(legacy_impl, "_persist_update", lambda state, payload: {**state, **payload})
 
@@ -154,7 +154,7 @@ def test_rhythm_supervisor_outputs_time_and_segment_contract(monkeypatch):
 
 
 def test_rhythm_supervisor_receives_enhancement_contract(monkeypatch):
-    from agents.director_graph_package import helpers, legacy_impl, nodes
+    from agents.director_graph_package import helpers, legacy_impl, nodes, rhythm_rewrite_impl
 
     captured: dict[str, object] = {}
 
@@ -176,7 +176,7 @@ def test_rhythm_supervisor_receives_enhancement_contract(monkeypatch):
             "风险提醒: 无"
         )
 
-    monkeypatch.setattr(legacy_impl, "call_llm", fake_call_llm)
+    monkeypatch.setattr(rhythm_rewrite_impl, "call_llm", fake_call_llm)
     monkeypatch.setattr(legacy_impl, "_record_knowledge_metadata", lambda *args, **kwargs: {})
     monkeypatch.setattr(legacy_impl, "_persist_update", lambda state, payload: {**state, **payload})
 

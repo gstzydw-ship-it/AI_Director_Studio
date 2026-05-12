@@ -110,8 +110,24 @@ def _bump_task_generation(session_id: str) -> int:
 
 
 def _has_live_task(session_id: str) -> bool:
-    thread = active_task_threads.get(_normalise_session_id(session_id))
-    return bool(thread and thread.is_alive())
+    session_id = _normalise_session_id(session_id)
+    thread = active_task_threads.get(session_id)
+    if not thread or not thread.is_alive():
+        active_task_threads.pop(session_id, None)
+        return False
+
+    state = task_states.get(session_id) or {}
+    if state.get("status") not in RUNNING_STATUSES:
+        active_task_threads.pop(session_id, None)
+        _append_task_log(
+            session_id,
+            "stale_live_thread_cleared",
+            thread_name=getattr(thread, "name", ""),
+            status=state.get("status"),
+            step=state.get("step"),
+        )
+        return False
+    return True
 
 
 def _register_task_thread(session_id: str, thread: threading.Thread) -> None:
@@ -293,6 +309,238 @@ _AGENT_DISPLAY_NAMES = {
     "prompt_compiler": "✍️ Seedance Prompt",
     "quality_inspector": "🔍 质检报告",
 }
+
+RUNTIME_EVENT_NAMES = {
+    "thread_registered",
+    "thread_unregistered",
+    "knowledge_retrieval_started",
+    "knowledge_retrieval_completed",
+    "knowledge_retrieval_failed",
+    "llm_model_selected",
+    "llm_route_fallback",
+    "llm_attempt_started",
+    "llm_attempt_succeeded",
+    "llm_attempt_failed",
+    "llm_retry_wait",
+    "llm_proxy_fallback",
+    "llm_model_fallback",
+    "llm_failed",
+}
+
+
+def _runtime_event_logger(session_id: str):
+    session_id = _normalise_session_id(session_id)
+
+    def _log(event: str, **fields: Any) -> None:
+        _append_task_log(session_id, event, **fields)
+
+    return _log
+
+
+def _safe_list(value: Any, *, limit: int = 5) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, dict):
+        items = [f"{key}: {val}" for key, val in value.items()]
+    elif isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        items = [value]
+    cleaned: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text:
+            cleaned.append(text[:120])
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def _read_task_events(session_id: str, *, limit: int = 120) -> list[dict[str, Any]]:
+    path = os.path.join(_session_output_dir(session_id), "task_events.log")
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            lines = file.readlines()[-limit:]
+    except OSError:
+        return []
+    entries: list[dict[str, Any]] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict) and entry.get("event") in RUNTIME_EVENT_NAMES:
+            entries.append(entry)
+    return entries
+
+
+def _runtime_event_view(entry: dict[str, Any]) -> dict[str, Any]:
+    event = str(entry.get("event") or "")
+    agent = str(entry.get("agent_name") or "")
+    label = _AGENT_DISPLAY_NAMES.get(agent, agent or "系统")
+    route_host = str(entry.get("route_host") or "")
+    model = str(entry.get("model") or entry.get("active_model") or "")
+    phase = "system"
+    status = "info"
+    title = event
+    detail = ""
+
+    if event == "thread_registered":
+        title = "后台任务已启动"
+        detail = str(entry.get("thread_name") or "")
+        status = "running"
+    elif event == "thread_unregistered":
+        title = "后台任务已结束"
+        detail = str(entry.get("thread_name") or "")
+        status = "done"
+    elif event == "knowledge_retrieval_started":
+        phase = "knowledge"
+        title = f"{label} 调用知识库"
+        detail = f"检索模式：{entry.get('retrieval_mode') or 'smart'}"
+        if entry.get("context_hint_preview"):
+            detail += f"；检索线索：{entry.get('context_hint_preview')}"
+        status = "running"
+    elif event == "knowledge_retrieval_completed":
+        phase = "knowledge"
+        status = "done"
+        result_count = entry.get("result_count")
+        sources = _safe_list(entry.get("matched_sources"), limit=4)
+        rules = _safe_list(entry.get("registry_rule_ids"), limit=6)
+        title = f"{label} 知识库命中"
+        detail = f"返回 {result_count if result_count is not None else 0} 条"
+        if rules:
+            detail += "；规则：" + "、".join(rules)
+        if sources:
+            detail += "；来源：" + "、".join(sources)
+    elif event == "knowledge_retrieval_failed":
+        phase = "knowledge"
+        status = "error"
+        title = f"{label} 知识库检索失败"
+        detail = f"{entry.get('error_type') or 'Error'}；fallback={bool(entry.get('fallback_to_full_knowledge'))}"
+    elif event == "llm_model_selected":
+        phase = "llm"
+        status = "running"
+        title = f"{label} 选择大模型"
+        detail = f"{model}" + (f" @ {route_host}" if route_host else "")
+        if entry.get("fallback"):
+            detail += "（fallback）"
+        if entry.get("image_count"):
+            detail += f"；参考图 {entry.get('image_count')} 张"
+    elif event == "llm_attempt_started":
+        phase = "llm"
+        status = "running"
+        title = f"{label} 正在连接大模型"
+        detail = f"{model} 第 {entry.get('attempt')}/{entry.get('max_retries')} 次"
+        if route_host:
+            detail += f" @ {route_host}"
+        if entry.get("proxy_mode"):
+            detail += f"；网络：{entry.get('proxy_mode')}"
+    elif event == "llm_attempt_succeeded":
+        phase = "llm"
+        status = "done"
+        title = f"{label} 大模型返回"
+        detail = f"{model}；{entry.get('output_chars') or 0} 字；耗时 {entry.get('elapsed_seconds') or 0}s"
+    elif event == "llm_attempt_failed":
+        phase = "llm"
+        status = "warning" if entry.get("retryable") else "error"
+        title = f"{label} 大模型调用失败"
+        detail = f"{model} 第 {entry.get('attempt')} 次；{entry.get('error_type') or 'Error'}"
+    elif event == "llm_retry_wait":
+        phase = "llm"
+        status = "warning"
+        title = f"{label} 等待重试"
+        detail = f"{entry.get('wait_seconds') or 0}s 后第 {entry.get('next_attempt')} 次尝试"
+    elif event == "llm_proxy_fallback":
+        phase = "llm"
+        status = "warning"
+        title = f"{label} 切换系统代理重试"
+        detail = model
+    elif event == "llm_model_fallback":
+        phase = "llm"
+        status = "warning"
+        title = f"{label} 切换备用模型"
+        detail = f"{entry.get('failed_model') or ''} -> {entry.get('next_model') or ''}"
+    elif event == "llm_route_fallback":
+        phase = "llm"
+        status = "warning"
+        title = f"{label} 切换备用网关"
+        detail = route_host
+    elif event == "llm_failed":
+        phase = "llm"
+        status = "error"
+        title = f"{label} 大模型调用终止"
+        detail = f"{entry.get('error_type') or 'Error'}；模型：" + "、".join(_safe_list(entry.get("attempted_models"), limit=4))
+
+    return {
+        "ts": entry.get("ts") or "",
+        "event": event,
+        "agent": agent,
+        "agent_label": label,
+        "phase": phase,
+        "status": status,
+        "title": title,
+        "detail": detail,
+        "sources": _safe_list(entry.get("matched_sources"), limit=6),
+        "rules": _safe_list(entry.get("registry_rule_ids"), limit=8),
+        "real": True,
+    }
+
+
+def _knowledge_metadata_event_views(state: dict) -> list[dict[str, Any]]:
+    metadata = state.get("knowledge_metadata")
+    if not isinstance(metadata, dict):
+        return []
+    events: list[dict[str, Any]] = []
+    for agent, meta in metadata.items():
+        if not isinstance(meta, dict):
+            continue
+        sources = _safe_list(meta.get("matched_sources"), limit=6)
+        rules = _safe_list(meta.get("registry_rule_ids"), limit=8)
+        if not sources and not rules and not meta.get("runtime"):
+            continue
+        label = _AGENT_DISPLAY_NAMES.get(str(agent), str(agent))
+        detail_parts = []
+        if meta.get("retrieval_mode"):
+            detail_parts.append(f"模式：{meta.get('retrieval_mode')}")
+        if rules:
+            detail_parts.append("规则：" + "、".join(rules))
+        if sources:
+            detail_parts.append("来源：" + "、".join(sources[:4]))
+        events.append(
+            {
+                "ts": "",
+                "event": "knowledge_metadata_snapshot",
+                "agent": str(agent),
+                "agent_label": label,
+                "phase": "knowledge",
+                "status": "done",
+                "title": f"{label} 已记录知识库/规则",
+                "detail": "；".join(detail_parts) or "已记录运行元数据",
+                "sources": sources,
+                "rules": rules,
+                "real": True,
+            }
+        )
+    return events
+
+
+def _agent_process_events(session_id: str, state: dict) -> list[dict[str, Any]]:
+    log_views = [_runtime_event_view(entry) for entry in _read_task_events(session_id)]
+    seen = {
+        (view.get("event"), view.get("agent"), view.get("title"), view.get("detail"))
+        for view in log_views
+    }
+    metadata_views = [
+        view
+        for view in _knowledge_metadata_event_views(state)
+        if (view.get("event"), view.get("agent"), view.get("title"), view.get("detail")) not in seen
+    ]
+    return (log_views + metadata_views)[-120:]
+
 
 MAX_REFERENCE_IMAGES = 12
 REFERENCE_IMAGE_MAX_EDGE = 1280
@@ -533,7 +781,7 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
     previous_progress = _progress_signature(task_state)
     try:
         _migrate_legacy_state_if_needed(session_id)
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             disk_state = load_state()
             if not _has_live_task(session_id):
                 disk_state, _ = recover_repairable_pipeline_state(disk_state)
@@ -585,6 +833,7 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
 
 def _public_task_state(session_id: str = DEFAULT_SESSION_ID) -> dict:
     state = dict(_task_state(session_id))
+    state["agent_process_events"] = _agent_process_events(session_id, state)
     image_refs = state.get("reference_image_b64s") or []
     if image_refs:
         state["reference_image_b64s"] = f"{len(image_refs)} reference images omitted from status response"
@@ -1531,7 +1780,11 @@ def _run_pipeline_in_thread(
             _touch_task_progress(task_state)
 
     try:
-        with request_scope(session_id=session_id, stream_callback=_stream_callback):
+        with request_scope(
+            session_id=session_id,
+            stream_callback=_stream_callback,
+            event_callback=_runtime_event_logger(session_id),
+        ):
             if task_generation != _active_task_generation(session_id):
                 return
             # 彻底清空上一轮的输出状态，避免污染
@@ -1622,7 +1875,11 @@ def _resume_pipeline_in_thread(
             _touch_task_progress(task_state)
 
     try:
-        with request_scope(session_id=session_id, stream_callback=_stream_callback):
+        with request_scope(
+            session_id=session_id,
+            stream_callback=_stream_callback,
+            event_callback=_runtime_event_logger(session_id),
+        ):
             if task_generation != _active_task_generation(session_id):
                 return
             task_state["status"] = "running_phase_2"
@@ -1676,7 +1933,7 @@ def _resume_shot_director_in_thread(
     session_id = _normalise_session_id(session_id)
     task_state = _task_state(session_id)
     try:
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
             task_state["status"] = "running_phase_1"
@@ -1818,7 +2075,7 @@ def _rerun_phase_1_agent_in_thread(
     label = _AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
 
     try:
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
             task_state["status"] = "running_phase_1"
@@ -1864,7 +2121,7 @@ def _generate_storyboard_in_thread(
     session_id = _normalise_session_id(session_id)
     task_state = _task_state(session_id)
     try:
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
             task_state["status"] = "running_phase_1"
@@ -1912,7 +2169,7 @@ def _generate_storyboard_image_in_thread(
     task_state = _task_state(session_id)
     attempt_id = ""
     try:
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
             if generation_job_id:
@@ -2029,7 +2286,7 @@ def _restart_shot_director_from_planner_in_thread(
     session_id = _normalise_session_id(session_id)
     task_state = _task_state(session_id)
     try:
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
             task_state["status"] = "running_phase_1"
@@ -2153,7 +2410,7 @@ async def api_run(
     # 自动清理：如果已有任务在执行或处于阻塞状态，自动中断并清理前段任务
     if task_state.get("status") in BLOCKING_STATUSES:
         print(f"  [AutoClean] Session {session_id}: 发现前置任务 ({task_state.get('status')})，自动清理并启动新流水线")
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             clear_state()
         task_state.clear()
         task_state.update(_default_task_state())
@@ -2953,7 +3210,7 @@ async def api_reset(session_id: str = Form(DEFAULT_SESSION_ID)):
     """一键清空当前任务，允许调试时从空白状态重新启动。"""
     session_id = _normalise_session_id(session_id)
     _bump_task_generation(session_id)
-    with request_scope(session_id=session_id):
+    with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
         clear_state()
     task_state = _task_state(session_id)
     task_state.clear()
@@ -2972,7 +3229,7 @@ async def api_clear_previous_segment(session_id: str = Form(DEFAULT_SESSION_ID))
     if not changed:
         return JSONResponse({"success": False, "error": message})
 
-    with request_scope(session_id=session_id):
+    with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
         save_state(task_state)
     return JSONResponse(
         {

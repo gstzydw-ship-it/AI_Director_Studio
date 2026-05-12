@@ -23,6 +23,7 @@ from ..knowledge_base import (
     get_smart_knowledge,
     load_knowledge_documents,
 )
+from ..request_context import emit_runtime_event
 from ..utils import COMFLY_BASE_URL, load_yaml_config
 
 
@@ -496,6 +497,13 @@ def build_system_prompt(
 ) -> tuple[str, dict[str, Any]]:
     critical_text = _critical_knowledge_block(agent_name) if include_critical_knowledge else ""
     retrieval_meta: dict[str, Any] = {}
+    emit_runtime_event(
+        "knowledge_retrieval_started",
+        agent_name=agent_name,
+        context_hint_preview=(context_hint or "")[:240],
+        retrieval_mode=retrieval_mode or "profile_default",
+        include_critical_knowledge=include_critical_knowledge,
+    )
     try:
         kb_text, retrieval_meta = get_smart_knowledge(
             agent_name,
@@ -504,7 +512,7 @@ def build_system_prompt(
             retrieval_mode=retrieval_mode,
             allow_critical_fallback=include_critical_knowledge,
         )
-    except Exception:
+    except Exception as exc:
         kb_text = get_full_knowledge_for_agent(agent_name) if fallback_to_full_knowledge else ""
         retrieval_meta = {
             "retrieval_mode": "fallback",
@@ -517,6 +525,24 @@ def build_system_prompt(
             "include_critical_knowledge": include_critical_knowledge,
             "fallback_to_full_knowledge": fallback_to_full_knowledge,
         }
+        emit_runtime_event(
+            "knowledge_retrieval_failed",
+            agent_name=agent_name,
+            error_type=type(exc).__name__,
+            fallback_to_full_knowledge=fallback_to_full_knowledge,
+        )
+
+    emit_runtime_event(
+        "knowledge_retrieval_completed",
+        agent_name=agent_name,
+        retrieval_mode=retrieval_meta.get("retrieval_mode", ""),
+        matched_sources=retrieval_meta.get("matched_sources", []),
+        critical_sources=retrieval_meta.get("critical_sources", []),
+        registry_rule_ids=retrieval_meta.get("registry_rule_ids", []),
+        registry_preferred_sources=retrieval_meta.get("registry_preferred_sources", []),
+        result_count=retrieval_meta.get("result_count", 0),
+        used_wiki_context=bool(retrieval_meta.get("used_wiki_context")),
+    )
 
     knowledge_sections = []
     if critical_text:

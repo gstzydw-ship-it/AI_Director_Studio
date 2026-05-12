@@ -135,6 +135,32 @@ def test_stalled_live_task_is_marked_error(monkeypatch):
     assert session_id not in web_app.active_task_threads
 
 
+def test_has_live_task_clears_stale_review_thread():
+    import ui.app as web_app
+
+    session_id = "web_stale_review_lock"
+
+    class FakeThread:
+        name = "Thread-8 (_rerun_phase_1_agent_in_thread)"
+
+        def is_alive(self):
+            return True
+
+    web_app.task_states[session_id] = {
+        "status": "waiting_for_user_input",
+        "step": "step_0_enhance",
+        "review_agent": "director_showrunner",
+    }
+    web_app.active_task_threads[session_id] = FakeThread()
+
+    try:
+        assert web_app._has_live_task(session_id) is False
+        assert session_id not in web_app.active_task_threads
+    finally:
+        web_app.task_states.pop(session_id, None)
+        web_app.active_task_threads.pop(session_id, None)
+
+
 def test_ui_error_state_merge_preserves_latest_disk_outputs(tmp_path, monkeypatch):
     import ui.app as web_app
     from agents import director_graph

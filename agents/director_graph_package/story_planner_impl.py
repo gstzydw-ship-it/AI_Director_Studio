@@ -15,6 +15,7 @@ from .llm import call_llm
 from .planning_context_impl import _script_fidelity_rules
 from .state_store import _agent_outputs, _persist_update
 from ..knowledge_base import query_rule_registry
+from ..request_context import emit_runtime_event
 
 STORY_PLANNER_MAX_SCHEMA_ATTEMPTS = _legacy.STORY_PLANNER_MAX_SCHEMA_ATTEMPTS
 
@@ -23,9 +24,21 @@ _record_knowledge_metadata = _legacy._record_knowledge_metadata
 
 def _story_planner_slim_rule_digest(context_hint: str, *, n_results: int = 3) -> tuple[str, dict[str, Any]]:
     """Fetch a tiny rule-registry digest for segmentation without broad RAG context."""
+    emit_runtime_event(
+        "knowledge_retrieval_started",
+        agent_name="story_planner",
+        context_hint_preview=(context_hint or "")[:240],
+        retrieval_mode="rule_registry_slim",
+    )
     try:
         results = query_rule_registry(context_hint, agent_name="story_planner", n_results=n_results)
     except Exception as exc:
+        emit_runtime_event(
+            "knowledge_retrieval_failed",
+            agent_name="story_planner",
+            retrieval_mode="rule_registry_slim",
+            error_type=type(exc).__name__,
+        )
         return "", {
             "retrieval_mode": "rule_registry_slim",
             "matched_sources": [],
@@ -66,6 +79,14 @@ def _story_planner_slim_rule_digest(context_hint: str, *, n_results: int = 3) ->
         "result_count": len(lines),
         "registry_rule_ids": rule_ids,
     }
+    emit_runtime_event(
+        "knowledge_retrieval_completed",
+        agent_name="story_planner",
+        retrieval_mode=metadata["retrieval_mode"],
+        matched_sources=metadata["matched_sources"],
+        registry_rule_ids=metadata["registry_rule_ids"],
+        result_count=metadata["result_count"],
+    )
     return "\n".join(lines), metadata
 
 def _story_planner_rhythm_boundary_rules() -> str:

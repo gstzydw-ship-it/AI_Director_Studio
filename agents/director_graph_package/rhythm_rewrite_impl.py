@@ -4,6 +4,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from .llm import call_llm
+
 DirectorState = dict[str, Any]
 
 _RHYTHM_ABSTRACT_REPLACEMENTS: tuple[tuple[str, str], ...] = (
@@ -294,7 +296,6 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
         _agent_outputs,
         _persist_update,
         _record_knowledge_metadata,
-        call_llm,
     )
     from .helpers import build_system_prompt
 

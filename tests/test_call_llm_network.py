@@ -161,6 +161,58 @@ def test_call_llm_tries_configured_fallback_model_after_retryable_failure(monkey
     assert attempted_models == ["primary-model", "fallback-model"]
 
 
+def test_call_llm_tries_configured_fallback_route_after_network_failure(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        director_graph,
+        "load_config",
+        lambda: {
+            "llm": {
+                "api_key": "primary-key",
+                "base_url": "https://primary.example/v1",
+                "model": "primary-model",
+                "max_retries": 1,
+            },
+            "agent_models": {
+                "director_showrunner": {
+                    "fallback_routes": [
+                        {
+                            "api_key": "backup-key",
+                            "base_url": "https://backup.example/v1",
+                            "model": "backup-model",
+                        }
+                    ]
+                }
+            },
+        },
+    )
+    attempts = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, **kwargs):
+            attempts.append((url, kwargs["headers"]["Authorization"], kwargs["json"]["model"]))
+            if "primary.example" in url:
+                raise httpx.ConnectError("[SSL: UNEXPECTED_EOF_WHILE_READING]")
+            return _FakeResponse()
+
+    monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
+
+    assert director_graph.call_llm("system", "user", agent_name="director_showrunner", bypass_proxy=False) == "ok"
+    assert attempts == [
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
+        ("https://backup.example/v1/chat/completions", "Bearer backup-key", "backup-model"),
+    ]
+
+
 def test_shot_director_stage_agents_inherit_parent_model_config(monkeypatch):
     monkeypatch.setattr(
         director_graph,
