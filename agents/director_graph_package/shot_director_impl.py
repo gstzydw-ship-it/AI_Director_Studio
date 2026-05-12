@@ -358,7 +358,7 @@ def _subject_framing_rules() -> str:
 def _spatial_geometry_contract_rules() -> str:
     return (
         "【空间几何合同硬规则】\n"
-        "1. 当前轻量施工单不再输出 camera_basis 等内部字段；空间几何必须翻译进 shot 与 continuity。\n"
+        "1. 当前轻量施工单不再输出 camera_basis 等内部字段；空间几何必须翻译进 shot 与 continuity。内部校验仍使用 camera_basis、scene_fixed、visible_landmarks 等合同词判断前景/中景/后景是否闭环。\n"
         "2. shot 只写【视角+景别】，例如过肩视角半身以上中景、侧面视角双人中景、背后视角半身中景；不要写复杂机位坐标或运镜说明。\n"
         "3. continuity 必须写清人物站位、朝向、左右关系、道具位置和可继承尾帧；不能只写\"保持连续\"。\n"
         "4. 人物转身、穿门、进电梯/车门/房门等阈值动作，优先使用侧面、背后或场景固定机位；不要用人物正前方固定机位硬拍动作路径。\n"
@@ -467,14 +467,15 @@ def _shot_director_source_event_rules() -> str:
         "8. 9:16 竖屏默认以半身、中景、双人关系景别承担叙事；特写只给炸点、受击、情绪峰值或关键信息插入。一个片段的面部特写最多一次，不得把特写当默认景别。\n"
         "9. 没必要每个细节动作都给镜头：如果主镜头已经能看清动作和关系，就不要再为手指、掌心、鞋尖、袖口、嘴唇、眼角等微细节单独开镜头；只有线索揭示、动作前摇或受击落点无法看清时才允许插入。\n"
         "10. 悬念揭示优先采用\"停顿/发现前逼近 -> 关键物或文字 -> 人物反应\"；冲突升级优先采用\"施压 -> 受击 -> 短暂停顿\"；误解错位优先提升听者反应镜头，而不是让说话者一直占满画面。\n"
-        "11. shot_director 不得重新判断整体节奏，只执行 rhythm supervisor 给镜头导演的精简操作单。\n"
+        "11. shot_director 不得重新判断整体节奏，必须服从 atmosphere_strategy / rhythm supervisor 给镜头导演的精简操作单；"
+        "把快慢、停顿、卡断、反应归属、尾帧承接翻译成具体镜头设计。\n"
         "12. 若节奏建议与剧本事实、台词原文、动作道具连续性、人物位置、空间轴线安全冲突，后者优先。\n"
     )
 
 def _shot_director_rhythm_match_rules() -> str:
     return (
         "【节奏与镜头匹配规则（参考《AI 导演系统工程文档规范》）】\n"
-        "0. shot_director 只执行 story_planner 与 rhythm supervisor 给出的片段操作单，不得重新判断整体节奏；必须把必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面落到镜头设计里。\n"
+        "0. shot_director 只执行 story_planner 与 rhythm supervisor 给出的片段节奏指令/片段操作单，不得重新判断整体节奏；必须把必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面落到镜头设计里。\n"
         "1. 先识别戏剧微粒，再决定镜头：权力反转看压制与失势，冲突升级看施压与受击，悬念揭示看发现与停顿，误解错位看听者反应，情绪极点看停住后的内压，钩子结尾看最后的悬住点。\n"
         "2. 镜头数量由节奏任务决定，不由镜头库模板决定；能用 1 个主镜头讲清的动作，不要硬拆成 3 个细碎镜头。\n"
         "3. 需要切镜时，只切信息增量最大的节点：动作前摇、揭示落点、受击反应、关系变化、关键道具或文字出现。走近、弯腰、拿起、站定等中间过渡默认省略。\n"
@@ -1310,6 +1311,40 @@ def _repair_shot_layout_output(layout_output: str) -> str:
     if not layout_output:
         return layout_output
     return _MAIN_SHOT_BLOCK_RE.sub(_repair_layout_main_shot_block, layout_output)
+
+def _validate_shot_director_spatial_geometry(output: str) -> list[str]:
+    issues: list[str] = []
+    for shot_id, block in _main_shot_blocks(output):
+        camera_basis = _yaml_scalar_field(block, "camera_basis")
+        angle = _yaml_scalar_field(block, "angle")
+        subject_facing = _yaml_scalar_field(block, "subject_facing")
+        visible_landmarks = _yaml_scalar_field(block, "visible_landmarks")
+        state_delta = _yaml_scalar_field(block, "state_delta")
+        shot_intent = _yaml_scalar_field(block, "shot_intent")
+        action = _yaml_scalar_field(block, "action")
+        task = _yaml_scalar_field(block, "task")
+        body_for_action = f"{state_delta} {shot_intent} {action} {task} {block}"
+
+        if (
+            _has_elevator_facing(subject_facing)
+            and _has_front_angle(angle)
+            and _has_background_elevator_anchor(visible_landmarks)
+        ):
+            issues.append(
+                f"{shot_id} 空间几何矛盾：人物朝向电梯且镜头为正面时，电梯门框不能在后景；"
+                "请把门框改为 foreground_edges/side_edges，或改为背面/侧背/场景固定机位。"
+            )
+
+        if (
+            re.search(r"subject_relative|人物相对", camera_basis or "", re.IGNORECASE)
+            and _has_front_angle(angle)
+            and re.search(r"转身|进入电梯|走进电梯|穿过门框|enter(?:ing)? elevator|cross(?:ing)? threshold", body_for_action, re.IGNORECASE)
+        ):
+            issues.append(
+                f"{shot_id} 人物相对正面机位不能承载转身/穿过门框/进入电梯动作；"
+                "请改为 scene_fixed，并写清 camera_scene_position 与 camera_looks_toward。"
+            )
+    return issues
 
 def _quoted_dialogues(text: str) -> list[str]:
     return [item.strip() for item in re.findall(r"[\"\u201c\u201d]([^\"\u201c\u201d]+)[\"\u201c\u201d]", text or "") if item.strip()]
@@ -2784,6 +2819,7 @@ def _collect_shot_director_issues(
     issues.extend(_validate_shot_director_source_event_coverage(director_output, planner_output))
     issues.extend(_validate_shot_director_vertical_discipline(director_output, aspect_ratio))
     issues.extend(_validate_shot_director_dialogue_coverage(director_output))
+    issues.extend(_validate_shot_director_spatial_geometry(director_output))
     issues.extend(_validate_shot_director_variety(director_output))
     return issues
 

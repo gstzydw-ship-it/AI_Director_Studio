@@ -15,6 +15,19 @@ class _FakeResponse:
 def _patch_llm_settings(monkeypatch):
     monkeypatch.setattr(
         director_graph,
+        "load_config",
+        lambda: {
+            "llm": {
+                "api_key": "test-key",
+                "base_url": "https://ai.comfly.chat/v1",
+                "model": "test-model",
+                "temperature": 0.2,
+            },
+            "agent_models": {},
+        },
+    )
+    monkeypatch.setattr(
+        director_graph,
         "_get_llm_settings",
         lambda agent_name="": ("test-key", "https://ai.comfly.chat/v1", "test-model", 0.2),
     )
