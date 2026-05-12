@@ -10,7 +10,7 @@ agent_models:
     - claude-opus-4-7
     fallback_routes:
     - base_url: https://ai.comfly.chat/v1
-      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+      api_key: null
       model: kimi-k2.6
       fallback_models:
       - claude-3-5-sonnet
@@ -23,11 +23,11 @@ agent_models:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     fallback_routes:
     - base_url: https://ai.comfly.chat/v1
-      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+      api_key: null
       model: claude-3-5-sonnet
       fallback_models:
       - gpt-5.5
-    model: kimi-k2.6
+    model: claude-opus-4-7
   scene_analyst:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
@@ -35,13 +35,24 @@ agent_models:
     read_timeout_seconds: 240
     max_retries: 3
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: kimi-k2.6
+    model: claude-opus-4-7
   story_planner:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.2
     timeout_seconds: 240
+    read_timeout_seconds: 240
+    write_timeout_seconds: 90
+    max_retries: 3
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: kimi-k2.6
+    fallback_models:
+    - claude-3-5-sonnet
+    fallback_routes:
+    - base_url: https://ai.comfly.chat/v1
+      api_key: null
+      model: claude-3-5-sonnet
+      fallback_models:
+      - gpt-5.5
+    model: claude-opus-4-7
   shot_director:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.3
@@ -50,58 +61,58 @@ agent_models:
     write_timeout_seconds: 90
     max_retries: 3
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: kimi-k2.6
+    model: gpt-5.5
   prompt_compiler:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 3
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: kimi-k2.6
+    model: claude-opus-4-7
   quality_inspector:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: kimi-k2.6
+    model: claude-opus-4-7
   storyboard_designer:
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 2
-    model: gpt-image-2-all
+    model: gpt-image-2
   scene_vision_analyst:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: kimi-k2.6
+    model: claude-opus-4-7
   video_analyst:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: kimi-k2.6
+    model: claude-opus-4-7
   scene_card_designer:
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
-    model: gpt-image-2-all
+    model: gpt-image-2
   storyboard_prompt_designer:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: kimi-k2.6
+    model: claude-opus-4-7
   script_event_validator:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: kimi-k2.6
+    model: claude-opus-4-7
   shot_director_layout:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: kimi-k2.6
+    model: gpt-5.5
   shot_director_blocking:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: kimi-k2.6
+    model: gpt-5.5
   shot_director_guard:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: kimi-k2.6
+    model: gpt-5.5
 knowledge:
   bm25_top_k: 10
   directory: ./knowledge
@@ -152,4 +163,4 @@ vectordb:
 image_generation:
   api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
   base_url: https://ai.comfly.chat/v1
-  model: gpt-image-2-all
+  model: gpt-image-2

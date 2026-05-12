@@ -85,3 +85,41 @@ shots:
 
     assert "PROMPT-NO-SAME-CAMERA-ABUSE-001" in report
     assert "PROMPT-VISIBLE-BODY-LANGUAGE-001" in report
+
+
+def test_quality_inspector_accepts_local_fallback_v1_shot_contract(monkeypatch):
+    monkeypatch.setattr(qi, "_persist_update", lambda state, update: update)
+
+    state = {
+        "active_segment_index": 1,
+        "agent_outputs": {
+            "compiled_segment_1": "",
+            "story_planner": "fragment_id: F01\nreaction_plan: none\nsource_script_events:\n  - Alex opens the door.\n",
+            "shot_director": """fragment_id: F01
+schema_version: shot_director_local_fallback_v1
+fragment_task: local fallback beat
+rhythm: readable action
+shots:
+  - shot_id: F01-S01
+    duration: "0-3s"
+    task: carry the door beat
+    subject: Alex
+    shot: stable medium shot
+    action: Alex opens the door.
+    dialogue: ""
+    dialogue_coverage: none
+    must_carry: Alex opens the door.
+    cut_point: after the door opens
+    continuity: keep screen direction
+""",
+        },
+    }
+
+    update = quality_inspector_node(state)
+    report = update["agent_outputs"]["quality_inspector"]
+
+    assert "残留 v2 字段 schema_version" not in report
+    assert "缺少 v1 字段 duration" not in report
+    assert "缺少 v1 字段 camera" not in report
+    assert "缺少 v1 字段 size" not in report
+    assert "残留 v2 字段 dialogue_coverage" not in report

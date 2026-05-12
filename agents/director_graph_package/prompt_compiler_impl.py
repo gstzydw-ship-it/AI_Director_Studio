@@ -31,6 +31,7 @@ from .helpers import (
     _DIALOGUE_COVERAGE_TERMS_RE,
     _fragment_id_for_segment_index,
     _segment_block_by_fragment_id,
+    _primary_script_character_names,
 )
 from .llm import call_llm
 from .prompting import build_system_prompt
@@ -734,6 +735,118 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
     return "\n".join(issues)
 
 
+def _director_shot_rows(director_segment: str) -> list[dict[str, str]]:
+    rows: list[dict[str, str]] = []
+    for match in _MAIN_SHOT_BLOCK_RE.finditer(director_segment or ""):
+        block = match.group(0)
+        rows.append(
+            {
+                "shot_id": match.group(1).strip(),
+                "duration": _yaml_line_field(block, "duration") or "2s",
+                "subject": _yaml_line_field(block, "subject") or "current subject",
+                "shot": _yaml_line_field(block, "shot")
+                or _yaml_line_field(block, "camera")
+                or _yaml_line_field(block, "size")
+                or "stable medium shot",
+                "action": _yaml_line_field(block, "action")
+                or _yaml_line_field(block, "task")
+                or _yaml_line_field(block, "must_carry")
+                or "continue the approved action beat",
+                "dialogue": _yaml_line_field(block, "dialogue"),
+                "cut_point": _yaml_line_field(block, "cut_point") or "cut after the visible action lands",
+                "continuity": _yaml_line_field(block, "continuity") or _yaml_line_field(block, "must_carry"),
+            }
+        )
+    return rows
+
+
+def _source_event_lines(planner_segment: str, script_context: str) -> list[str]:
+    source_events_block = re.search(r"source_script_events\s*:([\s\S]*?)(?=\n[a-z_]+\s*:|\Z)", planner_segment or "")
+    events = [
+        event.strip().strip("\"'")
+        for event in re.findall(r"-\s*(.+)", source_events_block.group(1) if source_events_block else "")
+    ]
+    events = [event for event in events if event]
+    if events:
+        return events[:5]
+    fallback = [line.strip() for line in re.split(r"[\n。.!?]+", script_context or "") if line.strip()]
+    return fallback[:5]
+
+
+def _build_local_compiled_prompt(
+    *,
+    segment_index: int,
+    total_segments: int,
+    aspect_label: str,
+    planner_segment: str,
+    director_segment: str,
+    script_context: str,
+    tail_frame_memory: str,
+    reference_context: str,
+    failure: Exception,
+) -> str:
+    rows = _director_shot_rows(director_segment)
+    if not rows:
+        events = _source_event_lines(planner_segment, script_context)
+        event = events[0] if events else "continue the approved story beat"
+        rows = [
+            {
+                "shot_id": f"F{segment_index:02d}-S01",
+                "duration": "0-3s",
+                "subject": "current characters",
+                "shot": "stable medium relationship shot",
+                "action": event,
+                "dialogue": "",
+                "cut_point": "cut after the action is readable",
+                "continuity": "preserve the approved upstream blocking",
+            }
+        ]
+
+    events = _source_event_lines(planner_segment, script_context)
+    character_names = _primary_script_character_names(script_context)
+    character_text = "、".join(character_names[:4]) if character_names else "本片段已建立人物"
+    failure_note = str(failure).splitlines()[0][:160]
+    shot_lines: list[str] = []
+    for index, row in enumerate(rows, start=1):
+        dialogue = row["dialogue"]
+        dialogue_text = f"；台词直接嵌入动作：{dialogue}" if dialogue else ""
+        continuity = f"；连续性：{row['continuity']}" if row["continuity"] else ""
+        shot_lines.append(
+            f"镜头{index}【{row['duration']}】【{row['subject']}】{row['shot']}，"
+            f"{row['action']}{dialogue_text}（{row['cut_point']}）{continuity}。"
+        )
+
+    event_text = "；".join(events) if events else "严格承接已确认拆片规划，不新增剧情。"
+    bridge_text = tail_frame_memory.strip()[:260] if tail_frame_memory else "无上一段尾帧输入；按当前拆片与镜头规划重新开段。"
+    refs_text = reference_context.strip()[:260] if reference_context else "无参考图；不得写入参考图占位符。"
+    return "\n\n".join(
+        [
+            f"片段{segment_index}｜本地兜底编译｜已确认事件｜约{max(6, len(rows) * 3)}秒",
+            "【风格锚点】",
+            "清晰、克制、可执行的导演调度语言；只保留可见动作、机位、表情落点和必要切镜触发。",
+            "【画幅锚点】",
+            aspect_label,
+            "【空间与首帧总控】",
+            f"承接当前片段规划和镜头导演输出。桥接信息：{bridge_text}",
+            "【人物】",
+            character_text,
+            "【镜头序列】",
+            "\n".join(shot_lines),
+            "【事件覆盖】",
+            event_text,
+            "【参考与约束】",
+            refs_text,
+            f"禁止新增剧本外台词、角色、道具或空间。保持人物左右关系、道具状态、视线方向和尾帧可衔接。local fallback reason: {failure_note}",
+            f"片段{segment_index} prompt 已输出。",
+            "请生成视频后，上传：",
+            f"片段{segment_index}的尾帧截图",
+            "当前人物位置关系（若有变化）",
+            "",
+            f"我将基于实际尾帧继续输出片段{min(segment_index + 1, total_segments)}。",
+        ]
+    ).strip()
+
+
 def prompt_compiler_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
     segment_index = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
@@ -886,6 +999,14 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
                 v1_issues.append(f"shot_director 缺少 fragment 字段 {field}。")
         for v2_field in ("schema_version", "fragment_intent", "reaction_coverage", "continuity_anchor"):
             if re.search(rf"(?m)^\s*{re.escape(v2_field)}\s*:", current_director_segment_raw):
+                if (
+                    v2_field == "schema_version"
+                    and re.search(
+                        r"(?m)^\s*schema_version\s*:\s*shot_director_local_fallback_v1\s*$",
+                        current_director_segment_raw,
+                    )
+                ):
+                    continue
                 v1_issues.append(f"shot_director 残留 v2 字段 {v2_field}，必须用 v1 字段。")
         shot_blocks = _MAIN_SHOT_BLOCK_RE.findall(current_director_segment_raw)
         if not shot_blocks:
@@ -1018,7 +1139,30 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "28. 【导演口语翻译】镜头序列里是否还残留\"稳定器在同一运动里带到\"\"顺势带到\"\"受压反应\"\"权力压住\"\"压入\"\"卡断\"\"炸点\"\"钩子\"\"凝滞\"\"留白\"等导演调度口语？如有必须改成镜头从谁到谁、景别、运动方向、触发动作和低头/屏息/肩膀收紧/眼神回避等可见表演。\n"
         "全部通过后再输出。"
     )
-    output = call_llm_with_mcp(system_prompt, user_prompt, server_type="filesystem", images_base64=None, agent_name="prompt_compiler")
+    compiler_fallback_reason = ""
+    try:
+        output = call_llm_with_mcp(
+            system_prompt,
+            user_prompt,
+            server_type="filesystem",
+            images_base64=None,
+            agent_name="prompt_compiler",
+        )
+    except Exception as exc:
+        compiler_fallback_reason = str(exc)
+        retrieval_meta["local_fallback"] = True
+        retrieval_meta["error"] = compiler_fallback_reason
+        output = _build_local_compiled_prompt(
+            segment_index=segment_index,
+            total_segments=total_segments,
+            aspect_label=aspect_label,
+            planner_segment=current_planner_segment,
+            director_segment=current_director_segment_raw,
+            script_context=current_script_context,
+            tail_frame_memory=tail_frame_memory,
+            reference_context=reference_context,
+            failure=exc,
+        )
     output = _normalise_compiled_prompt(output, segment_index, current_script_context)
     knowledge_metadata = _record_knowledge_metadata(state, "prompt_compiler", compiler_hint, retrieval_meta)
     try:
@@ -1033,6 +1177,8 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
     guard_report = "\n".join(part for part in [compiler_guard_report] if part).strip()
     outputs[f"compiled_segment_{segment_index}"] = output
     outputs["prompt_compiler"] = output
+    if compiler_fallback_reason:
+        outputs[f"prompt_compiler_fallback_seg{segment_index:02d}"] = compiler_fallback_reason
     return _persist_update(
         state,
         {

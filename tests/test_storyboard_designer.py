@@ -438,6 +438,38 @@ class TestStoryboardDesignerNode:
         assert "没有可识别的镜头列表" in result.get("message", "")
 
 
+    def test_uses_local_prompt_fallback_after_llm_failure(self, monkeypatch):
+        def fail_call_llm(*_args, **_kwargs):
+            raise RuntimeError("LLM network connection failed")
+
+        monkeypatch.setattr(
+            "agents.director_graph_package.storyboard_designer_impl.call_llm",
+            fail_call_llm,
+        )
+        monkeypatch.setattr(
+            "agents.director_graph_package.storyboard_designer_impl._persist_update",
+            lambda state, update: {**dict(state), **dict(update)},
+        )
+        state: DirectorState = {
+            "active_segment_index": 1,
+            "total_segments": 1,
+            "agent_outputs": {
+                "shot_director": SAMPLE_DIRECTOR_SEGMENT,
+                "story_planner": SAMPLE_PLANNER_SEGMENT,
+            },
+            "segment_names": ["segment01"],
+            "aspect_ratio": "9:16",
+        }
+
+        result = storyboard_designer_node(state)
+        outputs = result["agent_outputs"]
+
+        assert "storyboard_prompt_seg01" in outputs
+        assert "local fallback reason" in outputs["storyboard_prompt_seg01"]
+        assert "storyboard_prompt_fallback_seg01" in outputs
+        assert "LLM network connection failed" in outputs["storyboard_prompt_fallback_seg01"]
+
+
 class TestGraphIntegration:
     def test_graph_defers_storyboard_until_segment_assets_exist(self):
         from agents.director_graph_package.graph_api import create_director_graph

@@ -303,7 +303,6 @@ class DirectorStudioApp(ctk.CTk if ctk else object):
         self._build_script_card(left_scroll)
         self._build_controls_card(left_scroll)
         self._build_pipeline_card(right_scroll)
-        self._build_generation_card(right_scroll)
         self._build_result_card(right_scroll)
         self._paint_dynamic()
 
@@ -387,22 +386,6 @@ class DirectorStudioApp(ctk.CTk if ctk else object):
             self.step_cards.append(step)
         self.pipeline_msg = self._label(card, "", 12, "normal", COLORS["cyan"])
         self.pipeline_msg.pack(fill="x", padx=14, pady=(0, 14))
-
-    def _build_generation_card(self, parent: Any) -> None:
-        card = self._card(parent)
-        card.pack(fill="x", pady=(0, 12))
-        self._card_title(card, "Generation Desk", "生成任务与分镜看板")
-        wrap = ctk.CTkFrame(card, fg_color="transparent")
-        wrap.pack(fill="x", padx=14, pady=(0, 14))
-        wrap.grid_columnconfigure((0, 1), weight=1)
-        queue = self._mini_panel(wrap, "生成队列", "排队、运行、失败恢复、取消与重试")
-        queue.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
-        self.queue_text = self._label(queue, "还没有图像 / 视频生成任务。", 12, "normal", COLORS["muted"])
-        self.queue_text.pack(anchor="w", padx=12, pady=(0, 14))
-        board = self._mini_panel(wrap, "分镜可视化", "Shot card、候选图 / 视频抽卡、A/B 复核")
-        board.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
-        self.board_text = self._label(board, "等待分镜输出。", 12, "normal", COLORS["muted"])
-        self.board_text.pack(anchor="w", padx=12, pady=(0, 14))
 
     def _build_result_card(self, parent: Any) -> None:
         card = self._card(parent)

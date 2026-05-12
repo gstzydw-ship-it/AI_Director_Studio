@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 import sys
+import pytest
 
 ROOT = str(Path(__file__).resolve().parents[1])
 if ROOT not in sys.path:
@@ -11,6 +12,11 @@ import agents.director_graph as dg
 from agents.director_graph_package import planning_context_impl as pci
 from agents.director_graph_package import runners as package_runners
 from ui import app as ui_app
+
+
+@pytest.fixture(autouse=True)
+def _disable_scene_card_background(monkeypatch):
+    monkeypatch.setattr(pci, "_queue_scene_card_generation", lambda *args, **kwargs: None)
 
 
 def test_append_scene_card_references_keeps_layout_and_grid(tmp_path):
@@ -161,6 +167,8 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
     }
 
     result = pci.scene_analyst_node(state)
+    generation_update = pci._build_scene_card_generation_update({**state, **result}, result["scene_context_brief"])
+    result = {**result, **generation_update}
 
     assert captured["agent_name"] == "scene_vision_analyst"
     assert captured["images_base64"] == ["image-a"]
@@ -336,7 +344,8 @@ def test_scene_analyst_sends_all_scene_reference_images(monkeypatch):
         "speed_mode": False,
     }
 
-    pci.scene_analyst_node(state)
+    result = pci.scene_analyst_node(state)
+    pci._build_scene_card_generation_update({**state, **result}, result["scene_context_brief"])
 
     assert captured["agent_name"] == "scene_vision_analyst"
     assert captured["images_base64"] == ["scene-a", "scene-b"]
@@ -745,6 +754,43 @@ def test_run_phase_1_accepts_single_scene_reference_image(monkeypatch):
 
     assert state["reference_image_count"] == 1
     assert state["reference_image_b64s"] == ["scene-a"]
+
+
+def test_scene_analyst_uses_local_card_when_text_model_fails(monkeypatch):
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: {},
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    def fail_call_llm(_system_prompt, _user_prompt, **kwargs):
+        calls.append(kwargs["agent_name"])
+        raise RuntimeError("gateway down")
+
+    monkeypatch.setattr(pci, "call_llm", fail_call_llm)
+
+    result = pci.scene_analyst_node(
+        {
+            "script": "Alex enters the office lobby with a folder.",
+            "aspect_ratio": "9:16",
+            "agent_outputs": {},
+            "speed_mode": False,
+        }
+    )
+
+    output = result["agent_outputs"]["scene_analyst"]
+    assert calls == ["scene_analyst"]
+    assert "degraded_local_scene_card" in output
+    assert "original_script_only" in output
+    assert result["step"] == "step_0_enhance"
 
 
 def test_reference_purpose_infers_scene_from_filename():

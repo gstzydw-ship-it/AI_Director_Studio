@@ -2,12 +2,13 @@
 from __future__ import annotations  
   
 import re  
+import os
 import time  
 from typing import Any, Callable  
   
 from ..knowledge_base import get_agent_knowledge_files  
 from .helpers import _primary_script_character_names  
-from .state_store import _persist_update  
+from .state_store import _persist_update, load_state  
 from .story_planner_impl import _extract_segments  
 from .types import DirectorState  
 
@@ -263,6 +264,41 @@ def _scene_reference_items(state: DirectorState | dict[str, Any]) -> list[tuple[
 def _reference_images(state: DirectorState) -> list[str]:
     """Send only scene-layout/card references to shot_director."""
     return [image for image, _item in _scene_reference_items(state)]
+
+
+def _scene_card_status(state: DirectorState | dict[str, Any]) -> str:
+    outputs = state.get("agent_outputs") if isinstance(state.get("agent_outputs"), dict) else {}
+    return str(state.get("scene_card_status") or outputs.get("scene_card_status") or "").lower()
+
+
+def _await_scene_card_generation(state: DirectorState) -> DirectorState:
+    """Merge background scene-card results before shot planning, with a bounded wait."""
+    if _reference_images(state) and _scene_card_status(state) not in {"queued", "running"}:
+        return state
+    if _scene_card_status(state) not in {"queued", "running"}:
+        return state
+
+    try:
+        timeout_seconds = float(os.environ.get("AIDIRECTOR_SCENE_CARD_WAIT_SECONDS", "60"))
+    except ValueError:
+        timeout_seconds = 60.0
+    timeout_seconds = max(0.0, min(timeout_seconds, 180.0))
+    deadline = time.monotonic() + timeout_seconds
+    latest: dict[str, Any] = dict(state)
+
+    while True:
+        disk_state = load_state() or {}
+        if disk_state:
+            latest = dict(state)
+            latest.update(disk_state)
+        status = _scene_card_status(latest)
+        if status not in {"queued", "running"}:
+            return latest
+        if _reference_images(latest):
+            return latest
+        if time.monotonic() >= deadline:
+            return latest
+        time.sleep(1.0)
 
 
 def _reference_image_manifest_prompt(state: DirectorState | dict[str, Any]) -> str:
@@ -2524,6 +2560,74 @@ def _run_shot_director_three_stage(*args: Any, **kwargs: Any) -> tuple[str, dict
     return _run_shot_director_single_pass(*args, **kwargs)
 
 
+def _yaml_quote(value: Any) -> str:
+    text = str(value or "").strip()
+    text = text.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{text}"'
+
+
+def _build_local_shot_director_fallback(
+    *,
+    fragment_id: str,
+    fragment_planner_output: str,
+    script: str,
+    aspect_ratio: str,
+    failure: Exception,
+) -> str:
+    sections = _extract_yaml_sections(fragment_planner_output or "")
+    section = _filter_yaml_sections_by_fragment_ids(fragment_planner_output, [fragment_id])
+    if not section and sections:
+        section = sections[0]
+    if not section:
+        section = fragment_planner_output or script or ""
+
+    source_events = _source_script_events(section)
+    source_events = [event.strip() for event in source_events if event and event.strip()]
+    if not source_events:
+        source_events = [line.strip() for line in re.split(r"[\n。.!?]+", script or "") if line.strip()][:3]
+    if not source_events:
+        source_events = ["Continue the approved story-planner beat without adding new story facts."]
+
+    characters = _primary_script_character_names(script)
+    subject = "、".join(characters[:2]) if characters else "current characters"
+    event_a = source_events[0]
+    event_b = source_events[1] if len(source_events) > 1 else source_events[0]
+    event_tail = source_events[-1]
+    relation_size = "vertical medium relationship shot" if "9:16" in (aspect_ratio or "") else "medium relationship shot"
+    failure_note = str(failure).splitlines()[0][:160]
+
+    return "\n".join(
+        [
+            f"- fragment_id: {fragment_id}",
+            f"  fragment_task: {_yaml_quote('Local fallback from approved story-planner events: ' + event_a[:120])}",
+            "  rhythm: \"Follow upstream rhythm; keep each shot to one readable action.\"",
+            "  fallback_mode: \"shot_director_local_fallback_v1\"",
+            f"  fallback_reason: {_yaml_quote(failure_note)}",
+            "  shots:",
+            f"    - shot_id: {fragment_id}-S01",
+            "      duration: \"0-3s\"",
+            f"      task: {_yaml_quote('Establish the current beat and spatial relationship from: ' + event_a[:120])}",
+            f"      subject: {_yaml_quote(subject)}",
+            f"      shot: {_yaml_quote(relation_size + ', stable camera, clear blocking')}",
+            f"      action: {_yaml_quote(event_a)}",
+            "      dialogue: \"\"",
+            f"      must_carry: {_yaml_quote(event_a)}",
+            "      cut_point: \"after the first readable action lands\"",
+            "      continuity: \"preserve established positions, props and eye-lines from the approved upstream plan\"",
+            f"    - shot_id: {fragment_id}-S02",
+            "      duration: \"3-6s\"",
+            f"      task: {_yaml_quote('Carry the reaction or next action from: ' + event_b[:120])}",
+            f"      subject: {_yaml_quote(subject)}",
+            "      shot: \"medium close relationship shot, stable camera, same screen direction\"",
+            f"      action: {_yaml_quote(event_b)}",
+            "      dialogue: \"\"",
+            f"      must_carry: {_yaml_quote(event_tail)}",
+            "      cut_point: \"after the reaction or information beat is visible\"",
+            "      continuity: \"end on a readable tail frame for the next segment handoff\"",
+        ]
+    )
+
+
 def run_shot_director_for_segment(
     state: DirectorState,
     segment_index: int | None = None,
@@ -2560,7 +2664,7 @@ def run_shot_director_for_segment(
             state,
             {
                 "status": "running_phase_2",
-                "step": "step_4_compile",
+                "step": "step_4_storyboard",
                 "message": f"第 {selected_index} 段镜头导演已存在，正在进入 Prompt 编译。",
                 "agent_outputs": outputs,
                 "total_segments": total_segments,
@@ -2649,21 +2753,44 @@ def run_shot_director_for_segment(
         )
 
     reference_images = _reference_images(state) or None
-    output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_single_pass(
-        script=state.get("script", ""),
-        planner_output=fragment_planner_output,
-        atmosphere_strategy=state.get("atmosphere_strategy", ""),
-        aspect_ratio=state.get("aspect_ratio", "16:9"),
-        expected_segments=[fragment_id],
-        images_base64=reference_images,
-        director_hint=director_hint,
-        scene_reference_context=scene_reference_context,
-        director_brief=director_brief_text,
-        stage_callback=persist_stage,
-        resume_stage_outputs={},
-        resume_stage_runtime={},
-        resume_stage_meta={},
-    )
+    try:
+        output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_single_pass(
+            script=state.get("script", ""),
+            planner_output=fragment_planner_output,
+            atmosphere_strategy=state.get("atmosphere_strategy", ""),
+            aspect_ratio=state.get("aspect_ratio", "16:9"),
+            expected_segments=[fragment_id],
+            images_base64=reference_images,
+            director_hint=director_hint,
+            scene_reference_context=scene_reference_context,
+            director_brief=director_brief_text,
+            stage_callback=persist_stage,
+            resume_stage_outputs={},
+            resume_stage_runtime={},
+            resume_stage_meta={},
+        )
+    except Exception as exc:
+        output = _build_local_shot_director_fallback(
+            fragment_id=fragment_id,
+            fragment_planner_output=fragment_planner_output,
+            script=state.get("script", ""),
+            aspect_ratio=state.get("aspect_ratio", "16:9"),
+            failure=exc,
+        )
+        shot_runtime = {
+            "final": {
+                "agent_name": "shot_director",
+                "mode": "local_fallback",
+                "status": "local_fallback",
+                "error": str(exc),
+                "output_chars": len(output),
+            },
+            "final_source": "local_fallback",
+            "workflow_trace": [],
+            "local_fallback": True,
+        }
+        stage_meta = {"final": {"local_fallback": True, "error": str(exc)}}
+        stage_outputs = {"final": output}
     output = _repair_shot_director_output_contracts(output, state.get("script", ""))
     merged_output = _merge_repaired_yaml_sections(outputs.get("shot_director", ""), output, [fragment_id])
     outputs[f"shot_director_segment_{fragment_id}"] = output
@@ -2699,7 +2826,7 @@ def run_shot_director_for_segment(
         state,
         {
             "status": "running_phase_2",
-            "step": "step_4_compile",
+            "step": "step_4_storyboard",
             "message": f"第 {selected_index} 段镜头导演完成，正在进入 Prompt 编译。",
             "agent_outputs": outputs,
             "knowledge_metadata": knowledge_metadata,
@@ -2865,6 +2992,7 @@ def _run_shot_director_review_board(
     return primary_output, runtime, report
 
 def shot_director_node(state: DirectorState) -> DirectorState:
+    state = _await_scene_card_generation(state)
     outputs = _agent_outputs(state)
     director_brief_text = _director_brief(state)
     planner_output = outputs.get("story_planner", "")

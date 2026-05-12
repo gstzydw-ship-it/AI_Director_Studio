@@ -570,6 +570,73 @@ def _story_planner_validation_error_message(
         parts.append("【最后一次输出预览】\n" + preview)
     return "\n".join(parts)
 
+def _yaml_quote(value: str) -> str:
+    return '"' + (value or "").replace("\\", "\\\\").replace('"', "'") + '"'
+
+def _build_local_story_planner_fallback(original_script: str) -> str:
+    """Build a conservative planner handoff from verbatim script lines."""
+    script_lines = _script_event_lines(original_script)
+    if not script_lines:
+        script_lines = ["No script text was provided."]
+
+    sections: list[str] = []
+    for section_index, start in enumerate(range(0, len(script_lines), 8), start=1):
+        events = script_lines[start : start + 8]
+        first_event = events[0]
+        last_event = events[-1]
+        lines = [
+            f"- fragment_id: F{section_index:02d}",
+            '  duration_target: "8-15s"',
+            f"  dramatic_unit: {_yaml_quote('Verbatim script handoff: ' + first_event[:80])}",
+            "  source_script_events:",
+        ]
+        lines.extend(f"    - {_yaml_quote(event)}" for event in events)
+        lines.extend(
+            [
+                "  cast:",
+                '    active: ["script_defined_characters"]',
+                "    must_not_show: []",
+                "  continuity:",
+                f"    entry: {_yaml_quote('Begin at script event: ' + first_event[:120])}",
+                f"    exit: {_yaml_quote('End after script event: ' + last_event[:120])}",
+                '  reaction_plan: "Keep reactions internal to this fragment unless the next fragment explicitly continues the same unfinished beat."',
+                '  director_brief: "Local fallback generated after story_planner upstream failure; preserve only the listed verbatim script events."',
+            ]
+        )
+        sections.append("\n".join(lines))
+    return "\n\n".join(sections)
+
+def _story_planner_local_fallback_after_error(
+    *,
+    original_script: str,
+    attempts: list[dict[str, Any]],
+    started: float,
+    attempt_index: int,
+    error: Exception,
+) -> tuple[str, list[dict[str, Any]]] | None:
+    output = _normalise_story_planner_output(
+        _build_local_story_planner_fallback(original_script),
+        original_script,
+    )
+    planner_issues = _validate_story_planner_output(output, original_script)
+    attempts.append(
+        _agent_runtime_trace(
+            "story_planner",
+            mode="local_fallback",
+            started_at=started,
+            status="success" if not planner_issues else "invalid_schema",
+            output=output,
+            attempt=attempt_index,
+            validation_issues=planner_issues[:40],
+            upstream_error=str(error)[:800],
+            path="local_verbatim_script_fallback",
+            mcp_enabled=False,
+        )
+    )
+    if planner_issues:
+        return None
+    return output, attempts
+
 def _run_story_planner_with_schema_repair(
     *,
     system_prompt: str,
@@ -601,6 +668,15 @@ def _run_story_planner_with_schema_repair(
                     mcp_enabled=False,
                 )
             )
+            fallback_result = _story_planner_local_fallback_after_error(
+                original_script=original_script,
+                attempts=attempts,
+                started=started,
+                attempt_index=attempt_index,
+                error=exc,
+            )
+            if fallback_result is not None:
+                return fallback_result
             if attempt_index == 1:
                 raise RuntimeError(f"story_planner 上游调用失败，尚未得到可校验 YAML：{exc}") from exc
             raise RuntimeError(f"story_planner 结构修复调用失败，仍未得到可校验 YAML：{exc}") from exc

@@ -417,7 +417,7 @@ def _mark_human_review_state(state: dict[str, Any], next_nodes: Any) -> dict[str
     state["review_title"] = label
     state["review_output"] = _review_output_for_agent(state, agent)
     state["step"] = REVIEW_AGENT_STEPS.get(agent, state.get("step") or "")
-    state["message"] = f"{label} completed. Please review or edit before continuing."
+    state["message"] = f"{label} 已完成。请先审核或编辑，然后继续。"
     _save_runner_state(dict(state))
     return state
 
@@ -511,9 +511,18 @@ def _invoke_graph(input_value: Any, thread_id: str) -> Any:
     elif isinstance(next_nodes, str):
         next_node = next_nodes
 
-    is_segment_request_interrupt = interrupted and next_node == "wait_for_segment_request"
+    is_segment_request_interrupt = next_node == "wait_for_segment_request" and (
+        interrupted or input_value is None
+    )
     if review_enabled and next_nodes and not is_segment_request_interrupt:
         state = _mark_human_review_state(dict(state), next_nodes)
+    elif is_segment_request_interrupt:
+        for key in ("review_mode", "review_agent", "review_title", "review_output"):
+            state.pop(key, None)
+        state["status"] = "waiting_for_user_input"
+        state["step"] = "step_3_direct"
+        state["message"] = "Story planning confirmed; waiting to generate segment 1."
+        _save_runner_state(dict(state))
     return state
 
 
@@ -602,6 +611,43 @@ def _run_phase_2_until_review(
     return _mark_human_review_state(dict(working_state), ("quality_inspector",))
 
 
+def _resume_phase_1_review_direct(state: dict[str, Any], agent: str, edited: str) -> Any:
+    from .nodes import director_showrunner_node, rhythm_rewrite_director_node, story_planner_node
+
+    working_state = _apply_human_review_edit(dict(state), agent, edited)
+    working_state["human_review_enabled"] = True
+    _save_runner_state(dict(working_state))
+
+    if agent == "scene_analyst":
+        update = director_showrunner_node(working_state)
+        working_state = _merge_state_update(working_state, update)
+        working_state["human_review_enabled"] = True
+        return _mark_human_review_state(dict(working_state), ("rhythm_rewrite_director",))
+
+    if agent == "director_showrunner":
+        update = rhythm_rewrite_director_node(working_state)
+        working_state = _merge_state_update(working_state, update)
+        working_state["human_review_enabled"] = True
+        return _mark_human_review_state(dict(working_state), ("story_planner",))
+
+    if agent == "rhythm_rewrite_director":
+        update = story_planner_node(working_state)
+        working_state = _merge_state_update(working_state, update)
+        working_state["human_review_enabled"] = True
+        return _mark_human_review_state(dict(working_state), ("wait_for_segment_request",))
+
+    if agent == "story_planner":
+        for key in ("review_mode", "review_agent", "review_title", "review_output"):
+            working_state.pop(key, None)
+        working_state["status"] = "waiting_for_user_input"
+        working_state["step"] = "step_3_direct"
+        working_state["message"] = "Story planning confirmed; waiting to generate segment 1."
+        _save_runner_state(dict(working_state))
+        return working_state
+
+    raise RuntimeError(f"Agent {agent} is not a direct phase-1 review agent.")
+
+
 def _resume_phase_2_review_direct(state: dict[str, Any], agent: str, edited: str) -> Any:
     from .nodes import segment_complete_node
     from .prompt_compiler_impl import prompt_compiler_node
@@ -686,7 +732,13 @@ def run_phase_1_planning(
         "human_review_enabled": True,
     }
     _save_runner_state(dict(initial_state))
-    return _invoke_runner_graph(initial_state, thread_id)
+    from .nodes import scene_analyst_node
+
+    scene_update = scene_analyst_node(initial_state)
+    working_state = _merge_state_update(initial_state, scene_update)
+    working_state["human_review_enabled"] = True
+    _save_runner_state(dict(working_state))
+    return _mark_human_review_state(dict(working_state), ("director_showrunner",))
 
 
 def run_phase_2_compile_segment(
@@ -750,6 +802,8 @@ def resume_after_human_review(
     edited = edited_output if edited_output is not None else state.get("review_output") or ""
     if agent in {"prompt_compiler", "quality_inspector"}:
         return _resume_phase_2_review_direct(dict(state), agent, str(edited))
+    if agent in {"scene_analyst", "director_showrunner", "rhythm_rewrite_director", "story_planner"}:
+        return _resume_phase_1_review_direct(dict(state), agent, str(edited))
 
     updated_state = _apply_human_review_edit(dict(state), agent, str(edited))
     _save_runner_state(dict(updated_state))

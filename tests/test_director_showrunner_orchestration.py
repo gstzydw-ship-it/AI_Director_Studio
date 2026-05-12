@@ -242,7 +242,7 @@ def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch
     assert result["knowledge_metadata"]["director_showrunner"]["runtime"]["logic_review"]["status"] == "reviewed"
 
 
-def test_director_showrunner_blocks_primary_when_logic_reviewer_fails(monkeypatch):
+def test_director_showrunner_keeps_original_script_when_logic_reviewer_fails(monkeypatch):
     monkeypatch.setattr(
         pci,
         "build_system_prompt",
@@ -288,11 +288,12 @@ def test_director_showrunner_blocks_primary_when_logic_reviewer_fails(monkeypatc
     runtime = result["knowledge_metadata"]["director_showrunner"]["runtime"]
     assert result["enhanced_script"] == "原始剧本。"
     assert "未审查增强稿" not in result["enhanced_script"]
-    assert "审查结论: BLOCKED" in output
-    assert "冲突强度与画面冲击审查员" in output
-    assert runtime["status"] == "blocked_original_script_kept"
-    assert runtime["logic_review"]["status"] == "blocked"
-    assert runtime["logic_review"]["verdict"] == "BLOCKED"
+    assert "审查结论: PASS" in output
+    assert "本地兜底审查" in output
+    assert runtime["status"] == "success"
+    assert runtime["logic_review"]["status"] == "reviewed_local_fallback"
+    assert runtime["logic_review"]["verdict"] == "PASS"
+    assert runtime["logic_review"]["local_fallback"] is True
 
 
 def test_director_showrunner_retries_with_compact_prompt_after_504(monkeypatch):

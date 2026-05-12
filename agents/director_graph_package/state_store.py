@@ -172,8 +172,8 @@ def _prepare_phase_2_compile_state(
         state,
         {
             "status": "running_phase_2",
-            "step": "step_4_compile",
-            "message": f"Seedance compiler is generating segment {requested_segment} prompt...",
+            "step": "step_3_direct",
+            "message": f"Shot director is generating segment {requested_segment} camera plan...",
             "active_segment_index": requested_segment,
             "tail_frame_analysis": tail_frame_analysis,
             "qc_retry_count": 0,

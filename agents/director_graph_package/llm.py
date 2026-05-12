@@ -343,9 +343,48 @@ def _get_llm_fallback_routes(agent_name: str = "") -> list[dict[str, Any]]:
     return deduped
 
 
+def _host_matches_base_url(left: Any, right: Any) -> bool:
+    left_host = _runtime_event_base_url_host(_normalise_base_url(left))
+    right_host = _runtime_event_base_url_host(_normalise_base_url(right))
+    return bool(left_host and right_host and left_host == right_host)
+
+
+def _configured_api_key_for_base_url(base_url: str, agent_name: str = "") -> str:
+    """Find a configured key for a fallback route host without cross-host reuse."""
+    if not base_url:
+        return ""
+
+    full_config = load_config()
+    candidates: list[dict[str, Any]] = []
+    for section_name in ("llm", "image_generation", "vectordb"):
+        candidates.append(_as_mapping(full_config.get(section_name)))
+
+    agent_models = _as_mapping(full_config.get("agent_models"))
+    parent_name = AGENT_CONFIG_PARENTS.get(agent_name)
+    if parent_name:
+        candidates.append(_as_mapping(agent_models.get(parent_name)))
+    if agent_name:
+        candidates.append(_as_mapping(agent_models.get(agent_name)))
+    candidates.extend(_as_mapping(value) for value in agent_models.values())
+
+    profile = _load_session_model_profile()
+    candidates.append(_profile_global_layer(profile))
+    for _layer_name, layer in _profile_agent_layers(profile, agent_name):
+        candidates.append(layer)
+    profile_agent_models = _as_mapping(profile.get("agent_models")) or _as_mapping(profile.get("agents"))
+    candidates.extend(_as_mapping(value) for value in profile_agent_models.values())
+
+    for candidate in candidates:
+        api_key = str(candidate.get("api_key") or "").strip()
+        candidate_base_url = candidate.get("base_url")
+        if api_key and candidate_base_url and _host_matches_base_url(candidate_base_url, base_url):
+            return api_key
+    return ""
+
+
 def _effective_retry_budget(agent_name: str, max_retries: int) -> int:
-    if agent_name == "story_planner":
-        return max(1, min(max_retries, 1))
+    if agent_name in {"story_planner", "director_showrunner"}:
+        return max(max_retries, 3)
     return max_retries
 
 
@@ -357,10 +396,10 @@ def _effective_timeout_settings(
     write_timeout: float,
 ) -> tuple[float, float, float, float]:
     if agent_name == "story_planner":
-        request_timeout = min(request_timeout, 120.0)
+        request_timeout = min(max(request_timeout, 180.0), 240.0)
         connect_timeout = min(connect_timeout, 20.0)
-        read_timeout = min(read_timeout, 120.0)
-        write_timeout = min(write_timeout, 45.0)
+        read_timeout = min(max(read_timeout, 180.0), 240.0)
+        write_timeout = min(max(write_timeout, 60.0), 90.0)
     return request_timeout, connect_timeout, read_timeout, write_timeout
 
 
@@ -579,8 +618,27 @@ def call_llm(
         }
     ]
     for route in _get_llm_fallback_routes(agent_name):
-        route_api_key = str(route.get("api_key") or api_key).strip()
         route_base_url = _normalise_base_url(route.get("base_url") or base_url)
+        route_api_key = str(route.get("api_key") or "").strip()
+        if not route_api_key:
+            route_api_key = _configured_api_key_for_base_url(route_base_url, agent_name)
+        if not route_api_key:
+            primary_host = _runtime_event_base_url_host(base_url)
+            route_host = _runtime_event_base_url_host(route_base_url)
+            if route_host and primary_host and route_host != primary_host:
+                if agent_name:
+                    print(
+                        f"  [LLM] WARN: skipping fallback route @{route_host} for {agent_name}; "
+                        "it has no api_key and cannot inherit credentials from a different host."
+                    )
+                    emit_runtime_event(
+                        "llm_route_fallback_skipped",
+                        agent_name=agent_name,
+                        route_host=route_host,
+                        reason="missing_api_key_for_different_host",
+                    )
+                continue
+            route_api_key = api_key
         route_model = _normalise_model_name(route.get("model") or model)
         route_models = _normalise_model_list([route_model, *(route.get("fallback_models") or [])])
         if not route_api_key or not route_base_url or not route_models:

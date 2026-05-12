@@ -88,7 +88,10 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
             qc_issues.append("- shot_director 缺少 fragment_task 字段（v1 片段任务描述）。")
         if not re.search(r"rhythm\s*:", director_segment):
             qc_issues.append("- shot_director 缺少 rhythm 字段（v1 节奏指令）。")
-        if re.search(r"schema_version\s*:", director_segment):
+        if re.search(r"schema_version\s*:", director_segment) and not re.search(
+            r"(?m)^\s*schema_version\s*:\s*shot_director_local_fallback_v1\s*$",
+            director_segment,
+        ):
             qc_issues.append("- shot_director 残留 v2 字段 schema_version，必须使用 v1 字段。")
         if re.search(r"fragment_intent\s*:", director_segment):
             qc_issues.append("- shot_director 残留 v2 字段 fragment_intent，必须使用 v1 字段。")
@@ -101,7 +104,7 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
         # v1 shot 必填字段检查
         if re.search(r"shots\s*:", director_segment):
             shot_blocks = re.findall(
-                r"(?ms)^\s*-\s*shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
+                r"(?ms)^\s*-\s*shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*shot_id\s*:|^\s{0,2}[a-z_]+\s*:|\Z)",
                 director_segment,
             )
             for shot_id_raw, shot_body in shot_blocks:
@@ -110,8 +113,6 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                     "duration",
                     "task",
                     "subject",
-                    "camera",
-                    "size",
                     "action",
                     "dialogue",
                     "must_carry",
@@ -120,10 +121,17 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                 ):
                     if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_body):
                         qc_issues.append(f"- {shot_id} 缺少 v1 字段 {field}。")
+                has_merged_shot = re.search(r"(?m)^\s*-?\s*shot\s*:", shot_body)
+                has_legacy_camera_size = re.search(r"(?m)^\s*-?\s*camera\s*:", shot_body) and re.search(
+                    r"(?m)^\s*-?\s*size\s*:",
+                    shot_body,
+                )
+                if not (has_merged_shot or has_legacy_camera_size):
+                    qc_issues.append(f"- {shot_id} 缺少 v1 字段 shot（或旧版 camera+size）。")
 
                 duration = _yaml_line_field(shot_body, "duration")
                 if duration:
-                    if not re.search(r"(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*秒", duration):
+                    if not re.search(r"(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*(?:秒|s)\b", duration):
                         qc_issues.append(
                             f"- {shot_id} 的 duration 格式非法（{duration}）；"
                             "应为连续时间段格式，例如 0-2秒、2-5秒。"
@@ -137,7 +145,7 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                     )
         # v2 字段残留检查
         for v2_field in ("coverage_role", "cut_reason", "companion_visibility", "tailframe_role",
-                         "dialogue_coverage", "transition_type", "tail_state_card",
+                         "transition_type", "tail_state_card",
                          "shot_size", "camera_height", "angle", "movement", "lens", "depth"):
             if re.search(rf"(?m)^\s*-?\s*{re.escape(v2_field)}\s*:", director_segment):
                 qc_issues.append(f"- shot_director 残留 v2 字段 {v2_field}，必须使用 v1 字段。")

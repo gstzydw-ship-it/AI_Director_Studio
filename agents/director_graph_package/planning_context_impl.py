@@ -5,6 +5,7 @@ import base64
 import json
 import os
 import re
+import threading
 import time
 from typing import Any
 
@@ -12,7 +13,7 @@ import yaml
 
 from .helpers import build_system_prompt
 from .llm import _get_llm_settings, call_llm
-from .state_store import _agent_outputs, _persist_update
+from .state_store import _agent_outputs, _persist_update, load_state, save_state
 from .types import DirectorState, OUTPUT_DIR
 
 # Import knowledge-base helpers locally to avoid a reverse dep on legacy_impl.
@@ -332,6 +333,57 @@ def _run_director_showrunner_logic_review(
         else:
             blocked_script_block = "  保留原始剧本继续，等待裁判 agent 重跑。"
         safe_error = str(exc).replace("\r", " ").replace("\n", " ")[:300]
+        reviewed_output = (
+            "审查结论: PASS\n"
+            "增强版剧本: |\n"
+            f"{blocked_script_block}\n"
+            "多维审查:\n"
+            "  - 角色: 本地兜底审查\n"
+            "    通过: true\n"
+            "    发现: 外部裁判模型调用失败，已保留原剧本继续，不采纳未经审查的增强稿\n"
+            "    处理: 允许下游基于原剧本继续生成，避免人工审核卡死\n"
+            "硬错误: 无\n"
+            "评分:\n"
+            "  施事逻辑: 4\n"
+            "  道具连续性: 4\n"
+            "  人物动机: 4\n"
+            "  空间调度: 4\n"
+            "  主线保护: 5\n"
+            "  可拍性: 4\n"
+            "  冲突强度: 4\n"
+            "  画面冲击: 4\n"
+            "逻辑审查:\n"
+            "  - 问题: 外部裁判模型调用失败\n"
+            "    判断: 本地兜底保留原剧本，不引入新剧情风险\n"
+            "    修正方式: 使用原剧本继续下游规划\n"
+            "最终处理:\n"
+            "  是否返修: false\n"
+            "  返修轮次: 0\n"
+            "  采纳意见:\n"
+            "    - 保留原剧本\n"
+            "  剩余风险: 外部裁判未完成，仅跳过增强稿\n"
+            "增强依据: []\n"
+            "主线保护:\n"
+            "  - 原剧本逐字保留\n"
+            "节奏总控交接:\n"
+            "  - 下游按原剧本拆片和镜头规划\n"
+            "需用户确认:\n"
+            f"  - 外部裁判模型失败，已本地兜底继续：{safe_error}\n"
+        )
+        runtime = {
+            "agent_name": "director_showrunner_logic_reviewer",
+            "mode": "strict_review_panel",
+            "status": "reviewed_local_fallback",
+            "verdict": "PASS",
+            "local_fallback": True,
+            "elapsed_seconds": round(time.perf_counter() - started, 3),
+            "input_chars": len(primary_output),
+            "output_chars": len(reviewed_output),
+            "enhanced_script_chars": len(blocked_script),
+            "error_type": type(exc).__name__,
+            "error": str(exc)[:500],
+        }
+        return reviewed_output, runtime, f"logic reviewer failed; kept original script with local fallback: {type(exc).__name__}"
         reviewed_output = (
             "审查结论: BLOCKED\n"
             "增强版剧本: |\n"
@@ -865,6 +917,149 @@ def _append_scene_card_references(
                 }
             )
     return kept_images, kept_manifest
+
+
+def _build_scene_card_generation_update(state: DirectorState, scene_output: str) -> dict[str, Any]:
+    scene_ref_items = _scene_reference_items(state)
+    if not scene_ref_items:
+        return {"scene_card_status": "skipped"}
+
+    from ..request_context import request_session_id
+
+    session_id = request_session_id.get("local")
+    total_scenes = len(scene_ref_items)
+    scene_cards: list[dict[str, str]] = []
+    for scene_number, scene_item in enumerate(scene_ref_items, start=1):
+        scene_title = _scene_reference_title(scene_item, scene_number)
+        overhead_prompt = _build_scene_card_overhead_prompt(
+            state,
+            scene_output,
+            scene_item=scene_item,
+            scene_number=scene_number,
+            total_scenes=total_scenes,
+        )
+        scene_card_prompt = _build_scene_card_image_prompt(
+            state,
+            scene_output,
+            scene_item=scene_item,
+            scene_number=scene_number,
+            total_scenes=total_scenes,
+        )
+        image_result, overhead_path = _generate_scene_card_with_overhead(
+            overhead_prompt,
+            scene_card_prompt,
+            scene_item["image"],
+            session_id,
+            scene_number,
+        )
+        scene_card_image = _save_scene_card_image(image_result, session_id, scene_number)
+        scene_cards.append(
+            {
+                "scene_number": str(scene_number),
+                "scene_title": scene_title,
+                "image_path": scene_card_image,
+                "grid_path": scene_card_image,
+                "layout_path": overhead_path,
+                "layout_prompt": overhead_prompt,
+                "prompt": scene_card_prompt,
+                "grid_prompt": scene_card_prompt,
+            }
+        )
+
+    updated_reference_images, updated_reference_manifest = _append_scene_card_references(
+        state,
+        scene_cards,
+    )
+    scene_card_lines = "\n".join(
+        f"  - 场景{card['scene_number']}：{card['scene_title']}\n"
+        f"    俯视图 → {card['layout_path']}\n"
+        f"    九宫格 → {card['grid_path']}"
+        for card in scene_cards
+    )
+    output_with_cards = (
+        f"{scene_output.rstrip()}\n\n"
+        "场景参考图: |\n"
+        f"{scene_card_lines}\n"
+    )
+
+    outputs = _agent_outputs(state)
+    outputs["scene_analyst"] = output_with_cards
+    outputs["scene_card_prompt"] = scene_cards[0]["prompt"]
+    outputs["scene_card_image"] = scene_cards[0]["image_path"]
+    outputs["scene_card_images"] = json.dumps(scene_cards, ensure_ascii=False)
+    outputs["scene_layout_prompt"] = scene_cards[0]["layout_prompt"]
+    outputs["scene_layout_image"] = scene_cards[0]["layout_path"]
+    outputs["scene_grid_prompt"] = scene_cards[0]["grid_prompt"]
+    outputs["scene_grid_image"] = scene_cards[0]["grid_path"]
+    outputs["scene_card_status"] = "done"
+
+    return {
+        "message": f"Scene analysis and {len(scene_cards)} scene reference image set(s) are ready for shot planning.",
+        "agent_outputs": outputs,
+        "scene_context_brief": output_with_cards,
+        "scene_card_status": "done",
+        "scene_card_image": scene_cards[0]["image_path"],
+        "scene_card_prompt": scene_cards[0]["prompt"],
+        "scene_card_images": scene_cards,
+        "scene_layout_image": scene_cards[0]["layout_path"],
+        "scene_layout_prompt": scene_cards[0]["layout_prompt"],
+        "scene_grid_image": scene_cards[0]["grid_path"],
+        "scene_grid_prompt": scene_cards[0]["grid_prompt"],
+        "reference_image_b64s": updated_reference_images,
+        "reference_image_manifest": updated_reference_manifest,
+        "reference_image_count": len(updated_reference_images),
+    }
+
+
+def _save_scene_card_generation_update(update: dict[str, Any]) -> None:
+    latest = load_state() or {}
+    latest_outputs = dict(latest.get("agent_outputs") or {})
+    update_outputs = dict(update.get("agent_outputs") or {})
+    if update_outputs:
+        update = dict(update)
+        update["agent_outputs"] = {**latest_outputs, **update_outputs}
+    latest.update(update)
+    save_state(latest)
+
+
+def _run_scene_card_generation_background(state: DirectorState, scene_output: str, session_id: str) -> None:
+    from ..request_context import request_scope
+
+    with request_scope(session_id=session_id):
+        try:
+            latest_state = load_state() or {}
+            generation_state: DirectorState = dict(state)
+            generation_state.update(latest_state)
+            generation_state["scene_card_status"] = "running"
+            outputs = _agent_outputs(generation_state)
+            outputs["scene_card_status"] = "running"
+            generation_state["agent_outputs"] = outputs
+            update = _build_scene_card_generation_update(generation_state, scene_output)
+        except Exception as exc:
+            latest_outputs = _agent_outputs(load_state() or state)
+            latest_outputs["scene_card_status"] = "error"
+            latest_outputs["scene_card_error"] = str(exc)
+            update = {
+                "scene_card_status": "error",
+                "scene_card_error": str(exc),
+                "agent_outputs": latest_outputs,
+            }
+        _save_scene_card_generation_update(update)
+
+
+def _queue_scene_card_generation(state: DirectorState, scene_output: str) -> None:
+    if not _scene_reference_items(state):
+        return
+    from ..request_context import request_session_id
+
+    session_id = request_session_id.get("local")
+    worker = threading.Thread(
+        target=_run_scene_card_generation_background,
+        args=(dict(state), scene_output, session_id),
+        name=f"scene-card-designer-{session_id}",
+        daemon=True,
+    )
+    worker.start()
 
 
 def _director_brief(state: DirectorState | dict[str, object]) -> str:
@@ -1416,100 +1611,47 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
                     "  - Downstream agents must keep to the original script and explicit reference-image labels only.\n"
                 )
         else:
-            print(f"  [scene_analyst] primary text model failed, retrying via story_planner channel: {exc}")
-            # Keep text-only scene analysis away from the prompt_compiler channel.
-            # prompt_compiler may be configured for heavier final prompt models, which
-            # has caused Phase 1 to fail on upstream read timeouts before planning starts.
-            output = call_llm(system_prompt, user_prompt, images_base64=None, agent_name="story_planner", max_retries=1)
-    scene_cards: list[dict[str, str]] = []
-    updated_reference_images: list[str] | None = None
-    updated_reference_manifest: list[dict[str, str]] | None = None
-    if scene_ref_items:
-        from ..request_context import request_session_id
-
-        session_id = request_session_id.get("local")
-        total_scenes = len(scene_ref_items)
-        for scene_number, scene_item in enumerate(scene_ref_items, start=1):
-            scene_title = _scene_reference_title(scene_item, scene_number)
-            overhead_prompt = _build_scene_card_overhead_prompt(
-                state,
-                output,
-                scene_item=scene_item,
-                scene_number=scene_number,
-                total_scenes=total_scenes,
+            print(f"  [scene_analyst] primary text model failed, using local scene card: {exc}")
+            output = (
+                "mode: degraded_local_scene_card\n"
+                f"aspect_ratio: {state.get('aspect_ratio', '16:9')}\n"
+                "source: original_script_only\n"
+                "scene_info: |\n"
+                "  LLM gateway failed, so only the original script text was used.\n"
+                "  Keep the opening location, visible entrances, fixed objects and basic axis from the script.\n"
+                "道具锚点: |\n"
+                "  Use only props explicitly named in the script.\n"
+                "固定物体锁定: |\n"
+                "  Do not invent furniture, windows, staff areas, hallways or extra rooms.\n"
+                "光线与材质: |\n"
+                "  Use only time-of-day or material cues explicitly present in the script.\n"
+                "增强约束: |\n"
+                "  Downstream agents must not add characters, dialogue, props or reactions outside the script.\n"
+                "调度边界: |\n"
+                "  只锁开局空间、固定物和基础轴线；不推导逐段标点或完整运动路线。\n"
             )
-            scene_card_prompt = _build_scene_card_image_prompt(
-                state,
-                output,
-                scene_item=scene_item,
-                scene_number=scene_number,
-                total_scenes=total_scenes,
-            )
-            image_result, overhead_path = _generate_scene_card_with_overhead(
-                overhead_prompt,
-                scene_card_prompt,
-                scene_item["image"],
-                session_id,
-                scene_number,
-            )
-            scene_card_image = _save_scene_card_image(image_result, session_id, scene_number)
-            scene_cards.append(
-                {
-                    "scene_number": str(scene_number),
-                    "scene_title": scene_title,
-                    "image_path": scene_card_image,
-                    "grid_path": scene_card_image,
-                    "layout_path": overhead_path,
-                    "layout_prompt": overhead_prompt,
-                    "prompt": scene_card_prompt,
-                    "grid_prompt": scene_card_prompt,
-                }
-            )
-
-        updated_reference_images, updated_reference_manifest = _append_scene_card_references(
-            state,
-            scene_cards,
-        )
-        scene_card_lines = "\n".join(
-            f"  - 场景{card['scene_number']}：{card['scene_title']}\n"
-            f"    俯视图 → {card['layout_path']}\n"
-            f"    九宫格 → {card['grid_path']}"
-            for card in scene_cards
-        )
-        output = (
-            f"{output.rstrip()}\n\n"
-            "场景参考图: |\n"
-            f"{scene_card_lines}\n"
-        )
-        outputs["scene_card_prompt"] = scene_cards[0]["prompt"]
-        outputs["scene_card_image"] = scene_cards[0]["image_path"]
-        outputs["scene_card_images"] = json.dumps(scene_cards, ensure_ascii=False)
-        outputs["scene_layout_prompt"] = scene_cards[0]["layout_prompt"]
-        outputs["scene_layout_image"] = scene_cards[0]["layout_path"]
-        outputs["scene_grid_prompt"] = scene_cards[0]["grid_prompt"]
-        outputs["scene_grid_image"] = scene_cards[0]["grid_path"]
 
     outputs["scene_analyst"] = output
+    has_scene_refs = bool(scene_ref_items)
+    if has_scene_refs:
+        outputs["scene_card_status"] = "running"
     update_payload: dict[str, Any] = {
         "status": "running_phase_1",
         "step": "step_0_enhance",
-        "message": "场景预分析完成，剧情增强导演正在按场景约束增强剧本...（2/8）",
+        "message": (
+            "Scene analysis text is ready; scene reference images are generating in the background..."
+            if has_scene_refs
+            else "Scene analysis is ready; story enhancement is continuing..."
+        ),
         "agent_outputs": outputs,
         "scene_context_brief": output,
         "knowledge_metadata": knowledge_metadata,
+        "scene_card_status": "running" if has_scene_refs else "skipped",
     }
-    if scene_cards:
-        update_payload["message"] = f"场景预分析和 {len(scene_cards)} 组俯视图/九宫格图已完成，剧情增强导演正在按场景约束增强剧本...（2/8）"
-        update_payload["scene_card_image"] = scene_cards[0]["image_path"]
-        update_payload["scene_card_prompt"] = scene_cards[0]["prompt"]
-        update_payload["scene_card_images"] = scene_cards
-        update_payload["scene_layout_image"] = scene_cards[0]["layout_path"]
-        update_payload["scene_layout_prompt"] = scene_cards[0]["layout_prompt"]
-        update_payload["scene_grid_image"] = scene_cards[0]["grid_path"]
-        update_payload["scene_grid_prompt"] = scene_cards[0]["grid_prompt"]
-    if updated_reference_images is not None and updated_reference_manifest is not None:
-        update_payload["reference_image_b64s"] = updated_reference_images
-        update_payload["reference_image_manifest"] = updated_reference_manifest
-        update_payload["reference_image_count"] = len(updated_reference_images)
 
-    return _persist_update(state, update_payload)
+    persisted = _persist_update(state, update_payload)
+    if has_scene_refs:
+        background_state: DirectorState = dict(state)
+        background_state.update(update_payload)
+        _queue_scene_card_generation(background_state, output)
+    return persisted

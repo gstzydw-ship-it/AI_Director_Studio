@@ -428,3 +428,50 @@ def test_resume_after_review_failure_marks_failing_downstream_step(tmp_path, mon
     assert task_state["review_title"] == "剧情增强"
     assert task_state["review_output"] == "enhanced"
     assert "rhythm_rewrite_director" in task_state["message"]
+
+
+def test_resume_after_review_clears_review_fields_when_runner_advances(tmp_path, monkeypatch):
+    import ui.app as web_app
+
+    session_id = "web_review_cleared"
+    task_state = web_app._task_state(session_id)
+    task_state.clear()
+    task_state.update(
+        {
+            "status": "running_phase_1",
+            "step": "step_2_plan",
+            "message": "waiting",
+            "review_mode": "agent_output",
+            "review_agent": "story_planner",
+            "review_title": "结构规划",
+            "review_output": "planner",
+            "agent_outputs": {"story_planner": "planner"},
+        }
+    )
+
+    monkeypatch.setattr(web_app, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(web_app, "_merge_latest_disk_state_for_session", lambda _session_id, _state: False)
+    monkeypatch.setattr(
+        web_app,
+        "resume_after_human_review",
+        lambda _edited, _agent: {
+            "status": "waiting_for_user_input",
+            "step": "step_3_direct",
+            "message": "Story planning confirmed; waiting to generate the next segment.",
+            "agent_outputs": {"story_planner": "planner"},
+        },
+    )
+    web_app.active_task_generations[session_id] = 1
+
+    web_app._resume_after_human_review_in_thread(
+        "planner",
+        "story_planner",
+        task_generation=1,
+        session_id=session_id,
+    )
+
+    assert task_state["status"] == "waiting_for_user_input"
+    assert task_state["step"] == "step_3_direct"
+    assert "review_mode" not in task_state
+    assert "review_agent" not in task_state
+    assert "review_output" not in task_state

@@ -129,6 +129,110 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
     assert "fragment_id: F01" not in captured["user_prompt"]
 
 
+def test_prompt_compiler_uses_local_fallback_after_llm_failure(monkeypatch) -> None:
+    def fail_call_llm_with_mcp(*_args, **_kwargs):
+        raise RuntimeError("LLM gateway failed")
+
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fail_call_llm_with_mcp)
+    monkeypatch.setattr(
+        prompt_compiler_impl,
+        "_persist_update",
+        lambda state, update: {**dict(state), **dict(update)},
+    )
+
+    state = {
+        "active_segment_index": 1,
+        "current_segment_index": 1,
+        "total_segments": 2,
+        "segment_names": ["F01"],
+        "script": "Alex: Stay here.\nBlair steps back.",
+        "aspect_ratio": "9:16",
+        "agent_outputs": {
+            "story_planner": (
+                "- fragment_id: F01\n"
+                "  source_script_events:\n"
+                "    - Alex says stay here.\n"
+                "    - Blair steps back.\n"
+            ),
+            "shot_director": (
+                "- fragment_id: F01\n"
+                "  fragment_task: pressure beat\n"
+                "  rhythm: dialogue then reaction\n"
+                "  shots:\n"
+                "    - shot_id: F01-S01\n"
+                "      duration: 0-3s\n"
+                "      task: carry the command beat\n"
+                "      subject: Alex\n"
+                "      shot: stable medium shot\n"
+                "      action: Alex looks at Blair and gives the order.\n"
+                "      dialogue: Stay here.\n"
+                "      must_carry: Alex gives the order.\n"
+                "      cut_point: after the order lands\n"
+                "      continuity: keep the same eyeline\n"
+            ),
+        },
+    }
+
+    result = prompt_compiler_impl.prompt_compiler_node(state)
+    outputs = result["agent_outputs"]
+
+    assert "compiled_segment_1" in outputs
+    assert "Alex looks at Blair" in outputs["compiled_segment_1"]
+    assert "local fallback reason" in outputs["compiled_segment_1"]
+    assert "prompt_compiler_fallback_seg01" in outputs
+    assert "LLM gateway failed" in outputs["prompt_compiler_fallback_seg01"]
+    assert result["step"] == "step_5_inspect"
+
+
+def test_prompt_compiler_accepts_legacy_local_shot_fallback_marker(monkeypatch) -> None:
+    def fail_call_llm_with_mcp(*_args, **_kwargs):
+        raise RuntimeError("LLM gateway failed")
+
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fail_call_llm_with_mcp)
+    monkeypatch.setattr(
+        prompt_compiler_impl,
+        "_persist_update",
+        lambda state, update: {**dict(state), **dict(update)},
+    )
+
+    state = {
+        "active_segment_index": 1,
+        "current_segment_index": 1,
+        "total_segments": 1,
+        "segment_names": ["F01"],
+        "script": "Alex opens the door. Blair steps back.",
+        "agent_outputs": {
+            "story_planner": (
+                "- fragment_id: F01\n"
+                "  source_script_events:\n"
+                "    - Alex opens the door.\n"
+            ),
+            "shot_director": (
+                "- fragment_id: F01\n"
+                "  schema_version: shot_director_local_fallback_v1\n"
+                "  fragment_task: local fallback beat\n"
+                "  rhythm: readable action\n"
+                "  shots:\n"
+                "    - shot_id: F01-S01\n"
+                "      duration: 0-3s\n"
+                "      task: carry the door beat\n"
+                "      subject: Alex\n"
+                "      shot: stable medium shot\n"
+                "      action: Alex opens the door.\n"
+                "      dialogue: \"\"\n"
+                "      must_carry: Alex opens the door.\n"
+                "      cut_point: after the door opens\n"
+                "      continuity: keep screen direction\n"
+            ),
+        },
+    }
+
+    result = prompt_compiler_impl.prompt_compiler_node(state)
+
+    assert result["step"] == "step_5_inspect"
+    assert "compiled_segment_1" in result["agent_outputs"]
+
+
 def test_nodes_prompt_compiler_node_delegates_to_package_impl(monkeypatch) -> None:
     sentinel_state = {"step": "compile"}
     sentinel_result = {"step": "inspect"}

@@ -85,7 +85,7 @@ def test_call_llm_retries_with_system_proxy_after_direct_connect_failure(monkeyp
     monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
 
     assert director_graph.call_llm("system", "user", agent_name="director_showrunner", max_retries=1) == "ok"
-    assert attempts == [False, True]
+    assert attempts == [False, False, False, True]
 
 
 def test_call_llm_retries_connect_error(monkeypatch):
@@ -158,7 +158,7 @@ def test_call_llm_tries_configured_fallback_model_after_retryable_failure(monkey
     monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
 
     assert director_graph.call_llm("system", "user", agent_name="story_planner") == "ok"
-    assert attempted_models == ["primary-model", "fallback-model"]
+    assert attempted_models == ["primary-model", "primary-model", "primary-model", "fallback-model"]
 
 
 def test_call_llm_tries_configured_fallback_route_after_network_failure(monkeypatch):
@@ -209,7 +209,124 @@ def test_call_llm_tries_configured_fallback_route_after_network_failure(monkeypa
     assert director_graph.call_llm("system", "user", agent_name="director_showrunner", bypass_proxy=False) == "ok"
     assert attempts == [
         ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
         ("https://backup.example/v1/chat/completions", "Bearer backup-key", "backup-model"),
+    ]
+
+
+def test_call_llm_uses_same_host_configured_key_for_fallback_route(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        director_graph,
+        "load_config",
+        lambda: {
+            "llm": {
+                "api_key": "primary-key",
+                "base_url": "https://primary.example/v1",
+                "model": "primary-model",
+                "max_retries": 1,
+            },
+            "image_generation": {
+                "api_key": "backup-host-key",
+                "base_url": "https://backup.example/v1",
+            },
+            "agent_models": {
+                "director_showrunner": {
+                    "fallback_routes": [
+                        {
+                            "api_key": None,
+                            "base_url": "https://backup.example/v1",
+                            "model": "backup-model",
+                        }
+                    ]
+                }
+            },
+        },
+    )
+    attempts = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, **kwargs):
+            attempts.append((url, kwargs["headers"]["Authorization"], kwargs["json"]["model"]))
+            if "primary.example" in url:
+                raise httpx.ConnectError("[SSL: UNEXPECTED_EOF_WHILE_READING]")
+            return _FakeResponse()
+
+    monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
+
+    assert director_graph.call_llm("system", "user", agent_name="director_showrunner", bypass_proxy=False) == "ok"
+    assert attempts == [
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
+        ("https://backup.example/v1/chat/completions", "Bearer backup-host-key", "backup-model"),
+    ]
+
+
+def test_call_llm_skips_cross_host_fallback_route_without_api_key(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        director_graph,
+        "load_config",
+        lambda: {
+            "llm": {
+                "api_key": "primary-key",
+                "base_url": "https://primary.example/v1",
+                "model": "primary-model",
+                "max_retries": 1,
+            },
+            "agent_models": {
+                "director_showrunner": {
+                    "fallback_routes": [
+                        {
+                            "api_key": None,
+                            "base_url": "https://backup.example/v1",
+                            "model": "backup-model",
+                        }
+                    ]
+                }
+            },
+        },
+    )
+    attempts = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, **kwargs):
+            attempts.append((url, kwargs["headers"]["Authorization"], kwargs["json"]["model"]))
+            raise httpx.ConnectError("[SSL: UNEXPECTED_EOF_WHILE_READING]")
+
+    monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
+
+    try:
+        director_graph.call_llm("system", "user", agent_name="director_showrunner", bypass_proxy=False)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected connection failure to raise RuntimeError")
+
+    assert attempts == [
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
     ]
 
 

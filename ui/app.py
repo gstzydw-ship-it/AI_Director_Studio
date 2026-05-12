@@ -16,7 +16,6 @@ import copy
 import ipaddress
 import socket
 import time
-import hashlib
 from io import BytesIO
 from datetime import datetime
 from time import perf_counter
@@ -633,19 +632,6 @@ from agents.director_graph import (
 from agents.director_graph_package.storyboard_designer_impl import (
     generate_storyboard_for_segment,
     generate_storyboard_image_for_segment,
-)
-from agents.director_graph_package.generation_jobs import (
-    add_generation_artifact,
-    create_generation_job,
-    finish_generation_attempt,
-    get_generation_job,
-    is_cancel_requested,
-    list_generation_artifacts,
-    list_generation_jobs,
-    request_cancel_generation_job,
-    retry_generation_job,
-    select_generation_artifact,
-    start_generation_attempt,
 )
 from agents.director_graph_package import planning_context_impl as scene_card_impl
 
@@ -1883,8 +1869,8 @@ def _resume_pipeline_in_thread(
             if task_generation != _active_task_generation(session_id):
                 return
             task_state["status"] = "running_phase_2"
-            task_state["step"] = "step_4_compile"
-            task_state["message"] = f"✍️ Seedance编译师正在生成片段 {segment_index}..."
+            task_state["step"] = "step_3_direct"
+            task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
             _touch_task_progress(task_state)
             state = run_phase_2_compile_segment(segment_index, tail_frame_b64, video_path)
             if task_generation != _active_task_generation(session_id):
@@ -2011,6 +1997,9 @@ def _resume_after_human_review_in_thread(
                     active_generation=_active_task_generation(session_id),
                 )
                 return
+            for key in ("review_mode", "review_agent", "review_title", "review_output"):
+                if key not in state:
+                    task_state.pop(key, None)
             task_state.update(state)
             _touch_task_progress(task_state)
             _save_task_state_for_session(session_id, task_state)
@@ -2162,28 +2151,14 @@ def _generate_storyboard_image_in_thread(
     segment_index: int,
     task_generation: int = 0,
     session_id: str = DEFAULT_SESSION_ID,
-    generation_job_id: str = "",
 ):
     """Generate the storyboard image after the prompt has been reviewed."""
     session_id = _normalise_session_id(session_id)
     task_state = _task_state(session_id)
-    attempt_id = ""
     try:
         with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
-            if generation_job_id:
-                attempt = start_generation_attempt(session_id, generation_job_id)
-                attempt_id = attempt["attempt_id"]
-                if is_cancel_requested(session_id, generation_job_id):
-                    finish_generation_attempt(
-                        session_id,
-                        generation_job_id,
-                        attempt_id,
-                        status="canceled",
-                        error="Canceled before image generation started.",
-                    )
-                    return
             task_state["status"] = "running_phase_1"
             task_state["step"] = "step_4_storyboard"
             task_state["message"] = f"🎨 正在根据片段 {segment_index} 分镜提示词生成图片..."
@@ -2196,53 +2171,10 @@ def _generate_storyboard_image_in_thread(
             latest_state = load_state() or {}
             merged_state = dict(latest_state)
             merged_state.update(task_state)
-            job = get_generation_job(session_id, generation_job_id) if generation_job_id else None
-            candidate_index = int(job.get("attempt_count") or 1) if job else None
             result = generate_storyboard_image_for_segment(
                 merged_state,
                 segment_index=segment_index,
-                candidate_index=candidate_index,
             )
-            if generation_job_id and is_cancel_requested(session_id, generation_job_id):
-                canceled_state = load_state() or {}
-                canceled_outputs = dict(canceled_state.get("agent_outputs") or {})
-                canceled_outputs.pop(f"storyboard_image_seg{segment_index:02d}", None)
-                canceled_outputs.pop(f"storyboard_image_seg{segment_index}", None)
-                canceled_state["agent_outputs"] = canceled_outputs
-                canceled_images = dict(canceled_state.get("storyboard_images_by_segment") or {})
-                canceled_images.pop(str(segment_index), None)
-                canceled_state["storyboard_images_by_segment"] = canceled_images
-                save_state(canceled_state)
-                finish_generation_attempt(
-                    session_id,
-                    generation_job_id,
-                    attempt_id,
-                    status="canceled",
-                    raw_response=json.dumps(result, ensure_ascii=False),
-                )
-                return
-            if generation_job_id:
-                artifact = add_generation_artifact(
-                    session_id=session_id,
-                    job_id=generation_job_id,
-                    kind="image",
-                    path=result.get("image_path") or "",
-                    segment_index=segment_index,
-                    candidate_index=candidate_index,
-                    selected=True,
-                    metadata={
-                        "prompt": result.get("prompt") or "",
-                        "source": "storyboard_designer",
-                    },
-                )
-                select_generation_artifact(session_id, artifact["artifact_id"])
-                finish_generation_attempt(
-                    session_id,
-                    generation_job_id,
-                    attempt_id,
-                    status="succeeded",
-                    raw_response=json.dumps(result, ensure_ascii=False),
-                )
 
             refreshed = load_state() or {}
             task_state.update(refreshed)
@@ -2256,18 +2188,6 @@ def _generate_storyboard_image_in_thread(
     except Exception as e:
         if task_generation != _active_task_generation(session_id):
             return
-        if generation_job_id and attempt_id:
-            try:
-                finish_generation_attempt(
-                    session_id,
-                    generation_job_id,
-                    attempt_id,
-                    status="failed",
-                    error=str(e),
-                    raw_response=traceback.format_exc(),
-                )
-            except Exception:
-                pass
         _merge_latest_disk_state_for_session(session_id, task_state)
         task_state["status"] = "error"
         task_state["step"] = "error"
@@ -2541,8 +2461,8 @@ async def api_resume(
     task_generation = _bump_task_generation(session_id)
     now = _now_iso()
     task_state["status"] = "running_phase_2"
-    task_state["step"] = "step_4_compile"
-    task_state["message"] = f"✍️ Seedance编译师正在生成片段 {segment_index}..."
+    task_state["step"] = "step_3_direct"
+    task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
     task_state["error"] = ""
     task_state["current_segment_index"] = segment_index
     task_state["active_segment_index"] = segment_index
@@ -2999,15 +2919,6 @@ async def api_generate_storyboard_image(
     if segment_index < 1 or (total_segments and segment_index > total_segments):
         return JSONResponse({"success": False, "error": f"片段 {segment_index} 超出有效范围。"})
 
-    job = create_generation_job(
-        session_id=session_id,
-        kind="storyboard_image",
-        segment_index=segment_index,
-        prompt=prompt,
-        prompt_hash=hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
-        max_attempts=1,
-        metadata={"source": "api_generate_storyboard_image"},
-    )
     task_generation = _bump_task_generation(session_id)
     now = _now_iso()
     task_state["status"] = "running_phase_1"
@@ -3022,114 +2933,12 @@ async def api_generate_storyboard_image(
 
     thread = threading.Thread(
         target=_generate_storyboard_image_in_thread,
-        args=(segment_index, task_generation, session_id, job["job_id"]),
+        args=(segment_index, task_generation, session_id),
         daemon=True,
     )
     _register_task_thread(session_id, thread)
     thread.start()
-    return JSONResponse({"success": True, "message": f"🎨 片段 {segment_index} 分镜图片已加入队列。", "job": job})
-
-
-@app.get("/api/generation_jobs")
-async def api_generation_jobs(session_id: str = DEFAULT_SESSION_ID):
-    session_id = _normalise_session_id(session_id)
-    return JSONResponse(
-        {
-            "success": True,
-            "jobs": list_generation_jobs(session_id),
-            "artifacts": list_generation_artifacts(session_id),
-        }
-    )
-
-
-@app.get("/api/generation_artifacts")
-async def api_generation_artifacts(
-    session_id: str = DEFAULT_SESSION_ID,
-    segment_index: int | None = None,
-    shot_id: str | None = None,
-    job_id: str | None = None,
-):
-    session_id = _normalise_session_id(session_id)
-    return JSONResponse(
-        {
-            "success": True,
-            "artifacts": list_generation_artifacts(
-                session_id,
-                segment_index=segment_index,
-                shot_id=shot_id,
-                job_id=job_id,
-            ),
-        }
-    )
-
-
-@app.post("/api/generation_jobs/{job_id}/cancel")
-async def api_cancel_generation_job(job_id: str, session_id: str = Form(DEFAULT_SESSION_ID)):
-    session_id = _normalise_session_id(session_id)
-    job = request_cancel_generation_job(session_id, job_id)
-    if not job:
-        return JSONResponse({"success": False, "error": "generation job not found"}, status_code=404)
-    if task_states.get(session_id, {}).get("status") in RUNNING_STATUSES:
-        _bump_task_generation(session_id)
-    return JSONResponse({"success": True, "job": job})
-
-
-@app.post("/api/generation_jobs/{job_id}/retry")
-async def api_retry_generation_job(job_id: str, session_id: str = Form(DEFAULT_SESSION_ID)):
-    session_id = _normalise_session_id(session_id)
-    _refresh_task_state_from_disk(session_id)
-    task_state = _task_state(session_id)
-    if _has_live_task(session_id):
-        return JSONResponse({"success": False, "error": "A task is already running. Please wait for it to finish."})
-    job = retry_generation_job(session_id, job_id)
-    if not job:
-        return JSONResponse({"success": False, "error": "generation job not found"}, status_code=404)
-    if job.get("kind") != "storyboard_image":
-        return JSONResponse({"success": False, "error": f"unsupported generation job kind: {job.get('kind')}"})
-
-    segment_index = int(job.get("segment_index") or 1)
-    task_generation = _bump_task_generation(session_id)
-    now = _now_iso()
-    task_state["status"] = "running_phase_1"
-    task_state["step"] = "step_4_storyboard"
-    task_state["message"] = f"🎨 正在重试片段 {segment_index} 分镜图片..."
-    task_state["error"] = ""
-    task_state["active_segment_index"] = segment_index
-    task_state["current_segment_index"] = segment_index
-    task_state["started_at"] = now
-    _touch_task_progress(task_state, now)
-    _save_task_state_for_session(session_id, task_state)
-
-    thread = threading.Thread(
-        target=_generate_storyboard_image_in_thread,
-        args=(segment_index, task_generation, session_id, job["job_id"]),
-        daemon=True,
-    )
-    _register_task_thread(session_id, thread)
-    thread.start()
-    return JSONResponse({"success": True, "job": job})
-
-
-@app.post("/api/generation_artifacts/{artifact_id}/select")
-async def api_select_generation_artifact(artifact_id: str, session_id: str = Form(DEFAULT_SESSION_ID)):
-    session_id = _normalise_session_id(session_id)
-    artifact = select_generation_artifact(session_id, artifact_id)
-    if not artifact:
-        return JSONResponse({"success": False, "error": "generation artifact not found"}, status_code=404)
-    segment_index = int(artifact.get("segment_index") or 0)
-    artifact_path = str(artifact.get("path") or "")
-    if segment_index > 0 and artifact_path:
-        _refresh_task_state_from_disk(session_id)
-        task_state = _task_state(session_id)
-        outputs = dict(task_state.get("agent_outputs") or {})
-        outputs[f"storyboard_image_seg{segment_index:02d}"] = artifact_path
-        task_state["agent_outputs"] = outputs
-        storyboard_images = dict(task_state.get("storyboard_images_by_segment") or {})
-        storyboard_images[str(segment_index)] = artifact_path
-        task_state["storyboard_images_by_segment"] = storyboard_images
-        _touch_task_progress(task_state)
-        _save_task_state_for_session(session_id, task_state)
-    return JSONResponse({"success": True, "artifact": artifact})
+    return JSONResponse({"success": True, "message": f"🎨 片段 {segment_index} 分镜图片已开始生成。"})
 
 
 @app.post("/api/save_storyboard_prompt")

@@ -54,6 +54,44 @@ main_shots:
     assert "main_shots:" in cleaned
 
 
+def test_segment_shot_director_uses_local_fallback_after_llm_failure(monkeypatch):
+    def fail_single_pass(**_kwargs):
+        raise RuntimeError("LLM network connection failed")
+
+    monkeypatch.setattr(shot_director_impl, "_run_shot_director_single_pass", fail_single_pass)
+    monkeypatch.setattr(
+        shot_director_impl,
+        "_persist_update",
+        lambda state, update: {**dict(state), **dict(update)},
+    )
+
+    state = {
+        "script": "Alex opens the door. Blair reacts and steps back.",
+        "aspect_ratio": "9:16",
+        "total_segments": 1,
+        "segment_names": ["segment01"],
+        "agent_outputs": {
+            "story_planner": (
+                "- fragment_id: F01\n"
+                "  source_script_events:\n"
+                "    - Alex opens the door.\n"
+                "    - Blair reacts and steps back.\n"
+            )
+        },
+    }
+
+    result = shot_director_impl.run_shot_director_for_segment(state, 1)
+    output = result["agent_outputs"]["shot_director_segment_F01"]
+    runtime = result["knowledge_metadata"]["shot_director"]["runtime"]
+
+    assert "fallback_mode: \"shot_director_local_fallback_v1\"" in output
+    assert "schema_version:" not in output
+    assert "Alex opens the door." in output
+    assert result["step"] == "step_4_storyboard"
+    assert runtime["local_fallback"] is True
+    assert runtime["final"]["status"] == "local_fallback"
+
+
 def test_shot_director_fidelity_rejects_wake_up_reinterpretation():
     script = """1-3 晨/内/乔熙公寓（回到现实）
 人物：乔熙、小豆丁

@@ -412,6 +412,34 @@ def test_shot_director_uploads_only_scene_layout_references():
     assert "原始场景参考图" not in prompt
 
 
+def test_shot_director_merges_completed_background_scene_cards(monkeypatch):
+    monkeypatch.setenv("AIDIRECTOR_SCENE_CARD_WAIT_SECONDS", "0")
+    monkeypatch.setattr(
+        sdi,
+        "load_state",
+        lambda: {
+            "scene_card_status": "done",
+            "reference_image_b64s": ["layout-a"],
+            "reference_image_manifest": [
+                {"role": "scene_layout", "purpose": "generated scene layout"},
+            ],
+            "agent_outputs": {"scene_card_status": "done"},
+        },
+    )
+
+    merged = sdi._await_scene_card_generation(
+        {
+            "scene_card_status": "running",
+            "reference_image_b64s": ["raw-scene"],
+            "reference_image_manifest": [{"purpose": "raw scene reference"}],
+            "agent_outputs": {"scene_card_status": "running"},
+        }
+    )
+
+    assert _reference_images(merged) == ["layout-a"]
+    assert merged["scene_card_status"] == "done"
+
+
 def test_split_fragment_mode_passes_scene_reference_images(monkeypatch):
     captured_images: list[list[str] | None] = []
 
