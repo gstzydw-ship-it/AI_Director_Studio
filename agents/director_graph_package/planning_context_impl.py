@@ -57,7 +57,19 @@ def _localize_director_showrunner_output(output: str) -> str:
         text = re.sub(rf"(?m)^(\s*){re.escape(field)}\s*:", rf"\1{label}:", text)
     for role, label in _DIRECTOR_SHOWRUNNER_ROLE_LABELS.items():
         text = re.sub(rf"\b{re.escape(role)}\b", label, text)
-    return text.strip()
+    return sanitize_director_showrunner_fallback_output(text)
+
+
+def sanitize_director_showrunner_fallback_output(output: str) -> str:
+    text = (output or "").strip()
+    if not text:
+        return ""
+    safe_reason = "LLM 服务临时不可用，已保留原剧本继续；可稍后重跑剧情增强。"
+    noisy_reason_pattern = (
+        r"(?m)^(\s*)(?:兜底原因|fallback_reason)\s*[:：]\s*"
+        r".*(?:RuntimeError|LLM 接口返回 HTTP|HTTP 50[0-9]|timeout:|环境代理:|claude-|mimo-).*$"
+    )
+    return re.sub(noisy_reason_pattern, rf"\1兜底原因: {safe_reason}", text).strip()
 
 
 def _strip_yaml_fence(text: str) -> str:
@@ -156,11 +168,12 @@ def _run_director_showrunner_logic_review(
     system_prompt = (
         "你是剧情增强流程里的严格审查组与仲裁修复器。\n"
         "你的任务不是重新发挥，而是对剧情增强导演的初稿进行多维审查、门禁判定和最小修复。\n"
-        "你必须同时扮演四个审查维度：\n"
+        "你必须同时扮演五个审查维度：\n"
         "1. 物理逻辑审查员：检查施事、身体动作、道具占手、无生命物主动行为。\n"
         "2. 剧情因果审查员：检查人物动机、信息流、情绪触发、主线保护。\n"
         "3. 场景调度审查员：检查空间前置状态、群体来源、入场/离场、集合原因。\n"
         "4. 制片可拍性审查员：检查演员能否执行、动作密度、是否镜头化、是否过度微动作。\n"
+        "5. 冲突强度与画面冲击审查员：检查增强后是否比原文更有冲突、更有可见压力和画面冲击；静态列队、泛泛忙乱、平铺直叙必须返修成有来源、有速度、有阻力的动作场面。\n"
         "最后由仲裁修复器合并意见，只修硬错误和明显可拍性问题，输出最终 YAML。\n"
         "如果发现 P0/P1 硬错误，必须在最终增强版剧本里修掉；如果无法在不改主线的前提下修掉，审查结论写 BLOCKED 并放入需用户确认。\n"
         "禁止新增原剧本外人物、台词、关键道具、误会、反转或剧情结果；原台词必须原样保留。\n"
@@ -179,20 +192,21 @@ def _run_director_showrunner_logic_review(
             "【P0/P1 硬错误门禁】\n"
             "P0 必须返修：无生命物主动行动；同一角色同一时间占手冲突；新增原文外台词/人物/关键道具；改变主线事实；空间前置状态明显不成立。\n"
             "P1 必须返修：人物动机不符合当下目标；群体来源/集合原因不清；道具出现/去向不清；闪回/现实落点重复或矛盾；动作不可执行。\n"
-            "P2 建议优化：可拍性弱、动作略笼统、节奏略拖，但不影响主线和硬逻辑。\n\n"
+            "P2 建议优化：可拍性弱、动作略笼统、节奏略拖、冲突强度不足或画面冲击弱，但不影响主线和硬逻辑。\n\n"
             "【严格审查清单】\n"
             "1. 施事逻辑：衣角、文件、咖啡杯、照片等无生命物不能像有意志一样“乱动/躲/停住”；应改成角色身体、手、孩子、车、人群等在动。\n"
             "2. 人物动机：角色正在做的事必须符合当下目标。例如迎接新老板的人群应从楼内或入口附近急促聚拢、整理仪表并列队；不要写成他们原本就在门口工作后停下手里的活。\n"
             "3. 群体调度：秘书、主管、同事等群体动作要有合理来源、集合原因和参与者归属；如果苏小可属于人群，应保留她在人群中并让她靠近乔熙传递消息。\n"
             "4. 道具占手：手机、咖啡、书包、照片、文件等必须写清被谁拿起、放下、滑落或收回，不能同时占用同一只手完成矛盾动作。\n"
             "5. 空间与时间：动作不能越过场景约束，不写未经确认的路线、距离、方位；时间跳转和闪回回到现实必须有清楚落点。\n"
-            "6. 主线保护：只修逻辑与可拍性，不改变人物关系、公司易主、新老板到达、前夫揭示、孩子愿望等核心事实。\n\n"
+            "6. 主线保护：只修逻辑与可拍性，不改变人物关系、公司易主、新老板到达、前夫揭示、孩子愿望等核心事实。\n"
+            "7. 冲突强度与画面冲击：判断增强后是否真的比原文更有戏剧压力和可见冲突；如果只是让人物静态列队、站着等待、泛泛忙乱，必须返修为符合原剧情和场景约束的动态动作。比如迎接新老板时，主管和秘书们静态站在门口不如从大门内急匆匆一路小跑出来、边整理文件边聚拢更有画面冲击；只要不改变主线，可以重构非主线场面动作、群体运动和压力来源。\n\n"
             "【必须输出的 YAML 字段】\n"
             "审查结论: PASS 或 REPAIR_REQUIRED 或 BLOCKED。若已经修完所有 P0/P1，写 PASS；若本轮仍需要再次审查，写 REPAIR_REQUIRED；无法安全修复写 BLOCKED。\n"
             "增强版剧本: 使用 YAML 多行文本，输出审查/修复后的完整可施工剧本。\n"
-            "多维审查: 四项列表，分别包含 角色 / 通过 / 发现 / 处理。\n"
+            "多维审查: 五项列表，分别包含 角色 / 通过 / 发现 / 处理；必须包含“冲突强度与画面冲击审查员”。\n"
             "硬错误: 列表；每条包含 类型 / 原句 / 问题 / 严重级别 / 必须修复 / 修复结果。没有硬错误写 无。\n"
-            "评分: 包含 施事逻辑 / 道具连续性 / 人物动机 / 空间调度 / 主线保护 / 可拍性，每项 1-5 分；任一项低于 4 不得 PASS。\n"
+            "评分: 包含 施事逻辑 / 道具连续性 / 人物动机 / 空间调度 / 主线保护 / 可拍性 / 冲突强度 / 画面冲击，每项 1-5 分；任一项低于 4 不得 PASS。\n"
             "逻辑审查: 列表；每条包含 问题 / 判断 / 修正方式。没有问题也要写“未发现硬逻辑错误”。\n"
             "最终处理: 包含 是否返修 / 返修轮次 / 采纳意见 / 剩余风险。\n"
             "增强依据: 保留或修正初稿依据；每条包含 原文锚点 / 增强方式 / 权限级别 / 是否改动主线。\n"
@@ -231,9 +245,25 @@ def _run_director_showrunner_logic_review(
         missing_fields = [field for field in required_fields if field not in payload]
         if missing_fields:
             return "REPAIR_REQUIRED", f"missing_required_fields:{','.join(missing_fields)}"
+        review_panel_text = yaml.safe_dump(payload.get("多维审查"), allow_unicode=True, sort_keys=False)
+        if "冲突强度与画面冲击审查员" not in review_panel_text:
+            return "REPAIR_REQUIRED", "missing_review_role:冲突强度与画面冲击审查员"
         scores = payload.get("评分")
         if not isinstance(scores, dict):
             return "REPAIR_REQUIRED", "invalid_scores"
+        required_score_fields = (
+            "施事逻辑",
+            "道具连续性",
+            "人物动机",
+            "空间调度",
+            "主线保护",
+            "可拍性",
+            "冲突强度",
+            "画面冲击",
+        )
+        missing_score_fields = [field for field in required_score_fields if field not in scores]
+        if missing_score_fields:
+            return "REPAIR_REQUIRED", f"missing_score_fields:{','.join(missing_score_fields)}"
         low_scores: list[str] = []
         for key, value in scores.items():
             match = re.search(r"\d+(?:\.\d+)?", str(value))
@@ -296,18 +326,84 @@ def _run_director_showrunner_logic_review(
         }
         return reviewed_output, runtime, f"strict review panel finished with verdict={final_verdict}"
     except Exception as exc:
+        blocked_script = (source_script or primary_script or "").strip()
+        if blocked_script:
+            blocked_script_block = "\n".join(f"  {line}" if line.strip() else "" for line in blocked_script.splitlines())
+        else:
+            blocked_script_block = "  保留原始剧本继续，等待裁判 agent 重跑。"
+        safe_error = str(exc).replace("\r", " ").replace("\n", " ")[:300]
+        reviewed_output = (
+            "审查结论: BLOCKED\n"
+            "增强版剧本: |\n"
+            f"{blocked_script_block}\n"
+            "多维审查:\n"
+            "  - 角色: 物理逻辑审查员\n"
+            "    通过: false\n"
+            "    发现: 裁判 agent 调用失败，未完成审查\n"
+            "    处理: 阻断未审查增强稿\n"
+            "  - 角色: 剧情因果审查员\n"
+            "    通过: false\n"
+            "    发现: 裁判 agent 调用失败，未完成审查\n"
+            "    处理: 阻断未审查增强稿\n"
+            "  - 角色: 场景调度审查员\n"
+            "    通过: false\n"
+            "    发现: 裁判 agent 调用失败，未完成审查\n"
+            "    处理: 阻断未审查增强稿\n"
+            "  - 角色: 制片可拍性审查员\n"
+            "    通过: false\n"
+            "    发现: 裁判 agent 调用失败，未完成审查\n"
+            "    处理: 阻断未审查增强稿\n"
+            "  - 角色: 冲突强度与画面冲击审查员\n"
+            "    通过: false\n"
+            "    发现: 裁判 agent 调用失败，未完成审查\n"
+            "    处理: 阻断未审查增强稿\n"
+            "硬错误:\n"
+            "  - 类型: 裁判未完成\n"
+            "    原句: 无\n"
+            "    问题: 剧情增强裁判 agent 未成功返回严格审查结果\n"
+            "    严重级别: P0\n"
+            "    必须修复: true\n"
+            "    修复结果: 已保留原剧本，等待重跑裁判\n"
+            "评分:\n"
+            "  施事逻辑: 0\n"
+            "  道具连续性: 0\n"
+            "  人物动机: 0\n"
+            "  空间调度: 0\n"
+            "  主线保护: 0\n"
+            "  可拍性: 0\n"
+            "  冲突强度: 0\n"
+            "  画面冲击: 0\n"
+            "逻辑审查:\n"
+            "  - 问题: 裁判 agent 调用失败\n"
+            "    判断: 未审查输出不得进入下游\n"
+            "    修正方式: 保留原剧本，提示用户稍后重跑剧情增强或更换裁判模型\n"
+            "最终处理:\n"
+            "  是否返修: true\n"
+            "  返修轮次: 0\n"
+            "  采纳意见:\n"
+            "    - 裁判失败时 fail closed，不采纳未审查增强稿\n"
+            "  剩余风险: 裁判未完成，需重跑\n"
+            "增强依据: []\n"
+            "主线保护:\n"
+            "  - 裁判未完成时保留原剧本，避免未审查增强改动进入下游\n"
+            "节奏总控交接:\n"
+            "  - 暂停使用增强稿；等待剧情增强裁判重跑\n"
+            "需用户确认:\n"
+            f"  - 裁判 agent 调用失败：{safe_error}\n"
+        )
         runtime = {
             "agent_name": "director_showrunner_logic_reviewer",
             "mode": "strict_review_panel",
-            "status": "fallback_primary",
+            "status": "blocked",
+            "verdict": "BLOCKED",
             "elapsed_seconds": round(time.perf_counter() - started, 3),
             "input_chars": len(primary_output),
-            "output_chars": len(primary_output),
-            "enhanced_script_chars": len(primary_script),
+            "output_chars": len(reviewed_output),
+            "enhanced_script_chars": len(blocked_script),
             "error_type": type(exc).__name__,
             "error": str(exc)[:500],
         }
-        return primary_output, runtime, f"logic reviewer failed; kept primary output: {type(exc).__name__}"
+        return reviewed_output, runtime, f"logic reviewer failed; blocked primary output: {type(exc).__name__}"
 
 
 def _record_knowledge_metadata(
@@ -788,8 +884,15 @@ def _director_brief_prompt_block(director_brief: str) -> str:
 
 
 def _fallback_director_brief(state: DirectorState | dict[str, object], reason: str = "") -> str:
+    source_script = str(state.get("script") or state.get("original_script") or "").strip()
+    if source_script:
+        script_lines = "\n".join(f"  {line}" if line.strip() else "" for line in source_script.splitlines())
+    else:
+        script_lines = "  保留当前剧本继续施工。"
     reason_line = f"兜底原因: {reason[:180]}\n" if reason else ""
     return (
+        "增强版剧本: |\n"
+        f"{script_lines}\n"
         "主线保护:\n"
         "  - 使用当前剧本继续施工，但不得改变人物关系、核心事件、台词和剧情结果\n"
         "  - 只允许把原文已有的概括动作、静态说明和弱冲突转成可拍动作\n"
@@ -800,6 +903,92 @@ def _fallback_director_brief(state: DirectorState | dict[str, object], reason: s
         "  - 基于增强后的当前剧本重新判断快慢、停顿、卡断、反应归属和尾帧承接\n"
         f"{reason_line}"
     ).strip()
+
+
+def _is_retryable_showrunner_llm_error(exc: Exception) -> bool:
+    text = str(exc)
+    retryable_markers = (
+        "HTTP 500",
+        "HTTP 502",
+        "HTTP 503",
+        "HTTP 504",
+        "服务响应超时",
+        "网络连接失败",
+        "返回前断开连接",
+        "ReadTimeout",
+        "ConnectTimeout",
+        "RemoteProtocolError",
+        "TimeoutException",
+    )
+    return any(marker in text for marker in retryable_markers)
+
+
+def _safe_showrunner_fallback_reason(exc: Exception) -> str:
+    text = str(exc)
+    if "LLM 服务临时不可用" in text:
+        return "LLM 服务临时不可用，已保留原剧本继续；可稍后重跑剧情增强。"
+    if _is_retryable_showrunner_llm_error(exc):
+        return "LLM 服务临时不可用，已保留原剧本继续；可稍后重跑剧情增强。"
+    return "剧情增强未完成，已保留原剧本继续；可稍后重跑剧情增强。"
+
+
+def _director_showrunner_compact_prompts(
+    *,
+    state: DirectorState,
+    source_script: str,
+    scene_context: str,
+) -> tuple[str, str]:
+    """Build a smaller retry prompt for transient gateway failures."""
+    system_prompt = (
+        "你是短剧剧情增强导演。只在不改变主线、人物关系、剧情结果和原台词的前提下，"
+        "把原剧本里概括、静态或弱冲突的部分改成演员可执行的可见动作。"
+        "禁止新增人物、台词、关键道具、误会、反转或镜头方案。"
+        "输出必须是中文 YAML。"
+    )
+    user_prompt = (
+        "【原始剧本】\n"
+        f"{source_script}\n\n"
+        "【用户导演意图/补充要求】\n"
+        f"{_director_showrunner_user_intent(state) or '无'}\n\n"
+        "【场景硬约束】\n"
+        f"{scene_context or '无'}\n\n"
+        "【输出格式】\n"
+        "增强版剧本: |\n"
+        "  保留原台词原文；只补充必要动作节拍。\n"
+        "增强依据:\n"
+        "  - 原文锚点: ...\n"
+        "    增强方式: ...\n"
+        "    权限级别: L1_动作层增强\n"
+        "    是否改动主线: 否\n"
+        "主线保护:\n"
+        "  - ...\n"
+        "节奏总控交接:\n"
+        "  - ...\n"
+        "需用户确认: 无\n"
+    )
+    return system_prompt, user_prompt
+
+
+def _cap_director_showrunner_system_prompt(system_prompt: str, max_chars: int = 6500) -> str:
+    text = (system_prompt or "").strip()
+    if len(text) <= max_chars:
+        return text
+
+    marker = "===== 以下是必须优先执行的关键规则 ====="
+    marker_index = text.find(marker)
+    if marker_index < 0:
+        return text[:max_chars].rstrip()
+
+    prefix = text[:marker_index].rstrip()
+    rules = text[marker_index:].strip()
+    notice = (
+        "\n\n===== 规则压缩提示 =====\n"
+        "知识库规则已按长度预算截断；优先遵守上方核心职责、主线保护、可拍动作边界和输出合同。\n"
+    )
+    budget = max_chars - len(prefix) - len(notice) - 2
+    if budget <= 800:
+        return text[:max_chars].rstrip()
+    return f"{prefix}\n\n{rules[:budget].rstrip()}{notice}".strip()
 
 
 def _script_fidelity_rules() -> str:
@@ -969,6 +1158,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "你的增强必须是清晰的动作剧本，不是文学化润色；少用形容和比喻，只写观众能看见、演员能执行的动作。\n"
         "禁止输出状态合同、入场状态、出场状态、道具状态变化、禁止连续性等制作合同块；这些只可内化为判断，不能写进增强版剧本。\n"
         "允许增强 L1 动作层和笼统相对互动：动作密度、时间压力、声音压力、已有道具阻碍、靠近、停住、避让、拦住、转身等可见动作。\n"
+        "允许在不改变主线剧情、人物关系、剧情结果和原台词的前提下，对非主线场面动作做更有冲突和画面冲击的重构：例如把静态列队改成已出现人物从合理入口急促聚拢、边整理文件边小跑、被门口/人群/道具形成可见压力。\n"
         "不要写精确站位、具体方位、距离、行走路线、运动轨迹或镜头调度；这些留给用户标注后的镜头导演处理。\n"
         "禁止直接改动主线剧情、人物关系、剧情结果和原台词；禁止新增未确认的新人物、新台词、新关键道具、新误会或新反转。\n"
         "道具处理必须保持因果清晰：只使用原剧本已经出现或由原台词明确暗示的道具；每个道具只在必要时变化一次，不要为了细节堆动作。\n"
@@ -979,6 +1169,8 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "director_showrunner",
         context_hint=showrunner_hint,
     )
+    original_system_prompt_chars = len(system_prompt)
+    system_prompt = _cap_director_showrunner_system_prompt(system_prompt)
     user_prompt = (
         "【原始剧本】\n"
         f"{source_script}\n\n"
@@ -996,7 +1188,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "需用户确认: 只列 L3 剧情层新增想法；没有就写 无。\n\n"
         "【决策边界】\n"
         "1. 可以把“忙乱、急匆匆、气氛紧张、愣住、等待、列队”等概括词展开成连续可见动作。\n"
-        "2. 可以把静态说明改成笼统可见动作，例如已有角色出现、停住、靠近、避让、拦住、转身、递出或收回道具；不要写具体站位、方位、距离或路线。\n"
+        "2. 可以把静态说明改成笼统可见动作，例如已有角色出现、停住、靠近、避让、拦住、转身、递出或收回道具；也可以把非主线的静态场面重构成动态压力场面，例如让主管和秘书们从合理入口急促小跑聚拢，而不是静态站在门口列队。不要写具体站位、方位、距离或路线。\n"
         "3. 可以使用原剧本已有道具和环境强化阻力，例如闹钟、电话、水杯、书包、咖啡、公司大门、车辆声音。\n"
         "4. 每两句原台词之间最多补 1-2 个动作节拍；优先写因果动作，不写情绪散文，不把简单动作拆成过多微动作。\n"
         "5. 手机/电话规则：只有原文台词、动作或上下文明示通话时才可使用手机；如果写手机夹在肩上、握在手里或放在一旁，后续动作必须符合单手/双手可执行逻辑。\n"
@@ -1010,8 +1202,38 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
     )
 
     started = time.perf_counter()
+    degraded_prompt_retry: dict[str, Any] | None = None
     try:
-        primary_output = call_llm(system_prompt, user_prompt, agent_name="director_showrunner")
+        try:
+            primary_output = call_llm(system_prompt, user_prompt, agent_name="director_showrunner")
+        except Exception as primary_exc:
+            if not _is_retryable_showrunner_llm_error(primary_exc):
+                raise
+            compact_system_prompt, compact_user_prompt = _director_showrunner_compact_prompts(
+                state=state,
+                source_script=source_script,
+                scene_context=showrunner_scene_context,
+            )
+            degraded_prompt_retry = {
+                "status": "started",
+                "reason": type(primary_exc).__name__,
+                "primary_error": str(primary_exc)[:500],
+                "system_prompt_chars": len(compact_system_prompt),
+                "user_prompt_chars": len(compact_user_prompt),
+            }
+            try:
+                primary_output = call_llm(
+                    compact_system_prompt,
+                    compact_user_prompt,
+                    agent_name="director_showrunner",
+                    max_retries=1,
+                )
+                degraded_prompt_retry["status"] = "success"
+            except Exception as compact_exc:
+                degraded_prompt_retry["status"] = "failed"
+                degraded_prompt_retry["compact_error_type"] = type(compact_exc).__name__
+                degraded_prompt_retry["compact_error"] = str(compact_exc)[:500]
+                raise RuntimeError(_safe_showrunner_fallback_reason(primary_exc)) from compact_exc
         primary_output = (primary_output or "").strip() or _fallback_director_brief(state, "empty_showrunner_output")
         primary_output = _localize_director_showrunner_output(primary_output)
         output, review_runtime, review_report = _run_director_showrunner_logic_review(
@@ -1033,9 +1255,13 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
             "enhanced_script_chars": len(enhanced_script),
             "logic_review": review_runtime,
             "logic_review_report": review_report,
+            "system_prompt_chars": len(system_prompt),
+            "system_prompt_original_chars": original_system_prompt_chars,
         }
+        if degraded_prompt_retry:
+            runtime["degraded_prompt_retry"] = degraded_prompt_retry
     except Exception as exc:
-        output = _fallback_director_brief(state, f"{type(exc).__name__}: {exc}")
+        output = _fallback_director_brief(state, _safe_showrunner_fallback_reason(exc))
         output = _localize_director_showrunner_output(output)
         enhanced_script = source_script
         director_brief = output
@@ -1047,7 +1273,11 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
             "enhanced_script_chars": len(enhanced_script),
             "error_type": type(exc).__name__,
             "error": str(exc)[:500],
+            "system_prompt_chars": len(system_prompt),
+            "system_prompt_original_chars": original_system_prompt_chars,
         }
+        if degraded_prompt_retry:
+            runtime["degraded_prompt_retry"] = degraded_prompt_retry
 
     outputs["director_showrunner"] = output
     knowledge_metadata = _record_knowledge_metadata(state, "director_showrunner", showrunner_hint, retrieval_meta)

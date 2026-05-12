@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import os
+import re
 import sys
 import uuid
 from datetime import datetime
@@ -78,6 +79,57 @@ _NEXT_NODE_TO_REVIEW_AGENT = {
     "wait_for_segment_request": "story_planner",
     "quality_inspector": "prompt_compiler",
     "qc_router": "quality_inspector",
+}
+
+PHASE_1_RERUN_AGENTS = {
+    "director_showrunner",
+    "rhythm_rewrite_director",
+    "story_planner",
+}
+
+_PHASE_1_RERUN_NEXT_NODES = {
+    "director_showrunner": ("rhythm_rewrite_director",),
+    "rhythm_rewrite_director": ("story_planner",),
+    "story_planner": ("wait_for_segment_request",),
+}
+
+_PHASE_1_DOWNSTREAM_OUTPUT_KEYS = {
+    "director_showrunner": {
+        "director_showrunner",
+        "rhythm_rewrite_director",
+        "story_planner",
+        "shot_director_layout",
+        "shot_director_blocking",
+        "shot_director_guard",
+        "shot_director_final",
+        "shot_director",
+        "storyboard_designer",
+        "prompt_compiler",
+        "quality_inspector",
+    },
+    "rhythm_rewrite_director": {
+        "rhythm_rewrite_director",
+        "story_planner",
+        "shot_director_layout",
+        "shot_director_blocking",
+        "shot_director_guard",
+        "shot_director_final",
+        "shot_director",
+        "storyboard_designer",
+        "prompt_compiler",
+        "quality_inspector",
+    },
+    "story_planner": {
+        "story_planner",
+        "shot_director_layout",
+        "shot_director_blocking",
+        "shot_director_guard",
+        "shot_director_final",
+        "shot_director",
+        "storyboard_designer",
+        "prompt_compiler",
+        "quality_inspector",
+    },
 }
 
 
@@ -175,6 +227,91 @@ def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
     state["error"] = ""
     _save_runner_state(state)
     return shot_director_node(state)
+
+
+def _clear_phase_1_downstream_state(state: dict[str, Any], agent: str) -> dict[str, Any]:
+    outputs = dict(state.get("agent_outputs") or {})
+    output_keys_to_clear = set(_PHASE_1_DOWNSTREAM_OUTPUT_KEYS.get(agent, set()))
+    output_keys_to_clear.discard(agent)
+    for key in output_keys_to_clear:
+        outputs.pop(key, None)
+    for key in list(outputs):
+        if re.match(r"^(compiled_segment_|quality_inspector_segment_|storyboard_prompt_seg|storyboard_image_seg)\d+$", key):
+            outputs.pop(key, None)
+    state["agent_outputs"] = outputs
+
+    knowledge_metadata = state.get("knowledge_metadata")
+    if isinstance(knowledge_metadata, dict):
+        for key in _PHASE_1_DOWNSTREAM_OUTPUT_KEYS.get(agent, set()):
+            knowledge_metadata.pop(key, None)
+
+    if agent == "director_showrunner":
+        state["script"] = state.get("original_script") or state.get("script") or ""
+        state["enhanced_script"] = ""
+        state["director_brief"] = ""
+        state["atmosphere_strategy"] = ""
+    elif agent == "rhythm_rewrite_director":
+        state["atmosphere_strategy"] = ""
+
+    if agent in {"director_showrunner", "rhythm_rewrite_director", "story_planner"}:
+        state["total_segments"] = 0
+        state["segment_names"] = []
+        state["current_segment_index"] = 1
+
+    for key in (
+        "active_segment_index",
+        "result",
+        "review_mode",
+        "review_agent",
+        "review_title",
+        "review_output",
+        "revision_instruction",
+        "tail_frame_analysis",
+        "system_guard_report",
+        "last_qc_status",
+        "last_cleared_segment",
+    ):
+        state.pop(key, None)
+    state["qc_retry_count"] = 0
+    state["error"] = ""
+    return state
+
+
+def rerun_phase_1_agent(agent: str) -> Any:
+    agent = (agent or "").strip()
+    if agent not in PHASE_1_RERUN_AGENTS:
+        raise RuntimeError(f"Unsupported phase-1 rerun agent: {agent or '<empty>'}")
+
+    from .nodes import director_showrunner_node, rhythm_rewrite_director_node, story_planner_node
+
+    state = _load_runner_state()
+    if not state:
+        raise RuntimeError("No saved pipeline state; cannot rerun phase-1 agent.")
+
+    outputs = _agent_outputs(state)
+    if agent == "director_showrunner" and not (outputs.get("scene_analyst") or state.get("scene_context_brief")):
+        raise RuntimeError("Missing scene analysis output; cannot rerun story enhancement.")
+    if agent == "rhythm_rewrite_director" and not outputs.get("director_showrunner"):
+        raise RuntimeError("Missing story enhancement output; cannot rerun rhythm strategy.")
+    if agent == "story_planner" and not outputs.get("rhythm_rewrite_director"):
+        raise RuntimeError("Missing rhythm strategy output; cannot rerun story planning.")
+
+    working_state = _clear_phase_1_downstream_state(dict(state), agent)
+    working_state["status"] = "running_phase_1"
+    working_state["step"] = REVIEW_AGENT_STEPS.get(agent, "step_0_enhance")
+    working_state["message"] = f"Reusing upstream outputs and rerunning {REVIEW_AGENT_LABELS.get(agent, agent)}..."
+    working_state["human_review_enabled"] = True
+    _save_runner_state(dict(working_state))
+
+    node_by_agent = {
+        "director_showrunner": director_showrunner_node,
+        "rhythm_rewrite_director": rhythm_rewrite_director_node,
+        "story_planner": story_planner_node,
+    }
+    result = node_by_agent[agent](working_state)
+    reviewed = _mark_human_review_state(dict(result), _PHASE_1_RERUN_NEXT_NODES[agent])
+    _save_runner_state(dict(reviewed))
+    return reviewed
 
 
 def route_after_qc(state: Any) -> Any:
@@ -635,6 +772,7 @@ __all__ = [
     "run_full_pipeline",
     "run_phase_2_compile_segment",
     "resume_after_human_review",
+    "rerun_phase_1_agent",
     "run_shot_director_resume_from_partial",
     "run_shot_director_restart_from_story_plan",
     "route_after_qc",

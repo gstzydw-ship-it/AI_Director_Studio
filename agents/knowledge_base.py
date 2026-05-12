@@ -8,6 +8,8 @@
 import os
 import re
 import json
+import stat
+import time
 import warnings
 from datetime import datetime
 import numpy as np
@@ -919,6 +921,49 @@ def _format_mtime(timestamp: float | None) -> str:
     return datetime.fromtimestamp(timestamp).isoformat(timespec="seconds")
 
 
+def _knowledge_file_summary(relpath: str, filepath: str) -> dict[str, Any]:
+    summary: dict[str, Any] = {
+        "title": os.path.splitext(os.path.basename(relpath))[0],
+        "runtime_retrieval": True,
+        "priority": "",
+        "status": "",
+        "doc_type": "",
+        "rule_type": "",
+        "agents": [],
+        "read_error": "",
+    }
+    try:
+        with open(filepath, "r", encoding="utf-8") as f:
+            content = f.read()
+    except OSError as exc:
+        summary["runtime_retrieval"] = None
+        summary["read_error"] = str(exc)
+        return summary
+
+    metadata = _frontmatter_metadata(content)
+    title = str(
+        metadata.get("case_title")
+        or metadata.get("title")
+        or metadata.get("rule_id")
+        or ""
+    ).strip()
+    if not title:
+        for line in _strip_frontmatter(content).splitlines():
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                title = stripped.lstrip("#").strip()
+                break
+    if title:
+        summary["title"] = title
+    summary["runtime_retrieval"] = _runtime_retrieval_enabled(content)
+    summary["priority"] = _canonical_priority(metadata.get("priority"))
+    summary["status"] = str(metadata.get("status", "") or "")
+    summary["doc_type"] = str(metadata.get("doc_type", "") or "")
+    summary["rule_type"] = str(metadata.get("rule_type", "") or "")
+    summary["agents"] = _normalise_agent_scope(metadata.get("agent_scope") or metadata.get("served_agents"))
+    return summary
+
+
 def _knowledge_source_state(knowledge_dir: str | None = None) -> dict:
     latest_mtime = None
     latest_file = ""
@@ -930,7 +975,12 @@ def _knowledge_source_state(knowledge_dir: str | None = None) -> dict:
         except OSError:
             continue
         file_count += 1
-        files.append({"path": relpath, "mtime": mtime, "mtime_iso": _format_mtime(mtime)})
+        files.append({
+            "path": relpath,
+            "mtime": mtime,
+            "mtime_iso": _format_mtime(mtime),
+            **_knowledge_file_summary(relpath, filepath),
+        })
         if latest_mtime is None or mtime > latest_mtime:
             latest_mtime = mtime
             latest_file = relpath
@@ -975,6 +1025,7 @@ def knowledge_index_status(knowledge_dir: str | None = None) -> dict:
         "knowledge_file_count": source_state["file_count"],
         "knowledge_latest_file": source_state["latest_file"],
         "knowledge_latest_mtime": source_state["latest_mtime_iso"],
+        "knowledge_files": source_state["files"],
         "vectordb_path": db_path,
         "vectordb_exists": db_exists,
         "vectordb_mtime": _format_mtime(db_mtime),
@@ -990,6 +1041,38 @@ def knowledge_index_status(knowledge_dir: str | None = None) -> dict:
 
 
 _vectordb_cache: dict | None = None
+
+
+def _write_vectordb_json(db_path: str, data: dict) -> None:
+    persist_dir = os.path.dirname(db_path)
+    os.makedirs(persist_dir, exist_ok=True)
+    temp_path = f"{db_path}.tmp.{os.getpid()}"
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(data, f, ensure_ascii=False)
+            f.flush()
+            os.fsync(f.fileno())
+        if os.path.exists(db_path):
+            os.chmod(db_path, stat.S_IREAD | stat.S_IWRITE)
+        for attempt in range(4):
+            try:
+                os.replace(temp_path, db_path)
+                break
+            except PermissionError:
+                if attempt == 3:
+                    raise
+                time.sleep(0.25 * (attempt + 1))
+    except PermissionError as exc:
+        raise PermissionError(
+            f"无法写入向量库文件：{db_path}。请关闭正在占用该文件的程序，"
+            f"确认目录可写后重试。原始错误：{exc}"
+        ) from exc
+    finally:
+        if os.path.exists(temp_path):
+            try:
+                os.remove(temp_path)
+            except OSError:
+                pass
 
 
 def _load_vectordb() -> dict:
@@ -1059,7 +1142,11 @@ def _load_vectordb() -> dict:
     return data
 
 
-def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
+def build_vectordb(
+    knowledge_dir: str = None,
+    force_rebuild: bool = False,
+    embedding_model_override: str | None = None,
+):
     """
     构建向量知识库。
     每个知识文件的切片都会标注来源文件和所属 Agent，
@@ -1069,7 +1156,7 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
     config = load_config()
     vdb_config = config["vectordb"]
     profile = _load_session_model_profile()
-    embedding_model = profile.get("embedding_model") or vdb_config["embedding_model"]
+    embedding_model = embedding_model_override or profile.get("embedding_model") or vdb_config["embedding_model"]
     embedding_base_url = profile.get("vectordb_base_url") or vdb_config.get("base_url", "")
 
     if knowledge_dir is None:
@@ -1150,7 +1237,6 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
     print(f"  [OK] Embedding 维度: {len(all_embeddings[0])}")
 
     # 持久化到 JSON 文件（含维度/模型元数据，便于后续一致性检查）
-    os.makedirs(persist_dir, exist_ok=True)
     source_state = _knowledge_source_state(knowledge_dir)
     db_data = {
         "documents": all_documents,
@@ -1164,8 +1250,7 @@ def build_vectordb(knowledge_dir: str = None, force_rebuild: bool = False):
         "knowledge_latest_file": source_state["latest_file"],
         "knowledge_latest_mtime": source_state["latest_mtime_iso"],
     }
-    with open(db_path, "w", encoding="utf-8") as f:
-        json.dump(db_data, f, ensure_ascii=False)
+    _write_vectordb_json(db_path, db_data)
 
     _vectordb_cache = None  # 清缓存
     print(f"\n[DONE] 向量库构建完成！共 {total_chunks} 个片段，已保存到 {db_path}")

@@ -1,6 +1,10 @@
-"""Compatibility entrypoint for the Python native UI."""
+"""Compatibility entrypoint for the Python UI.
 
-from ui.local_webui_studio import (
+The Python UI now hosts the full FastAPI/Web frontend so the desktop entrypoint
+and browser UI share the same screens, actions, and backend API surface.
+"""
+
+from ui.webui_native_app import (
     CLI_ERROR,
     UI_MODE,
     DirectorStudioApp,

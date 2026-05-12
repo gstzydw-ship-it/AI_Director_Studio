@@ -492,6 +492,16 @@
                         <div id="knowledgeIndexStatus" class="knowledge-index-status"></div>
                     </div>
                 </div>
+                <section class="knowledge-library">
+                    <div class="knowledge-library-header">
+                        <div>
+                            <span class="section-kicker">Documents</span>
+                            <h3>知识库文档</h3>
+                        </div>
+                        <span id="knowledgeDocumentSummary" class="knowledge-document-summary"></span>
+                    </div>
+                    <div id="knowledgeDocumentCards" class="knowledge-document-grid"></div>
+                </section>
             </div>
         </main>
     </div>
@@ -517,6 +527,7 @@
         let referenceItems = [];
         const MAX_REFERENCE_IMAGES = 12;
         const SESSION_STORAGE_KEY = 'director_session_id';
+        const MODEL_POOL_CACHE_KEY = 'director_model_pools_v1';
         const DEFAULT_MODEL_BASE_URL = 'https://www.xkwuai.cn/v1';
         const DEFAULT_IMAGE_BASE_URL = 'https://ai.comfly.chat/v1';
         let systemConfig = {};
@@ -583,6 +594,7 @@
             if (!index || !index.status) {
                 el.innerHTML = '';
                 el.className = 'knowledge-index-status';
+                renderKnowledgeDocuments([]);
                 return;
             }
             const legacy = index.legacy_vectordb || {};
@@ -606,6 +618,54 @@
                 ${legacy.message ? `<div class="knowledge-index-note">${escapeHtml(legacy.message)}</div>` : ''}
                 ${filesHtml}
             `;
+            renderKnowledgeDocuments(index.knowledge_files || [], index);
+        }
+
+        function knowledgeDocumentBadge(text, className = '') {
+            if (!text) return '';
+            return `<span class="knowledge-document-badge ${className}">${escapeHtml(text)}</span>`;
+        }
+
+        function renderKnowledgeDocuments(files = [], index = {}) {
+            const grid = document.getElementById('knowledgeDocumentCards');
+            const summary = document.getElementById('knowledgeDocumentSummary');
+            if (!grid) return;
+            const items = Array.isArray(files) ? files : [];
+            if (summary) {
+                summary.textContent = items.length ? `${items.length} 个文档` : '';
+            }
+            if (!items.length) {
+                grid.innerHTML = '<div class="knowledge-document-empty">暂无可展示的知识库文档</div>';
+                return;
+            }
+            const stalePaths = new Set((Array.isArray(index.newer_files) ? index.newer_files : []).map(item => item.path));
+            const sorted = [...items].sort((a, b) => String(a.path || '').localeCompare(String(b.path || ''), 'zh-CN'));
+            grid.innerHTML = sorted.map(file => {
+                const agents = Array.isArray(file.agents) ? file.agents.filter(Boolean) : [];
+                const badges = [
+                    stalePaths.has(file.path) ? knowledgeDocumentBadge('待重建', 'warning') : '',
+                    file.runtime_retrieval === false ? knowledgeDocumentBadge('不参与检索', 'muted') : knowledgeDocumentBadge('可检索', 'fresh'),
+                    knowledgeDocumentBadge(file.priority || ''),
+                    knowledgeDocumentBadge(file.status || ''),
+                    knowledgeDocumentBadge(file.doc_type || file.rule_type || ''),
+                    ...agents.slice(0, 3).map(agent => knowledgeDocumentBadge(agent)),
+                    agents.length > 3 ? knowledgeDocumentBadge(`+${agents.length - 3}`) : '',
+                ].filter(Boolean).join('');
+                const readError = file.read_error
+                    ? `<div class="knowledge-document-error">${escapeHtml(file.read_error)}</div>`
+                    : '';
+                return `
+                    <article class="knowledge-document-card ${stalePaths.has(file.path) ? 'is-stale' : ''}">
+                        <div class="knowledge-document-card-top">
+                            <h4>${escapeHtml(file.title || file.path || '未命名文档')}</h4>
+                            <time>${escapeHtml(file.mtime_iso || '')}</time>
+                        </div>
+                        <p>${escapeHtml(file.path || '')}</p>
+                        ${badges ? `<div class="knowledge-document-badges">${badges}</div>` : ''}
+                        ${readError}
+                    </article>
+                `;
+            }).join('');
         }
 
         function modelOptionHtml(models = []) {
@@ -614,6 +674,108 @@
 
         function uniqueModels(models = []) {
             return Array.from(new Set(models.filter(Boolean)));
+        }
+
+        function readModelPoolCache() {
+            try {
+                const parsed = JSON.parse(localStorage.getItem(MODEL_POOL_CACHE_KEY) || '{}');
+                return parsed && typeof parsed === 'object' ? parsed : {};
+            } catch (e) {
+                return {};
+            }
+        }
+
+        function writeModelPoolCache(cache = {}) {
+            try {
+                localStorage.setItem(MODEL_POOL_CACHE_KEY, JSON.stringify(cache));
+            } catch (e) {
+                // localStorage can be unavailable in restricted browser modes; the UI still works without caching.
+            }
+        }
+
+        function profileBaseUrl(profile) {
+            const inputValue = document.getElementById(`${profile}BaseUrl`)?.value?.trim();
+            if (inputValue) return inputValue.replace(/\/+$/, '');
+            const profiles = systemConfig._model_profiles || {};
+            const source = profiles[profile] || {};
+            return String(source.base_url || '').trim().replace(/\/+$/, '');
+        }
+
+        function cacheModelsForProfile(profile, data = {}) {
+            const cache = readModelPoolCache();
+            cache[profile] = {
+                base_url: profileBaseUrl(profile),
+                models: Array.isArray(data.models) ? data.models : [],
+                groups: data.groups || {},
+                saved_at: Date.now(),
+            };
+            writeModelPoolCache(cache);
+        }
+
+        function cacheCurrentModelPool(profile) {
+            const groups = {
+                text: modelPools.text,
+                vision: modelPools.vision,
+                image: modelPools.image,
+                embedding: modelPools.embedding,
+            };
+            cacheModelsForProfile(profile, {
+                models: groups[profile] || [],
+                groups,
+            });
+        }
+
+        function seedModelPoolsFromConfig(config = {}) {
+            const llm = config.llm || {};
+            const vectordb = config.vectordb || {};
+            const imageConfig = config.image_generation || {};
+            const seeds = {
+                text: [llm.model],
+                vision: [],
+                image: [imageConfig.model],
+                embedding: [vectordb.embedding_model],
+            };
+            Object.entries(config.agent_models || {}).forEach(([name, cfg]) => {
+                const model = cfg && typeof cfg === 'object' ? cfg.model : '';
+                const category = agentCategory(name);
+                if (category === 'image') {
+                    seeds.image.push(model);
+                } else if (category === 'embedding') {
+                    seeds.embedding.push(model);
+                } else if (category === 'vision') {
+                    seeds.vision.push(model);
+                    seeds.text.push(model);
+                } else {
+                    seeds.text.push(model);
+                }
+            });
+            modelPools.text = uniqueModels([...modelPools.text, ...seeds.text]);
+            modelPools.vision = uniqueModels([...modelPools.vision, ...seeds.vision, ...modelPools.text]);
+            modelPools.image = uniqueModels([...modelPools.image, ...seeds.image]);
+            modelPools.embedding = uniqueModels([...modelPools.embedding, ...seeds.embedding]);
+        }
+
+        function restoreModelPoolsFromCache(config = {}) {
+            const cache = readModelPoolCache();
+            ['text', 'image', 'embedding'].forEach(profile => {
+                const cached = cache[profile] || {};
+                const cachedBaseUrl = String(cached.base_url || '').trim().replace(/\/+$/, '');
+                if (cachedBaseUrl && cachedBaseUrl !== profileBaseUrl(profile)) return;
+                const groups = cached.groups || {};
+                if (profile === 'text') {
+                    modelPools.text = uniqueModels([...(groups.text || cached.models || []), ...modelPools.text]);
+                    modelPools.vision = uniqueModels([...(groups.vision || groups.text || cached.models || []), ...modelPools.vision]);
+                } else if (profile === 'image') {
+                    modelPools.image = uniqueModels([...(groups.image || cached.models || []), ...modelPools.image]);
+                } else if (profile === 'embedding') {
+                    modelPools.embedding = uniqueModels([...(groups.embedding || cached.models || []), ...modelPools.embedding]);
+                }
+            });
+            seedModelPoolsFromConfig(config);
+        }
+
+        function hasCachedModelPools() {
+            return ['text', 'image', 'embedding'].some(profile => (modelPools[profile] || []).length > 0);
         }
 
         function parseManualModelInput(value = '') {
@@ -741,11 +903,14 @@
                 setProfileInput('text', profiles.text || systemConfig.llm || {});
                 setProfileInput('image', profiles.image || systemConfig.image_generation || {});
                 setProfileInput('embedding', profiles.embedding || systemConfig.vectordb || {});
+                restoreModelPoolsFromCache(systemConfig);
+                refreshModelDatalists();
                 refreshPrimaryModelSelects();
                 renderAgentModelGrid(systemConfig);
                 renderConfigSourceStatus(systemConfig);
                 renderKnowledgeIndexStatus(systemConfig._knowledge_index || {});
-                setConfigStatus(systemConfig._config_note || '配置已读取。', 'info');
+                const cacheNote = hasCachedModelPools() ? '模型列表已从本机缓存恢复；需要更新时再手动拉取。' : '';
+                setConfigStatus([systemConfig._config_note || '配置已读取。', cacheNote].filter(Boolean).join(' '), 'info');
             } catch (e) {
                 setConfigStatus('读取配置失败：' + e.message, 'error');
                 if (grid) grid.innerHTML = '<div class="placeholder-text">配置读取失败。</div>';
@@ -772,6 +937,7 @@
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || '模型列表拉取失败');
                 const groups = data.groups || {};
+                cacheModelsForProfile(profile, data);
                 if (profile === 'text') {
                     modelPools.text = groups.text || data.models || [];
                     modelPools.vision = groups.vision || modelPools.text;
@@ -813,6 +979,7 @@
             refreshModelDatalists();
             refreshPrimaryModelSelects();
             renderAgentModelGrid(systemConfig);
+            cacheCurrentModelPool(profile);
             setConfigStatus(`已手动添加 ${models.length} 个${label}，请保存当前配置。`, 'success');
         }
 
@@ -1601,11 +1768,16 @@
                 };
             }
             if (agent === 'director_showrunner' || agent === 'rhythm_rewrite_director' || agent === 'story_planner') {
+                const phase1Labels = {
+                    director_showrunner: '重跑剧情增强',
+                    rhythm_rewrite_director: '重跑节奏策略',
+                    story_planner: '重跑拆片规划',
+                };
                 return {
                     enabled: Boolean((document.getElementById('scriptInput')?.value || currentPublicState.input_script || '').trim()),
-                    label: '重跑规划',
-                    action: 'phase1',
-                    title: '从场景预分析重新运行宏观规划；会保留当前会话已保存的参考图。',
+                    label: phase1Labels[agent] || '重跑规划',
+                    action: 'phase1_agent',
+                    title: '复用上游 Agent 输出，只清除并重跑当前 Agent 及其下游结果。',
                 };
             }
             if (agent === 'shot_director') {
@@ -1717,6 +1889,10 @@
                 await retryShotDirector();
                 return;
             }
+            if (cfg.action === 'phase1_agent' || ['director_showrunner', 'rhythm_rewrite_director', 'story_planner'].includes(agent)) {
+                await rerunPhase1Agent(agent);
+                return;
+            }
             if (cfg.action === 'phase1') {
                 await rerunPhase1FromCurrentInputs(agent);
                 return;
@@ -1730,6 +1906,32 @@
                 return;
             }
             setResultNotice('这个 Agent 需要从上游流程重跑，当前没有独立接口。', 'warning');
+        }
+
+        async function rerunPhase1Agent(agent = activeResultAgent()) {
+            const formData = new FormData();
+            formData.append('session_id', getSessionId());
+            formData.append('agent_name', agent);
+            const meta = agentResultMeta(agent);
+            document.getElementById('pipelineMsg').textContent = `正在复用上游结果，重跑${meta.title}...`;
+            document.getElementById('interactiveBox').innerHTML = '';
+            updateAgentStatus('running', `${meta.title}重跑中`);
+            try {
+                const resp = await fetch('/api/rerun_phase1_agent', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (data.success) {
+                    setResultNotice(data.message || `${meta.title}已开始重跑。`, 'info');
+                    startPolling();
+                    return;
+                }
+                setResultNotice(data.error || `${meta.title}重跑启动失败`, 'error');
+                showError(data.error || `${meta.title}重跑启动失败`);
+                updateAgentStatus('error', `${meta.title}重跑失败`);
+            } catch (e) {
+                setResultNotice(`${meta.title}重跑启动失败: ${e.message}`, 'error');
+                showError(`${meta.title}重跑启动失败: ` + e.message);
+                updateAgentStatus('error', `${meta.title}重跑失败`);
+            }
         }
 
         async function rerunPhase1FromCurrentInputs(agent = activeResultAgent()) {
@@ -2208,17 +2410,25 @@
                             onerror="this.parentElement.innerHTML='<div class=\\'placeholder-text\\'>图片加载失败</div>'">
                    </div>`
                 : '';
+            const rerunCfg = rerunConfigForAgent(agent);
+            const rerunReviewButton = agent
+                ? `<button class="btn-secondary review-rerun-btn" type="button"
+                           onclick="rerunCurrentAgentOutput('${escapeHtml(agent)}')"
+                           title="${escapeHtml(rerunCfg.title || '')}">${escapeHtml(rerunCfg.label || '重跑')}</button>`
+                : '';
             const topActions = isStoryboardReview
                 ? `<button class="btn-primary review-approve-btn" onclick="saveStoryboardPromptAndGenerateImage()">保存提示词并生成图片</button>
                    <button class="btn-secondary" onclick="saveStoryboardPromptOnly()">只保存提示词</button>
                    <button class="btn-secondary" onclick="approveAgentOutput()">继续下一步</button>
-                   <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>`
+                   <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
+                   ${rerunReviewButton}`
                 : isSceneCardReview
                     ? `<button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存场景图并继续下一步</button>
                        <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
                        <button class="btn-secondary" onclick="rerunCurrentAgentOutput('scene_analyst')">重跑场景图</button>`
                 : `<button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存修改并继续下一步</button>
-                   <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>`;
+                   <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
+                   ${rerunReviewButton}`;
             const reviewHtml = `
                 <div class="agent-review-panel">
                     <div class="agent-review-banner">

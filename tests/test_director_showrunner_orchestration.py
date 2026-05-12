@@ -43,6 +43,10 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
                 "    通过: true\n"
                 "    发现: 未发现硬逻辑错误\n"
                 "    处理: 保留\n"
+                "  - 角色: 冲突强度与画面冲击审查员\n"
+                "    通过: true\n"
+                "    发现: 动作有速度和压力\n"
+                "    处理: 保留\n"
                 "硬错误: 无\n"
                 "评分:\n"
                 "  施事逻辑: 5\n"
@@ -51,6 +55,8 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
                 "  空间调度: 5\n"
                 "  主线保护: 5\n"
                 "  可拍性: 5\n"
+                "  冲突强度: 5\n"
+                "  画面冲击: 5\n"
                 "逻辑审查:\n"
                 "  - 未发现硬逻辑错误\n"
                 "最终处理:\n"
@@ -119,6 +125,9 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
     assert "严格审查清单" in captured["review_user"]
     assert "施事逻辑" in captured["review_user"]
     assert "多维审查" in captured["review_user"]
+    assert "冲突强度与画面冲击审查员" in captured["review_system"]
+    assert "冲突强度 / 画面冲击" in captured["review_user"]
+    assert "急匆匆一路小跑出来" in captured["review_user"]
     assert "增强版剧本" in result["agent_outputs"]["director_showrunner"]
     assert "增强版剧本" not in result["director_brief"]
     assert "增强依据" in result["director_brief"]
@@ -171,6 +180,10 @@ def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch
             "    通过: true\n"
             "    发现: 衣角施事错误已修复\n"
             "    处理: 采纳修复\n"
+            "  - 角色: 冲突强度与画面冲击审查员\n"
+            "    通过: true\n"
+            "    发现: 晨间冲突保持可见压力\n"
+            "    处理: 通过\n"
             "硬错误:\n"
             "  - 类型: 施事错误\n"
             "    原句: 乔熙压住小豆丁乱动的衣角。\n"
@@ -185,6 +198,8 @@ def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch
             "  空间调度: 5\n"
             "  主线保护: 5\n"
             "  可拍性: 5\n"
+            "  冲突强度: 5\n"
+            "  画面冲击: 5\n"
             "逻辑审查:\n"
             "  - 问题: 衣角不能主动乱动。\n"
             "    判断: 施事错误。\n"
@@ -227,6 +242,223 @@ def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch
     assert result["knowledge_metadata"]["director_showrunner"]["runtime"]["logic_review"]["status"] == "reviewed"
 
 
+def test_director_showrunner_blocks_primary_when_logic_reviewer_fails(monkeypatch):
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    def fake_call_llm(_system_prompt, _user_prompt, **kwargs):
+        agent_name = kwargs["agent_name"]
+        if agent_name == "director_showrunner":
+            return (
+                "审查结论: PASS\n"
+                "增强版剧本: |\n"
+                "  未审查增强稿。\n"
+                "增强依据: []\n"
+                "主线保护: []\n"
+                "节奏总控交接: []\n"
+                "需用户确认: 无\n"
+            )
+        assert agent_name == "director_showrunner_logic_reviewer"
+        raise RuntimeError("HTTP 504 from reviewer")
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+
+    result = pci.director_showrunner_node(
+        {
+            "script": "原始剧本。",
+            "original_script": "原始剧本。",
+            "scene_context_brief": "",
+            "aspect_ratio": "9:16",
+            "agent_outputs": {},
+            "knowledge_metadata": {},
+            "speed_mode": False,
+        }
+    )
+
+    output = result["agent_outputs"]["director_showrunner"]
+    runtime = result["knowledge_metadata"]["director_showrunner"]["runtime"]
+    assert result["enhanced_script"] == "原始剧本。"
+    assert "未审查增强稿" not in result["enhanced_script"]
+    assert "审查结论: BLOCKED" in output
+    assert "冲突强度与画面冲击审查员" in output
+    assert runtime["status"] == "blocked_original_script_kept"
+    assert runtime["logic_review"]["status"] == "blocked"
+    assert runtime["logic_review"]["verdict"] == "BLOCKED"
+
+
+def test_director_showrunner_retries_with_compact_prompt_after_504(monkeypatch):
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    calls: list[tuple[str, str]] = []
+
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
+        agent_name = kwargs["agent_name"]
+        calls.append((agent_name, user_prompt))
+        if agent_name == "director_showrunner" and len(calls) == 1:
+            raise RuntimeError(
+                "LLM 接口返回 HTTP 504（agent=director_showrunner, model=claude-opus-4-6，已重试 3 次）"
+            )
+        if agent_name == "director_showrunner":
+            assert kwargs["max_retries"] == 1
+            assert "【输出格式】" in user_prompt
+            return (
+                "增强版剧本: |\n"
+                "  A stops at the door, grips the folder, then enters.\n"
+                "增强依据: []\n"
+                "主线保护:\n"
+                "  - 原台词和人物关系不变\n"
+                "节奏总控交接:\n"
+                "  - 门口动作需要短暂停顿\n"
+                "需用户确认: 无\n"
+            )
+        assert agent_name == "director_showrunner_logic_reviewer"
+        return (
+            "审查结论: PASS\n"
+            "增强版剧本: |\n"
+            "  A stops at the door, grips the folder, then enters.\n"
+            "多维审查:\n"
+            "  - 角色: 冲突强度与画面冲击审查员\n"
+            "    通过: true\n"
+            "    发现: 门口停顿形成可见压力\n"
+            "    处理: 通过\n"
+            "硬错误: 无\n"
+            "评分:\n"
+            "  施事逻辑: 5\n"
+            "  道具连续性: 5\n"
+            "  人物动机: 5\n"
+            "  空间调度: 5\n"
+            "  主线保护: 5\n"
+            "  可拍性: 5\n"
+            "  冲突强度: 5\n"
+            "  画面冲击: 5\n"
+            "逻辑审查: []\n"
+            "最终处理:\n"
+            "  是否返修: false\n"
+            "  返修轮次: 1\n"
+            "  采纳意见: []\n"
+            "  剩余风险: 无\n"
+            "增强依据: []\n"
+            "主线保护: []\n"
+            "节奏总控交接: []\n"
+            "需用户确认: 无\n"
+        )
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+
+    result = pci.director_showrunner_node(
+        {
+            "script": "A enters.",
+            "original_script": "A enters.",
+            "scene_context_brief": "增强约束: 门口保持通畅",
+            "aspect_ratio": "9:16",
+            "agent_outputs": {},
+            "knowledge_metadata": {},
+            "speed_mode": False,
+        }
+    )
+
+    assert [agent_name for agent_name, _prompt in calls] == [
+        "director_showrunner",
+        "director_showrunner",
+        "director_showrunner_logic_reviewer",
+    ]
+    runtime = result["knowledge_metadata"]["director_showrunner"]["runtime"]
+    assert runtime["status"] == "success"
+    assert runtime["degraded_prompt_retry"]["status"] == "success"
+    assert "grips the folder" in result["enhanced_script"]
+
+
+def test_director_showrunner_sanitizes_visible_504_fallback(monkeypatch):
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    def fake_call_llm(_system_prompt, _user_prompt, **kwargs):
+        assert kwargs["agent_name"] == "director_showrunner"
+        raise RuntimeError(
+            "LLM 接口返回 HTTP 504（agent=director_showrunner, model=claude-opus-4-6，已重试 3 次）"
+        )
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+
+    result = pci.director_showrunner_node(
+        {
+            "script": "A enters.",
+            "original_script": "A enters.",
+            "scene_context_brief": "",
+            "aspect_ratio": "9:16",
+            "agent_outputs": {},
+            "knowledge_metadata": {},
+            "speed_mode": False,
+        }
+    )
+
+    output = result["agent_outputs"]["director_showrunner"]
+    assert "增强版剧本" in output
+    assert "A enters." in output
+    assert "LLM 服务临时不可用" in output
+    assert "HTTP 504" not in output
+    assert "claude-opus-4-6" not in output
+    assert result["enhanced_script"] == "A enters."
+    runtime = result["knowledge_metadata"]["director_showrunner"]["runtime"]
+    assert runtime["status"] == "fallback"
+    assert runtime["degraded_prompt_retry"]["status"] == "failed"
+
+
+def test_sanitize_legacy_showrunner_504_fallback_output():
+    old_output = (
+        "主线保护:\n"
+        "  - 使用当前剧本继续施工\n"
+        "兜底原因: RuntimeError: LLM 接口返回 HTTP 504（agent=director_showrunner, "
+        "model=claude-opus-4-6，已重试 3 次；timeout: total=180s；环境代理: 已绕开）\n"
+    )
+
+    sanitized = pci.sanitize_director_showrunner_fallback_output(old_output)
+
+    assert "LLM 服务临时不可用" in sanitized
+    assert "HTTP 504" not in sanitized
+    assert "RuntimeError" not in sanitized
+    assert "claude-opus-4-6" not in sanitized
+
+
+def test_director_showrunner_system_prompt_is_capped():
+    base = "核心规则\n" * 20
+    rules = "===== 以下是必须优先执行的关键规则 =====\n" + ("知识规则很长\n" * 2000)
+
+    capped = pci._cap_director_showrunner_system_prompt(base + rules, max_chars=1200)
+
+    assert len(capped) <= 1200
+    assert "核心规则" in capped
+    assert "规则压缩提示" in capped
+
+
 def test_director_showrunner_strict_review_runs_second_round_when_repair_required(monkeypatch):
     monkeypatch.setattr(
         pci,
@@ -265,6 +497,10 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
                 "    通过: false\n"
                 "    发现: 群体来源已修，但需要二次门禁确认\n"
                 "    处理: 返修后复审\n"
+                "  - 角色: 冲突强度与画面冲击审查员\n"
+                "    通过: false\n"
+                "    发现: 聚拢动作仍偏静态，画面冲击不足\n"
+                "    处理: 要求改成急促小跑聚拢\n"
                 "硬错误:\n"
                 "  - 类型: 人物动机\n"
                 "    原句: 秘书和主管们停下手里的工作。\n"
@@ -279,6 +515,8 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
                 "  空间调度: 4\n"
                 "  主线保护: 5\n"
                 "  可拍性: 4\n"
+                "  冲突强度: 3\n"
+                "  画面冲击: 3\n"
                 "逻辑审查: []\n"
                 "最终处理:\n"
                 "  是否返修: true\n"
@@ -299,6 +537,10 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
             "    通过: true\n"
             "    发现: 群体调度合理\n"
             "    处理: 通过\n"
+            "  - 角色: 冲突强度与画面冲击审查员\n"
+            "    通过: true\n"
+            "    发现: 快速排成迎接队列有动态压力\n"
+            "    处理: 通过\n"
             "硬错误: 无\n"
             "评分:\n"
             "  施事逻辑: 5\n"
@@ -307,6 +549,8 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
             "  空间调度: 5\n"
             "  主线保护: 5\n"
             "  可拍性: 5\n"
+            "  冲突强度: 5\n"
+            "  画面冲击: 5\n"
             "逻辑审查: []\n"
             "最终处理:\n"
             "  是否返修: true\n"
@@ -338,7 +582,7 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
     assert runtime["verdict"] == "PASS"
     assert [item["verdict"] for item in runtime["rounds"]] == ["REPAIR_REQUIRED", "PASS"]
     assert runtime["rounds"][0]["reported_verdict"] == "PASS"
-    assert runtime["rounds"][0]["gate_reason"] == "score_below_4:人物动机"
+    assert runtime["rounds"][0]["gate_reason"] == "score_below_4:人物动机,冲突强度,画面冲击"
     assert "快速排成迎接队列" in result["enhanced_script"]
 
 
@@ -375,6 +619,10 @@ def test_director_showrunner_blocks_unapproved_enhancement_after_max_rounds(monk
             "    通过: false\n"
             "    发现: 施事错误仍未修复\n"
             "    处理: 需要阻断\n"
+            "  - 角色: 冲突强度与画面冲击审查员\n"
+            "    通过: true\n"
+            "    发现: 本轮主要阻断点不是冲突强度\n"
+            "    处理: 通过\n"
             "硬错误:\n"
             "  - 类型: 施事错误\n"
             "    原句: 乔熙压住小豆丁乱动的衣角。\n"
@@ -389,6 +637,8 @@ def test_director_showrunner_blocks_unapproved_enhancement_after_max_rounds(monk
             "  空间调度: 5\n"
             "  主线保护: 5\n"
             "  可拍性: 4\n"
+            "  冲突强度: 4\n"
+            "  画面冲击: 4\n"
             "逻辑审查: []\n"
             "最终处理:\n"
             "  是否返修: true\n"

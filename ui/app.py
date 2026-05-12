@@ -373,6 +373,7 @@ from agents.director_graph import (
     clear_state,
     load_state,
     recover_repairable_pipeline_state,
+    rerun_phase_1_agent,
     resume_after_human_review,
     run_phase_1_planning,
     run_phase_2_compile_segment,
@@ -401,12 +402,35 @@ from agents.director_graph_package.generation_jobs import (
 from agents.director_graph_package import planning_context_impl as scene_card_impl
 
 
+def _sanitize_director_showrunner_state(state: dict | None) -> bool:
+    """Hide noisy legacy LLM gateway errors from persisted showrunner output."""
+    if not isinstance(state, dict):
+        return False
+    changed = False
+    outputs = state.get("agent_outputs")
+    if isinstance(outputs, dict):
+        output = outputs.get("director_showrunner")
+        if isinstance(output, str):
+            sanitized = scene_card_impl.sanitize_director_showrunner_fallback_output(output)
+            if sanitized != output:
+                outputs["director_showrunner"] = sanitized
+                changed = True
+    director_brief = state.get("director_brief")
+    if isinstance(director_brief, str):
+        sanitized = scene_card_impl.sanitize_director_showrunner_fallback_output(director_brief)
+        if sanitized != director_brief:
+            state["director_brief"] = sanitized
+            changed = True
+    return changed
+
+
 def _save_task_state_for_session(
     session_id: str,
     state: dict,
 ) -> bool:
     """Persist a UI task snapshot into the session-owned state file."""
     try:
+        _sanitize_director_showrunner_state(state)
         with request_scope(session_id=_normalise_session_id(session_id)):
             save_state(dict(state))
         _append_task_log(session_id, "state_saved", **_state_log_summary(state))
@@ -425,6 +449,7 @@ def _merge_latest_disk_state_for_session(session_id: str, target_state: dict) ->
         return False
     if not isinstance(latest_state, dict) or not latest_state:
         return False
+    _sanitize_director_showrunner_state(latest_state)
     target_state.update(latest_state)
     return True
 
@@ -515,6 +540,7 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
     except Exception:
         return
     if disk_state:
+        sanitized_disk_state = _sanitize_director_showrunner_state(disk_state)
         has_live_task = _has_live_task(session_id)
         live_status_fields = {}
         if (
@@ -549,6 +575,8 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
         task_state.update(disk_state)
         if live_status_fields:
             task_state.update(live_status_fields)
+        if sanitized_disk_state and not has_live_task:
+            _save_task_state_for_session(session_id, task_state)
         if has_live_task and _progress_signature(task_state) != previous_progress:
             _touch_task_progress(task_state)
             _save_task_state_for_session(session_id, task_state)
@@ -1779,6 +1807,54 @@ def _resume_after_human_review_in_thread(
         _unregister_task_thread(session_id)
 
 
+def _rerun_phase_1_agent_in_thread(
+    agent_name: str,
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Rerun one macro-planning agent while preserving its upstream outputs."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+    label = _AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
+
+    try:
+        with request_scope(session_id=session_id):
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state["status"] = "running_phase_1"
+            task_state["step"] = {
+                "director_showrunner": "step_0_enhance",
+                "rhythm_rewrite_director": "step_0_rhythm",
+                "story_planner": "step_2_plan",
+            }.get(agent_name, "step_0_enhance")
+            task_state["message"] = f"正在复用上游结果，重跑 {label}..."
+            task_state["error"] = ""
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+
+            state = rerun_phase_1_agent(agent_name)
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state.update(state)
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        task_state["status"] = "error"
+        task_state["step"] = {
+            "director_showrunner": "step_0_enhance",
+            "rhythm_rewrite_director": "step_0_rhythm",
+            "story_planner": "step_2_plan",
+        }.get(agent_name, "error")
+        task_state["message"] = f"{label} 重跑失败: {str(e)}"
+        task_state["error"] = traceback.format_exc()
+        _save_task_state_for_session(session_id, task_state)
+    finally:
+        _unregister_task_thread(session_id)
+
+
 def _generate_storyboard_in_thread(
     segment_index: int,
     task_generation: int = 0,
@@ -2416,6 +2492,54 @@ async def api_rerun_phase1(
     _register_task_thread(session_id, thread)
     thread.start()
     return JSONResponse({"success": True, "message": "已从场景预分析重新启动规划流程。"})
+
+
+@app.post("/api/rerun_phase1_agent")
+async def api_rerun_phase1_agent(
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    agent_name: str = Form(""),
+):
+    """Rerun one Phase 1 agent from its saved upstream context."""
+    session_id = _normalise_session_id(session_id)
+    agent_name = (agent_name or "").strip()
+    if agent_name not in {"director_showrunner", "rhythm_rewrite_director", "story_planner"}:
+        return JSONResponse({"success": False, "error": "当前 Agent 不支持独立重跑。"})
+
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    outputs = task_state.get("agent_outputs") or {}
+    if agent_name == "director_showrunner" and not (outputs.get("scene_analyst") or task_state.get("scene_context_brief")):
+        return JSONResponse({"success": False, "error": "缺少场景预分析结果，无法只重跑剧情增强。"})
+    if agent_name == "rhythm_rewrite_director" and not outputs.get("director_showrunner"):
+        return JSONResponse({"success": False, "error": "缺少剧情增强结果，无法只重跑节奏策略。"})
+    if agent_name == "story_planner" and not outputs.get("rhythm_rewrite_director"):
+        return JSONResponse({"success": False, "error": "缺少节奏策略结果，无法只重跑拆片规划。"})
+
+    label = _AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
+    task_generation = _bump_task_generation(session_id)
+    task_state["status"] = "running_phase_1"
+    task_state["step"] = {
+        "director_showrunner": "step_0_enhance",
+        "rhythm_rewrite_director": "step_0_rhythm",
+        "story_planner": "step_2_plan",
+    }[agent_name]
+    task_state["message"] = f"正在复用上游结果，重跑 {label}..."
+    task_state["error"] = ""
+    task_state["started_at"] = _now_iso()
+    _touch_task_progress(task_state, task_state["started_at"])
+    _save_task_state_for_session(session_id, task_state)
+
+    thread = threading.Thread(
+        target=_rerun_phase_1_agent_in_thread,
+        args=(agent_name, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": f"已开始重跑 {label}。"})
 
 
 @app.post("/api/retry_shot_director")
@@ -3949,7 +4073,7 @@ async def api_build_vectordb(request: Request):
 
     def _build_worker() -> None:
         try:
-            build_vectordb(force_rebuild=True)
+            build_vectordb(force_rebuild=True, embedding_model_override=embedding_model)
             with vectordb_build_lock:
                 vectordb_build_status.update({
                     "status": "done",

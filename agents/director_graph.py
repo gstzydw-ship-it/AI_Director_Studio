@@ -66,6 +66,7 @@ _PUBLIC_EXPORTS = {
     "run_full_pipeline",
     "run_phase_2_compile_segment",
     "resume_after_human_review",
+    "rerun_phase_1_agent",
     "generate_storyboard_for_segment",
     "run_shot_director_resume_from_partial",
     "run_shot_director_restart_from_story_plan",

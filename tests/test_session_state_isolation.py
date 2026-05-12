@@ -36,6 +36,37 @@ def test_director_graph_state_is_scoped_by_request_session(tmp_path, monkeypatch
     assert (tmp_path / "sessions" / "web_b" / "pipeline_state.json").exists()
 
 
+def test_reference_images_are_stored_outside_pipeline_state(tmp_path, monkeypatch):
+    from agents import director_graph
+    from agents.request_context import request_scope
+
+    monkeypatch.setattr(director_graph, "OUTPUT_DIR", str(tmp_path))
+
+    images = ["data:image/png;base64,aaa", "data:image/png;base64,bbb"]
+    with request_scope(session_id="web_refs"):
+        director_graph.save_state(
+            {
+                "status": "waiting_for_user_input",
+                "reference_image_b64s": images,
+                "reference_image_manifest": [{"filename": "a.png"}, {"filename": "b.png"}],
+            }
+        )
+
+    session_dir = tmp_path / "sessions" / "web_refs"
+    pipeline_text = (session_dir / "pipeline_state.json").read_text(encoding="utf-8")
+    sidecar_text = (session_dir / "reference_images.json").read_text(encoding="utf-8")
+
+    assert "data:image/png;base64" not in pipeline_text
+    assert '"reference_image_b64s_omitted": 2' in pipeline_text
+    assert "data:image/png;base64,aaa" in sidecar_text
+
+    with request_scope(session_id="web_refs"):
+        loaded = director_graph.load_state()
+
+    assert loaded["reference_image_b64s"] == images
+    assert loaded["reference_image_manifest"][0]["filename"] == "a.png"
+
+
 def test_legacy_global_state_migrates_only_to_local_session(tmp_path, monkeypatch):
     import ui.app as web_app
 

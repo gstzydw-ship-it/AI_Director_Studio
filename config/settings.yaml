@@ -3,30 +3,33 @@ agent_models:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
     timeout_seconds: 180
+    read_timeout_seconds: 180
     max_retries: 3
-    api_key: ${DIRECTOR_LLM_API_KEY}
-    model: gpt-5.5
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    fallback_models:
+    - claude-opus-4-7
+    model: kimi-k2.6
   rhythm_rewrite_director:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.2
     timeout_seconds: 180
     max_retries: 3
-    api_key: ${DIRECTOR_LLM_API_KEY}
-    model: gpt-5.5
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    model: kimi-k2.6
   scene_analyst:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
     timeout_seconds: 240
     read_timeout_seconds: 240
     max_retries: 3
-    api_key: ${DIRECTOR_LLM_API_KEY}
-    model: claude-opus-4-7
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    model: kimi-k2.6
   story_planner:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.2
     timeout_seconds: 240
-    api_key: ${DIRECTOR_LLM_API_KEY}
-    model: claude-opus-4-7
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    model: kimi-k2.6
   shot_director:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.3
@@ -34,59 +37,59 @@ agent_models:
     read_timeout_seconds: 240
     write_timeout_seconds: 90
     max_retries: 3
-    api_key: ${DIRECTOR_LLM_API_KEY}
-    model: claude-opus-4-7
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    model: kimi-k2.6
   prompt_compiler:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 3
-    api_key: ${DIRECTOR_LLM_API_KEY}
-    model: gpt-5.5
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    model: kimi-k2.6
   quality_inspector:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
-    api_key: ${DIRECTOR_LLM_API_KEY}
-    model: claude-opus-4-7
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    model: kimi-k2.6
   storyboard_designer:
-    api_key: ${DIRECTOR_IMAGE_API_KEY}
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 2
-    model: gpt-image-2
+    model: gpt-image-2-all
   scene_vision_analyst:
-    api_key: ${DIRECTOR_LLM_API_KEY}
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: claude-opus-4-7
+    model: kimi-k2.6
   video_analyst:
-    api_key: ${DIRECTOR_LLM_API_KEY}
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: claude-opus-4-7
+    model: kimi-k2.6
   scene_card_designer:
-    api_key: ${DIRECTOR_IMAGE_API_KEY}
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
-    model: gpt-image-2
+    model: gpt-image-2-all
   storyboard_prompt_designer:
-    api_key: ${DIRECTOR_LLM_API_KEY}
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: gpt-5.5
+    model: kimi-k2.6
   script_event_validator:
-    api_key: ${DIRECTOR_LLM_API_KEY}
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: claude-opus-4-7
+    model: kimi-k2.6
   shot_director_layout:
-    api_key: ${DIRECTOR_LLM_API_KEY}
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: claude-opus-4-7
+    model: kimi-k2.6
   shot_director_blocking:
-    api_key: ${DIRECTOR_LLM_API_KEY}
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: claude-opus-4-7
+    model: kimi-k2.6
   shot_director_guard:
-    api_key: ${DIRECTOR_LLM_API_KEY}
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    model: claude-opus-4-7
+    model: kimi-k2.6
 knowledge:
   bm25_top_k: 10
   directory: ./knowledge
@@ -96,7 +99,7 @@ knowledge:
   retrieval_mode: hybrid
   vector_top_k: 10
 llm:
-  api_key: ${DIRECTOR_LLM_API_KEY}
+  api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
   base_url: https://www.xkwuai.cn/v1
   max_tokens: 8192
   max_retries: 2
@@ -128,13 +131,13 @@ ui:
   host: 127.0.0.1
   port: 8686
 vectordb:
-  api_key: ${DIRECTOR_EMBEDDING_API_KEY}
+  api_key: sk-wWVtakMDwdy566420oOIKaHcsooWxtNImwIRNiBWGgBb4Hjb
   base_url: https://ai.comfly.chat/v1
   chunk_overlap: 100
   chunk_size: 800
   collection_name: director_knowledge
-  embedding_model: text-embedding-3-large
+  embedding_model: qwen3-embedding-8b
 image_generation:
-  api_key: ${DIRECTOR_IMAGE_API_KEY}
+  api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
   base_url: https://ai.comfly.chat/v1
-  model: gpt-image-2
+  model: gpt-image-2-all

@@ -36,8 +36,32 @@ def _state_file() -> str:
     return os.path.join(_session_output_dir(), "pipeline_state.json")
 
 
+def _reference_images_file() -> str:
+    return os.path.join(_session_output_dir(), "reference_images.json")
+
+
 def _checkpoint_file() -> str:
     return os.path.join(_session_output_dir(), "director_graph.sqlite")
+
+
+def _read_reference_images_sidecar() -> list[str] | None:
+    path = _reference_images_file()
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    images = payload.get("reference_image_b64s") if isinstance(payload, dict) else payload
+    if not isinstance(images, list):
+        return None
+    return [str(item) for item in images if isinstance(item, str)]
+
+
+def _write_reference_images_sidecar(images: list[str]) -> None:
+    with open(_reference_images_file(), "w", encoding="utf-8") as f:
+        json.dump({"reference_image_b64s": images}, f, ensure_ascii=False)
 
 
 def load_state() -> dict[str, Any]:
@@ -45,20 +69,29 @@ def load_state() -> dict[str, Any]:
     if not os.path.exists(state_file):
         return {}
     with open(state_file, "r", encoding="utf-8") as f:
-        return json.load(f)
+        state = json.load(f)
+    images = _read_reference_images_sidecar()
+    if images is not None:
+        state["reference_image_b64s"] = images
+    return state
 
 
 def save_state(state: dict[str, Any]) -> None:
     os.makedirs(_session_output_dir(), exist_ok=True)
     clean_state = dict(state)
     clean_state.pop("__interrupt__", None)
+    reference_images = clean_state.pop("reference_image_b64s", None)
+    if isinstance(reference_images, list):
+        images = [str(item) for item in reference_images if isinstance(item, str)]
+        _write_reference_images_sidecar(images)
+        clean_state["reference_image_b64s_omitted"] = len(images)
     with open(_state_file(), "w", encoding="utf-8") as f:
         json.dump(clean_state, f, ensure_ascii=False, indent=2)
 
 
 def clear_state() -> None:
     checkpoint_file = _checkpoint_file()
-    for path in [_state_file(), checkpoint_file, f"{checkpoint_file}-wal", f"{checkpoint_file}-shm"]:
+    for path in [_state_file(), _reference_images_file(), checkpoint_file, f"{checkpoint_file}-wal", f"{checkpoint_file}-shm"]:
         if os.path.exists(path):
             try:
                 os.remove(path)

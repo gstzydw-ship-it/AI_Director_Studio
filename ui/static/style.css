@@ -3111,6 +3111,125 @@ input:focus {
     padding-left: 18px;
 }
 
+.knowledge-library {
+    margin-top: 18px;
+}
+
+.knowledge-library-header {
+    display: flex;
+    align-items: end;
+    justify-content: space-between;
+    gap: 14px;
+    margin-bottom: 12px;
+}
+
+.knowledge-library-header h3 {
+    margin: 2px 0 0;
+    color: var(--text-primary);
+    font-size: 18px;
+    line-height: 1.2;
+}
+
+.knowledge-document-summary {
+    color: var(--text-muted);
+    font-size: 13px;
+}
+
+.knowledge-document-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+    gap: 12px;
+}
+
+.knowledge-document-card {
+    min-width: 0;
+    min-height: 154px;
+    padding: 14px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: rgba(21, 21, 23, 0.82);
+}
+
+.knowledge-document-card.is-stale {
+    border-color: rgba(245, 158, 11, 0.5);
+    background: rgba(35, 28, 16, 0.82);
+}
+
+.knowledge-document-card-top {
+    display: grid;
+    gap: 6px;
+}
+
+.knowledge-document-card h4 {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: 15px;
+    line-height: 1.35;
+    overflow-wrap: anywhere;
+}
+
+.knowledge-document-card time,
+.knowledge-document-card p {
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.45;
+}
+
+.knowledge-document-card p {
+    margin: 10px 0 0;
+    overflow-wrap: anywhere;
+}
+
+.knowledge-document-badges {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 12px;
+}
+
+.knowledge-document-badge {
+    max-width: 100%;
+    padding: 4px 7px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.045);
+    color: var(--text-secondary);
+    font-size: 11px;
+    line-height: 1.2;
+    overflow-wrap: anywhere;
+}
+
+.knowledge-document-badge.fresh {
+    border-color: rgba(34, 197, 94, 0.35);
+    color: #bbf7d0;
+}
+
+.knowledge-document-badge.warning {
+    border-color: rgba(245, 158, 11, 0.45);
+    color: #fed7aa;
+}
+
+.knowledge-document-badge.muted {
+    color: var(--text-muted);
+}
+
+.knowledge-document-error,
+.knowledge-document-empty {
+    margin-top: 12px;
+    color: #ffd0d0;
+    font-size: 12px;
+    line-height: 1.5;
+    overflow-wrap: anywhere;
+}
+
+.knowledge-document-empty {
+    padding: 14px;
+    border: 1px dashed var(--border-color);
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.025);
+    color: var(--text-muted);
+}
+
 .status-msg {
     margin-top: 12px;
 }
