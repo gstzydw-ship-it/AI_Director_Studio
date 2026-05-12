@@ -1,11 +1,13 @@
-"""兼容入口：保留旧文件名，但启动原来的 Web UI。"""
+"""Compatibility entrypoint for the Python native UI."""
 
-from ui.app import start_ui
-
-
-def main():
-    """Start the legacy FastAPI Web UI."""
-    start_ui()
+from ui.local_webui_studio import (
+    CLI_ERROR,
+    UI_MODE,
+    DirectorStudioApp,
+    cli,
+    ctk,
+    main,
+)
 
 
 if __name__ == "__main__":
