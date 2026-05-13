@@ -3676,6 +3676,36 @@
             return Math.max(0, Math.min(98, Math.round((idx / STEP_ORDER.length) * 100)));
         }
 
+        function latestKnowledgeHit(events = []) {
+            return [...events].reverse().find(item => {
+                if (!item || item.phase !== 'knowledge') return false;
+                const hasSources = Array.isArray(item.sources) && item.sources.length > 0;
+                const hasRules = Array.isArray(item.rules) && item.rules.length > 0;
+                return hasSources || hasRules || item.event === 'knowledge_retrieval_completed';
+            });
+        }
+
+        function renderAgentProcessBadges(items = [], className = '', limit = 4) {
+            if (!Array.isArray(items) || !items.length) return '';
+            return `<div class="${className}">${items.slice(0, limit).map(item => `<span>${escapeHtml(item)}</span>`).join('')}</div>`;
+        }
+
+        function renderKnowledgeHitBlock(event, currentEvent) {
+            if (!event || event === currentEvent) return '';
+            const title = readableStatusMessage(event.title || '知识库命中');
+            const detail = readableStatusMessage(event.detail || '');
+            const rules = renderAgentProcessBadges(event.rules, 'agent-process-tags', 4);
+            const sources = renderAgentProcessBadges(event.sources, 'agent-process-sources', 4);
+            if (!detail && !rules && !sources) return '';
+            return `
+                <div class="agent-process-knowledge-hit">
+                    <div class="agent-process-knowledge-title">最近知识库命中：${escapeHtml(title)}</div>
+                    ${detail ? `<p>${escapeHtml(detail)}</p>` : ''}
+                    ${rules || sources ? `<div class="agent-process-current-meta">${rules}${sources}</div>` : ''}
+                </div>
+            `;
+        }
+
         function renderAgentProcess(state = {}) {
             const log = document.getElementById('agentProcessLog');
             const summary = document.getElementById('agentProcessSummary');
@@ -3683,6 +3713,7 @@
             if (!log || !summary || !progressBar) return;
 
             const events = Array.isArray(state.agent_process_events) ? state.agent_process_events : [];
+            const knowledgeHit = latestKnowledgeHit(events);
             const status = String(state.status || '');
             const percent = processProgressPercent(state);
             const running = status.startsWith('running');
@@ -3698,7 +3729,14 @@
                         ? '等待审核或继续'
                         : '当前没有运行中的任务');
                 log.className = 'agent-process-current is-idle';
-                log.innerHTML = `<div class="agent-process-empty">${escapeHtml(idleText)}</div>`;
+                if (knowledgeHit) {
+                    log.innerHTML = `
+                        <div class="agent-process-empty">${escapeHtml(idleText)}</div>
+                        ${renderKnowledgeHitBlock(knowledgeHit, null)}
+                    `;
+                } else {
+                    log.innerHTML = `<div class="agent-process-empty">${escapeHtml(idleText)}</div>`;
+                }
                 return;
             }
 
@@ -3721,6 +3759,7 @@
             const sources = Array.isArray(current.sources) && current.sources.length
                 ? `<div class="agent-process-sources">${current.sources.slice(0, 4).map(source => `<span>${escapeHtml(source)}</span>`).join('')}</div>`
                 : '';
+            const knowledgeBlock = renderKnowledgeHitBlock(knowledgeHit, current);
             log.className = `agent-process-current ${statusClass}`;
             log.innerHTML = `
                 <div class="agent-process-current-row">
@@ -3733,6 +3772,7 @@
                     <small>${escapeHtml(meta)}</small>
                 </div>
                 ${rules || sources ? `<div class="agent-process-current-meta">${rules}${sources}</div>` : ''}
+                ${knowledgeBlock}
             `;
         }
 

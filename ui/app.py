@@ -4179,9 +4179,19 @@ async def api_save_config(request: Request):
         else:
             agent_config["fallback_routes"] = [next_fallback]
         if custom_base_url:
+            custom_route_api_key = custom_api_key or _saved_api_key_for_base_url(raw_config, custom_base_url, fallback_key="")
+            try:
+                same_previous_custom_route = (
+                    _normalise_config_base_url(custom_base_url)
+                    == _normalise_config_base_url(str(previous_custom_route.get("base_url") or ""))
+                )
+            except ValueError:
+                same_previous_custom_route = False
+            if not custom_route_api_key and same_previous_custom_route:
+                custom_route_api_key = str(previous_custom_route.get("api_key") or "").strip()
             agent_config["custom_route"] = {
                 "base_url": _normalise_config_base_url(custom_base_url),
-                "api_key": custom_api_key,
+                "api_key": custom_route_api_key,
             }
         if selected_model:
             agent_config["model"] = selected_model

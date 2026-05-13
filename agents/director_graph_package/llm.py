@@ -246,6 +246,22 @@ def _coerce_int(value: Any, default: int, minimum: int | None = None) -> int:
     return resolved
 
 
+def _coerce_bool(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"1", "true", "yes", "y", "on"}:
+            return True
+        if normalized in {"0", "false", "no", "n", "off"}:
+            return False
+    return default
+
+
 def _get_llm_runtime_option(agent_name: str, key: str, default: Any) -> Any:
     full_config = load_config()
     value = _as_mapping(full_config.get("llm")).get(key, default)
@@ -398,7 +414,9 @@ def _configured_api_key_for_base_url(base_url: str, agent_name: str = "") -> str
     return ""
 
 
-def _effective_retry_budget(agent_name: str, max_retries: int) -> int:
+def _effective_retry_budget(agent_name: str, max_retries: int, *, has_fallback_routes: bool = False) -> int:
+    if has_fallback_routes:
+        return max_retries
     if agent_name in {"story_planner", "director_showrunner"}:
         return max(max_retries, 3)
     if agent_name == "director_showrunner_logic_reviewer":
@@ -562,6 +580,65 @@ def _extract_message_text(message: dict[str, Any]) -> str:
     return str(content)
 
 
+def _extract_stream_delta_text(chunk: dict[str, Any]) -> str:
+    choices = chunk.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return ""
+    first_choice = choices[0] or {}
+    if not isinstance(first_choice, dict):
+        return ""
+    delta = first_choice.get("delta")
+    if isinstance(delta, dict):
+        text = _extract_message_text(delta)
+        if text:
+            return text
+    message = first_choice.get("message")
+    if isinstance(message, dict):
+        text = _extract_message_text(message)
+        if text:
+            return text
+    text = first_choice.get("text")
+    return text if isinstance(text, str) else ""
+
+
+def _read_chat_completion_stream(response: httpx.Response) -> str:
+    parts: list[str] = []
+    for raw_line in response.iter_lines():
+        if not raw_line:
+            continue
+        line = raw_line.decode("utf-8", errors="ignore") if isinstance(raw_line, bytes) else str(raw_line)
+        line = line.strip()
+        if not line or line.startswith(":") or not line.startswith("data:"):
+            continue
+        data = line[5:].strip()
+        if not data:
+            continue
+        if data == "[DONE]":
+            break
+        try:
+            chunk = json.loads(data)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(chunk, dict):
+            text = _extract_stream_delta_text(chunk)
+            if text:
+                parts.append(text)
+    return "".join(parts)
+
+
+def _llm_streaming_enabled(agent_name: str, extra_params: dict[str, Any], images_base64: list[str] | None) -> bool:
+    if images_base64:
+        return False
+    if "stream" in extra_params:
+        return _coerce_bool(extra_params.get("stream"), False)
+    if "streaming" in extra_params:
+        return _coerce_bool(extra_params.get("streaming"), False)
+    return _coerce_bool(_get_llm_runtime_option(agent_name, "stream", False), False) or _coerce_bool(
+        _get_llm_runtime_option(agent_name, "streaming", False),
+        False,
+    )
+
+
 def _runtime_event_base_url_host(base_url: str) -> str:
     try:
         return base_url.split("//", 1)[1].split("/", 1)[0] if "//" in base_url else base_url
@@ -612,7 +689,7 @@ def call_llm(
     extra_params = _get_llm_extra_params(agent_name)
     if extra_params:
         for key, value in extra_params.items():
-            if key == "temperature":
+            if key in {"temperature", "stream", "streaming"}:
                 continue
             base_payload[key] = value
         if isinstance(extra_params.get("thinking"), dict) and extra_params["thinking"].get("type") == "enabled":
@@ -623,11 +700,15 @@ def call_llm(
                 if max_tokens <= 0 or max_tokens < needed:
                     base_payload["max_tokens"] = needed
 
+    stream_enabled = _llm_streaming_enabled(agent_name, extra_params, images_base64)
+    if stream_enabled:
+        base_payload["stream"] = True
+
+    fallback_route_configs = _get_llm_fallback_routes(agent_name)
     if max_retries is None:
         max_retries = _coerce_int(_get_llm_runtime_option(agent_name, "max_retries", 2), 2, minimum=1)
     else:
         max_retries = max(1, int(max_retries))
-    max_retries = _effective_retry_budget(agent_name, max_retries)
 
     last_exc: Exception | None = None
     last_retryable = False
@@ -640,7 +721,7 @@ def call_llm(
             "label": "primary",
         }
     ]
-    for route in _get_llm_fallback_routes(agent_name):
+    for route in fallback_route_configs:
         route_base_url = _normalise_base_url(route.get("base_url") or base_url)
         route_api_key = str(route.get("api_key") or "").strip()
         if not route_api_key:
@@ -674,6 +755,8 @@ def call_llm(
                 "label": "fallback route",
             }
         )
+
+    max_retries = _effective_retry_budget(agent_name, max_retries, has_fallback_routes=len(routes_to_try) > 1)
 
     attempted_models: list[str] = []
     proxy_modes: list[tuple[bool, bool, str]] = [(not bypass_proxy, bypass_proxy, "")]
@@ -756,9 +839,27 @@ def call_llm(
                         max_retries=max_retries,
                         proxy_mode="system" if trust_env else "direct",
                         timeout_seconds=request_timeout,
+                        stream=stream_enabled,
                     )
                     try:
                         with httpx.Client(timeout=timeout, trust_env=trust_env) as client:
+                            if stream_enabled:
+                                with client.stream("POST", f"{active_base_url}/chat/completions", headers=route_headers, json=payload) as response:
+                                    response.raise_for_status()
+                                    text = _read_chat_completion_stream(response)
+                                if not text:
+                                    raise RuntimeError("LLM stream response did not include content")
+                                emit_runtime_event(
+                                    "llm_attempt_succeeded",
+                                    agent_name=agent_name,
+                                    model=active_model,
+                                    route_host=route_host,
+                                    attempt=attempt,
+                                    elapsed_seconds=round(_time.perf_counter() - attempt_started, 3),
+                                    output_chars=len(text or ""),
+                                    stream=True,
+                                )
+                                return text.strip()
                             response = client.post(f"{active_base_url}/chat/completions", headers=route_headers, json=payload)
                             response.raise_for_status()
                             result = response.json()
@@ -777,6 +878,7 @@ def call_llm(
                             attempt=attempt,
                             elapsed_seconds=round(_time.perf_counter() - attempt_started, 3),
                             output_chars=len(text or ""),
+                            stream=False,
                         )
                         return text.strip()
                     except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.NetworkError) as exc:

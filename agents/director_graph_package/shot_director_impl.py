@@ -59,7 +59,7 @@ _DIALOGUE_COVERAGE_TERMS_RE = re.compile(
 # =============================================================================
 # shot_director v1 schema contract — 镜头导演字段
 # =============================================================================
-_SHOT_CONSTRUCTION_FRAGMENT_FIELDS: tuple[str, ...] = ("fragment_task", "rhythm", "shots")
+_SHOT_CONSTRUCTION_FRAGMENT_FIELDS: tuple[str, ...] = ("fragment_task", "rhythm", "continuity_context", "shots")
 _SHOT_CONSTRUCTION_REQUIRED_FIELDS: tuple[str, ...] = (
     "shot_id",
     "duration",
@@ -76,6 +76,7 @@ _SHOT_YAML_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "fragment_id": ("fragment_id", "片段编号"),
     "fragment_task": ("fragment_task", "片段任务"),
     "rhythm": ("rhythm", "节奏"),
+    "continuity_context": ("continuity_context", "空间连续性总控", "片段连续性总控"),
     "shots": ("shots", "镜头列表"),
     "shot_id": ("shot_id", "镜头编号"),
     "duration": ("duration", "时长"),
@@ -152,10 +153,25 @@ def _build_shot_director_workflow_trace(
         fragments.append(
             {
                 "fragment_id": fragment_id,
+                "fragment_task": _truncate_for_prompt(
+                    _field_value_any(section, "片段任务", "dramatic_unit", "戏剧单元"),
+                    240,
+                ),
+                "duration_target": _truncate_for_prompt(
+                    _field_value_any(section, "目标时长", "duration_target"),
+                    120,
+                ),
                 "source_event_count": len(source_events),
                 "source_event_preview": [_truncate_for_prompt(event, 180) for event in source_events[:3]],
-                "reaction_plan": _truncate_for_prompt(_field_value(section, "reaction_plan"), 240),
-                "director_brief": _truncate_for_prompt(_field_value(section, "director_brief"), 240),
+                "reaction_plan": _truncate_for_prompt(
+                    _field_value_any(section, "承接要求", "reaction_plan"),
+                    240,
+                ),
+                "shot_director_handoff": _truncate_for_prompt(
+                    _field_value_any(section, "镜头导演交接", "shot_director_handoff", "导演交接"),
+                    300,
+                ),
+                "director_brief": _truncate_for_prompt(_field_value_any(section, "director_brief", "导演交接"), 240),
             }
         )
 
@@ -163,9 +179,12 @@ def _build_shot_director_workflow_trace(
         fragments = [
             {
                 "fragment_id": fragment_id,
+                "fragment_task": "",
+                "duration_target": "",
                 "source_event_count": 0,
                 "source_event_preview": [],
                 "reaction_plan": "",
+                "shot_director_handoff": "",
                 "director_brief": "",
             }
             for fragment_id in expected_segments
@@ -328,6 +347,23 @@ def _reference_image_manifest_prompt(state: DirectorState | dict[str, Any]) -> s
   
 def _director_brief(state: DirectorState | dict[str, Any]) -> str:  
     return str(state.get("director_brief") or "").strip()  
+
+
+def _scene_context_brief(state: DirectorState | dict[str, Any]) -> str:
+    outputs = state.get("agent_outputs") if isinstance(state.get("agent_outputs"), dict) else {}
+    return str(state.get("scene_context_brief") or outputs.get("scene_analyst") or "").strip()
+
+
+def _scene_context_prompt_block(scene_context: str) -> str:
+    scene_context = (scene_context or "").strip()
+    if not scene_context:
+        return ""
+    return (
+        "[场景分析师给镜头导演的空间约束]\n"
+        "只把它当作空间、固定物、入口、人物限制和可拍性参考；不得据此新增剧本外人物、台词、道具或动作。"
+        "如果它与拆片原文事件、尾帧承接或节奏总控冲突，以拆片原文事件和连续性为准。\n"
+        f"{_truncate_for_prompt(scene_context, 1200)}\n"
+    )
 
 
 def _director_brief_prompt_block(director_brief: str) -> str:
@@ -895,6 +931,13 @@ def _field_value(section: str, field: str) -> str:
     match = re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:\s*[\"']?(.+?)[\"']?\s*$", section)
     return match.group(1).strip() if match else ""
 
+def _field_value_any(section: str, *fields: str) -> str:
+    for field in fields:
+        value = _field_value(section, field)
+        if value:
+            return value
+    return ""
+
 def _source_script_events(section: str) -> list[str]:
     block_match = re.search(
         r"(?m)^\s*(?:source_script_events|施工剧本原文事件|当前剧本事件)\s*:\s*"
@@ -1133,11 +1176,91 @@ def _repair_shot_director_contract_output(output: str, script: str) -> str:
 
     return _MAIN_SHOT_BLOCK_RE.sub(repl, output)
 
+def _script_scene_heading(script: str) -> str:
+    for raw_line in (script or "").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("人物"):
+            continue
+        if "：" in line or ":" in line:
+            continue
+        if re.search(r"内|外|夜|日|车内|办公室|电梯|门口|走廊|大堂", line):
+            return line
+    return ""
+
+
+def _fragment_subject_names(section: str, script: str) -> list[str]:
+    names = _primary_script_character_names(script)
+    found = [name for name in names if name and name in section]
+    if found:
+        return found
+
+    subjects: list[str] = []
+    for _shot_id, shot_block in _main_shot_blocks(section):
+        subject = _yaml_line_field(shot_block, "subject")
+        for item in re.split(r"[、,，/和\s]+", subject or ""):
+            item = item.strip().strip("\"'")
+            if not item or item in {"人物名", "双人关系", "当前人物", "剧本已有道具"}:
+                continue
+            if item not in subjects:
+                subjects.append(item)
+    return subjects[:4]
+
+
+def _infer_fragment_continuity_context(section: str, script: str) -> str:
+    task = _yaml_line_field(section, "fragment_task") or "连续戏剧任务"
+    subjects = _fragment_subject_names(section, script)
+    subject_text = "、".join(subjects) if subjects else "本片段人物"
+    scene_heading = _script_scene_heading(script)
+    scene_text = f"在{scene_heading}的同一空间内" if scene_heading else "在同一空间内"
+    return (
+        f"本片段是一段{task}；{subject_text}{scene_text}完成这一段动作和对白；"
+        "单人镜只改变拍摄主体，不代表其他在场人物离开；"
+        "每一镜继承上一镜尾帧的人物位置、道具状态、视线方向和同侧轴线。"
+    )
+
+
+def _quote_yaml_scalar(value: str) -> str:
+    return '"' + (value or "").replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def _insert_fragment_continuity_context(section: str, script: str) -> str:
+    if _has_shot_yaml_field(section, "continuity_context"):
+        return section
+
+    lines = section.splitlines()
+    if not lines:
+        return section
+
+    first_is_fragment_header = bool(re.match(r"^\s*-\s*(?:fragment_id|片段编号)\s*:", lines[0]))
+    insert_after = 1 if first_is_fragment_header else 0
+    indent = "  " if first_is_fragment_header else ""
+    for index, line in enumerate(lines):
+        if re.match(r"^\s*(?:rhythm|节奏)\s*:", line):
+            insert_after = index + 1
+            indent = re.match(r"^(\s*)", line).group(1)
+            break
+        if re.match(r"^\s*(?:fragment_task|片段任务)\s*:", line):
+            insert_after = index + 1
+            indent = re.match(r"^(\s*)", line).group(1)
+
+    value = _infer_fragment_continuity_context(section, script)
+    lines.insert(insert_after, f"{indent}空间连续性总控: {_quote_yaml_scalar(value)}")
+    return "\n".join(lines)
+
+
+def _repair_fragment_continuity_contexts(output: str, script: str) -> str:
+    sections = _extract_yaml_sections(output or "")
+    if not sections:
+        return output
+    return "\n\n".join(_insert_fragment_continuity_context(section, script) for section in sections)
+
 _SHOT_DIRECTOR_CHINESE_FIELD_NAMES: tuple[tuple[str, str], ...] = (
     ("fragment_id", "片段编号"),
     ("fragment_task", "片段任务"),
     ("fragment_intent", "片段意图"),
     ("rhythm", "节奏"),
+    ("continuity_context", "空间连续性总控"),
+    ("segment_continuity", "空间连续性总控"),
     ("fallback_mode", "兜底模式"),
     ("fallback_reason", "兜底原因"),
     ("space_rules", "空间规则"),
@@ -1289,6 +1412,7 @@ def _repair_shot_director_output_contracts(output: str, script: str) -> str:
     repaired = _repair_shot_director_contract_output(repaired, script)
     repaired = _repair_body_mechanics_contract_output(repaired)
     repaired = _translate_shot_director_english_contract_output(repaired)
+    repaired = _repair_fragment_continuity_contexts(repaired, script)
     return repaired
 
 def _has_elevator_facing(value: str) -> bool:
@@ -1628,9 +1752,12 @@ def _shot_director_guard_stage_rule_block(aspect_ratio: str) -> str:
         "3. 删除或改写抽象构图术语、人物相对左右机位、数字角度、英文摄影术语和内部字段。\n"
         "4. 保留前两位的片段编号、镜头编号、主体、剧情事实和主要镜头创意。\n\n"
         "【最终 YAML 必须使用中文字段】\n"
-        "- 片段编号、片段任务、节奏、镜头列表\n"
+        "- 片段编号、片段任务、节奏、空间连续性总控、镜头列表\n"
         "- 镜头编号、时长、镜头任务、拍摄主体、镜头、画面动作、台词、必须承载、切镜点、连续性\n"
         "- 可选保留：覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责、声音、类型\n\n"
+        "【空间连续性总控】\n"
+        "每个片段在镜头列表前必须先写一句片段级连续性总控：本片段是一段什么戏剧任务，哪些人物始终处在同一空间内；"
+        "单人镜只表示镜头主体变化，不代表其他在场人物离开；每镜继承上一镜尾帧、道具状态、视线方向和同侧轴线。\n\n"
         "【最终镜头表达】\n"
         "镜头字段写成自然可执行表达：景别 + 简洁机位 + 人物动作/台词/反应。可以写“从谁肩后看向谁或门口”“门口侧面固定机位，人物停在门边”，不要写“门框形成前景压线”或“人物站进门框”。\n"
         "台词只能使用原剧本原文或 ~；英文台词原文可保留在引号内，因为它是剧本文本，不是英文字段。\n"
@@ -1753,7 +1880,12 @@ def _shot_director_layout_context(planner_output: str, aspect_ratio: str) -> str
     ]
     for section in sections:
         fragment_id = _extract_fragment_id(section) or "unknown"
-        dramatic_unit = _field_value(section, "dramatic_unit") or _field_value(section, "片段任务") or _field_value(section, "承接要求")
+        fragment_task = _field_value_any(section, "片段任务", "dramatic_unit", "戏剧单元")
+        duration_target = _field_value_any(section, "目标时长", "duration_target")
+        reaction_plan = _field_value_any(section, "承接要求", "reaction_plan")
+        shot_handoff = _field_value_any(section, "镜头导演交接", "shot_director_handoff", "导演交接")
+        director_brief = _field_value_any(section, "director_brief", "导演交接")
+        dramatic_unit = fragment_task or reaction_plan
         active_cast = _extract_nested_list_items(section, "cast", "active")
         if not active_cast:
             active_cast = _extract_top_level_list_items(section, "出现人物")
@@ -1772,6 +1904,9 @@ def _shot_director_layout_context(planner_output: str, aspect_ratio: str) -> str
             [
                 f"- 片段编号: {fragment_id}",
                 f"  戏剧单元: {_trim_layout_text(dramatic_unit, 120) or '无'}",
+                f"  目标时长: {_trim_layout_text(duration_target, 80) or '无'}",
+                f"  承接要求: {_trim_layout_text(reaction_plan, 160) or '无'}",
+                f"  镜头导演交接: {_trim_layout_text(shot_handoff or director_brief, 220) or '无'}",
                 f"  出场人物: {', '.join(active_cast) if active_cast else '无'}",
                 f"  禁止呈现: {', '.join(must_not_show) if must_not_show else '无'}",
                 f"  入场连续性: {_trim_layout_text(continuity_entry, 140) or '无'}",
@@ -2529,6 +2664,7 @@ def _run_shot_director_single_pass_impl(
             "【每个片段必须交付】\n"
             "1. 片段任务 — 本片段的剧情施工任务，例如建立关系、冲突升级、信息揭示、反应落点、权力反转、喜剧泄压、尾帧钩子。\n"
             "2. 节奏 — 继承节奏总控给镜头导演的操作单，写清哪些内容拍完整、哪些内容可以省略、哪里必须停留、最多几个镜头；若发生冲突，说明按原剧本/连续性优先。\n\n"
+            "3. 空间连续性总控 — 写在镜头列表前，说明本段是什么戏剧任务、哪些人物处在同一空间内；单人镜只改变拍摄主体，不代表其他在场人物离开。\n\n"
             "【每个镜头必须回答】\n"
             "1. 时长 — 该镜头在片段内的时间段，必须连续，例如 0-2秒、2-5秒。\n"
             "2. 镜头任务 — 这个镜头负责什么：建立关系、承载对白、动作推进、信息揭示、反应落点、尾帧承接等。\n"
@@ -2568,6 +2704,7 @@ def _run_shot_director_single_pass_impl(
             "- 片段编号: F01\n"
             "  片段任务: 本片段的剧情施工任务\n"
             "  节奏: 服从节奏总控的节奏指令\n"
+            "  空间连续性总控: 本片段是一段具体戏剧任务；人物始终处在同一空间内；单人镜只改变拍摄主体，不代表其他在场人物离开；每一镜继承上一镜尾帧、道具状态和同侧轴线\n"
             "  镜头列表:\n"
             "    - 镜头编号: F01-S01\n"
             "      时长: 0-2秒\n"
@@ -2590,9 +2727,10 @@ def _run_shot_director_single_pass_impl(
             "6. 只有剧本已有信息载体才能成为拍摄主体；不要新增空镜、道具或环境信息。\n"
             "7. 每个镜头的时间段必须连续，前后衔接。\n"
             "8. 不要输出任何英文字段名；字段名必须使用上面的中文写法。\n\n"
-            "9. 每个片段必须执行【镜头库调用任务单】里的镜头库任务：先判断剧情信号，再决定镜头结构和切点；"
+            "9. 每个片段必须在镜头列表前输出【空间连续性总控】，供 prompt_compiler 写入【空间与首帧总控】；它必须明确“同一空间、同一人物组、单人镜不等于其他人物消失”。\n\n"
+            "10. 每个片段必须执行【镜头库调用任务单】里的镜头库任务：先判断剧情信号，再决定镜头结构和切点；"
             "如果任务单与原剧本事件冲突，以原剧本事件和拆片边界为准。\n\n"
-            "10. 每个片段必须主动判断剪辑省略点和镜头语言变化策略；不要让一个中景/同一机位吃完整段戏，不要连续堆同侧固定机位和中近景。\n\n"
+            "11. 每个片段必须主动判断剪辑省略点和镜头语言变化策略；不要让一个中景/同一机位吃完整段戏，不要连续堆同侧固定机位和中近景。\n\n"
             f"{_shot_director_coverage_contract_prompt()}\n"
             f"{rule_block}"
             "请只输出完整 YAML 镜头方案。"
@@ -2697,7 +2835,7 @@ def _run_shot_director_single_pass_impl(
             + "\n".join(f"- {issue}" for issue in final_issues)
             + "\n\n【关键原则】\n"
             "1. 优先信任已分片输出，只修失败/缺失的片段编号。\n"
-            "2. 每个返修片段必须有：片段编号、片段任务、节奏、镜头列表。\n"
+            "2. 每个返修片段必须有：片段编号、片段任务、节奏、空间连续性总控、镜头列表。\n"
             "3. 每个镜头必须有字段：镜头编号、时长、镜头任务、拍摄主体、镜头、画面动作、台词、必须承载、切镜点、连续性。\n"
             "4. 切镜点必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
             "5. 长台词必须插入听者反应镜头；不新增剧本外元素。\n\n"
@@ -3149,6 +3287,7 @@ def _build_local_shot_director_fallback(
             f"- 片段编号: {fragment_id}",
             f"  片段任务: {_yaml_quote('本地兜底承接已确认拆片事件：' + event_a[:120])}",
             "  节奏: \"承接上游节奏；每个镜头只保留一个可读动作。\"",
+            f"  空间连续性总控: {_yaml_quote(_infer_fragment_continuity_context(section, script))}",
             "  兜底模式: \"镜头导演本地兜底\"",
             f"  兜底原因: {_yaml_quote(failure_note)}",
             "  镜头列表:",
@@ -3239,7 +3378,11 @@ def run_shot_director_for_segment(
     if director_brief_text:
         director_hint = f"{director_hint} director_showrunner {director_brief_text[:300]}"
 
-    scene_reference_context = _reference_image_manifest_prompt(state)
+    scene_context_block = _scene_context_prompt_block(_scene_context_brief(state))
+    scene_reference_manifest = _reference_image_manifest_prompt(state)
+    scene_reference_context = "\n\n".join(
+        part for part in (scene_context_block, scene_reference_manifest) if part.strip()
+    )
     if tail_frame_analysis:
         scene_reference_context = (
             f"{scene_reference_context.strip()}\n\n" if scene_reference_context.strip() else ""
@@ -3596,7 +3739,11 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         director_hint = f"{director_hint} director_showrunner {director_brief_text[:300]}"
     shot_runtime_started = time.perf_counter()
     reference_images = _reference_images(state) or None
-    scene_reference_context = _reference_image_manifest_prompt(state)
+    scene_context_block = _scene_context_prompt_block(_scene_context_brief(state))
+    scene_reference_manifest = _reference_image_manifest_prompt(state)
+    scene_reference_context = "\n\n".join(
+        part for part in (scene_context_block, scene_reference_manifest) if part.strip()
+    )
     stage_runtimes: dict[str, dict[str, Any]] = {}
 
     def persist_stage(stage_name: str, stage_output: str, stage_runtime: dict[str, Any], stage_meta_snapshot: dict[str, dict[str, Any]]) -> None:
@@ -3732,7 +3879,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
                 + "\n".join(f"- {issue}" for issue in primary_hard_issues)
                 + "\n\n【修复原则】\n"
                 "1. 优先信任已分片输出，只修失败/缺失的片段编号。\n"
-                "2. 每个返修片段必须有：片段编号、片段任务、节奏、镜头列表。\n"
+                "2. 每个返修片段必须有：片段编号、片段任务、节奏、空间连续性总控、镜头列表。\n"
                 "3. 每个镜头必须有字段：镜头编号、时长、镜头任务、拍摄主体、镜头、画面动作、台词、必须承载、切镜点、连续性。\n"
                 "4. 切镜点必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。\n"
                 "5. 长台词必须插入听者反应镜头；只能使用剧本里的人物和台词，不新增剧本外内容。\n"

@@ -879,6 +879,10 @@ def test_save_config_primary_route_uses_current_text_profile(monkeypatch):
                 "base_url": "https://stale-custom.example/v1",
                 "api_key": "stale-custom-key",
                 "route_preset": "custom",
+                "custom_route": {
+                    "base_url": "https://stale-custom.example/v1",
+                    "api_key": "stale-custom-key",
+                },
                 "available_models": [f"stale-{index}" for index in range(120)],
             },
         },
@@ -916,6 +920,7 @@ def test_save_config_primary_route_uses_current_text_profile(monkeypatch):
     assert director["route_preset"] == "primary"
     assert director["base_url"] == "https://text.example/v1"
     assert director["api_key"] == "text-key"
+    assert director["custom_route"]["api_key"] == "stale-custom-key"
     assert director["model"] == "gpt-5.5"
     assert len(director["available_models"]) == 80
 

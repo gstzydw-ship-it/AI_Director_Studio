@@ -18,6 +18,7 @@ from agents.director_graph_package.shot_director_impl import (  # noqa: E402
     _shot_director_coverage_contract_prompt,
     _shot_director_downstream_context,
     _shot_director_workflow_contract,
+    _repair_shot_director_output_contracts,
     _validate_shot_director_output,
     _validate_shot_director_variety,
 )
@@ -58,6 +59,7 @@ def test_shot_director_accepts_all_chinese_output_fields():
     director_output = """- 片段编号: F01
   片段任务: 电梯口压迫
   节奏: 前压后停
+  空间连续性总控: 本片段是一段电梯口压迫；乔熙和商北琛始终在同一电梯口空间内；单人镜只改变拍摄主体，不代表另一人离开；每一镜继承上一镜尾帧的人物位置、道具状态、视线方向和同侧轴线。
   镜头列表:
     - 镜头编号: F01-S01
       时长: 0-2秒
@@ -74,12 +76,44 @@ def test_shot_director_accepts_all_chinese_output_fields():
     assert _validate_shot_director_output(director_output, ["F01"]) == []
 
 
+def test_shot_director_repair_adds_fragment_continuity_context():
+    director_output = """- 片段编号: F01
+  片段任务: 车内命令戴项链
+  节奏: 命令压迫后给乔熙反应
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-3秒
+      镜头任务: 建立车内双人关系
+      拍摄主体: 乔熙、商北琛
+      镜头: 竖屏双人中景
+      画面动作: 商北琛拿着项链看向乔熙，乔熙坐在旁边承接压力
+      台词: ~
+      必须承载: 两人同处车内和项链压迫关系
+      切镜点: 项链被拿起后切出
+      连续性: 乔熙和商北琛仍在同一车内空间，项链仍在商北琛手中
+"""
+    script = """9-1 夜/内/劳斯莱斯车内
+人物：乔熙、商北琛
+商北琛：Put the necklace on. And don't embarrass me.
+"""
+
+    repaired = _repair_shot_director_output_contracts(director_output, script)
+
+    assert "空间连续性总控:" in repaired
+    assert "乔熙、商北琛在9-1 夜/内/劳斯莱斯车内的同一空间内" in repaired
+    assert "单人镜只改变拍摄主体" in repaired
+    assert _validate_shot_director_output(repaired, ["F01"]) == []
+
+
 def test_shot_director_workflow_trace_summarises_planner_fragments():
     planner_output = """- fragment_id: F01
+  duration_target: "8s"
+  dramatic_unit: "Photo reveal"
   source_script_events:
     - "Qiao Xi picks up the photo."
     - "Xiaodouding says she wants him to be daddy."
   reaction_plan: "Hold Qiao Xi reaction before flashback."
+  shot_director_handoff: "Reveal the photo fully before the flashback handoff."
   director_brief: "Protect the photo reveal and emotional recoil."
 - fragment_id: F02
   source_script_events:
@@ -109,6 +143,9 @@ def test_shot_director_workflow_trace_summarises_planner_fragments():
         "tailframe_role",
     ]
     assert trace["fragments"][0]["fragment_id"] == "F01"
+    assert trace["fragments"][0]["fragment_task"] == "Photo reveal"
+    assert trace["fragments"][0]["duration_target"] == "8s"
+    assert "flashback handoff" in trace["fragments"][0]["shot_director_handoff"]
     assert trace["fragments"][0]["source_event_count"] == 2
     assert "photo" in trace["fragments"][0]["source_event_preview"][0]
 
@@ -124,6 +161,7 @@ def test_shot_director_reads_chinese_story_planner_handoff():
   入场状态: "乔熙手边有书包，照片仍在书包内。"
   出场状态: "照片滑落到地面，乔熙看到照片。"
   承接要求: "反应留在本段尾部。"
+  镜头导演交接: "照片滑落必须拍完整，反应留在本段尾部，结尾停在乔熙看到照片。"
 """
 
     trace = _build_shot_director_workflow_trace(
@@ -136,7 +174,13 @@ def test_shot_director_reads_chinese_story_planner_handoff():
     context = _shot_director_downstream_context(planner_output, "", "9:16")
 
     assert trace["fragments"][0]["fragment_id"] == "F01"
+    assert trace["fragments"][0]["duration_target"] == "8-10秒"
+    assert "反应留在本段尾部" in trace["fragments"][0]["reaction_plan"]
+    assert "照片滑落必须拍完整" in trace["fragments"][0]["shot_director_handoff"]
     assert trace["fragments"][0]["source_event_count"] == 2
+    assert "目标时长: 8-10秒" in context
+    assert "承接要求: 反应留在本段尾部" in context
+    assert "镜头导演交接: 照片滑落必须拍完整" in context
     assert "乔熙拿起书包" in context
     assert "出场人物: 乔熙" in context
     assert "出场连续性: 照片滑落到地面" in context
@@ -497,6 +541,7 @@ def test_shot_director_node_forwards_filtered_scene_references(monkeypatch):
         {
             "script": "乔熙走到电梯门口。",
             "aspect_ratio": "9:16",
+            "scene_context_brief": "空间约束：电梯门在画面右侧，走廊不能新增前台。",
             "agent_outputs": {"story_planner": "- fragment_id: F01\n  source_script_events:\n    - 乔熙走到电梯门口。\n"},
             "reference_image_b64s": ["person-a", "layout-a", "annotated-a", "prop-a"],
             "reference_image_manifest": [
@@ -514,6 +559,8 @@ def test_shot_director_node_forwards_filtered_scene_references(monkeypatch):
 
     assert captured["images_base64"] == ["layout-a", "annotated-a"]
     assert captured["review_images_base64"] == ["layout-a", "annotated-a"]
+    assert "场景分析师给镜头导演的空间约束" in str(captured["scene_reference_context"])
+    assert "走廊不能新增前台" in str(captured["scene_reference_context"])
     assert "用户标注后的俯视图" in str(captured["scene_reference_context"])
     assert "乔熙(0.30,0.50)" in str(captured["scene_reference_context"])
     assert result["agent_outputs"]["shot_director"].startswith("- 片段编号: F01")

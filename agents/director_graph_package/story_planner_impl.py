@@ -160,10 +160,10 @@ def _has_planner_field_any(section: str, fields: tuple[str, ...]) -> bool:
 
 def _field_value(section: str, field: str) -> str:
     fields = {
-        "dramatic_unit": ("dramatic_unit", "片段任务"),
+        "dramatic_unit": ("dramatic_unit", "片段任务", "戏剧单元"),
         "duration_target": ("duration_target", "目标时长"),
         "reaction_plan": ("reaction_plan", "承接要求"),
-        "director_brief": ("director_brief",),
+        "director_brief": ("director_brief", "导演交接", "镜头导演交接", "shot_director_handoff"),
     }.get(field, (field,))
     for candidate in fields:
         match = re.search(rf"(?m)^\s*-?\s*{re.escape(candidate)}\s*:\s*[\"']?(.+?)[\"']?\s*$", section)
@@ -194,6 +194,28 @@ def _infer_reaction_plan(section: str) -> str:
     return (
         f"{dramatic_unit} 不涉及独立受击反应，保持片段内动作/对白连续承接，"
         "无需升级为独立片段。"
+    )
+
+def _infer_fragment_task(section: str) -> str:
+    events = _source_script_events(section)
+    duration = _field_value(section, "duration_target")
+    first_events = "；".join(event.strip() for event in events[:2] if event.strip())
+    if first_events:
+        suffix = f"，目标时长 {duration}" if duration else ""
+        return f"覆盖本片段原文事件：{first_events}{suffix}"
+    reaction_plan = _field_value(section, "reaction_plan")
+    if reaction_plan:
+        return f"围绕承接要求组织本片段：{reaction_plan}"
+    return "覆盖本片段内的原文事件，不新增镜头导演职责外的剧情内容。"
+
+def _infer_shot_director_handoff(section: str) -> str:
+    duration = _field_value(section, "duration_target") or "按目标时长执行"
+    reaction_plan = _field_value(section, "reaction_plan") or "按片段内动作和台词自然承接"
+    exit_state = _field_value(section, "出场状态") or _field_value(section, "exit_state")
+    exit_part = f"结尾画面按出场状态承接：{exit_state}" if exit_state else "结尾画面按本片段最后一个原文事件承接"
+    return (
+        f"镜头导演只覆盖本片段原文事件；目标时长：{duration}；承接要求：{reaction_plan}；"
+        f"{exit_part}；不得新增剧本外人物、台词、道具、动作或空间。"
     )
 
 def _planner_field_indent(lines: list[str]) -> str:
@@ -290,11 +312,27 @@ def _normalise_story_planner_output(planner_output: str, source_script: str = ""
     for section in sections:
         lines = section.splitlines()
         section_after_boundary = "\n".join(lines)
+        if not _has_planner_field_alias(section_after_boundary, ("dramatic_unit", "片段任务", "戏剧单元")):
+            _insert_planner_field_before(
+                lines,
+                field="片段任务",
+                value=_infer_fragment_task(section_after_boundary),
+                before_fields=("duration_target", "目标时长", "source_script_events", "施工剧本原文事件"),
+            )
+            section_after_boundary = "\n".join(lines)
         if not _has_planner_field_alias(section_after_boundary, ("reaction_plan", "承接要求")):
             _insert_planner_field_before(
                 lines,
                 field="承接要求",
                 value=_infer_reaction_plan(section_after_boundary),
+                before_fields=("director_brief", "beat_design", "shots"),
+            )
+            section_after_boundary = "\n".join(lines)
+        if not _has_planner_field_alias(section_after_boundary, ("shot_director_handoff", "镜头导演交接", "导演交接")):
+            _insert_planner_field_before(
+                lines,
+                field="镜头导演交接",
+                value=_infer_shot_director_handoff(section_after_boundary),
                 before_fields=("director_brief", "beat_design", "shots"),
             )
         section_text = "\n".join(lines).strip()
@@ -540,7 +578,7 @@ def _story_planner_repair_prompt(
         "【修复硬约束】\n"
         "1. 只输出 YAML，不要解释、不要 Markdown 代码围栏、不要前后说明。\n"
         "2. 片段编号必须从 F01 开始顺序递增，不能跳号，不能使用场次号或复合编号。\n"
-        "3. 每个片段只需要包含：片段编号、目标时长、施工剧本原文事件、出现人物、入场状态、出场状态、承接要求。\n"
+        "3. 每个片段只需要包含：片段编号、片段任务、目标时长、施工剧本原文事件、出现人物、入场状态、出场状态、承接要求、镜头导演交接。\n"
         "4. 禁止输出镜头、机位、景别、子分镜、剧情解释、场景预分析简表、剧情增强约束或风险长说明。\n"
         "5. 施工剧本原文事件必须逐条引用【当前施工剧本】中的原文，不能概括、改写或新增剧本外动作。\n"
         "6. 只做分段，不做分镜；不要写 shots、shot_id、sub_shots、camera、angle、beat_design。\n"
@@ -833,17 +871,19 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         "【输出格式】\n"
         "只输出 YAML 列表。每个片段只允许这些中文字段：\n"
         "- 片段编号：必须从 F01 开始顺序递增。\n"
+        "- 片段任务：一句话说明本段要完成的剧情施工任务，只概括原文事件，不写镜头、机位、景别或运镜。\n"
         "- 目标时长：通常 15 秒以内；内容很短可以更短。\n"
         "- 施工剧本原文事件：数组，逐条照抄当前施工剧本里的动作或台词原文。\n"
         "- 出现人物：只写本片段出现或被明确听见的人物。\n"
         "- 入场状态：本片段开始时，人物、道具、门、电梯、空间等必要状态。\n"
         "- 出场状态：本片段结束时，需要下游接住的必要状态。\n"
-        "- 承接要求：只写分段承接提醒，例如反应留在本段、下一段承接某状态、无需独立反应。\n\n"
+        "- 承接要求：只写分段承接提醒，例如反应留在本段、下一段承接某状态、无需独立反应。\n"
+        "- 镜头导演交接：把节奏总控里和本段相关的必须拍完整、可省略、不能省略、最少停留、最多镜头数、结尾画面压成一句施工交接；没有额外节奏要求时写按目标时长与承接要求执行。不得写具体镜头方案。\n\n"
         "【分段规则】\n"
         "1. 只按剧情动作单元、完整发言单元、场景/状态变化来分段，不平均切秒数。\n"
         "2. 不要为了凑满 15 秒补写剧本外内容；动作少就短一点，弱事件可合并。\n"
         "3. 一段太长或同时包含多个清楚任务时再拆开；普通停顿、短反应、信息揭示不用单独拆成一段。\n"
-        "4. 节奏提示只能影响片段边界、目标时长、入场状态、出场状态和承接要求，不得变成新的剧本事件。\n"
+        "4. 节奏提示只能影响片段边界、片段任务、目标时长、入场状态、出场状态、承接要求和镜头导演交接，不得变成新的剧本事件。\n"
         "5. 15 秒估算尺：普通对白段通常可容纳 6-8 条原文事件；动作密集段通常只容纳 2-4 条原文事件；长对白按完整意思单元拆。\n"
         "6. 优先在进门完成、照片落地、人物发现、关系反转、场景切换、动作结果已经成立的位置拆开。\n"
         "7. 不要在一句话中间、一个动作中间、同一个反应尚未落地、只是换表情或未来会换镜头的位置拆开。\n"

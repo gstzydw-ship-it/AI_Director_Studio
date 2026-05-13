@@ -107,6 +107,7 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
                 "- fragment_id: F05\n"
                 "  fragment_task: 对峙升级\n"
                 "  rhythm: 台词压迫后给听者反应\n"
+                "  continuity_context: 本片段是一段对峙升级；商北琛、严飞在同一办公室空间内；单人镜只改变拍摄主体，不代表另一人离开。\n"
                 "  shots:\n"
                 "    - shot_id: F05-S01\n"
                 "      duration: 0-3秒\n"
@@ -127,6 +128,8 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
     assert "compiled_segment_1" in result["agent_outputs"]
     assert "fragment_id: F05" in captured["user_prompt"]
     assert "F05-S01" in captured["user_prompt"]
+    assert "商北琛、严飞在同一办公室空间内" in captured["user_prompt"]
+    assert "单人镜只改变拍摄主体" in captured["user_prompt"]
     assert "fragment_id: F01" not in captured["user_prompt"]
 
 

@@ -127,6 +127,31 @@ def test_story_planner_autofills_missing_reaction_plan():
     assert not any("reaction_plan" in issue for issue in issues)
 
 
+def test_story_planner_autofills_shot_director_handoff_fields():
+    planner_output = """
+- fragment_id: F01
+  duration_target: "8s"
+  source_script_events:
+    - "Qiao grabs the coat."
+  cast:
+    active:
+      - "Qiao"
+      - "Kid"
+    must_not_show: []
+  continuity:
+    entry: "Qiao is beside the bed."
+    exit: "The kid is still resisting."
+"""
+
+    normalised = _normalise_story_planner_output(planner_output, "Qiao grabs the coat.")
+    issues = _validate_story_planner_output(normalised, "Qiao grabs the coat.")
+
+    assert "片段任务:" in normalised
+    assert "镜头导演交接:" in normalised
+    assert "目标时长：8s" in normalised
+    assert issues == []
+
+
 def test_story_planner_splits_merged_adjacent_source_events():
     script = "\n".join(
         [
@@ -558,6 +583,8 @@ def test_story_planner_prompt_uses_current_script_with_slim_rule_digest(monkeypa
     assert "【给结构规划师的节奏操作单】" in prompt
     assert "【知识库极简规则】" in prompt
     assert "SEG-NOT-EQUAL-002" in prompt
+    assert "片段任务" in prompt
+    assert "镜头导演交接" in prompt
     assert "只做分段" in str(captured["system_prompt"])
     assert "施工剧本原文事件" in prompt
     assert "剧情增强导演契约" not in prompt

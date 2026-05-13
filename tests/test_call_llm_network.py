@@ -12,6 +12,26 @@ class _FakeResponse:
         return {"choices": [{"message": {"content": "ok"}}]}
 
 
+class _FakeStreamResponse:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return False
+
+    def raise_for_status(self):
+        return None
+
+    def iter_lines(self):
+        return iter(
+            [
+                'data: {"choices":[{"delta":{"content":"hello "}}]}',
+                'data: {"choices":[{"delta":{"content":"world"}}]}',
+                "data: [DONE]",
+            ]
+        )
+
+
 def _patch_llm_settings(monkeypatch):
     monkeypatch.setattr(
         director_graph,
@@ -58,6 +78,51 @@ def test_call_llm_bypasses_proxy_environment_by_default(monkeypatch):
 
     assert director_graph.call_llm("system", "user", agent_name="shot_director_layout") == "ok"
     assert captured["trust_env"] is False
+
+
+def test_call_llm_streams_when_config_enabled(monkeypatch):
+    monkeypatch.setattr(
+        director_graph,
+        "load_config",
+        lambda: {
+            "llm": {
+                "api_key": "test-key",
+                "base_url": "https://ai.comfly.chat/v1",
+                "model": "test-model",
+                "temperature": 0.2,
+                "stream": True,
+            },
+            "agent_models": {},
+        },
+    )
+    monkeypatch.setattr(director_graph, "_get_llm_extra_params", lambda agent_name="": {})
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def stream(self, method, url, **kwargs):
+            captured["method"] = method
+            captured["url"] = url
+            captured["payload"] = kwargs["json"]
+            return _FakeStreamResponse()
+
+        def post(self, *args, **kwargs):
+            raise AssertionError("streaming call should not use post")
+
+    monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
+
+    assert director_graph.call_llm("system", "user", agent_name="director_showrunner") == "hello world"
+    assert captured["method"] == "POST"
+    assert captured["url"] == "https://ai.comfly.chat/v1/chat/completions"
+    assert captured["payload"]["stream"] is True
 
 
 def test_call_llm_retries_with_system_proxy_after_direct_connect_failure(monkeypatch):
@@ -209,8 +274,6 @@ def test_call_llm_tries_configured_fallback_route_after_network_failure(monkeypa
     assert director_graph.call_llm("system", "user", agent_name="director_showrunner", bypass_proxy=False) == "ok"
     assert attempts == [
         ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
-        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
-        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
         ("https://backup.example/v1/chat/completions", "Bearer backup-key", "backup-model"),
     ]
 
@@ -266,8 +329,6 @@ def test_call_llm_uses_same_host_configured_key_for_fallback_route(monkeypatch):
 
     assert director_graph.call_llm("system", "user", agent_name="director_showrunner", bypass_proxy=False) == "ok"
     assert attempts == [
-        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
-        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
         ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
         ("https://backup.example/v1/chat/completions", "Bearer backup-host-key", "backup-model"),
     ]

@@ -371,6 +371,7 @@ def test_shot_director_v1_uses_merged_shot_field():
     director_output = """- fragment_id: F01
   fragment_task: "建立关系"
   rhythm: "稳慢压"
+  continuity_context: "本片段是一段建立关系；乔熙、商北琛在同一办公室空间内；单人镜只改变拍摄主体，不代表另一人离开。"
   shots:
     - shot_id: F01-S01
       duration: "0-3秒"
