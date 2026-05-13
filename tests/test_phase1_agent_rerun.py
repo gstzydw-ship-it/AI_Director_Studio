@@ -63,6 +63,28 @@ def test_rerun_director_showrunner_preserves_scene_and_clears_downstream(monkeyp
     assert saved["review_agent"] == "director_showrunner"
 
 
+def test_director_showrunner_fallback_review_message_is_not_completed(monkeypatch):
+    from agents.director_graph_package import runners
+
+    saved = {}
+    state = {
+        "agent_outputs": {"director_showrunner": "fallback output"},
+        "knowledge_metadata": {
+            "director_showrunner": {"runtime": {"status": "fallback"}},
+        },
+    }
+
+    monkeypatch.setattr(runners, "_save_runner_state", lambda value: saved.update(value))
+
+    result = runners._mark_human_review_state(dict(state), ("rhythm_rewrite_director",))
+
+    assert result["review_agent"] == "director_showrunner"
+    assert "未完成" in result["message"]
+    assert "已完成" not in result["message"]
+    assert "检查模型配置" in result["message"]
+    assert saved["message"] == result["message"]
+
+
 def test_api_rerun_phase1_agent_uses_targeted_worker(monkeypatch, tmp_path):
     import ui.app as web_app
 

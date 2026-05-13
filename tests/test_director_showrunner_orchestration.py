@@ -449,6 +449,47 @@ def test_sanitize_legacy_showrunner_504_fallback_output():
     assert "claude-opus-4-6" not in sanitized
 
 
+def test_director_showrunner_401_fallback_tells_user_to_check_model_config(monkeypatch):
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    def fake_call_llm(_system_prompt, _user_prompt, **kwargs):
+        assert kwargs["agent_name"] == "director_showrunner"
+        raise RuntimeError(
+            "LLM 接口返回 HTTP 401（agent=director_showrunner, model=claude-opus-4-7）: invalid token"
+        )
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+
+    result = pci.director_showrunner_node(
+        {
+            "script": "A enters.",
+            "original_script": "A enters.",
+            "scene_context_brief": "",
+            "aspect_ratio": "9:16",
+            "agent_outputs": {},
+            "knowledge_metadata": {},
+            "speed_mode": False,
+        }
+    )
+
+    output = result["agent_outputs"]["director_showrunner"]
+    assert "大模型鉴权失败" in output
+    assert "API Key" in output
+    assert "invalid token" not in output
+    assert result["enhanced_script"] == "A enters."
+    assert result["knowledge_metadata"]["director_showrunner"]["runtime"]["status"] == "fallback"
+
+
 def test_director_showrunner_system_prompt_is_capped():
     base = "核心规则\n" * 20
     rules = "===== 以下是必须优先执行的关键规则 =====\n" + ("知识规则很长\n" * 2000)

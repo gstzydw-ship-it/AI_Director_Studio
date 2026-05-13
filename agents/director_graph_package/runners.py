@@ -411,13 +411,22 @@ def _mark_human_review_state(state: dict[str, Any], next_nodes: Any) -> dict[str
         return state
 
     label = REVIEW_AGENT_LABELS.get(agent, agent)
+    runtime = (
+        (state.get("knowledge_metadata") or {})
+        .get(agent, {})
+        .get("runtime", {})
+    )
+    runtime_status = runtime.get("status") if isinstance(runtime, dict) else ""
     state["status"] = "waiting_for_user_input"
     state["review_mode"] = "agent_output"
     state["review_agent"] = agent
     state["review_title"] = label
     state["review_output"] = _review_output_for_agent(state, agent)
     state["step"] = REVIEW_AGENT_STEPS.get(agent, state.get("step") or "")
-    state["message"] = f"{label} 已完成。请先审核或编辑，然后继续。"
+    if agent == "director_showrunner" and runtime_status == "fallback":
+        state["message"] = f"{label} 未完成：大模型调用失败，已保留原剧本。请检查模型配置或重跑。"
+    else:
+        state["message"] = f"{label} 已完成。请先审核或编辑，然后继续。"
     _save_runner_state(dict(state))
     return state
 

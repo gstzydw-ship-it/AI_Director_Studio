@@ -307,6 +307,7 @@ _AGENT_DISPLAY_NAMES = {
     "director_showrunner": "📝 剧情增强",
     "rhythm_rewrite_director": "🎼 节奏改写",
     "scene_analyst": "📋 场景预分析",
+    "scene_vision_analyst": "📷 场景视觉分析",
     "story_planner": "🎬 结构规划",
     "shot_director": "🎥 镜头设计",
     "storyboard_designer": "🎨 分镜流程图",
@@ -3361,6 +3362,10 @@ def _looks_like_env_placeholder(value: str) -> bool:
     return bool(re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", text) or re.fullmatch(r"%[A-Za-z_][A-Za-z0-9_]*%", text))
 
 
+def _is_masked_api_key(value: object) -> bool:
+    return bool(re.fullmatch(r"\*{3,}", str(value or "").strip()))
+
+
 AGENT_LABELS: dict[str, str] = {
     "director_showrunner": "剧情增强",
     "rhythm_rewrite_director": "节奏总控",
@@ -3388,6 +3393,7 @@ AGENT_MODEL_UI_NAMES: tuple[str, ...] = (
     "director_showrunner",
     "rhythm_rewrite_director",
     "scene_analyst",
+    "scene_vision_analyst",
     "story_planner",
     "shot_director",
     "prompt_compiler",
@@ -3396,8 +3402,8 @@ AGENT_MODEL_UI_NAMES: tuple[str, ...] = (
 )
 
 MODEL_PROFILE_LABELS: dict[str, str] = {
-    "text": "文本/视觉 Agent",
-    "image": "生图 Agent",
+    "text": "中转站 1",
+    "image": "中转站 2",
     "embedding": "向量嵌入",
 }
 
@@ -3688,6 +3694,41 @@ def _agent_route_by_base_url(agent_config: dict, base_url: str) -> dict:
     return {}
 
 
+def _saved_api_key_for_base_url(raw_config: dict, base_url: str, fallback_key: str = "") -> str:
+    try:
+        target = _normalise_config_base_url(base_url)
+    except ValueError:
+        return str(fallback_key or "").strip()
+    candidate_routes: list[dict] = []
+    for profile in ("text", "image", "embedding"):
+        source = _profile_source(raw_config, profile)
+        if isinstance(source, dict):
+            candidate_routes.append(source)
+    agent_models = raw_config.get("agent_models") or {}
+    if isinstance(agent_models, dict):
+        for agent_config in agent_models.values():
+            if not isinstance(agent_config, dict):
+                continue
+            candidate_routes.append(agent_config)
+            fallback_routes = agent_config.get("fallback_routes")
+            if isinstance(fallback_routes, list):
+                candidate_routes.extend(route for route in fallback_routes if isinstance(route, dict))
+            custom_route = agent_config.get("custom_route")
+            if isinstance(custom_route, dict):
+                candidate_routes.append(custom_route)
+    for route in candidate_routes:
+        api_key = str(route.get("api_key") or "").strip()
+        if not api_key or _looks_like_env_placeholder(api_key) or _is_masked_api_key(api_key):
+            continue
+        try:
+            route_url = _normalise_config_base_url(str(route.get("base_url") or ""))
+        except ValueError:
+            continue
+        if route_url == target:
+            return api_key
+    return str(fallback_key or "").strip()
+
+
 @app.post("/api/model_list")
 async def api_model_list(request: Request):
     if not _is_local_request(request):
@@ -3727,8 +3768,14 @@ async def api_model_list(request: Request):
         if matching_route:
             saved_route = matching_route
     api_key = str(payload.get("api_key") or "").strip()
-    if not api_key or api_key == "***":
-        api_key = str(saved_route.get("api_key") or _profile_source(raw_config, profile).get("api_key") or "").strip()
+    if not api_key or _is_masked_api_key(api_key):
+        api_key = str(saved_route.get("api_key") or "").strip()
+    if not api_key or _is_masked_api_key(api_key):
+        api_key = _saved_api_key_for_base_url(
+            raw_config,
+            base_url,
+            fallback_key=str(_profile_source(raw_config, profile).get("api_key") or "").strip(),
+        )
     if _looks_like_env_placeholder(api_key):
         api_key = ""
     if not api_key:
@@ -3795,7 +3842,7 @@ async def api_model_list(request: Request):
 
 def _resolve_saved_api_key(raw_config: dict, profile: str, submitted_key: str, fallback_key: str = "") -> str:
     submitted_key = str(submitted_key or "").strip()
-    if submitted_key and submitted_key != "***":
+    if submitted_key and not _is_masked_api_key(submitted_key):
         return submitted_key
     existing_key = str(_profile_source(raw_config, profile).get("api_key") or "").strip()
     if _looks_like_env_placeholder(existing_key):
@@ -3834,7 +3881,7 @@ def _route_api_key_from_submission(
     profile_key: str,
 ) -> str:
     submitted = str(submitted_key or "").strip()
-    if submitted and submitted != "***":
+    if submitted and not _is_masked_api_key(submitted):
         return submitted
     existing_key = str(previous_route.get("api_key") or "").strip()
     return existing_key or profile_key
@@ -3881,7 +3928,7 @@ async def _probe_agent_connection(
         "model": model,
         "messages": [
             {"role": "system", "content": "你是连通性测试端点，只需回复 OK。"},
-            {"role": "user", "content": f"测试 {label} ({agent_name}) 的模型连通性，请只回复 OK。"},
+            {"role": "user", "content": f"测试“{label}”的模型连通性，请只回复 OK。"},
         ],
         "temperature": 0,
         "max_tokens": 8,
@@ -4081,8 +4128,8 @@ async def api_save_config(request: Request):
         ).strip()
         custom_api_key = _route_api_key_from_submission(
             submitted_key=route_payload.get("custom_api_key"),
-            previous_route=previous_custom_route or payload_custom_route,
-            profile_key=default_api_key,
+            previous_route={},
+            profile_key="",
         )
         fallback_base_url = str(previous_fallback.get("base_url") or default_base_url).strip()
         fallback_api_key = str(previous_fallback.get("api_key") or default_api_key).strip()
@@ -4095,6 +4142,7 @@ async def api_save_config(request: Request):
             }
         elif route_preset == "custom":
             selected_base_url = _normalise_config_base_url(custom_base_url)
+            custom_api_key = custom_api_key or _saved_api_key_for_base_url(raw_config, selected_base_url, fallback_key=default_api_key)
             selected_api_key = custom_api_key
             next_fallback = {"base_url": fallback_base_url, "api_key": fallback_api_key}
         else:
@@ -4148,6 +4196,8 @@ async def api_save_config(request: Request):
         write_agent_config(agent_name, submitted_payload or selected_model, _agent_category(agent_name))
 
     for derived_agent, source_agent in DERIVED_AGENT_MODEL_SOURCES.items():
+        if derived_agent in agent_models_payload:
+            continue
         if source_agent not in selected_models:
             continue
         source_category = _agent_category(source_agent)
@@ -4245,9 +4295,10 @@ async def api_test_agent_connections(request: Request):
             base_url = str(route_payload.get("custom_base_url") or custom_route.get("base_url") or base_url)
             api_key = _route_api_key_from_submission(
                 submitted_key=route_payload.get("custom_api_key"),
-                previous_route=custom_route,
-                profile_key=profile_api_key,
+                previous_route={},
+                profile_key="",
             )
+            api_key = api_key or _saved_api_key_for_base_url(raw_config, base_url, fallback_key=profile_api_key)
         elif route_preset == "fallback":
             fallback_routes = stored_agent.get("fallback_routes") if isinstance(stored_agent.get("fallback_routes"), list) else []
             fallback_route = fallback_routes[0] if fallback_routes and isinstance(fallback_routes[0], dict) else {}

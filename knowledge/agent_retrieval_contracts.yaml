@@ -284,6 +284,11 @@ agents:
         - transition
         - continuity
         - model_generability
+        - multicam_system
+        - aspect_ratio_mapping
+        - vertical_shot_type
+        - action_group_budget_rhythm
+        - programmatic_shot_schema
       avoid_as_primary:
         - script_rewrite
     priority_policy:
@@ -321,6 +326,10 @@ agents:
         - poor_model_generability
         - occluded_subject
         - aspect_ratio_mismatch
+        - shot_monotony
+        - vertical_closeup_overuse
+        - same_scale_repetition
+        - group_dialogue_flattened
     dialogue_types:
       match:
         - shot_reverse_shot
@@ -345,6 +354,17 @@ agents:
         - "transition"
         - "axis"
         - "composition"
+        - "多机位体系"
+        - "二机位"
+        - "三机位"
+        - "四机位"
+        - "画幅映射"
+        - "竖屏正反切"
+        - "纵深前后"
+        - "群戏调度"
+        - "动作戏"
+        - "预算降级"
+        - "跨片段景别节奏"
 
   prompt_compiler:
     agent_scope:
@@ -363,6 +383,9 @@ agents:
         - negative_prompt
         - continuity
         - model_generability
+        - aspect_ratio_mapping
+        - vertical_shot_type
+        - natural_shot_expression
       avoid_as_primary:
         - story_rewrite
         - new_shot_decision
@@ -399,6 +422,9 @@ agents:
         - identity_drift
         - unsafe_or_unfilmable_action
         - aspect_ratio_mismatch
+        - abstract_prompt
+        - unsupported_director_jargon
+        - vertical_closeup_overuse
     dialogue_types:
       match:
         - visible_speaking
@@ -423,6 +449,11 @@ agents:
         - "no invention"
         - "continuity token"
         - "aspect ratio"
+        - "自然中文镜头表达"
+        - "竖屏镜头类型"
+        - "从谁看向谁"
+        - "抽象镜头词"
+        - "画幅映射"
 
   quality_inspector:
     agent_scope:
@@ -442,6 +473,10 @@ agents:
         - model_generability
         - safety
         - output_schema
+        - aspect_ratio_mapping
+        - multicam_system
+        - action_group_budget_rhythm
+        - programmatic_shot_schema
       avoid_as_primary: []
     priority_policy:
       prefer:
@@ -479,6 +514,10 @@ agents:
         - poor_model_generability
         - unsafe_or_unfilmable_action
         - aspect_ratio_mismatch
+        - shot_monotony
+        - same_scale_repetition
+        - abstract_prompt
+        - vertical_closeup_overuse
     dialogue_types:
       match:
         - any

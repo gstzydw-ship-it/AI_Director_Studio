@@ -94,8 +94,13 @@ def test_shot_director_workflow_trace_summarises_planner_fragments():
         aspect_ratio="9:16",
     )
 
-    assert trace["mode"] == "explicit_internal_pipeline"
-    assert trace["stages"][0] == "fact_extraction"
+    assert trace["mode"] == "three_stage_fused_pipeline"
+    assert trace["stages"] == [
+        "layout_task_space",
+        "blocking_language_action",
+        "guard_final_handoff",
+    ]
+    assert trace["stage_contracts"]["layout_task_space"].startswith("摆位导演")
     assert trace["coverage_contract_fields"] == [
         "coverage_role",
         "cut_reason",
@@ -468,7 +473,7 @@ def test_split_fragment_mode_passes_scene_reference_images(monkeypatch):
 def test_shot_director_node_forwards_filtered_scene_references(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_single_pass(**kwargs):
+    def fake_three_stage(**kwargs):
         captured["images_base64"] = kwargs.get("images_base64")
         captured["scene_reference_context"] = kwargs.get("scene_reference_context")
         return (
@@ -482,7 +487,7 @@ def test_shot_director_node_forwards_filtered_scene_references(monkeypatch):
         captured["review_images_base64"] = kwargs.get("images_base64")
         return kwargs["primary_output"], {"status": "accepted_primary"}, "accepted"
 
-    monkeypatch.setattr(sdi, "_run_shot_director_single_pass", fake_single_pass)
+    monkeypatch.setattr(sdi, "_run_shot_director_three_stage", fake_three_stage)
     monkeypatch.setattr(sdi, "_run_shot_director_review_board", fake_review_board)
     monkeypatch.setattr(sdi, "_persist_update", lambda state, update: {**state, **update})
     monkeypatch.setattr(sdi, "_collect_shot_director_issues", lambda *args, **kwargs: [])

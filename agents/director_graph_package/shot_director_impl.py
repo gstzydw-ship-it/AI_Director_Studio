@@ -100,17 +100,9 @@ _SHOT_COVERAGE_CONTRACT_FIELDS: tuple[str, ...] = (
     "tailframe_role",
 )
 _SHOT_DIRECTOR_WORKFLOW_STAGES: tuple[str, ...] = (
-    "fact_extraction",
-    "rhythm_intent_reading",
-    "editing_strategy",
-    "dramatic_task_mapping",
-    "layout_blueprint",
-    "shot_language_variety",
-    "blocking_and_subshots",
-    "cut_timing",
-    "conflict_resolution",
-    "guard_minimal_repair",
-    "final_yaml_handoff",
+    "layout_task_space",
+    "blocking_language_action",
+    "guard_final_handoff",
 )
 _SHOT_DURATION_RE = re.compile(r"^\s*[\"']?(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*秒[\"']?\s*$")
 _SHOT_CUT_TRIGGER_RE = re.compile(
@@ -119,19 +111,13 @@ _SHOT_CUT_TRIGGER_RE = re.compile(
 
 def _shot_director_workflow_contract() -> str:
     return (
-        "【shot_director 显式工作流】\n"
-        "在输出最终 YAML 前，必须按顺序完成以下内部步骤，不能直接套模板生成镜头：\n"
-        "1. 事实提取：只提取当前片段的人物、地点、动作、道具、对白和可见事实；禁止补剧情。\n"
-        "2. 节奏意图读取：只提取节奏总控给镜头导演的操作单，包括必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面；不得把建议当成改剧情命令。\n"
-        "3. 剪辑策略判断：判断哪些位移/开门/上车/走路等无戏剧增量动作应省略，哪些点必须切镜或给反应。\n"
-        "4. 戏剧任务判断：判断片段任务与节奏功能，例如建立关系、冲突升级、悬念揭示、情绪极点、钩子结尾。\n"
-        "5. 镜头骨架：先决定主镜头数量、每镜拍谁、承担什么覆盖职责和必须承载的信息。\n"
-        "6. 镜头语言变化：同一片段内主动安排不同主体、景别、角度或机位；禁止无理由连续重复同一种镜头。\n"
-        "7. 动作与子镜头：再补动作路径、听者反应、子分镜重音；子分镜必须服务父镜头，不能漂浮。\n"
-        "8. 切镜时机：每个切镜点必须绑定动作顶点前、台词断点、信息看清、反应出现或尾帧完成。\n"
-        "9. 冲突裁决：原剧本事实 > 拆片边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
-        "10. 最小修复：只做最小修复，检查剧本外内容、漏事件、道具跳变、越轴、特写过密、切点无信息变化、镜头语言重复。\n"
-        "11. 最终交付：最后输出可交给提示词编译师的中文 YAML 镜头施工单。\n"
+        "【shot_director 三段式融合工作流】\n"
+        "最终 YAML 只能来自第三阶段；前两阶段是导演施工资产，不能直接交给 prompt_compiler。\n"
+        "阶段一｜摆位导演 + 镜头任务与空间安全：先读当前片段事实、节奏操作单和镜头库任务，判断戏剧任务、剪辑省略点、空间轴线和主镜头覆盖链；只搭主分镜骨架，不抢子分镜和反应细节。\n"
+        "阶段二｜动作调度导演 + 镜头语言选择：在一号骨架上补动作路径、对白落点、反应落点、状态链和必要子分镜；必须按戏剧微粒、场景类型、风险约束和案例技法主动选择镜头语言，避免同侧固定机位和中近景成为默认答案。\n"
+        "阶段三｜规则守门导演 + 最终自然表达：只做最小修复，检查剧本外内容、漏事件、道具跳变、越轴、特写过密、切点无信息变化、镜头语言重复，并把方案整理成自然中文镜头施工单。\n"
+        "内部检查项仍必须覆盖：事实提取、节奏意图读取、剪辑策略判断、戏剧任务判断、镜头骨架、镜头语言变化、动作与子镜头、切镜时机、冲突裁决、最小修复、最终交付。\n"
+        "冲突裁决：原剧本事实 > 拆片边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
         "每个镜头除基础字段外，可以补齐 覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责，"
         "让下游无需猜测镜头职责、切镜原因、同场人物位置和尾帧状态。\n"
     )
@@ -187,8 +173,13 @@ def _build_shot_director_workflow_trace(
 
     rhythm_shot_notes = _extract_rhythm_shot_director_notes(atmosphere_strategy)
     return {
-        "mode": "explicit_internal_pipeline",
+        "mode": "three_stage_fused_pipeline",
         "stages": list(_SHOT_DIRECTOR_WORKFLOW_STAGES),
+        "stage_contracts": {
+            "layout_task_space": "摆位导演负责戏剧任务、空间安全和主镜头覆盖链。",
+            "blocking_language_action": "动作调度导演负责镜头语言选择、动作路径、反应落点和子分镜。",
+            "guard_final_handoff": "规则守门导演负责最小修复和自然中文最终交付。",
+        },
         "required_shot_fields": list(_SHOT_CONSTRUCTION_REQUIRED_FIELDS),
         "coverage_contract_fields": list(_SHOT_COVERAGE_CONTRACT_FIELDS),
         "aspect_ratio": aspect_ratio,
@@ -387,7 +378,7 @@ def _subject_framing_rules() -> str:
         "【主体+景别硬规则】\n"
         "1. 景别只能修饰人物、明确人物组合、可见身体局部或关键道具，不能修饰场景名。\n"
         "2. 禁止写\"大堂半身中景\"\"电梯厅近景\"\"空间中景\"\"通道特写\"等场景+景别组合。\n"
-        "3. 正确写法示例：商北琛半身中景、乔熙胸部以上中近景、两人双人中景、腕表局部特写。\n"
+        "3. 正确写法示例：人物甲半身中景、人物乙胸部以上中近景、两人双人中景、剧本已有关键道具局部特写。\n"
         "4. 空间只能写作环境关系，例如\"大堂纵深关系清楚\"，不能写成\"大堂中景\"。\n"
     )
 
@@ -495,10 +486,10 @@ def _shot_director_source_event_rules() -> str:
     return (
         "【shot_director 剧本继承硬规则】\n"
         "1. shot_director 只能把 story_planner 的 source_script_events 翻译成镜头、景别和受击落点；不得重新解释剧本、不得新增睡醒、床边、伴侣、保镖、记者、闪光灯、鞠躬等剧本外前提。\n"
-        "2. 场次标题、人物行、source_script_events 的可见事实优先级高于英文台词里的词义联想；例如 OS 里出现 \"wake up\" 只表示乔熙自我提醒，不能改拍成乔熙睡觉、睁眼或被伴侣叫醒。\n"
+        "2. 场次标题、人物行、source_script_events 的可见事实优先级高于英文台词里的词义联想；例如 OS 里的英文短语只按当前人物台词/画外音处理，不能联想成剧本外的新动作或新人物。\n"
         "3. 场景空间必须继承场次标题和 source_script_events；公寓不能改成车内，门口不能改成大堂，集团门口不能改成办公室。\n"
         "4. subject 只能来自当前片段的人物行、source_script_events 中的可见人物/群体/道具/车辆；不能把 OS 里的昵称或英文名当成画面主体替换角色名。\n"
-        "5. 必须继承上游的道具状态和空间状态：照片在桌上就保持在桌上，书包在小豆丁身上就保持在小豆丁身上，不得为了情绪镜头改写为攥在手里或塞回书包。\n"
+        "5. 必须继承上游的道具状态和空间状态：已有道具在桌上就保持在桌上，已有随身物在人物身上就保持在人物身上，不得为了情绪镜头改写道具归属或位置。\n"
         "6. 低歧义画面优先：优先使用站位、视线、停顿、桌面、门口、车辆到达、下车等稳定可见动作；避免把简单动作改成掌心、指尖、指节、发丝等微观细节。\n"
         "7. 先判断当前片段的节奏任务，再匹配镜头语言；必须先回答这是权力反转、冲突升级、悬念揭示、误解错位、情绪极点还是钩子结尾，再决定要不要切镜、切几镜，不能先拿模板再套剧情。\n"
         "8. 9:16 竖屏默认以半身、中景、双人关系景别承担叙事；特写只给炸点、受击、情绪峰值或关键信息插入。一个片段的面部特写最多一次，不得把特写当默认景别。\n"
@@ -748,23 +739,6 @@ def _validate_shot_director_source_event_coverage(director_output: str, planner_
     if not director_output or not planner_output:
         return issues
 
-    required_terms = [
-        "乔熙",
-        "小豆丁",
-        "苏小可",
-        "严飞",
-        "商北琛",
-        "照片",
-        "桌",
-        "书包",
-        "门口",
-        "秘书",
-        "主管",
-        "队列",
-        "劳斯莱斯",
-        "车门",
-        "咖啡杯",
-    ]
     planner_sections = _extract_yaml_sections(planner_output)
     for planner_section in planner_sections:
         fragment_id = _extract_fragment_id(planner_section)
@@ -778,6 +752,23 @@ def _validate_shot_director_source_event_coverage(director_output: str, planner_
             for event in _source_script_events(planner_section)
             if event and not event.startswith("人物") and not re.match(r"^\d+-\d+", event)
         ]
+        active_cast = _extract_nested_list_items(planner_section, "cast", "active")
+        if not active_cast:
+            active_cast = _extract_top_level_list_items(planner_section, "出现人物")
+        required_terms: list[str] = []
+        for term in active_cast:
+            cleaned = term.strip().strip("\"'")
+            if cleaned and len(cleaned) <= 12 and cleaned not in required_terms:
+                required_terms.append(cleaned)
+        object_terms: set[str] = set()
+        object_pattern = re.compile(
+            r"门口|车门|电梯门|房门|门边|桌上|桌边|桌|背包|书包|包|照片|文件|合同|手机|钥匙|杯子|咖啡杯|车|车辆|座椅|沙发|床|窗边|窗"
+        )
+        for event in source_events:
+            object_terms.update(object_pattern.findall(event))
+        for term in sorted(object_terms, key=len, reverse=True):
+            if term not in required_terms:
+                required_terms.append(term)
         missing_terms: list[str] = []
         for event in source_events:
             for term in required_terms:
@@ -1553,6 +1544,99 @@ def _agent_runtime_trace(
         if value is not None:
             trace[key] = value
     return trace
+
+
+def _shot_director_stage_images(stage_key: str, images_base64: list[str] | None) -> list[str] | None:
+    """Only the layout stage needs scene reference images for spatial grounding."""
+    if stage_key == "shot_director_layout":
+        return images_base64
+    return None
+
+
+def _shot_director_stage_profile(
+    base_profile: dict[str, Any],
+    *,
+    served_agent: str,
+    extra_signals: list[str],
+    extra_tags: list[str],
+    extra_constraints: list[str],
+) -> dict[str, Any]:
+    profile = dict(base_profile or {})
+    profile["served_agents"] = [served_agent]
+    profile["signals"] = _unique_preserve_order([*(profile.get("signals") or []), *extra_signals])
+    profile["tags"] = _unique_preserve_order([*(profile.get("tags") or []), *extra_tags])
+    profile["visual_constraints"] = _unique_preserve_order(
+        [*(profile.get("visual_constraints") or []), *extra_constraints]
+    )
+    return profile
+
+
+def _shot_director_layout_rule_block(aspect_ratio: str) -> str:
+    return (
+        "【阶段一｜摆位导演 + 镜头任务与空间安全】\n"
+        "你是一号镜头摆位导演。你不是全能镜头导演，只负责把当前片段的戏剧任务、空间安全和主镜头覆盖链立住。\n"
+        "必须融合旧版摆位边界与新版任务判断：先判断片段任务、必须覆盖事件、剪辑省略点、轴线和尾帧，再决定需要几个主镜头。\n"
+        "输出只允许是施工 YAML，不要解释。\n\n"
+        "【必须输出】\n"
+        "- 片段编号、片段任务、节奏\n"
+        "- 空间规则：空间锚点、人物位置、动作轴线、安全机位区、禁用机位区\n"
+        "- 主镜头列表：镜头编号、镜头任务、拍摄主体、镜头、覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责、对白覆盖、选择理由、镜头语言机会\n\n"
+        "【阶段一边界】\n"
+        "1. 只搭主镜头骨架，不输出最终镜头序列，不细拆子镜头。\n"
+        "2. 不抢二号的反应细节、动作重音和子分镜；但必须给二号留下明确的镜头语言机会，例如过肩、跟拍、局部特写、动作顶点前切、关系复位。\n"
+        "3. 必须识别剪辑省略点：走路、开门、上车、进入新空间等无戏剧增量过程只保留起点和终点。\n"
+        "4. 同侧只是不越轴，不是固定机位模板；主镜头覆盖链不得全靠同侧固定中近景。\n"
+        "5. 局部、道具、眼神、手部等细节默认留给二号作为子分镜，除非当前剧本唯一信息主体就是该物件。\n"
+        "6. 禁止人物相对左右机位、数字角度、门框压线、框住人物等抽象构图术语。\n"
+        f"【画幅】{aspect_ratio}\n"
+    )
+
+
+def _shot_director_blocking_rule_block(aspect_ratio: str) -> str:
+    return (
+        "【阶段二｜动作调度导演 + 镜头语言选择】\n"
+        "你是二号动作调度导演。你在一号主镜头骨架上挂动作、反应、状态链和必要子分镜，同时正式选择镜头语言。\n"
+        "核心任务不是补丁式修饰，而是把镜头语言当成戏剧任务的覆盖方案：按戏剧微粒、场景类型、风险约束和案例技法主动选择景别、机位、角度、运动、声音承载和切点。\n"
+        "安全边界是剧本事实、人物连续性和不越轴；只要不越轴，就不要为了后续 prompt_compiler 预先降级成同侧固定机位或中近景保守模板。\n\n"
+        "【必须输出】\n"
+        "- 保留一号的片段编号、片段任务、节奏、空间规则和主镜头编号。\n"
+        "- 补齐镜头列表或主镜头列表中的：镜头、画面动作、台词、必须承载、切镜点、连续性、覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责。\n"
+        "- 需要子分镜时，必须挂靠父镜头：父镜头编号、触发点、主体、镜头、动作阶段、时长建议、状态变化、节拍目的。\n"
+        "- 明确镜头多样性检查：是否变化主体、景别、机位/角度、运动、声音承载或镜头任务。\n\n"
+        "【镜头语言选择】\n"
+        "1. 同侧只表示轴线内安全，不等于固定中近景；可在轴线同侧大胆选择侧面、肩后、贴近低机位、稍高机位、稳定固定、跟随、推近、横移或关系复位，只要人物左右关系不翻转。\n"
+        "2. 对白/试探/冲突互动：按攻防关系选择过肩、双人同框、听者受击反应、说话者压近、画外音承接、声音先行或声音延续；禁止把整段写成同侧固定机位中近景正反打。\n"
+        "3. 动作密集/位移/阈值动作：优先跟拍、侧面关系景、动作顶点前切、局部动作子分镜或终点复位，用切镜省略无信息过程；不要用站桩中近景吃掉动作。\n"
+        "4. 信息揭示：优先目标物或文字可读、人物视线、人物反应三段链；镜头可以短促、清楚、贴近，但具体对象必须来自当前剧本事实。\n"
+        "5. 权力压迫/反转：用站位占比、前后层次、肩后压迫、低/高机位感、稳定凝视或关系景体现，不得只拍赢方说话，也不得为了安全只退回中景。\n"
+        "6. 情绪峰值：可以使用短促特写、近景停顿、留白或声音落到反应上，但必须有信息增量，并包裹在关系镜头或可继承尾帧里。\n"
+        "7. 局部特写只在当前剧本动作或已有道具承载线索、动作前摇或受击结果时使用；具体拍什么由当前剧本决定，不固化手、衣服、手机等某一剧集细节。\n"
+        "8. 一个片段超过四个镜头时，至少变化三类：主体、景别、机位/角度、运动、声音承载或镜头任务；连续镜头不得无理由重复同侧固定机位、中近景或同一种反应句。\n"
+        "9. 最终交给三号时，所有镜头句必须已经是自然中文、可见动作、视频模型可理解：景别 + 简洁机位/角度/运动 + 人物动作/台词/反应 + 切镜触发；不要写抽象构图术语或内部推理。\n"
+        f"【画幅】{aspect_ratio}\n"
+    )
+
+
+def _shot_director_guard_stage_rule_block(aspect_ratio: str) -> str:
+    return (
+        "【阶段三｜规则守门导演 + 最终自然表达】\n"
+        "你是三号规则守门导演。只做最小修复，不重写创意，不另起炉灶。\n"
+        "你的输出是唯一交给 prompt_compiler 的最终中文 YAML。\n\n"
+        "【守门范围】\n"
+        "1. 修复结构缺项、漏事件、剧本外人物/台词/动作/道具、道具跳变、越轴、人物位置突然消失、子分镜漂浮、尾帧不可继承。\n"
+        "2. 修复镜头语言过度保守：连续堆同侧固定机位或中近景时，只做最小替换，让已有动作任务落到更合适的自然镜头句。\n"
+        "3. 删除或改写抽象构图术语、人物相对左右机位、数字角度、英文摄影术语和内部字段。\n"
+        "4. 保留前两位的片段编号、镜头编号、主体、剧情事实和主要镜头创意。\n\n"
+        "【最终 YAML 必须使用中文字段】\n"
+        "- 片段编号、片段任务、节奏、镜头列表\n"
+        "- 镜头编号、时长、镜头任务、拍摄主体、镜头、画面动作、台词、必须承载、切镜点、连续性\n"
+        "- 可选保留：覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责、声音、类型\n\n"
+        "【最终镜头表达】\n"
+        "镜头字段写成自然可执行表达：景别 + 简洁机位 + 人物动作/台词/反应。可以写“从谁肩后看向谁或门口”“门口侧面固定机位，人物停在门边”，不要写“门框形成前景压线”或“人物站进门框”。\n"
+        "台词只能使用原剧本原文或 ~；英文台词原文可保留在引号内，因为它是剧本文本，不是英文字段。\n"
+        f"【画幅】{aspect_ratio}\n"
+    )
+
 
 def _shot_director_rule_block(aspect_ratio: str) -> str:
     return (
@@ -2466,7 +2550,7 @@ def _run_shot_director_single_pass_impl(
             "5. 片段编号必须沿用拆片方案的 F01/F02/F03...，不得改名合并跳号。\n"
             "6. 同一片段有3个及以上镜头时，必须变化主体、景别、视角/机位、声音承载或镜头任务；不得把同侧固定机位或中近景当默认答案。\n"
             "7. 走路、上车、开门、进入新空间等无戏剧增量过程优先用机位/景别/主体切换省略，只保留关键起点帧和终点帧。\n"
-            "8. 镜头语言要按任务大胆选择：忙乱动作可用侧面跟拍或手部局部短镜头，孩子抗拒可用低机位贴近孩子，哄劝可用肩后过肩或双人半身关系景；同侧只是不越轴，不是固定机位模板。\n"
+            "8. 镜头语言要按任务大胆选择：动作密集可用侧面跟拍或局部特写，人物抗拒或退缩可用低机位贴近人物，安抚或劝说可用肩后过肩或双人半身关系景；同侧只是不越轴，不是固定机位模板。局部特写的具体对象必须来自当前剧本动作或已有道具，不得把某一剧集的细节固化成通用模板。\n"
             "9. 冲突裁决顺序：原剧本事实 > story_planner片段边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
             f"10. 画幅：{aspect_ratio}",
             "shot_director",
@@ -2665,8 +2749,360 @@ def _run_shot_director_single_pass(*args: Any, **kwargs: Any) -> tuple[str, dict
 
 
 def _run_shot_director_three_stage(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
-    """Backward-compatible alias retained for orchestration tests and monkeypatch hooks."""
-    return _run_shot_director_single_pass(*args, **kwargs)
+    return _run_shot_director_three_stage_impl(*args, **kwargs)
+
+
+def _run_shot_director_three_stage_impl(
+    *,
+    script: str,
+    planner_output: str,
+    atmosphere_strategy: str,
+    aspect_ratio: str,
+    expected_segments: list[str],
+    images_base64: list[str] | None,
+    director_hint: str,
+    scene_reference_context: str = "",
+    director_brief: str = "",
+    stage_callback: Callable[[str, str, dict[str, Any], dict[str, dict[str, Any]]], None] | None = None,
+    resume_stage_outputs: dict[str, str] | None = None,
+    resume_stage_runtime: dict[str, dict[str, Any]] | None = None,
+    resume_stage_meta: dict[str, dict[str, Any]] | None = None,
+) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
+    """Fused staged shot director: layout/task safety -> blocking/language -> guard/final."""
+    director_brief_block = _director_brief_prompt_block(director_brief)
+    signal_task_card = _shot_library_signal_task_card(
+        planner_output=planner_output,
+        atmosphere_strategy=atmosphere_strategy,
+        director_brief=director_brief,
+        aspect_ratio=aspect_ratio,
+    )
+    downstream_context = _shot_director_downstream_context(planner_output, atmosphere_strategy, aspect_ratio)
+    if director_brief_block:
+        downstream_context = director_brief_block + "\n" + downstream_context
+    if scene_reference_context:
+        downstream_context = downstream_context + "\n" + scene_reference_context.strip() + "\n"
+    downstream_context = downstream_context + "\n" + signal_task_card + "\n"
+    workflow_contract = _shot_director_workflow_contract()
+    workflow_trace = _build_shot_director_workflow_trace(
+        planner_output=planner_output,
+        expected_segments=expected_segments,
+        atmosphere_strategy=atmosphere_strategy,
+        director_brief=director_brief,
+        aspect_ratio=aspect_ratio,
+    )
+    base_profile = _build_shot_director_signal_retrieval_profile(
+        planner_output=planner_output,
+        atmosphere_strategy=atmosphere_strategy,
+        director_brief=director_brief,
+        aspect_ratio=aspect_ratio,
+    )
+    resume_stage_outputs = resume_stage_outputs or {}
+    resume_stage_runtime = resume_stage_runtime or {}
+    stage_meta: dict[str, dict[str, Any]] = dict(resume_stage_meta or {})
+    stage_outputs: dict[str, str] = {}
+    runtimes: dict[str, Any] = {}
+
+    existing_final = (resume_stage_outputs.get("final") or "").strip()
+    if existing_final:
+        raw_final_output = _clean_shot_director_output(existing_final)
+        final_output = _repair_shot_director_output_contracts(raw_final_output, script)
+        final_runtime = dict(resume_stage_runtime.get("final") or {})
+        final_runtime.setdefault("agent_name", "shot_director_guard")
+        final_runtime.setdefault("mode", "resume")
+        final_runtime.setdefault("status", "reused")
+        final_runtime["resume_source"] = "pipeline_state"
+        final_runtime["auto_repair_applied"] = final_output != raw_final_output
+        final_runtime["workflow_trace"] = workflow_trace
+        stage_meta.setdefault("final", {"retrieval_mode": "reused_from_pipeline_state"})
+        stage_outputs["final"] = final_output
+        runtimes["final"] = final_runtime
+        runtimes["final_source"] = "final"
+        runtimes["workflow_trace"] = workflow_trace
+        if stage_callback:
+            stage_callback("final", final_output, final_runtime, dict(stage_meta))
+        return final_output, runtimes, stage_meta, stage_outputs
+
+    def persist(stage_name: str, output: str, runtime: dict[str, Any], retrieval_meta: dict[str, Any]) -> None:
+        stage_outputs[stage_name] = output
+        runtimes[stage_name] = runtime
+        stage_meta[stage_name] = retrieval_meta
+        if stage_callback:
+            stage_callback(stage_name, output, runtime, dict(stage_meta))
+
+    def stage_fragment_resume(stage_name: str) -> tuple[dict[str, str], dict[str, dict[str, Any]]]:
+        outputs_by_fragment: dict[str, str] = {}
+        runtimes_by_fragment: dict[str, dict[str, Any]] = {}
+        prefix = f"{stage_name}_"
+        for key, value in resume_stage_outputs.items():
+            if key.startswith(prefix + "fragment_"):
+                outputs_by_fragment[key.removeprefix(prefix)] = value
+            elif key.startswith("fragment_"):
+                outputs_by_fragment.setdefault(key, value)
+        for key, value in resume_stage_runtime.items():
+            if key.startswith(prefix + "fragment_"):
+                runtimes_by_fragment[key.removeprefix(prefix)] = value
+            elif key.startswith("fragment_"):
+                runtimes_by_fragment.setdefault(key, value)
+        return outputs_by_fragment, runtimes_by_fragment
+
+    def run_stage(
+        *,
+        stage_name: str,
+        agent_name: str,
+        role_description: str,
+        context_hint: str,
+        retrieval_profile: dict[str, Any],
+        user_prompt: str,
+        contract_output: str,
+        prompt_builder: Callable[[str, str, str], str],
+        images: list[str] | None,
+    ) -> str:
+        existing = (resume_stage_outputs.get(stage_name) or "").strip()
+        retrieval_meta = stage_meta.get(stage_name)
+        if existing:
+            output = _clean_shot_director_output(existing)
+            runtime = dict(resume_stage_runtime.get(stage_name) or {})
+            runtime.setdefault("agent_name", agent_name)
+            runtime.setdefault("mode", "resume")
+            runtime.setdefault("status", "reused")
+            retrieval_meta = retrieval_meta or {"retrieval_mode": "reused_from_pipeline_state"}
+            persist(stage_name, output, runtime, retrieval_meta)
+            return output
+
+        system_prompt, retrieval_meta = build_system_prompt(
+            role_description,
+            agent_name,
+            context_hint=context_hint,
+            retrieval_profile=retrieval_profile,
+        )
+        if _shot_stage_should_split(expected_segments, contract_output + "\n" + downstream_context):
+            fragment_outputs, fragment_runtime = stage_fragment_resume(stage_name)
+
+            def persist_fragment(fragment_stage_name: str, fragment_output: str, fragment_runtime_item: dict[str, Any]) -> None:
+                if stage_callback:
+                    stage_callback(f"{stage_name}_{fragment_stage_name}", fragment_output, fragment_runtime_item, dict(stage_meta))
+
+            output, runtime = _call_stage_split_by_fragment(
+                stage_key=agent_name,
+                system_prompt=system_prompt,
+                expected_segments=expected_segments,
+                planner_output=planner_output,
+                aspect_ratio=aspect_ratio,
+                contract_output=contract_output,
+                prompt_builder=prompt_builder,
+                images_base64=images,
+                progress_callback=persist_fragment,
+                resume_fragment_outputs=fragment_outputs,
+                resume_fragment_runtime=fragment_runtime,
+            )
+        else:
+            output, runtime = _call_shot_director_stage(
+                stage_key=agent_name,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                images_base64=images,
+            )
+        persist(stage_name, output, runtime, retrieval_meta)
+        return output
+
+    layout_rules = _shot_director_layout_rule_block(aspect_ratio)
+    layout_profile = _shot_director_stage_profile(
+        base_profile,
+        served_agent="shot_director_layout",
+        extra_signals=["layout_blueprint", "space_axis", "dramatic_task_mapping", "editing_ellipsis"],
+        extra_tags=["一号摆位导演", "主分镜骨架", "镜头任务与空间安全"],
+        extra_constraints=[
+            "layout 阶段只搭主镜头覆盖链，不输出 reaction_coverage 或 sub_shots",
+            "必须给 blocking 留下镜头语言机会，但不能抢动作重音细节",
+        ],
+    )
+    layout_user_prompt = (
+        "基于以下上游资产，执行阶段一：摆位导演 + 镜头任务与空间安全。\n\n"
+        f"{workflow_contract}\n"
+        f"{downstream_context}\n"
+        f"{layout_rules}\n"
+        "【输出 YAML 结构】\n"
+        "- 片段编号: F01\n"
+        "  片段任务: 本片段的戏剧施工任务\n"
+        "  节奏: 必须拍完整/可省略/不能省略/停留秒数/最多镜头数\n"
+        "  空间规则:\n"
+        "    空间锚点: 场景、稳定布景、门槛或核心阻隔物\n"
+        "    人物位置: 当前人物起点、朝向和关系\n"
+        "    动作轴线: 主要视线/动作轴线和安全机位侧\n"
+        "    安全机位区: 可拍且不越轴的机位区域\n"
+        "    禁用机位区: 越轴、遮挡或物理不可能区域\n"
+        "  主镜头列表:\n"
+        "    - 镜头编号: F01-S01\n"
+        "      镜头任务: 建立关系/行动起势/受击承接/关系复位/尾帧承接\n"
+        "      拍摄主体: 人物名、双人关系或剧本已有道具\n"
+        "      镜头: 主镜头骨架表达，景别 + 简洁机位 + 核心可见关系\n"
+        "      覆盖职责: 本主镜头承担什么覆盖任务\n"
+        "      切镜原因: 为什么需要切到这里\n"
+        "      同场人物位置: 其他关键人物如何保留\n"
+        "      状态变化: 此镜推进或保持什么状态\n"
+        "      尾帧职责: 是否承担尾帧复位或下一段继承\n"
+        "      对白覆盖: 原剧本台词或 ~，只做承载预案\n"
+        "      选择理由: 绑定注意力、信息、空间或动作，不写好看\n"
+        "      镜头语言机会: 留给二号调度的过肩/跟拍/局部特写/动作顶点前切/关系复位机会\n\n"
+        "请只输出阶段一 YAML。"
+    )
+    layout_output = run_stage(
+        stage_name="layout",
+        agent_name="shot_director_layout",
+        role_description=layout_rules,
+        context_hint=f"{director_hint} layout 主分镜骨架 镜头任务 空间安全 轴线 剪辑省略",
+        retrieval_profile=layout_profile,
+        user_prompt=layout_user_prompt,
+        contract_output=planner_output,
+        prompt_builder=lambda fragment_id, fragment_context, _fragment_contract: (
+            "只处理当前片段的阶段一摆位骨架。\n\n"
+            f"{workflow_contract}\n{fragment_context}\n{signal_task_card}\n{layout_rules}\n"
+            "请只输出该片段阶段一 YAML。"
+        ),
+        images=_shot_director_stage_images("shot_director_layout", images_base64),
+    )
+    layout_output = _repair_shot_layout_output(layout_output)
+    persist("layout", layout_output, dict(runtimes.get("layout") or {}), stage_meta.get("layout", {}))
+
+    blocking_rules = _shot_director_blocking_rule_block(aspect_ratio)
+    blocking_profile = _shot_director_stage_profile(
+        base_profile,
+        served_agent="shot_director_blocking",
+        extra_signals=["shot_language_selection", "reaction_coverage", "subshot_trigger", "action_state_chain"],
+        extra_tags=["二号动作调度导演", "镜头语言主动选择", "多机位分镜", "自然镜头表达"],
+        extra_constraints=[
+            "必须把镜头库和案例技法转成具体镜头、切点、连续性和声音承载",
+            "不得把同侧固定机位或中近景当默认答案",
+            "局部特写对象必须来自当前剧本动作或已有道具",
+        ],
+    )
+    blocking_user_prompt = (
+        "基于阶段一输出，执行阶段二：动作调度导演 + 镜头语言选择。\n\n"
+        f"{workflow_contract}\n"
+        f"{downstream_context}\n"
+        "【阶段一输出】\n"
+        f"{layout_output}\n\n"
+        f"{blocking_rules}\n"
+        f"{_shot_director_coverage_contract_prompt()}\n"
+        "【输出要求】\n"
+        "1. 保留阶段一的片段编号、主镜头编号和空间规则。\n"
+        "2. 补齐动作路径、对白落点、反应覆盖、状态链和必要子分镜。\n"
+        "3. 正式选择镜头语言，并写成自然中文镜头表达，供三号最小修复。\n"
+        "4. 不新增剧本外人物、台词、动作、道具或空间。\n"
+        "请只输出阶段二 YAML。"
+    )
+    blocking_output = run_stage(
+        stage_name="blocking",
+        agent_name="shot_director_blocking",
+        role_description=blocking_rules,
+        context_hint=f"{director_hint} blocking 镜头语言选择 反应覆盖 子分镜 动作状态链 多机位",
+        retrieval_profile=blocking_profile,
+        user_prompt=blocking_user_prompt,
+        contract_output=layout_output,
+        prompt_builder=lambda fragment_id, fragment_context, fragment_contract: (
+            "只处理当前片段的阶段二动作调度和镜头语言选择。\n\n"
+            f"{workflow_contract}\n{fragment_context}\n{signal_task_card}\n"
+            f"【阶段一当前片段输出】\n{fragment_contract}\n\n{blocking_rules}\n"
+            f"{_shot_director_coverage_contract_prompt()}\n"
+            "请只输出该片段阶段二 YAML。"
+        ),
+        images=_shot_director_stage_images("shot_director_blocking", images_base64),
+    )
+
+    guard_rules = _shot_director_guard_stage_rule_block(aspect_ratio)
+    guard_profile = _shot_director_stage_profile(
+        base_profile,
+        served_agent="shot_director_guard",
+        extra_signals=["minimal_repair", "final_yaml_handoff", "natural_expression", "compiler_ready"],
+        extra_tags=["三号规则守门导演", "最小修复", "最终自然表达", "提示词编译交付"],
+        extra_constraints=[
+            "只修硬伤，不重写创意",
+            "最终输出中文字段和自然镜头句",
+            "删除抽象构图术语和人物相对左右机位",
+        ],
+    )
+    guard_user_prompt = (
+        "基于阶段二输出，执行阶段三：规则守门导演 + 最终自然表达。\n\n"
+        f"{workflow_contract}\n"
+        f"{downstream_context}\n"
+        "【阶段二输出】\n"
+        f"{blocking_output}\n\n"
+        f"{guard_rules}\n"
+        "请输出最终可交给 prompt_compiler 的完整中文 YAML；不要输出分析、不要输出英文字段名。"
+    )
+    final_output = run_stage(
+        stage_name="final",
+        agent_name="shot_director_guard",
+        role_description=guard_rules,
+        context_hint=f"{director_hint} guard 最小修复 最终中文 YAML 自然镜头表达 prompt_compiler",
+        retrieval_profile=guard_profile,
+        user_prompt=guard_user_prompt,
+        contract_output=blocking_output,
+        prompt_builder=lambda fragment_id, fragment_context, fragment_contract: (
+            "只处理当前片段的阶段三守门和最终交付。\n\n"
+            f"{fragment_context}\n"
+            f"【阶段二当前片段输出】\n{fragment_contract}\n\n{guard_rules}\n"
+            "请只输出该片段最终中文 YAML。"
+        ),
+        images=_shot_director_stage_images("shot_director_guard", images_base64),
+    )
+    raw_final_output = final_output
+    final_output = _repair_shot_director_output_contracts(final_output, script)
+    final_runtime = dict(runtimes.get("final") or {})
+    final_runtime["auto_repair_applied"] = final_output != raw_final_output
+
+    final_issues = _validate_shot_director_output(final_output, expected_segments)
+    split_fragment_ids = [_segment_name_to_fragment_id(name) for name in expected_segments]
+    final_fragment_ids = [_extract_fragment_id(section) for section in _extract_yaml_sections(final_output or "")]
+    split_output_complete = bool(split_fragment_ids) and all(fragment_id in final_fragment_ids for fragment_id in split_fragment_ids)
+    if final_issues and split_output_complete:
+        final_runtime["repair_attempted"] = False
+        final_runtime["repair_skipped_reason"] = "split_fragments_complete_accept_deterministic_merge"
+        final_runtime["repair_validation_issues"] = final_issues
+    elif final_issues:
+        failed_fragment_ids = _fragment_ids_from_validation_issues(final_issues, expected_segments)
+        repair_target_output = _filter_yaml_sections_by_fragment_ids(final_output, failed_fragment_ids) or final_output
+        repair_prompt = (
+            "阶段三最终 YAML 没有通过主校验。请只按守门原则修正 YAML，不要解释。\n\n"
+            "【必须修复的问题】\n"
+            + "\n".join(f"- {issue}" for issue in final_issues)
+            + "\n\n【待修正 YAML】\n"
+            f"{repair_target_output}\n\n"
+            f"{guard_rules}\n"
+            "请只输出修正后的 YAML。"
+        )
+        repaired_fragment_output, repair_runtime = _call_shot_director_stage(
+            stage_key="shot_director_guard",
+            system_prompt=guard_rules,
+            user_prompt=repair_prompt,
+            images_base64=None,
+        )
+        raw_repaired_final = repaired_fragment_output
+        repaired_fragment_output = _repair_shot_director_output_contracts(repaired_fragment_output, script)
+        repaired_final = _merge_repaired_yaml_sections(final_output, repaired_fragment_output, failed_fragment_ids)
+        repaired_issues = _validate_shot_director_output(repaired_final, expected_segments)
+        final_runtime["repair_attempted"] = True
+        final_runtime["repair_scope"] = "failed_fragments" if failed_fragment_ids else "full_yaml"
+        final_runtime["repair_fragment_ids"] = failed_fragment_ids
+        final_runtime["repair_runtime"] = repair_runtime
+        final_runtime["repair_auto_repair_applied"] = repaired_fragment_output != raw_repaired_final
+        final_runtime["repair_validation_issues"] = repaired_issues
+        if len(repaired_issues) <= len(final_issues):
+            final_output = repaired_final
+            final_issues = repaired_issues
+
+    final_runtime["validation_issues"] = final_issues
+    final_runtime["workflow_trace"] = workflow_trace
+    final_stage_meta = stage_meta.setdefault("final", {})
+    final_stage_meta["workflow_stages"] = list(_SHOT_DIRECTOR_WORKFLOW_STAGES)
+    final_stage_meta["coverage_contract_fields"] = list(_SHOT_COVERAGE_CONTRACT_FIELDS)
+    stage_outputs["final"] = final_output
+    runtimes["final"] = final_runtime
+    runtimes["final_source"] = "final"
+    runtimes["workflow_trace"] = workflow_trace
+    if stage_callback:
+        stage_callback("final", final_output, final_runtime, dict(stage_meta))
+    return final_output, runtimes, stage_meta, stage_outputs
 
 
 def _yaml_quote(value: Any) -> str:
@@ -2824,16 +3260,17 @@ def run_shot_director_for_segment(
     ) -> None:
         stage_runtimes[stage_name] = dict(stage_runtime)
         partial_outputs = dict(outputs)
-        partial_outputs[f"shot_director_segment_{fragment_id}"] = stage_output
-        partial_outputs[f"shot_director_fragment_{fragment_id}"] = stage_output
+        partial_outputs[f"shot_director_{stage_name}_fragment_{fragment_id}"] = stage_output
         if stage_name == "final":
+            partial_outputs[f"shot_director_segment_{fragment_id}"] = stage_output
+            partial_outputs[f"shot_director_fragment_{fragment_id}"] = stage_output
             partial_outputs["shot_director"] = _merge_repaired_yaml_sections(
                 partial_outputs.get("shot_director", ""),
                 stage_output,
                 [fragment_id],
             )
             partial_outputs["shot_director_final"] = partial_outputs["shot_director"]
-        retrieval_key = "final" if "final" in stage_meta_snapshot else stage_name
+        retrieval_key = stage_name if stage_name in stage_meta_snapshot else "final"
         knowledge_metadata = _record_knowledge_metadata(
             state,
             "shot_director",
@@ -2866,7 +3303,7 @@ def run_shot_director_for_segment(
 
     reference_images = _reference_images(state) or None
     try:
-        output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_single_pass(
+        output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_three_stage(
             script=state.get("script", ""),
             planner_output=fragment_planner_output,
             atmosphere_strategy=state.get("atmosphere_strategy", ""),
@@ -2909,6 +3346,9 @@ def run_shot_director_for_segment(
     outputs[f"shot_director_fragment_{fragment_id}"] = output
     outputs["shot_director"] = merged_output
     outputs["shot_director_final"] = merged_output
+    for stage_name in ("layout", "blocking", "final"):
+        if stage_outputs.get(stage_name):
+            outputs[f"shot_director_{stage_name}_fragment_{fragment_id}"] = stage_outputs[stage_name]
 
     director_issues = _collect_shot_director_issues(
         output,
@@ -3114,16 +3554,29 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         derived_total, segment_names = _derive_segments_from_planner_output(planner_output)
         if not total_segments:
             total_segments = derived_total
-    # For single-pass schema, check for "final" output; for split runs, also
-    # keep completed fragment outputs so a restart resumes from the first
-    # unfinished fragment instead of rerunning every fragment.
+    # 三段式恢复时保留每个阶段的整段输出和分片输出，便于中断后从最近阶段续跑。
     resume_stage_outputs: dict[str, str] = {}
+    if outputs.get("shot_director_layout"):
+        resume_stage_outputs["layout"] = outputs.get("shot_director_layout", "")
+    if outputs.get("shot_director_blocking"):
+        resume_stage_outputs["blocking"] = outputs.get("shot_director_blocking", "")
+    if outputs.get("shot_director_final"):
+        resume_stage_outputs["final"] = outputs.get("shot_director_final", "")
     if outputs.get("shot_director"):
-        resume_stage_outputs["final"] = outputs.get("shot_director", "")
+        resume_stage_outputs.setdefault("final", outputs.get("shot_director", ""))
     for key, value in outputs.items():
-        prefix = "shot_director_fragment_"
-        if key.startswith(prefix) and value:
-            resume_stage_outputs[key.removeprefix("shot_director_")] = value
+        for prefix in (
+            "shot_director_layout_fragment_",
+            "shot_director_blocking_fragment_",
+            "shot_director_final_fragment_",
+            "shot_director_fragment_",
+        ):
+            if key.startswith(prefix) and value:
+                if prefix == "shot_director_fragment_":
+                    resume_stage_outputs[key.removeprefix("shot_director_")] = value
+                else:
+                    stage = prefix.removeprefix("shot_director_").removesuffix("_fragment_")
+                    resume_stage_outputs[f"{stage}_fragment_{key.removeprefix(prefix)}"] = value
     shot_meta = (state.get("knowledge_metadata") or {}).get("shot_director", {})
     resume_stage_runtime = shot_meta.get("runtime", {}) if isinstance(shot_meta, dict) else {}
     resume_stage_meta = shot_meta.get("stage_retrieval", {}) if isinstance(shot_meta, dict) else {}
@@ -3154,7 +3607,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         if stage_name == "final":
             outputs["shot_director"] = stage_output
 
-        retrieval_key = "final" if "final" in stage_meta_snapshot else stage_name
+        retrieval_key = stage_name if stage_name in stage_meta_snapshot else "final"
         knowledge_metadata = _record_knowledge_metadata(
             state,
             "shot_director",
@@ -3171,18 +3624,21 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta_snapshot
 
         completed_fragment_index = 0
-        if stage_name.startswith("fragment_F"):
+        fragment_marker = "fragment_F"
+        if fragment_marker in stage_name:
             try:
                 completed_fragment_index = int(stage_name.rsplit("F", 1)[1])
             except Exception:
                 completed_fragment_index = 0
         active_index = completed_fragment_index or 1
         stage_messages = {
+            "layout": "镜头导演一号摆位完成，正在进入动作调度...（5/6）",
+            "blocking": "镜头导演二号调度完成，正在进入规则守门...（5/6）",
             "final": "镜头导演输出已完成，准备生成第 1 段 Prompt。",
         }
         if completed_fragment_index:
             stage_messages[stage_name] = (
-                f"镜头导演已完成 {stage_name.removeprefix('fragment_')} "
+                f"镜头导演已完成 {stage_name.rsplit('fragment_', 1)[-1]} "
                 f"（{completed_fragment_index}/{total_segments}），正在继续下一个片段..."
             )
         _persist_update(
@@ -3200,7 +3656,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             },
         )
 
-    output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_single_pass(
+    output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_three_stage(
         script=state.get("script", ""),
         planner_output=planner_output,
         atmosphere_strategy=state.get("atmosphere_strategy", ""),

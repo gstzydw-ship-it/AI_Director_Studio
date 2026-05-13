@@ -1153,6 +1153,17 @@ def _safe_showrunner_fallback_reason(exc: Exception) -> str:
     text = str(exc)
     if "LLM 服务临时不可用" in text:
         return "LLM 服务临时不可用，已保留原剧本继续；可稍后重跑剧情增强。"
+    auth_markers = (
+        "HTTP 401",
+        "HTTP 403",
+        "invalid token",
+        "invalid_request",
+        "无效的令牌",
+        "unauthorized",
+        "forbidden",
+    )
+    if any(marker.lower() in text.lower() for marker in auth_markers):
+        return "大模型鉴权失败，已保留原剧本；请检查剧情增强模型的 API Key、Base URL 或模型权限后重跑。"
     if _is_retryable_showrunner_llm_error(exc):
         return "LLM 服务临时不可用，已保留原剧本继续；可稍后重跑剧情增强。"
     return "剧情增强未完成，已保留原剧本继续；可稍后重跑剧情增强。"

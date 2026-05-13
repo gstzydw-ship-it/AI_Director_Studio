@@ -590,6 +590,9 @@ AGENT_KNOWLEDGE_MAP = {
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
         "28_全场景分镜与转场案例库.md",
+        "29_多机位体系与预算降级规则.md",
+        "30_画幅镜头映射与竖屏专用镜头规则.md",
+        "31_程序化镜头表结构与跨片段节奏规则.md",
     ],
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",
@@ -599,6 +602,9 @@ AGENT_KNOWLEDGE_MAP = {
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
         "28_全场景分镜与转场案例库.md",
+        "29_多机位体系与预算降级规则.md",
+        "30_画幅镜头映射与竖屏专用镜头规则.md",
+        "31_程序化镜头表结构与跨片段节奏规则.md",
     ],
     "shot_director_blocking": [
         "26_动作调度与受击覆盖规则.md",
@@ -608,7 +614,12 @@ AGENT_KNOWLEDGE_MAP = {
         "14_动作描述精细化控制规则.md",
         "18_情绪锚点与逐段交互与仰拍限制补丁.md",
         "21_镜头调用规则与多机位模板.md",
+        "22_多机位分镜与镜头多样性规则.md",
         "28_全场景分镜与转场案例库.md",
+        "29_多机位体系与预算降级规则.md",
+        "30_画幅镜头映射与竖屏专用镜头规则.md",
+        "31_程序化镜头表结构与跨片段节奏规则.md",
+        "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",
     ],
     "shot_director_guard": [
         "27_规则守门与最小修复规则.md",
@@ -617,15 +628,22 @@ AGENT_KNOWLEDGE_MAP = {
         "06_连续性与安全规则.md",
         "08_错误纠偏与判例库.md",
         "17_结果质检与回溯修正规则.md",
+        "22_多机位分镜与镜头多样性规则.md",
+        "29_多机位体系与预算降级规则.md",
+        "30_画幅镜头映射与竖屏专用镜头规则.md",
+        "31_程序化镜头表结构与跨片段节奏规则.md",
+        "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",
     ],
     "prompt_compiler": [
         "06_连续性与安全规则.md",
         "07_Seedance输出词典与模型适配.md",
+        "30_画幅镜头映射与竖屏专用镜头规则.md",
         "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",
         "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",
         "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",
         "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",
         "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",
+        "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",
     ],
     "quality_inspector": [
         "03_镜头切换与推进规则.md",
@@ -639,11 +657,15 @@ AGENT_KNOWLEDGE_MAP = {
         "20_镜头库与机位库.md",
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
+        "29_多机位体系与预算降级规则.md",
+        "30_画幅镜头映射与竖屏专用镜头规则.md",
+        "31_程序化镜头表结构与跨片段节奏规则.md",
         "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",
         "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",
         "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",
         "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",
         "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",
+        "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",
     ],
 }
 
@@ -666,6 +688,9 @@ CRITICAL_KNOWLEDGE_MAP = {
         "06_连续性与安全规则.md",          # 安全约束必须全文
         "07_Seedance输出词典与模型适配.md",  # 输出语言必须自然中文、可执行
         "21_镜头调用规则与多机位模板.md",  # 机位调用与执行模板
+        "29_多机位体系与预算降级规则.md",  # 二/三/四机位与群戏调度
+        "30_画幅镜头映射与竖屏专用镜头规则.md",  # 画幅映射与竖屏镜头类型
+        "31_程序化镜头表结构与跨片段节奏规则.md",  # 表结构、动作与跨片段节奏
     ],
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",   # 一号机位摆位导演的职责合同
@@ -674,6 +699,8 @@ CRITICAL_KNOWLEDGE_MAP = {
         "06_连续性与安全规则.md",          # 接缝与状态安全
         "07_Seedance输出词典与模型适配.md",  # 输出语言必须自然中文、可执行
         "21_镜头调用规则与多机位模板.md",  # 主镜头骨架模板
+        "29_多机位体系与预算降级规则.md",  # 关系/发言/受击覆盖分工
+        "30_画幅镜头映射与竖屏专用镜头规则.md",  # 竖屏骨架类型
     ],
     "shot_director_blocking": [
         "26_动作调度与受击覆盖规则.md",   # 二号动作调度导演的职责合同
@@ -681,6 +708,12 @@ CRITICAL_KNOWLEDGE_MAP = {
         "07_Seedance输出词典与模型适配.md",  # 输出语言必须自然中文、可执行
         "14_动作描述精细化控制规则.md",   # 动作描述精度
         "04_对白与表演镜头规则.md",       # 对白落点规则
+        "21_镜头调用规则与多机位模板.md",  # 镜头语言菜单与机位调用
+        "22_多机位分镜与镜头多样性规则.md",  # 多机位变化与机位切换减法
+        "29_多机位体系与预算降级规则.md",  # 多机位覆盖与预算降级
+        "30_画幅镜头映射与竖屏专用镜头规则.md",  # 竖屏专用镜头类型
+        "31_程序化镜头表结构与跨片段节奏规则.md",  # 动作、群戏与跨片段节奏
+        "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",  # 自然镜头表达交付
     ],
     "shot_director_guard": [
         "27_规则守门与最小修复规则.md",   # 三号守门导演的职责合同
@@ -688,10 +721,14 @@ CRITICAL_KNOWLEDGE_MAP = {
         "06_连续性与安全规则.md",          # 连续性违规检查
         "17_结果质检与回溯修正规则.md",   # 质检标准参考
         "08_错误纠偏与判例库.md",         # 常见错误案例
+        "30_画幅镜头映射与竖屏专用镜头规则.md",  # 抽象镜头词与画幅错配守门
+        "31_程序化镜头表结构与跨片段节奏规则.md",  # 景别重复与动作复杂度守门
+        "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",  # 最终自然镜头表达
     ],
     "prompt_compiler": [
         "06_连续性与安全规则.md",          # 状态合同翻译与禁止项
         "07_Seedance输出词典与模型适配.md",  # 输出模板，必须全文
+        "30_画幅镜头映射与竖屏专用镜头规则.md",  # 竖屏镜头表达翻译
         "rules/prompt_compiler/PROMPT-HARD-CONSTRAINT-DEDUP-001.md",  # 约束集中，禁止污染时间轴
         "rules/prompt_compiler/PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md",  # 导演口语转可见画面语言
         "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",  # 时间切片继承上游，不得重切
@@ -699,6 +736,7 @@ CRITICAL_KNOWLEDGE_MAP = {
         "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",  # 禁止滥用同一机位继续
         "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",  # 抽象情绪转身体语言
         "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",  # 小动作优先与动作拆链
+        "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",  # 镜头表达自然化
         "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 编译阶段复杂运镜降级
     ],
     "quality_inspector": [
@@ -706,6 +744,8 @@ CRITICAL_KNOWLEDGE_MAP = {
         "05_剧本拆分与15秒片段规划规则.md",  # 片段边界校验
         "06_连续性与安全规则.md",          # 连续性与禁忌校验
         "24_戏剧微粒识别与节奏触发规则.md",  # 戏剧微粒与 Hook 回查
+        "30_画幅镜头映射与竖屏专用镜头规则.md",  # 画幅与竖屏表达校验
+        "31_程序化镜头表结构与跨片段节奏规则.md",  # 跨片段景别节奏校验
         "rules/quality_inspector/QC-PACING-SAFETY-CHECKLIST-001.md",  # 节奏质检清单
         "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",  # 校验时间继承
         "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",  # 校验衔接词准确性

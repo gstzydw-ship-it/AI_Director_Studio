@@ -363,29 +363,29 @@
                     <div class="card-body config-form">
                         <div class="config-profile-grid">
                             <div class="config-profile-card">
-                                <div class="config-section-title">文本 / 视觉 Agent</div>
+                                <div class="config-section-title">中转站 1</div>
                                 <div class="setting-group">
                                     <label>Base URL</label>
                                     <input type="text" id="textBaseUrl" placeholder="https://www.xkwuai.cn/v1">
                                 </div>
                                 <div class="setting-group">
                                     <label>API Key</label>
-                                    <input type="password" id="textApiKey" placeholder="留空则保留已保存密钥">
+                                    <input type="text" id="textApiKey" placeholder="请输入 API Key">
                                 </div>
-                                <button class="btn-small" type="button" onclick="fetchModelList('text', this)">拉取文本/视觉模型</button>
+                                <button class="btn-small" type="button" onclick="fetchModelList('text', this)">拉取全部模型</button>
                                 <button class="btn-small btn-secondary" type="button" onclick="addManualModels('text')">手动添加</button>
                             </div>
                             <div class="config-profile-card">
-                                <div class="config-section-title">生图 Agent</div>
+                                <div class="config-section-title">中转站 2</div>
                                 <div class="setting-group">
                                     <label>Base URL</label>
                                     <input type="text" id="imageBaseUrl" placeholder="https://ai.comfly.chat/v1">
                                 </div>
                                 <div class="setting-group">
                                     <label>API Key</label>
-                                    <input type="password" id="imageApiKey" placeholder="留空则保留已保存密钥">
+                                    <input type="text" id="imageApiKey" placeholder="请输入 API Key">
                                 </div>
-                                <button class="btn-small" type="button" onclick="fetchModelList('image', this)">拉取生图模型</button>
+                                <button class="btn-small" type="button" onclick="fetchModelList('image', this)">拉取全部模型</button>
                                 <button class="btn-small btn-secondary" type="button" onclick="addManualModels('image')">手动添加</button>
                             </div>
                             <div class="config-profile-card">
@@ -396,7 +396,7 @@
                                 </div>
                                 <div class="setting-group">
                                     <label>API Key</label>
-                                    <input type="password" id="embeddingApiKey" placeholder="留空则保留已保存密钥">
+                                    <input type="text" id="embeddingApiKey" placeholder="请输入 API Key">
                                 </div>
                                 <button class="btn-small" type="button" onclick="fetchModelList('embedding', this)">拉取 Embedding 模型</button>
                                 <button class="btn-small btn-secondary" type="button" onclick="addManualModels('embedding')">手动添加</button>
@@ -503,6 +503,7 @@
         const MAX_REFERENCE_IMAGES = 12;
         const SESSION_STORAGE_KEY = 'director_session_id';
         const MODEL_POOL_CACHE_KEY = 'director_model_pools_v1';
+        const SAVED_API_KEY_MASK = '********';
         const DEFAULT_MODEL_BASE_URL = 'https://www.xkwuai.cn/v1';
         const DEFAULT_IMAGE_BASE_URL = 'https://ai.comfly.chat/v1';
         let systemConfig = {};
@@ -512,6 +513,8 @@
             image: [],
             embedding: [],
         };
+        let routeModelPools = {};
+        let pendingAgentCustomKeys = {};
         let lastAgentConnectionResults = [];
 
         function createSessionId() {
@@ -676,11 +679,36 @@
             return String(source.base_url || '').trim().replace(/\/+$/, '');
         }
 
+        function normalizedBaseUrl(value = '') {
+            return String(value || '').trim().replace(/\/+$/, '');
+        }
+
+        function routeModelPoolKey(baseUrl = '') {
+            return normalizedBaseUrl(baseUrl).toLowerCase();
+        }
+
+        function modelsForBaseUrl(baseUrl = '') {
+            const key = routeModelPoolKey(baseUrl);
+            return key ? (routeModelPools[key] || []) : [];
+        }
+
+        function rememberModelsForBaseUrl(baseUrl = '', models = []) {
+            const key = routeModelPoolKey(baseUrl);
+            if (!key) return;
+            routeModelPools[key] = uniqueModels([
+                ...(routeModelPools[key] || []),
+                ...models.map(normalizeModelValue),
+            ]);
+        }
+
         function cacheModelsForProfile(profile, data = {}) {
+            const baseUrl = profileBaseUrl(profile);
+            const models = Array.isArray(data.models) ? data.models : [];
+            rememberModelsForBaseUrl(baseUrl, models);
             const cache = readModelPoolCache();
             cache[profile] = {
-                base_url: profileBaseUrl(profile),
-                models: Array.isArray(data.models) ? data.models : [],
+                base_url: baseUrl,
+                models,
                 groups: data.groups || {},
                 saved_at: Date.now(),
             };
@@ -737,11 +765,12 @@
                 const cachedBaseUrl = String(cached.base_url || '').trim().replace(/\/+$/, '');
                 if (cachedBaseUrl && cachedBaseUrl !== profileBaseUrl(profile)) return;
                 const groups = cached.groups || {};
-                if (profile === 'text') {
-                    modelPools.text = uniqueModels([...(groups.text || cached.models || []), ...modelPools.text]);
-                    modelPools.vision = uniqueModels([...(groups.vision || groups.text || cached.models || []), ...modelPools.vision]);
-                } else if (profile === 'image') {
-                    modelPools.image = uniqueModels([...(groups.image || cached.models || []), ...modelPools.image]);
+                rememberModelsForBaseUrl(cachedBaseUrl || profileBaseUrl(profile), cached.models || []);
+                if (profile === 'text' || profile === 'image') {
+                    applyModelListToPools(profile, {
+                        models: cached.models || [],
+                        groups,
+                    });
                 } else if (profile === 'embedding') {
                     modelPools.embedding = uniqueModels([...(groups.embedding || cached.models || []), ...modelPools.embedding]);
                 }
@@ -792,10 +821,31 @@
             return (systemConfig._agent_categories || {})[agentName] || 'text';
         }
 
-        function agentModelPool(agentName) {
+        function agentDisplayName(agentName) {
+            return (systemConfig._agent_labels || {})[agentName] || agentName || 'Agent';
+        }
+
+        function globalAgentModelPool() {
+            return uniqueModels([
+                ...modelPools.text,
+                ...modelPools.vision,
+                ...modelPools.image,
+                ...modelPools.embedding,
+            ].map(normalizeModelValue));
+        }
+
+        function agentModelPool(agentName, baseUrl = '') {
             const cfg = (systemConfig.agent_models || {})[agentName] || {};
             const routePreset = cfg.route_preset || 'primary';
             const routePools = cfg.route_model_pools || {};
+            const routePool = modelsForBaseUrl(baseUrl);
+            if (routePool.length) {
+                return uniqueModels([normalizeModelValue(cfg.model), ...routePool]);
+            }
+            const routePoolByBase = routePools[routeModelPoolKey(baseUrl)] || routePools[normalizedBaseUrl(baseUrl)];
+            if (Array.isArray(routePoolByBase) && routePoolByBase.length) {
+                return uniqueModels([normalizeModelValue(cfg.model), ...routePoolByBase.map(normalizeModelValue)]);
+            }
             if (Array.isArray(routePools[routePreset]) && routePools[routePreset].length) {
                 return uniqueModels([normalizeModelValue(cfg.model), ...routePools[routePreset].map(normalizeModelValue)]);
             }
@@ -807,58 +857,235 @@
 
         function categoryLabel(category) {
             return {
-                text: '文本模型',
-                vision: '视觉模型',
-                image: '生图模型',
+                text: '模型',
+                vision: '模型',
+                image: '模型',
                 embedding: 'Embedding 模型',
-            }[category] || '文本模型';
+            }[category] || '模型';
+        }
+
+        function profileForAgentCategory(category = 'text') {
+            return category === 'image' ? 'image' : 'text';
+        }
+
+        function profileLabel(profile = 'text') {
+            return {
+                text: '中转站 1',
+                image: '中转站 2',
+                embedding: '向量嵌入中转站',
+            }[profile] || '中转站';
+        }
+
+        function isSavedApiKeyMask(value = '') {
+            return /^\*{3,}$/.test(String(value || '').trim());
+        }
+
+        function keyInputValue(input) {
+            const value = input?.value?.trim() || '';
+            return isSavedApiKeyMask(value) ? SAVED_API_KEY_MASK : value;
+        }
+
+        function applyModelListToPools(profile = 'text', data = {}) {
+            const allModels = uniqueModels((Array.isArray(data.models) ? data.models : []).map(normalizeModelValue));
+            const groups = data.groups || {};
+            if (profile === 'embedding') {
+                modelPools.embedding = uniqueModels([...(groups.embedding || allModels), ...modelPools.embedding]);
+                return;
+            }
+            modelPools.text = uniqueModels([...allModels, ...modelPools.text]);
+            modelPools.vision = uniqueModels([...allModels, ...modelPools.vision]);
+            modelPools.image = uniqueModels([...allModels, ...modelPools.image]);
+            modelPools.embedding = uniqueModels([...(groups.embedding || []), ...modelPools.embedding]);
+        }
+
+        function routeOptionValue(prefix, baseUrl = '') {
+            return `${prefix}:${encodeURIComponent(normalizedBaseUrl(baseUrl))}`;
+        }
+
+        function addRouteEntry(entries, seen, entry) {
+            const baseUrl = normalizedBaseUrl(entry.base_url);
+            const dedupeKey = baseUrl ? baseUrl.toLowerCase() : entry.value;
+            if (baseUrl && seen.has(dedupeKey)) return;
+            if (baseUrl) seen.add(dedupeKey);
+            entries.push({
+                ...entry,
+                base_url: baseUrl,
+                has_api_key: !!entry.has_api_key,
+            });
         }
 
         function agentRouteOptions(cfg = {}, category = 'text') {
+            const entries = [];
+            const seen = new Set();
+            const profiles = systemConfig._model_profiles || {};
+            const primaryProfile = profileForAgentCategory(category);
+            const primaryProfileConfig = profiles[primaryProfile] || {};
+            const primaryBaseUrl = normalizedBaseUrl(primaryProfileConfig.base_url || cfg.base_url || '');
+            addRouteEntry(entries, seen, {
+                value: 'primary',
+                preset: 'primary',
+                label: `默认 · ${profileLabel(primaryProfile)}`,
+                base_url: primaryBaseUrl,
+                has_api_key: !!primaryProfileConfig.has_api_key || !!cfg.has_api_key,
+            });
+            const savedBaseUrl = normalizedBaseUrl(cfg.base_url || '');
+            if (savedBaseUrl && savedBaseUrl !== primaryBaseUrl) {
+                addRouteEntry(entries, seen, {
+                    value: routeOptionValue('saved', savedBaseUrl),
+                    preset: 'custom',
+                    label: '已保存中转站',
+                    base_url: savedBaseUrl,
+                    has_api_key: !!cfg.has_api_key,
+                });
+            }
             const fallback = Array.isArray(cfg.fallback_routes) && cfg.fallback_routes.length ? cfg.fallback_routes[0] : {};
             const custom = cfg.custom_route || {};
-            return {
-                primary: { label: '路线 1', base_url: cfg.base_url || '', has_api_key: !!cfg.has_api_key },
-                fallback: { label: '路线 2', base_url: fallback.base_url || '', has_api_key: !!fallback.has_api_key },
-                custom: { label: '自定义中转站', base_url: custom.base_url || '', has_api_key: !!custom.has_api_key },
-            };
+            if (fallback.base_url) {
+                addRouteEntry(entries, seen, {
+                    value: 'fallback',
+                    preset: 'fallback',
+                    label: '备用中转站',
+                    base_url: fallback.base_url,
+                    has_api_key: !!fallback.has_api_key,
+                });
+            }
+            Object.entries(profiles).forEach(([profile, profileConfig]) => {
+                if (!profileConfig || !profileConfig.base_url) return;
+                addRouteEntry(entries, seen, {
+                    value: routeOptionValue('profile', profileConfig.base_url),
+                    preset: 'custom',
+                    label: profileLabel(profile),
+                    base_url: profileConfig.base_url,
+                    has_api_key: !!profileConfig.has_api_key,
+                });
+            });
+            addRouteEntry(entries, seen, {
+                value: 'custom',
+                preset: 'custom',
+                label: '自定义中转站',
+                base_url: custom.base_url || '',
+                has_api_key: !!custom.has_api_key,
+            });
+            return entries;
+        }
+
+        function selectedRouteValue(cfg = {}, category = 'text', routes = []) {
+            const current = cfg.route_preset || 'primary';
+            const profiles = systemConfig._model_profiles || {};
+            const primaryBaseUrl = normalizedBaseUrl((profiles[profileForAgentCategory(category)] || {}).base_url || '');
+            const savedBaseUrl = normalizedBaseUrl(cfg.base_url || '');
+            if (current === 'fallback') {
+                return routes.some(route => route.value === 'fallback') ? 'fallback' : 'primary';
+            }
+            if (current === 'custom') {
+                const customBaseUrl = normalizedBaseUrl((cfg.custom_route || {}).base_url || savedBaseUrl);
+                const matched = routes.find(route => route.preset === 'custom' && route.base_url === customBaseUrl);
+                return matched?.value || 'custom';
+            }
+            if (savedBaseUrl && primaryBaseUrl && savedBaseUrl !== primaryBaseUrl) {
+                const matched = routes.find(route => route.preset === 'custom' && route.base_url === savedBaseUrl);
+                return matched?.value || 'primary';
+            }
+            return 'primary';
         }
 
         function routeSelectOptions(cfg = {}, category = 'text') {
-            const current = cfg.route_preset || 'primary';
             const routes = agentRouteOptions(cfg, category);
-            return Object.entries(routes).map(([key, route]) => {
-                const selected = key === current ? ' selected' : '';
-                const disabled = key === 'fallback' && (!route.base_url || !route.has_api_key) ? ' disabled' : '';
+            const current = selectedRouteValue(cfg, category, routes);
+            return routes.map(route => {
+                const selected = route.value === current ? ' selected' : '';
+                const disabled = route.value === 'fallback' && (!route.base_url || !route.has_api_key) ? ' disabled' : '';
                 const suffix = route.base_url
                     ? ` · ${route.base_url}${disabled ? '（未配置 Key）' : ''}`
                     : '';
-                return `<option value="${key}" data-base-url="${escapeHtml(route.base_url || '')}"${selected}${disabled}>${escapeHtml(route.label + suffix)}</option>`;
+                return `<option value="${escapeHtml(route.value)}" data-route-preset="${escapeHtml(route.preset)}" data-base-url="${escapeHtml(route.base_url || '')}"${selected}${disabled}>${escapeHtml(route.label + suffix)}</option>`;
             }).join('');
+        }
+
+        function configRouteBaseUrl(cfg = {}, category = 'text') {
+            const routes = agentRouteOptions(cfg, category);
+            const selectedValue = selectedRouteValue(cfg, category, routes);
+            const selected = routes.find(route => route.value === selectedValue);
+            if (selected?.base_url) return selected.base_url;
+            if (selected?.preset === 'custom') return normalizedBaseUrl((cfg.custom_route || {}).base_url || cfg.base_url || '');
+            return normalizedBaseUrl(cfg.base_url || '');
+        }
+
+        function selectedAgentRoutePreset(row) {
+            const option = row?.querySelector('[data-agent-route]')?.selectedOptions?.[0];
+            return option?.dataset?.routePreset || row?.querySelector('[data-agent-route]')?.value || 'primary';
         }
 
         function selectedAgentRouteBaseUrl(row) {
             const routeSelect = row?.querySelector('[data-agent-route]');
-            const routePreset = routeSelect?.value || 'primary';
+            const routePreset = selectedAgentRoutePreset(row);
             if (routePreset === 'custom') {
-                return row?.querySelector('[data-agent-custom-base]')?.value?.trim() || '';
+                return row?.querySelector('[data-agent-custom-base]')?.value?.trim()
+                    || routeSelect?.selectedOptions?.[0]?.dataset?.baseUrl
+                    || '';
             }
             return routeSelect?.selectedOptions?.[0]?.dataset?.baseUrl || '';
         }
 
         function applyAgentRouteVisibility(row) {
-            const route = row.querySelector('[data-agent-route]')?.value || 'primary';
+            const routeSelect = row.querySelector('[data-agent-route]');
+            const route = selectedAgentRoutePreset(row);
+            if (route === 'custom') {
+                const optionBaseUrl = routeSelect?.selectedOptions?.[0]?.dataset?.baseUrl || '';
+                const customBaseInput = row.querySelector('[data-agent-custom-base]');
+                if (customBaseInput && optionBaseUrl && !customBaseInput.value.trim()) {
+                    customBaseInput.value = optionBaseUrl;
+                }
+            }
+            const showCustomEditor = routeSelect?.value === 'custom';
             row.querySelectorAll('[data-custom-route-field]').forEach(item => {
-                item.style.display = route === 'custom' ? '' : 'none';
+                item.style.display = showCustomEditor ? '' : 'none';
             });
+        }
+
+        function rememberAgentCustomKey(input) {
+            const name = input?.dataset?.agentCustomKey;
+            if (!name) return;
+            const value = input.value.trim();
+            if (value && !isSavedApiKeyMask(value)) {
+                pendingAgentCustomKeys[name] = value;
+            }
+        }
+
+        function agentCustomApiKey(agentName, row) {
+            const input = row?.querySelector('[data-agent-custom-key]');
+            const value = input?.value?.trim() || '';
+            if (isSavedApiKeyMask(value)) {
+                return SAVED_API_KEY_MASK;
+            }
+            if (value) {
+                pendingAgentCustomKeys[agentName] = value;
+                return value;
+            }
+            return pendingAgentCustomKeys[agentName] || '';
+        }
+
+        function refreshAgentModelSelect(row, agentName) {
+            const select = row?.querySelector('[data-agent-model]');
+            if (!select) return;
+            const category = agentCategory(agentName);
+            const currentValue = select.value;
+            const pool = agentModelPool(agentName, selectedAgentRouteBaseUrl(row));
+            const placeholder = pool.length ? `请选择${categoryLabel(category)}` : `先拉取${categoryLabel(category)}列表`;
+            select.innerHTML = selectOptions(pool, currentValue, placeholder);
         }
 
         function onAgentRouteChanged(select) {
             const row = select.closest('.agent-model-row');
             if (!row) return;
+            const option = select.selectedOptions?.[0];
+            if (option?.dataset?.routePreset === 'custom' && option.dataset.baseUrl) {
+                const customBaseInput = row.querySelector('[data-agent-custom-base]');
+                if (customBaseInput) customBaseInput.value = option.dataset.baseUrl;
+            }
             applyAgentRouteVisibility(row);
             syncCurrentAgentSelections();
-            renderAgentModelGrid(systemConfig);
+            refreshAgentModelSelect(row, select.dataset.agentRoute);
         }
 
         function refreshPrimaryModelSelects() {
@@ -877,9 +1104,10 @@
                 agentModels[name].model = normalizeModelValue(input.value);
                 const row = input.closest('.agent-model-row');
                 if (row) {
-                    agentModels[name].route_preset = row.querySelector('[data-agent-route]')?.value || 'primary';
+                    rememberAgentCustomKey(row.querySelector('[data-agent-custom-key]'));
+                    agentModels[name].route_preset = selectedAgentRoutePreset(row);
                     agentModels[name].custom_route = {
-                        base_url: row.querySelector('[data-agent-custom-base]')?.value?.trim() || '',
+                        base_url: selectedAgentRoutePreset(row) === 'custom' ? selectedAgentRouteBaseUrl(row) : '',
                         has_api_key: !!(agentModels[name].custom_route || {}).has_api_key,
                     };
                 }
@@ -905,7 +1133,7 @@
                 const label = labels[name] || name;
                 const value = normalizeModelValue(cfg.model);
                 const category = agentCategory(name);
-                const pool = agentModelPool(name);
+                const pool = agentModelPool(name, configRouteBaseUrl(cfg, category));
                 const placeholder = pool.length ? `请选择${categoryLabel(category)}` : `先拉取${categoryLabel(category)}列表`;
                 const customRoute = cfg.custom_route || {};
                 return `
@@ -913,15 +1141,15 @@
                         <input type="checkbox" data-agent-test-select="${escapeHtml(name)}" checked aria-label="选择 ${escapeHtml(label)} 参与连通性测试">
                         <span>
                             <strong>${escapeHtml(label)}</strong>
-                            <small>${escapeHtml(name)} · ${escapeHtml(categoryLabel(category))}</small>
+                            <small>${escapeHtml(categoryLabel(category))}</small>
                         </span>
                         <div class="agent-route-editor">
                             <select data-agent-route="${escapeHtml(name)}" onchange="onAgentRouteChanged(this)">
                                 ${routeSelectOptions(cfg, category)}
                             </select>
                             <div class="agent-custom-route" data-custom-route-field>
-                                <input type="text" data-agent-custom-base="${escapeHtml(name)}" value="${escapeHtml(customRoute.base_url || '')}" placeholder="https://your-router.example/v1">
-                                <input type="password" data-agent-custom-key="${escapeHtml(name)}" placeholder="${customRoute.has_api_key ? '已保存，留空不修改' : '自定义 API Key'}">
+                                <input type="text" data-agent-custom-base="${escapeHtml(name)}" value="${escapeHtml(customRoute.base_url || '')}" placeholder="https://your-router.example/v1" oninput="syncCurrentAgentSelections()">
+                                <input type="text" data-agent-custom-key="${escapeHtml(name)}" value="${customRoute.has_api_key ? SAVED_API_KEY_MASK : ''}" placeholder="自定义 API Key" oninput="rememberAgentCustomKey(this)">
                             </div>
                             <div class="agent-model-pick">
                                 <select data-agent-model="${escapeHtml(name)}">
@@ -943,8 +1171,8 @@
                 baseInput.value = data.base_url || (profile === 'image' || profile === 'embedding' ? DEFAULT_IMAGE_BASE_URL : DEFAULT_MODEL_BASE_URL);
             }
             if (keyInput) {
-                keyInput.value = '';
-                keyInput.placeholder = data.has_api_key ? '已保存，留空不修改' : '请输入 API Key';
+                keyInput.value = data.has_api_key ? SAVED_API_KEY_MASK : '';
+                keyInput.placeholder = '请输入 API Key';
             }
         }
 
@@ -979,7 +1207,7 @@
                 button.disabled = true;
                 button.textContent = '拉取中...';
             }
-            setConfigStatus(`正在拉取${categoryLabel(profile)}列表...`, 'info');
+            setConfigStatus(`正在从${profileLabel(profile)}拉取模型列表...`, 'info');
             try {
                 const resp = await fetch('/api/model_list', {
                     method: 'POST',
@@ -987,27 +1215,19 @@
                     body: JSON.stringify({
                         profile,
                         base_url: document.getElementById(`${profile}BaseUrl`).value.trim(),
-                        api_key: document.getElementById(`${profile}ApiKey`).value.trim(),
+                        api_key: keyInputValue(document.getElementById(`${profile}ApiKey`)),
                     }),
                 });
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || '模型列表拉取失败');
-                const groups = data.groups || {};
                 cacheModelsForProfile(profile, data);
-                if (profile === 'text') {
-                    modelPools.text = groups.text || data.models || [];
-                    modelPools.vision = groups.vision || modelPools.text;
-                } else if (profile === 'image') {
-                    modelPools.image = groups.image || data.image_models || data.models || [];
-                } else if (profile === 'embedding') {
-                    modelPools.embedding = groups.embedding || data.embedding_models || data.models || [];
-                }
+                applyModelListToPools(profile, data);
                 refreshModelDatalists();
                 syncCurrentAgentSelections();
                 refreshPrimaryModelSelects();
                 renderAgentModelGrid(systemConfig);
-                const count = profile === 'image' ? modelPools.image.length : profile === 'embedding' ? modelPools.embedding.length : modelPools.text.length;
-            setConfigStatus(`已拉取 ${count} 个可用${categoryLabel(profile)}。`, 'success');
+                const count = Array.isArray(data.models) ? data.models.length : 0;
+                setConfigStatus(`已从${profileLabel(profile)}拉取 ${count} 个模型。`, 'success');
             } catch (e) {
                 setConfigStatus('拉取模型列表失败：' + e.message, 'error');
             } finally {
@@ -1021,19 +1241,17 @@
         async function fetchAgentModelList(agentName, button = null) {
             const row = button?.closest('.agent-model-row');
             if (!row) return;
-            const routePreset = row.querySelector('[data-agent-route]')?.value || 'primary';
-            const category = agentCategory(agentName);
-            const profile = category === 'image' ? 'image' : 'text';
-            const customBaseInput = row.querySelector('[data-agent-custom-base]');
-            const customKeyInput = row.querySelector('[data-agent-custom-key]');
+            const routePreset = selectedAgentRoutePreset(row);
+            const profile = 'text';
             const baseUrl = selectedAgentRouteBaseUrl(row);
-            const apiKey = routePreset === 'custom' ? (customKeyInput?.value?.trim() || '') : '';
+            const apiKey = routePreset === 'custom' ? agentCustomApiKey(agentName, row) : '';
+            const agentLabel = agentDisplayName(agentName);
             const originalText = button ? button.textContent : '';
             if (button) {
                 button.disabled = true;
                 button.textContent = '拉取中...';
             }
-            setConfigStatus(`正在为 ${agentName} 拉取模型列表...`, 'info');
+            setConfigStatus(`正在为 ${agentLabel} 拉取模型列表...`, 'info');
             try {
                 const resp = await fetch('/api/model_list', {
                     method: 'POST',
@@ -1048,24 +1266,22 @@
                 });
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || '模型列表拉取失败');
-                const groups = data.groups || {};
-                const models = category === 'image'
-                    ? (groups.image || data.image_models || data.models || [])
-                    : (category === 'vision' ? (groups.vision || groups.text || data.models || []) : (groups.text || data.models || []));
-                const normalizedModels = uniqueModels(models.map(normalizeModelValue));
+                const normalizedModels = uniqueModels((data.models || []).map(normalizeModelValue));
                 if (!systemConfig.agent_models) systemConfig.agent_models = {};
                 if (!systemConfig.agent_models[agentName]) systemConfig.agent_models[agentName] = {};
                 systemConfig.agent_models[agentName].available_models = normalizedModels;
                 systemConfig.agent_models[agentName].route_model_pools = {
                     ...(systemConfig.agent_models[agentName].route_model_pools || {}),
                     [routePreset]: normalizedModels,
+                    [routeModelPoolKey(baseUrl)]: normalizedModels,
                 };
+                rememberModelsForBaseUrl(baseUrl, normalizedModels);
                 syncCurrentAgentSelections();
                 refreshModelDatalists();
                 renderAgentModelGrid(systemConfig);
-                setConfigStatus(`已为 ${agentName} 拉取 ${normalizedModels.length} 个模型，请选择后保存。`, 'success');
+                setConfigStatus(`已为 ${agentLabel} 拉取 ${normalizedModels.length} 个模型，请选择后保存。`, 'success');
             } catch (e) {
-                setConfigStatus(`拉取 ${agentName} 模型失败：${e.message}`, 'error');
+                setConfigStatus(`拉取 ${agentLabel} 模型失败：${e.message}`, 'error');
             } finally {
                 if (button) {
                     button.disabled = false;
@@ -1080,14 +1296,14 @@
             const models = parseManualModelInput(raw || '');
             if (!models.length) return;
             syncCurrentAgentSelections();
-            if (profile === 'text') {
+            if (profile === 'text' || profile === 'image') {
                 modelPools.text = uniqueModels([...modelPools.text, ...models]);
                 modelPools.vision = uniqueModels([...modelPools.vision, ...models]);
-            } else if (profile === 'image') {
                 modelPools.image = uniqueModels([...modelPools.image, ...models]);
             } else if (profile === 'embedding') {
                 modelPools.embedding = uniqueModels([...modelPools.embedding, ...models]);
             }
+            rememberModelsForBaseUrl(profileBaseUrl(profile), models);
             refreshModelDatalists();
             refreshPrimaryModelSelects();
             renderAgentModelGrid(systemConfig);
@@ -1105,11 +1321,12 @@
             document.querySelectorAll('[data-agent-model]').forEach(input => {
                 const name = input.dataset.agentModel;
                 const row = input.closest('.agent-model-row');
+                const routePreset = selectedAgentRoutePreset(row);
                 agentModels[name] = {
                     model: normalizeModelValue(input.value),
-                    route_preset: row?.querySelector('[data-agent-route]')?.value || 'primary',
-                    custom_base_url: row?.querySelector('[data-agent-custom-base]')?.value?.trim() || '',
-                    custom_api_key: row?.querySelector('[data-agent-custom-key]')?.value?.trim() || '',
+                    route_preset: routePreset,
+                    custom_base_url: routePreset === 'custom' ? selectedAgentRouteBaseUrl(row) : '',
+                    custom_api_key: routePreset === 'custom' ? agentCustomApiKey(name, row) : '',
                     available_models: Array.isArray((systemConfig.agent_models || {})[name]?.available_models)
                         ? (systemConfig.agent_models || {})[name].available_models
                         : [],
@@ -1122,11 +1339,11 @@
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
                         text_base_url: document.getElementById('textBaseUrl').value.trim(),
-                        text_api_key: document.getElementById('textApiKey').value.trim(),
+                        text_api_key: keyInputValue(document.getElementById('textApiKey')),
                         image_base_url: document.getElementById('imageBaseUrl').value.trim(),
-                        image_api_key: document.getElementById('imageApiKey').value.trim(),
+                        image_api_key: keyInputValue(document.getElementById('imageApiKey')),
                         embedding_base_url: document.getElementById('embeddingBaseUrl').value.trim(),
-                        embedding_api_key: document.getElementById('embeddingApiKey').value.trim(),
+                        embedding_api_key: keyInputValue(document.getElementById('embeddingApiKey')),
                         embedding_model: document.getElementById('configEmbeddingModel').value.trim(),
                         agent_models: agentModels,
                     }),
@@ -1134,11 +1351,12 @@
                 const data = await resp.json();
                 if (!data.success) throw new Error(data.error || '保存失败');
                 systemConfig = data.config || systemConfig;
+                pendingAgentCustomKeys = {};
                 ['text', 'image', 'embedding'].forEach(profile => {
                     const keyInput = document.getElementById(`${profile}ApiKey`);
                     if (keyInput) {
-                        keyInput.value = '';
-                        keyInput.placeholder = '已保存，留空不修改';
+                        keyInput.value = SAVED_API_KEY_MASK;
+                        keyInput.placeholder = '请输入 API Key';
                     }
                 });
                 refreshPrimaryModelSelects();
@@ -1162,11 +1380,12 @@
             document.querySelectorAll('[data-agent-model]').forEach(input => {
                 const name = input.dataset.agentModel;
                 const row = input.closest('.agent-model-row');
+                const routePreset = selectedAgentRoutePreset(row);
                 agentModels[name] = {
                     model: normalizeModelValue(input.value),
-                    route_preset: row?.querySelector('[data-agent-route]')?.value || 'primary',
-                    custom_base_url: row?.querySelector('[data-agent-custom-base]')?.value?.trim() || '',
-                    custom_api_key: row?.querySelector('[data-agent-custom-key]')?.value?.trim() || '',
+                    route_preset: routePreset,
+                    custom_base_url: routePreset === 'custom' ? selectedAgentRouteBaseUrl(row) : '',
+                    custom_api_key: routePreset === 'custom' ? agentCustomApiKey(name, row) : '',
                 };
             });
             return agentModels;
@@ -1232,11 +1451,11 @@
             try {
                 const payload = {
                     text_base_url: document.getElementById('textBaseUrl').value.trim(),
-                    text_api_key: document.getElementById('textApiKey').value.trim(),
+                    text_api_key: keyInputValue(document.getElementById('textApiKey')),
                     image_base_url: document.getElementById('imageBaseUrl').value.trim(),
-                    image_api_key: document.getElementById('imageApiKey').value.trim(),
+                    image_api_key: keyInputValue(document.getElementById('imageApiKey')),
                     embedding_base_url: document.getElementById('embeddingBaseUrl').value.trim(),
-                    embedding_api_key: document.getElementById('embeddingApiKey').value.trim(),
+                    embedding_api_key: keyInputValue(document.getElementById('embeddingApiKey')),
                     embedding_model: document.getElementById('configEmbeddingModel').value.trim(),
                     agent_models: agentModels,
                     include_embedding: includeEmbedding,
@@ -1286,7 +1505,7 @@
                     <div class="agent-test-item ${stateClass}">
                         <div>
                             <strong>${escapeHtml(item.label || item.agent)}</strong>
-                            <small>${escapeHtml(item.agent)} · ${escapeHtml(categoryLabel(item.category))}</small>
+                            <small>${escapeHtml(categoryLabel(item.category))}</small>
                         </div>
                         <div class="agent-test-meta">
                             <span>${escapeHtml(item.model || '未选择模型')}</span>
@@ -1811,16 +2030,28 @@
                 && !status.startsWith('running');
         }
 
+        function agentReviewRuntime(agent, state = currentPublicState) {
+            const metadata = state.knowledge_metadata || {};
+            const runtime = metadata?.[agent]?.runtime || {};
+            return runtime && typeof runtime === 'object' ? runtime : {};
+        }
+
+        function isAgentReviewFallback(agent, state = currentPublicState) {
+            return agent === 'director_showrunner'
+                && agentReviewRuntime(agent, state).status === 'fallback';
+        }
+
         function updateResultTabsState() {
             document.querySelectorAll('.result-tab').forEach(tab => {
                 const agent = tab.dataset.agent;
                 const hasOutput = agentHasOutput(agent);
                 const reviewing = isCurrentAgentReviewing(agent);
+                const reviewFallback = reviewing && isAgentReviewFallback(agent);
                 tab.classList.toggle('has-output', hasOutput);
                 tab.classList.toggle('waiting-review', reviewing);
                 const statusEl = tab.querySelector('[data-tab-status]');
                 if (statusEl) {
-                    statusEl.textContent = reviewing ? '等待确认' : (hasOutput ? '已有输出' : '等待输出');
+                    statusEl.textContent = reviewing ? (reviewFallback ? '调用失败' : '等待确认') : (hasOutput ? '已有输出' : '等待输出');
                 }
             });
         }
@@ -1945,11 +2176,12 @@
             const rerunBtn = document.getElementById('agentRerunButton');
             const continueBtn = document.getElementById('agentContinueButton');
             const reviewing = isCurrentAgentReviewing(agent);
+            const reviewFallback = reviewing && isAgentReviewFallback(agent);
             const hasOutput = agentHasOutput(agent);
             if (titleEl) titleEl.textContent = meta.title;
             if (kickerEl) kickerEl.textContent = reviewing ? 'Waiting Review' : 'Agent Output';
             if (metaEl) {
-                metaEl.textContent = `${meta.desc} · ${reviewing ? '等待你确认' : (hasOutput ? '已生成' : '尚未生成')}`;
+                metaEl.textContent = `${meta.desc} · ${reviewing ? (reviewFallback ? '调用失败' : '等待你确认') : (hasOutput ? '已生成' : '尚未生成')}`;
             }
             if (rerunBtn) {
                 const cfg = rerunConfigForAgent(agent);
@@ -2610,6 +2842,7 @@
             const text = reviewOutputText(state);
             const isStoryboardReview = agent === 'storyboard_designer';
             const isSceneCardReview = agent === 'scene_analyst' && hasSceneReferenceCards(state.agent_outputs || {});
+            const reviewFallback = isAgentReviewFallback(agent, state);
             const storyboardReviewImage = isStoryboardReview ? storyboardImagePathForSegment(state) : '';
             const storyboardReviewImageHtml = storyboardReviewImage
                 ? `<div class="storyboard-image-wrap" style="margin-top:12px;">
@@ -2638,12 +2871,18 @@
                 : `<button class="btn-primary review-approve-btn" onclick="approveAgentOutput()">保存修改并继续下一步</button>
                    <button class="btn-secondary" onclick="copyAgentReviewOutput()">复制当前内容</button>
                    ${rerunReviewButton}`;
+            const reviewTitle = reviewFallback
+                ? `${label}未完成，等待你处理`
+                : `${label}已完成，等待你确认`;
+            const reviewHelper = reviewFallback
+                ? '大模型调用失败，已保留原剧本；请检查模型配置或重跑。'
+                : (isSceneCardReview ? '俯视图和九宫格已生成；确认后会带着这些参考图继续后续 Agent。' : '先看中文速览；需要调整时，直接改下面的可编辑原文。');
             const reviewHtml = `
                 <div class="agent-review-panel">
                     <div class="agent-review-banner">
                         <div>
-                            <strong>${escapeHtml(label)}已完成，等待你确认</strong>
-                            <span>${isSceneCardReview ? '俯视图和九宫格已生成；确认后会带着这些参考图继续后续 Agent。' : '先看中文速览；需要调整时，直接改下面的可编辑原文。'}</span>
+                            <strong>${escapeHtml(reviewTitle)}</strong>
+                            <span>${escapeHtml(reviewHelper)}</span>
                         </div>
                         <span class="review-badge">可修改</span>
                     </div>
@@ -3673,7 +3912,7 @@
             status.className = 'status-msg info';
             const payload = {
                 embedding_base_url: document.getElementById('embeddingBaseUrl')?.value.trim() || '',
-                embedding_api_key: document.getElementById('embeddingApiKey')?.value.trim() || '',
+                embedding_api_key: keyInputValue(document.getElementById('embeddingApiKey')),
                 embedding_model: document.getElementById('configEmbeddingModel')?.value.trim() || '',
             };
             try {

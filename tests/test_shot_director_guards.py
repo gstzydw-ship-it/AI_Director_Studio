@@ -189,33 +189,37 @@ main_shots:
 
 def test_shot_director_coverage_rejects_missing_source_event_terms():
     planner = """fragment_id: F04
+cast:
+  active:
+    - 人物甲
+    - 人物乙
 source_script_events:
-  - "▲乔熙猛地回神，强压下心口闷痛，把照片放到桌上。"
-  - "▲小豆丁已经站在门口，单肩背着书包等她。"
+  - "▲人物甲猛地回神，强压下心口闷痛，把照片放到桌上。"
+  - "▲人物乙已经站在门口，单肩背着背包等她。"
 main_shots:
   - shot_id: "F04-S01"
 reaction_plan: "片段内承接"
 """
     director_output = """fragment_id: F04
-fragment_intent: "乔熙放下照片"
-reaction_coverage: "乔熙反应"
+fragment_intent: "人物甲放下照片"
+reaction_coverage: "人物甲反应"
 continuity_anchor: "照片在桌上"
 main_shots:
   - shot_id: "F04-S01"
-    subject: "乔熙"
+    subject: "人物甲"
     shot_size: "medium"
     camera_height: "eye_level"
     angle: "front"
     movement: "static"
     lens: "50mm"
     depth: "medium"
-    shot_intent: "乔熙放下照片"
+    shot_intent: "人物甲放下照片"
     dialogue_coverage: "none"
 """
 
     issues = _validate_shot_director_source_event_coverage(director_output, planner)
 
-    assert any("小豆丁" in issue and "书包" in issue for issue in issues)
+    assert any("人物乙" in issue and "背包" in issue for issue in issues)
 
 
 def test_shot_director_vertical_discipline_rejects_closeup_overuse_in_9x16():
@@ -517,8 +521,8 @@ def test_shot_director_runtime_rules_and_rule_card_are_present():
     rhythm_rules = _shot_director_rhythm_match_rules()
     critical_files = get_agent_knowledge_files("shot_director", critical_only=True)
 
-    assert "wake up" in rules
-    assert "不能改拍成乔熙睡觉" in rules
+    assert "英文短语只按当前人物台词/画外音处理" in rules
+    assert "不能联想成剧本外的新动作或新人物" in rules
     assert "公寓不能改成车内" in rules
     assert "subject 只能来自当前片段的人物行" in rules
     assert "一个片段的面部特写最多一次" in rules

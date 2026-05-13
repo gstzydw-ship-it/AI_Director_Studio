@@ -34,6 +34,13 @@ coverage_targets:
   - file: "knowledge/27_规则守门与最小修复规则.md"
     min_rules: 3
 
+  - file: "knowledge/29_多机位体系与预算降级规则.md"
+    min_rules: 4
+  - file: "knowledge/30_画幅镜头映射与竖屏专用镜头规则.md"
+    min_rules: 4
+  - file: "knowledge/31_程序化镜头表结构与跨片段节奏规则.md"
+    min_rules: 4
+
 owner_agents:
   scene_analyst: "识别场景、人物、关系、空间和导演意图，不拆片、不改写、不下最终镜头指令。"
   story_planner: "负责 15 秒片段、时间预算、出入画、省略位移和主分镜骨架。"
@@ -1712,3 +1719,193 @@ rules:
       - "knowledge/rules/prompt_compiler/TAILFRAME-RELATIONSHOT-001.md"
     source_rules:
       - "27:十、全库检索后补入的覆盖合同守门"
+
+  - id: "SHOT-MULTICAM-SYSTEM-029"
+    title: "多机位体系必须先于具体镜头选择"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director_layout"
+      - "shot_director_blocking"
+      - "shot_director_guard"
+      - "prompt_compiler"
+      - "quality_inspector"
+    priority: "P1"
+    applies_when: "对白、冲突、群戏、动作或反应覆盖需要选择观看位置时。"
+    instruction: "先判断二机、三机或四机覆盖分工，再写自然中文镜头。二机负责关系与反应；三机负责关系、发言、受击；四机负责总关系、核心发言、受击反应、游动补偿。"
+    avoid_when: "禁止默认把所有镜头写成同侧固定机位和中近景；禁止输出二号机、三号机、内部编号或英文缩写。"
+    source_files:
+      - "knowledge/29_多机位体系与预算降级规则.md"
+      - "knowledge/rules/shot_director/SHOT-MULTICAM-SYSTEM-029.md"
+    source_rules:
+      - "29:二至五"
+      - "SHOT-MULTICAM-SYSTEM-029"
+
+  - id: "SHOT-ASPECT-MAPPING-030"
+    title: "画幅决定主力镜头池"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director_layout"
+      - "shot_director_blocking"
+      - "shot_director_guard"
+      - "prompt_compiler"
+      - "quality_inspector"
+    priority: "P1"
+    applies_when: "镜头导演或提示词编译器收到 9:16、16:9、1:1 或 2.39:1 画幅要求时。"
+    instruction: "按画幅选择主力镜头。9:16 优先半身、七分身、中近、肩后关系、纵深前后和分区群像；16:9 可承载横向多人关系；1:1 优先单人或双人稳定关系；2.39:1 只在明确需要宽银幕关系时使用。"
+    avoid_when: "禁止竖屏横向硬塞多人；禁止连续强特写替代空间关系；禁止把宽银幕逻辑套到竖屏项目。"
+    source_files:
+      - "knowledge/30_画幅镜头映射与竖屏专用镜头规则.md"
+      - "knowledge/rules/shot_director/SHOT-ASPECT-VERTICAL-TYPES-030.md"
+    source_rules:
+      - "30:二至三"
+      - "SHOT-ASPECT-VERTICAL-TYPES-030"
+
+  - id: "SHOT-VERTICAL-TYPES-030"
+    title: "竖屏专用镜头必须自然表达"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director_blocking"
+      - "prompt_compiler"
+      - "quality_inspector"
+    priority: "P1"
+    applies_when: "9:16 竖屏中出现正反切、前后层次、过肩、群像、入口或分屏需求。"
+    instruction: "可使用竖屏正反切、纵深前后、分层过肩、双层关系、分区群像、信息插入、压入和近主观，但最终必须写清从谁看向谁、谁在近处、谁在远处、真实环境物是什么。"
+    avoid_when: "禁止输出门框侧斜向纵深双人中景、前景压线等抽象组合名；除非剧本明确要求真实分屏，否则不要输出分屏效果。"
+    source_files:
+      - "knowledge/30_画幅镜头映射与竖屏专用镜头规则.md"
+      - "knowledge/rules/shot_director/SHOT-ASPECT-VERTICAL-TYPES-030.md"
+    source_rules:
+      - "30:四"
+
+  - id: "SHOT-PROGRAMMATIC-SCHEMA-031"
+    title: "镜头库与机位库必须带程序化字段"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "prompt_compiler"
+      - "quality_inspector"
+    priority: "P2"
+    applies_when: "新增或检索镜头库、机位库、案例库条目时。"
+    instruction: "每个镜头条目至少标注镜头类型、主体数量、景别范围、观看位置、机位高度、运动方式、适用任务、触发条件、禁用条件、可生成性、预算等级、画幅适配和自然中文模板。"
+    avoid_when: "禁止只有抽象镜头名而没有自然中文模板；禁止让内部表字段进入最终 prompt。"
+    source_files:
+      - "knowledge/31_程序化镜头表结构与跨片段节奏规则.md"
+    source_rules:
+      - "31:二至三"
+
+  - id: "SHOT-GROUP-DIALOGUE-029"
+    title: "四人以上群戏先分区再切人"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director_layout"
+      - "shot_director_blocking"
+      - "quality_inspector"
+    priority: "P1"
+    applies_when: "四人以上对话、会议、家庭争吵、走廊堵截或多人围观。"
+    instruction: "先建立主冲突区、旁观区、入口区和结果区，再按发言、受击和信息变化切镜。无戏份角色不得平均分配镜头。"
+    avoid_when: "禁止从左到右机械报人物；禁止竖屏里把所有人横向挤成一排。"
+    source_files:
+      - "knowledge/29_多机位体系与预算降级规则.md"
+      - "knowledge/31_程序化镜头表结构与跨片段节奏规则.md"
+    source_rules:
+      - "29:七"
+      - "31:六"
+
+  - id: "SHOT-ACTION-SPECIAL-031"
+    title: "动作戏按前摇切点受击结果拆解"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director_blocking"
+      - "shot_director_guard"
+      - "quality_inspector"
+    priority: "P1"
+    applies_when: "击打、推搡、抢夺、追赶、倒地、强拉强拽或复杂身体接触。"
+    instruction: "动作戏优先可读性：先拍前摇，再在接触前、接触瞬间或动作完成一半时切出，然后拍受击反应和结果回收。"
+    avoid_when: "禁止同一镜头同时快速运镜、快速动作和快速切镜；禁止只写激烈、凌厉而不写身体部位、方向和结果。"
+    source_files:
+      - "knowledge/31_程序化镜头表结构与跨片段节奏规则.md"
+      - "knowledge/rules/shot_director/SHOT-ACTION-GROUP-BUDGET-031.md"
+    source_rules:
+      - "31:五"
+      - "SHOT-ACTION-GROUP-BUDGET-031"
+
+  - id: "SHOT-CROSS-SEGMENT-RHYTHM-031"
+    title: "跨片段景别节奏必须回看最近片段"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director_layout"
+      - "shot_director_blocking"
+      - "shot_director_guard"
+      - "quality_inspector"
+    priority: "P2"
+    applies_when: "同一场景连续输出多个片段，或上一片段尾帧已经给出强特写、中近景、关系景。"
+    instruction: "检查最近三到五个片段的开头镜头、结尾镜头和主力景别。上一片段强特写结束，下一片段优先关系复位或半身中景；连续同类中近景后，下段应换观看位置或镜头任务。"
+    avoid_when: "禁止为了多样性破坏轴线、人物位置、尾帧继承或剧本事实。"
+    source_files:
+      - "knowledge/31_程序化镜头表结构与跨片段节奏规则.md"
+      - "knowledge/rules/shot_director/SHOT-ACTION-GROUP-BUDGET-031.md"
+    source_rules:
+      - "31:四"
+
+  - id: "SHOT-BUDGET-DEGRADE-029"
+    title: "预算降级先删复杂度不删关系"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "prompt_compiler"
+      - "quality_inspector"
+    priority: "P2"
+    applies_when: "镜头方案超出模型可生成性、单段切镜预算或多人动作复杂度。"
+    instruction: "低预算保留关系与反应；中预算保留发言、受击、关系回收；高预算可以用四机位和分区群戏。降级时先删复杂运动、多人同时动作和无必要局部，不删关系交代和受击反应。"
+    avoid_when: "禁止把预算降级理解成全段同一固定机位；禁止删掉观众理解所需的空间复位。"
+    source_files:
+      - "knowledge/29_多机位体系与预算降级规则.md"
+      - "knowledge/rules/shot_director/SHOT-MULTICAM-SYSTEM-029.md"
+    source_rules:
+      - "29:八"
+
+  - id: "SHOT-VIEWPOINT-POOL-029"
+    title: "九类观看位置池必须翻译成自然中文"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director_layout"
+      - "shot_director_blocking"
+      - "prompt_compiler"
+      - "quality_inspector"
+    priority: "P2"
+    applies_when: "镜头导演需要增加机位变化、避免同侧固定机位单调，或处理门口、桌边、走廊、群戏分区。"
+    instruction: "可从正面微侧、侧面关系、斜侧纵深、肩后关系、跟随背侧、高位俯看、低位仰看、近主观、局部信息中选取，但必须写清主体、观看路径和真实空间锚点。"
+    avoid_when: "禁止把位置类型作为抽象镜头名直接输出；禁止使用左右作为唯一定位依据。"
+    source_files:
+      - "knowledge/29_多机位体系与预算降级规则.md"
+    source_rules:
+      - "29:六"
+
+  - id: "SHOT-VERTICAL-SPLITSCREEN-030"
+    title: "竖屏分屏默认改写为分层而非真实分屏"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "prompt_compiler"
+      - "quality_inspector"
+    priority: "P1"
+    applies_when: "9:16 竖屏出现分屏、同步动作、两处动作同时可见或用户描述上下/前后两层信息。"
+    instruction: "除非剧本明确要求真实分屏效果，否则把分屏改写为同一竖屏画面里的上下分层、前后分层或区域切换，并写清两处动作是否同时发生。"
+    avoid_when: "禁止让模型生成无依据的真实分屏画面；禁止只写分屏而不写主体和动作。"
+    source_files:
+      - "knowledge/30_画幅镜头映射与竖屏专用镜头规则.md"
+    source_rules:
+      - "30:四"
+
+  - id: "SHOT-VERTICAL-STABILITY-030"
+    title: "竖屏镜头按生成稳定性排序"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director_guard"
+      - "prompt_compiler"
+      - "quality_inspector"
+    priority: "P1"
+    applies_when: "竖屏镜头包含多人、复杂运动、极特写、环绕、手持或抽象构图词。"
+    instruction: "优先使用固定机位半身中景、七分身景、双人关系景、明确目标的肩后关系和慢速推近；多人分区、入口纵深和局部信息作为中等风险；快速手持、环绕、急推急拉、真实分屏和多人同时大幅动作作为高风险。"
+    avoid_when: "禁止把高风险镜头当默认高级感；禁止在同一镜头堆叠复杂运镜、多人动作和抽象构图。"
+    source_files:
+      - "knowledge/30_画幅镜头映射与竖屏专用镜头规则.md"
+    source_rules:
+      - "30:五"
