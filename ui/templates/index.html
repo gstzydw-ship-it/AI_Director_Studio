@@ -4586,7 +4586,7 @@
             cleaned.split(/\r?\n/).forEach(rawLine => {
                 const line = rawLine.trim();
                 if (!line) return;
-                const shotHeader = line.match(/^(?:[-*]\s*)?(shot[_\s-]?id|shot|镜头编号|镜头|鏡頭)\s*[:：#-]?\s*(.+)?$/i);
+                const shotHeader = line.match(/^(?:[-*]\s*)?(shot[_\s-]?id|镜头编号|鏡頭編號)\s*[:：#-]?\s*(.+)?$/i);
                 if (shotHeader) {
                     if (current) cards.push(current);
                     const [, headerKey, headerValue = ''] = shotHeader;

@@ -422,12 +422,24 @@ def _spatial_geometry_contract_rules() -> str:
     return (
         "【空间几何合同硬规则】\n"
         "1. 当前轻量施工单不再输出 camera_basis 等内部字段；空间几何必须翻译进 shot 与 continuity。内部校验仍使用 camera_basis、scene_fixed、visible_landmarks 等合同词判断前景/中景/后景是否闭环。\n"
-        "2. shot 必须写成镜头表达句，格式为【景别 + 简洁机位 + 人物动作/台词/反应】；例如\"双人中景，办公桌侧面固定机位，两人隔着办公桌对峙\"。\n"
+        "2. shot/镜头字段只写摄影选择，格式为【景别 + 简洁机位/视角 + 必要运镜/前景关系】；不要在此字段写人物动作、台词、心理、戏剧效果或情绪判断。\n"
         "3. 禁止把机位锚点、空间方位和景别硬拼成抽象短语；不要写坐标式空间说明或摄影机位置说明书。\n"
         "4. continuity 必须写清具名人物站位、朝向、道具位置和可继承尾帧；不能只写\"保持连续\"，也不能只写\"画面左侧/右侧\"而不说明谁看向谁。\n"
         "5. 人物转身、穿门、进电梯/车门/房门等阈值动作，优先使用侧面、背后或场景固定机位；不要用人物正前方固定机位硬拍动作路径。\n"
         "6. 如果人物面朝电梯/门口且镜头拍正面，门框只能是前景或侧边锚点，不能写成后景。\n"
         "7. 几何闭环优先于好听文案：shot、action、continuity 三者必须互相兼容。\n"
+    )
+
+def _performance_logic_contract_rules() -> str:
+    return (
+        "【人物动作表情链与逻辑闭环硬规则】\n"
+        "1. 镜头字段不承载表演；人物动作、表情、视线、呼吸、肩颈、手部和道具接触必须写进画面动作。\n"
+        "2. 画面动作必须按可见顺序写清：起始状态 -> 动作变化 -> 表情/身体反应 -> 结束状态；不要只写\"抗拒\"\"压迫\"\"暧昧\"\"被影响\"这类抽象判断。\n"
+        "3. 必须承载只写这一镜必须看见的信息、状态变化或反应结果，例如道具仍在谁手里、是否已经戴上、谁看清了什么、谁的身体距离发生变化。\n"
+        "4. 道具接触戏必须锁定道具归属和动作阶段：靠近、贴近、绕到、扣上、松开不能跳步；相邻镜头不能让同一道具同时在两个人手里或突然完成佩戴。\n"
+        "5. 身体接触戏要写低歧义边界：手靠近颈侧、项链贴近脖颈、指尖短暂掠过皮肤、肩颈轻颤；禁止写会诱发穿模或错位的复杂手部缠绕。\n"
+        "6. 表情必须有可画出来的细节：视线停住、眉心收紧、嘴唇停住、肩颈绷紧、呼吸短暂停住、抬眼看向对方；不要只写\"明显拒绝\"或\"情绪复杂\"。\n"
+        "7. 单人镜里也要在连续性说明同场人物和关键道具仍在何处，防止模型把画外人物或道具删除。\n"
     )
 
 def _camera_execution_rules() -> str:
@@ -1720,11 +1732,11 @@ def _shot_director_blocking_rule_block(aspect_ratio: str) -> str:
     return (
         "【阶段二｜动作调度导演 + 镜头语言选择】\n"
         "你是二号动作调度导演。你在一号主镜头骨架上挂动作、反应、状态链和必要子分镜，同时正式选择镜头语言。\n"
-        "核心任务不是补丁式修饰，而是把镜头语言当成戏剧任务的覆盖方案：按戏剧微粒、场景类型、风险约束和案例技法主动选择景别、机位、角度、运动、声音承载和切点。\n"
+        "核心任务不是补丁式修饰，而是把镜头语言当成剧情事件的覆盖方案：按剧情信号、场景类型、风险约束和案例技法主动选择景别、机位、角度、运动、声音承载和切点。\n"
         "安全边界是剧本事实、人物连续性和不越轴；只要不越轴，就不要为了后续 prompt_compiler 预先降级成同侧固定机位或中近景保守模板。\n\n"
         "【必须输出】\n"
         "- 保留一号的片段编号、片段任务、节奏、空间规则和主镜头编号。\n"
-        "- 补齐镜头列表或主镜头列表中的：镜头、画面动作、台词、必须承载、切镜点、连续性、覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责。\n"
+        "- 补齐镜头列表或主镜头列表中的：镜头、画面动作、台词、必须承载、切镜点、连续性、覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责；其中镜头字段只写摄影选择，动作表情必须写进画面动作。\n"
         "- 需要子分镜时，必须挂靠父镜头：父镜头编号、触发点、主体、镜头、动作阶段、时长建议、状态变化、节拍目的。\n"
         "- 明确镜头多样性检查：是否变化主体、景别、机位/角度、运动、声音承载或镜头任务。\n\n"
         "【镜头语言选择】\n"
@@ -1736,7 +1748,8 @@ def _shot_director_blocking_rule_block(aspect_ratio: str) -> str:
         "6. 情绪峰值：可以使用短促特写、近景停顿、留白或声音落到反应上，但必须有信息增量，并包裹在关系镜头或可继承尾帧里。\n"
         "7. 局部特写只在当前剧本动作或已有道具承载线索、动作前摇或受击结果时使用；具体拍什么由当前剧本决定，不固化手、衣服、手机等某一剧集细节。\n"
         "8. 一个片段超过四个镜头时，至少变化三类：主体、景别、机位/角度、运动、声音承载或镜头任务；连续镜头不得无理由重复同侧固定机位、中近景或同一种反应句。\n"
-        "9. 最终交给三号时，所有镜头句必须已经是自然中文、可见动作、视频模型可理解：景别 + 简洁机位/角度/运动 + 人物动作/台词/反应 + 切镜触发；不要写抽象构图术语或内部推理。\n"
+        "9. 最终交给三号时，镜头字段必须是自然中文摄影表达：景别 + 简洁机位/角度/运动；画面动作必须另写人物动作、台词落点、表情反应和道具状态；不要把两者混成一句。\n"
+        "10. 接触、佩戴、递交、抢夺、拉扯等动作必须写清动作阶段和结束状态，避免项链、手、衣物、身体位置在相邻镜头跳变。\n"
         f"【画幅】{aspect_ratio}\n"
     )
 
@@ -1759,7 +1772,10 @@ def _shot_director_guard_stage_rule_block(aspect_ratio: str) -> str:
         "每个片段在镜头列表前必须先写一句片段级连续性总控：本片段是一段什么戏剧任务，哪些人物始终处在同一空间内；"
         "单人镜只表示镜头主体变化，不代表其他在场人物离开；每镜继承上一镜尾帧、道具状态、视线方向和同侧轴线。\n\n"
         "【最终镜头表达】\n"
-        "镜头字段写成自然可执行表达：景别 + 简洁机位 + 人物动作/台词/反应。可以写“从谁肩后看向谁或门口”“门口侧面固定机位，人物停在门边”，不要写“门框形成前景压线”或“人物站进门框”。\n"
+        "镜头字段只写摄影选择：景别 + 简洁机位/视角 + 必要运镜/前景关系；不要写戏剧判断、人物动作、台词或表情。例如“乔熙胸部以上中近景，车内同侧过肩机位”。\n"
+        "画面动作字段必须补足人物动作表情链：谁先做什么、道具如何移动、视线怎样变化、表情/肩颈/呼吸如何反应、镜尾停在什么状态。\n"
+        "必须承载字段只写本镜必须看清的信息和状态变化，不要写抽象戏剧效果；连续性字段必须说明同场人物和道具没有消失或跳步。\n"
+        "可以写“从乔熙肩后看向商北琛”“门口侧面固定机位”，不要写“门框形成前景压线”或“人物站进门框”。\n"
         "台词只能使用原剧本原文或 ~；英文台词原文可保留在引号内，因为它是剧本文本，不是英文字段。\n"
         f"【画幅】{aspect_ratio}\n"
     )
@@ -1773,6 +1789,7 @@ def _shot_director_rule_block(aspect_ratio: str) -> str:
         f"{_shot_composition_task_selection_rules()}\n"
         f"{_dialogue_coverage_contract_rules()}\n"
         f"{_spatial_geometry_contract_rules()}\n"
+        f"{_performance_logic_contract_rules()}\n"
         f"{_camera_execution_rules()}\n"
         f"{_camera_task_selection_rules()}\n"
         f"{_shot_director_source_event_rules()}\n"
@@ -1788,8 +1805,9 @@ def _shot_director_rule_block(aspect_ratio: str) -> str:
         "6. 不改变人物出入场关系。\n"
         "7. 不保留放弃方案里的具体错误画面描述。\n"
         "8. 所有禁止呈现内容必须简短，不要展开描述。\n"
-        "9. 画面动作只写可见动作，不写心理解释。\n"
-        "10. 如果字段冲突，优先保留连续性、空间规则和镜头动作。\n"
+        "9. 镜头字段只写摄影选择，不写人物动作、台词、表情、心理或戏剧判断。\n"
+        "10. 画面动作只写可见动作和表情变化，不写心理解释。\n"
+        "11. 如果字段冲突，优先保留连续性、空间规则和动作表情逻辑。\n"
     )
 
 def _indent_level(line: str) -> int:
@@ -2669,10 +2687,10 @@ def _run_shot_director_single_pass_impl(
             "1. 时长 — 该镜头在片段内的时间段，必须连续，例如 0-2秒、2-5秒。\n"
             "2. 镜头任务 — 这个镜头负责什么：建立关系、承载对白、动作推进、信息揭示、反应落点、尾帧承接等。\n"
             "3. 拍摄主体 — 拍谁（人物名、双人关系或剧本已有道具）。\n"
-            "4. 镜头 — 写成镜头表达句：景别 + 简洁机位 + 人物动作/台词/反应；例如双人中景，办公桌侧面固定机位，两人隔着办公桌对峙。\n"
-            "5. 画面动作 — 在干嘛（可见动作，不写心理）。\n"
+            "4. 镜头 — 只写摄影选择：景别 + 简洁机位/视角 + 必要运镜/前景关系；不要写人物动作、台词、表情或戏剧判断。\n"
+            "5. 画面动作 — 写人物动作表情链：起始状态、动作变化、视线/表情/身体反应、镜尾状态；只写可见内容，不写心理解释。\n"
             "6. 台词 — 原剧本台词、画外音或 ~；不得新增台词。\n"
-            "7. 必须承载 — 这个镜头必须承载的剧情信息或表演落点。\n"
+            "7. 必须承载 — 这个镜头必须看清的信息、道具状态、人物距离变化或表演落点，不写抽象戏剧效果。\n"
             "8. 切镜点 — 具体切镜触发点，必须绑定动作顶点、台词断点、信息看清、反应出现、状态完成或尾帧。\n"
             "9. 连续性 — 动作、道具、人物左右关系、轴线或尾帧状态如何继承。\n\n"
             "【可选字段】\n"
@@ -2687,8 +2705,9 @@ def _run_shot_director_single_pass_impl(
             "6. 同一片段有3个及以上镜头时，必须变化主体、景别、视角/机位、声音承载或镜头任务；不得把同侧固定机位或中近景当默认答案。\n"
             "7. 走路、上车、开门、进入新空间等无戏剧增量过程优先用机位/景别/主体切换省略，只保留关键起点帧和终点帧。\n"
             "8. 镜头语言要按任务大胆选择：动作密集可用侧面跟拍或局部特写，人物抗拒或退缩可用低机位贴近人物，安抚或劝说可用肩后过肩或双人半身关系景；同侧只是不越轴，不是固定机位模板。局部特写的具体对象必须来自当前剧本动作或已有道具，不得把某一剧集的细节固化成通用模板。\n"
-            "9. 冲突裁决顺序：原剧本事实 > story_planner片段边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
-            f"10. 画幅：{aspect_ratio}",
+            "9. 道具接触和身体接触必须写清动作阶段、道具归属、接触边界和镜尾状态，避免项链、手、脖颈、衣物在相邻镜头中跳变。\n"
+            "10. 冲突裁决顺序：原剧本事实 > story_planner片段边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
+            f"11. 画幅：{aspect_ratio}",
             "shot_director",
             context_hint=hint,
             retrieval_profile=retrieval_profile,
@@ -2710,10 +2729,10 @@ def _run_shot_director_single_pass_impl(
             "      时长: 0-2秒\n"
             "      镜头任务: 建立关系/承载对白/动作推进/信息揭示/反应落点/尾帧承接\n"
             "      拍摄主体: 人物名/双人关系/剧本已有道具\n"
-            "      镜头: 景别 + 简洁机位 + 人物动作/台词/反应，例如双人中景，办公桌侧面固定机位，两人隔着办公桌对峙\n"
-            "      画面动作: 可见动作，不写心理\n"
+            "      镜头: 只写摄影选择，例如乔熙胸部以上中近景，车内同侧过肩机位\n"
+            "      画面动作: 起始状态 -> 动作变化 -> 视线/表情/身体反应 -> 镜尾状态\n"
             "      台词: 原剧本台词/画外音或 ~\n"
-            "      必须承载: 这个镜头必须承载的剧情信息或表演落点\n"
+            "      必须承载: 这个镜头必须看清的信息、道具状态、人物距离变化或表演落点\n"
             "      切镜点: 动作顶点/台词断点/信息看清/反应出现/状态完成/尾帧\n"
             "      连续性: 动作、道具、人物左右关系、轴线或尾帧状态如何继承\n"
             "      类型: 受击反应/道具信息特写/切离镜头（非标准镜头时写）\n"
@@ -2731,6 +2750,7 @@ def _run_shot_director_single_pass_impl(
             "10. 每个片段必须执行【镜头库调用任务单】里的镜头库任务：先判断剧情信号，再决定镜头结构和切点；"
             "如果任务单与原剧本事件冲突，以原剧本事件和拆片边界为准。\n\n"
             "11. 每个片段必须主动判断剪辑省略点和镜头语言变化策略；不要让一个中景/同一机位吃完整段戏，不要连续堆同侧固定机位和中近景。\n\n"
+            "12. 镜头字段不得混入人物动作或戏剧判断；动作、表情、视线、呼吸、肩颈、手部、道具接触和动作逻辑必须写进画面动作、必须承载和连续性。\n\n"
             f"{_shot_director_coverage_contract_prompt()}\n"
             f"{rule_block}"
             "请只输出完整 YAML 镜头方案。"
@@ -3112,6 +3132,7 @@ def _run_shot_director_three_stage_impl(
             "必须把镜头库和案例技法转成具体镜头、切点、连续性和声音承载",
             "不得把同侧固定机位或中近景当默认答案",
             "局部特写对象必须来自当前剧本动作或已有道具",
+            "镜头字段只写摄影选择，人物动作表情链必须写进画面动作",
         ],
     )
     blocking_user_prompt = (
@@ -3125,8 +3146,9 @@ def _run_shot_director_three_stage_impl(
         "【输出要求】\n"
         "1. 保留阶段一的片段编号、主镜头编号和空间规则。\n"
         "2. 补齐动作路径、对白落点、反应覆盖、状态链和必要子分镜。\n"
-        "3. 正式选择镜头语言，并写成自然中文镜头表达，供三号最小修复。\n"
-        "4. 不新增剧本外人物、台词、动作、道具或空间。\n"
+        "3. 正式选择镜头语言，但镜头字段只写景别、机位/视角、运镜或必要前景关系；不要在镜头字段写人物动作。\n"
+        "4. 画面动作必须精细写出人物动作、表情、视线、呼吸、肩颈、手部、道具状态和镜尾状态。\n"
+        "5. 不新增剧本外人物、台词、动作、道具或空间。\n"
         "请只输出阶段二 YAML。"
     )
     blocking_output = run_stage(
@@ -3155,8 +3177,9 @@ def _run_shot_director_three_stage_impl(
         extra_tags=["三号规则守门导演", "最小修复", "最终自然表达", "提示词编译交付"],
         extra_constraints=[
             "只修硬伤，不重写创意",
-            "最终输出中文字段和自然镜头句",
+            "最终输出中文字段，镜头字段只保留摄影表达",
             "删除抽象构图术语和人物相对左右机位",
+            "人物动作、表情和道具逻辑必须落在画面动作、必须承载和连续性",
         ],
     )
     guard_user_prompt = (
@@ -3249,6 +3272,87 @@ def _yaml_quote(value: Any) -> str:
     return f'"{text}"'
 
 
+def _clean_local_fallback_event(event: str) -> str:
+    text = str(event or "").strip().strip("\"'")
+    text = re.sub(r"^[▲△◆◇•\-\s]+", "", text).strip()
+    bracket_match = re.fullmatch(r"【(.+?)】", text)
+    if bracket_match:
+        text = bracket_match.group(1).strip()
+    return text
+
+
+def _is_local_fallback_metadata_event(event: str) -> bool:
+    text = _clean_local_fallback_event(event)
+    if not text:
+        return True
+    if re.match(r"^\d+\s*-\s*\d+\s+", text):
+        return True
+    if re.match(r"^(?:人物|角色|出场人物|场景|地点|时间)\s*[:：]", text):
+        return True
+    if re.match(r"^(?:音效|音乐|BGM)\s*[:：]", text):
+        return True
+    if re.match(r"^(?:特写|近景|插入|道具|音效)\s*[-:：]", text):
+        return True
+    return False
+
+
+def _local_fallback_visual_cues(source_events: list[str]) -> list[str]:
+    cues: list[str] = []
+    for event in source_events:
+        text = _clean_local_fallback_event(event)
+        if not text:
+            continue
+        if re.match(r"^(?:特写|近景|插入|道具|音效)\s*[-:：]", text) and text not in cues:
+            cues.append(text)
+    return cues
+
+
+def _local_fallback_action_events(source_events: list[str], script: str) -> list[str]:
+    events = [
+        _clean_local_fallback_event(event)
+        for event in source_events
+        if not _is_local_fallback_metadata_event(event)
+    ]
+    events = [event for event in events if event]
+    if events:
+        return events[:4]
+
+    fallback_events = [
+        _clean_local_fallback_event(line)
+        for line in re.split(r"[\n。.!?]+", script or "")
+        if _clean_local_fallback_event(line)
+    ]
+    return fallback_events[:4] or ["承接已确认的拆片事件，不新增剧情事实。"]
+
+
+def _local_fallback_event_action_and_dialogue(event: str) -> tuple[str, str]:
+    text = _clean_local_fallback_event(event)
+    dialogue_match = re.match(r"^([^：:\n]{1,16})[：:]\s*(.+)$", text)
+    if not dialogue_match:
+        return text, "~"
+
+    speaker = dialogue_match.group(1).strip()
+    line = dialogue_match.group(2).strip()
+    if not line:
+        return text, "~"
+    return f"{speaker}说出原文台词，身体动作和视线承接上一镜状态。", line
+
+
+def _local_fallback_subject(script: str, action_events: list[str]) -> str:
+    characters = _primary_script_character_names(script)
+    if characters:
+        return "、".join(characters[:2])
+
+    names: list[str] = []
+    for event in action_events:
+        for name in re.findall(r"[\u4e00-\u9fff]{2,4}(?=[:：]|[一把从在对拿拉伸缩停弯说])", event):
+            if name and name not in names:
+                names.append(name)
+        if len(names) >= 2:
+            break
+    return "、".join(names[:2]) if names else "当前人物"
+
+
 def _build_local_shot_director_fallback(
     *,
     fragment_id: str,
@@ -3271,48 +3375,57 @@ def _build_local_shot_director_fallback(
     if not source_events:
         source_events = ["承接已确认的拆片事件，不新增剧情事实。"]
 
-    characters = _primary_script_character_names(script)
-    subject = "、".join(characters[:2]) if characters else "当前人物"
-    event_a = source_events[0]
-    event_b = source_events[1] if len(source_events) > 1 else source_events[0]
-    event_tail = source_events[-1]
+    action_events = _local_fallback_action_events(source_events, script)
+    visual_cues = _local_fallback_visual_cues(source_events)
+    subject = _local_fallback_subject(script, action_events)
+    event_a = action_events[0]
     relation_size = "竖屏中景双人关系镜头" if "9:16" in (aspect_ratio or "") else "中景双人关系镜头"
-    shot_a = f"{relation_size}，同侧固定机位，{subject}完成当前动作落点，人物调度清楚"
-    shot_b = f"中近景关系镜头，同侧固定机位，{subject}承接反应或下一个动作落点，保持同侧轴线"
     _ = failure
     failure_note = "大模型调用失败，已启用本地兜底。"
 
-    return "\n".join(
-        [
-            f"- 片段编号: {fragment_id}",
-            f"  片段任务: {_yaml_quote('本地兜底承接已确认拆片事件：' + event_a[:120])}",
-            "  节奏: \"承接上游节奏；每个镜头只保留一个可读动作。\"",
-            f"  空间连续性总控: {_yaml_quote(_infer_fragment_continuity_context(section, script))}",
-            "  兜底模式: \"镜头导演本地兜底\"",
-            f"  兜底原因: {_yaml_quote(failure_note)}",
-            "  镜头列表:",
-            f"    - 镜头编号: {fragment_id}-S01",
-            "      时长: \"0-3秒\"",
-            f"      镜头任务: {_yaml_quote('建立当前事件落点和人物空间关系：' + event_a[:120])}",
-            f"      拍摄主体: {_yaml_quote(subject)}",
-            f"      镜头: {_yaml_quote(shot_a)}",
-            f"      画面动作: {_yaml_quote(event_a)}",
-            "      台词: \"~\"",
-            f"      必须承载: {_yaml_quote(event_a)}",
-            "      切镜点: \"第一个可读动作落点后\"",
-            "      连续性: \"保持上游已确认的人物位置、道具状态和视线方向\"",
-            f"    - 镜头编号: {fragment_id}-S02",
-            "      时长: \"3-6秒\"",
-            f"      镜头任务: {_yaml_quote('承接反应或下一个动作落点：' + event_b[:120])}",
-            f"      拍摄主体: {_yaml_quote(subject)}",
-            f"      镜头: {_yaml_quote(shot_b)}",
-            f"      画面动作: {_yaml_quote(event_b)}",
-            "      台词: \"~\"",
-            f"      必须承载: {_yaml_quote(event_tail)}",
-            "      切镜点: \"反应或信息落点清楚后\"",
-            "      连续性: \"以可读尾帧结束，便于下一段承接\"",
-        ]
-    )
+    lines = [
+        f"- 片段编号: {fragment_id}",
+        f"  片段任务: {_yaml_quote('本地兜底承接已确认拆片事件：' + event_a[:120])}",
+        "  节奏: \"承接上游节奏；每个镜头只保留一个可读动作。\"",
+        f"  空间连续性总控: {_yaml_quote(_infer_fragment_continuity_context(section, script))}",
+        "  兜底模式: \"镜头导演本地兜底\"",
+        f"  兜底原因: {_yaml_quote(failure_note)}",
+        "  镜头列表:",
+    ]
+
+    total_shots = max(1, min(4, len(action_events)))
+    for index, event in enumerate(action_events[:total_shots], start=1):
+        action, dialogue = _local_fallback_event_action_and_dialogue(event)
+        start = (index - 1) * 3
+        end = start + 3
+        shot = f"{relation_size}，同侧固定机位" if index == 1 else "中近景关系镜头，同侧固定机位"
+        if index == total_shots and total_shots > 1:
+            shot = "中近景关系镜头，同侧固定机位，保留可继承尾帧"
+        carry_parts = [action]
+        if index == 1 and visual_cues:
+            carry_parts.insert(0, "；".join(visual_cues[:2]))
+        must_carry = "；".join(part for part in carry_parts if part)
+        cut_point = "第一个可读动作落点后" if index == 1 else "反应或信息落点清楚后"
+        continuity = (
+            "以可读尾帧结束，便于下一段承接"
+            if index == total_shots
+            else "保持上游已确认的人物位置、道具状态和视线方向"
+        )
+        lines.extend(
+            [
+                f"    - 镜头编号: {fragment_id}-S{index:02d}",
+                f"      时长: \"{start}-{end}秒\"",
+                f"      镜头任务: {_yaml_quote(('建立当前事件落点和人物空间关系：' if index == 1 else '承接下一个动作或反应落点：') + action[:120])}",
+                f"      拍摄主体: {_yaml_quote(subject)}",
+                f"      镜头: {_yaml_quote(shot)}",
+                f"      画面动作: {_yaml_quote(action)}",
+                f"      台词: {_yaml_quote(dialogue)}",
+                f"      必须承载: {_yaml_quote(must_carry)}",
+                f"      切镜点: {_yaml_quote(cut_point)}",
+                f"      连续性: {_yaml_quote(continuity)}",
+            ]
+        )
+    return "\n".join(lines)
 
 
 def run_shot_director_for_segment(
@@ -3659,6 +3772,201 @@ def _is_soft_shot_director_issue(issue: str) -> bool:
 def _hard_shot_director_issues(issues: list[str]) -> list[str]:
     return [issue for issue in issues if not _is_soft_shot_director_issue(issue)]
 
+_SHOT_LOGIC_CAMERA_ACTION_RE = re.compile(
+    r"请求|命令|解释|答应|同意|拒绝|说出|继续说|听到|听见|看清|看见|看向|低头|抬眼|拿着|拿起|递出|"
+    r"靠近|俯身|戴上|佩戴|扣上|贴近|触碰|掠过|微颤|停住|收紧|绷紧|后收|后退|愣住|呼吸|"
+    r"眼神|表情|身体|肩颈|嘴角|下颌"
+)
+_SHOT_LOGIC_PROP_RE = re.compile(r"项链|手机|文件|照片|戒指|钥匙|书包|包|门|车门|电梯门")
+_SHOT_LOGIC_PROP_STATE_RE = re.compile(
+    r"仍|尚未|未|已经|正在|由|归属|手中|拿|递|戴|扣|贴近|靠近|放在|留在|进入|离开|打开|关上"
+)
+_SHOT_LOGIC_ACTION_DETAIL_RE = re.compile(
+    r"视线|眼神|眉|嘴|下颌|呼吸|肩|颈|手|指尖|身体|停住|抬眼|低头|看向|后收|绷紧|收紧|"
+    r"微颤|停顿|慢慢|短暂|仍|没有|开始|随后|同时|结束"
+)
+_SHOT_LOGIC_COMPANION_RE = re.compile(r"画外|边缘|近处|近侧|同场|同车|同室|同一空间|仍在|还在|没有离开|未离开|肩线|前景")
+
+
+def _shot_logic_camera_field_has_action_leak(shot_text: str) -> bool:
+    text = (shot_text or "").strip()
+    if not text:
+        return False
+    matches = _SHOT_LOGIC_CAMERA_ACTION_RE.findall(text)
+    if not matches:
+        return False
+    if set(matches) == {"看向"} and re.search(r"(?:肩后|过肩|视角|机位).{0,12}看向", text):
+        return False
+    return True
+
+
+def _shot_logic_expected_segments_from_output(output: str) -> list[str]:
+    segment_ids: list[str] = []
+    for section in _extract_yaml_sections(output or ""):
+        fragment_id = _extract_fragment_id(section)
+        if fragment_id and fragment_id not in segment_ids:
+            segment_ids.append(fragment_id)
+    return segment_ids
+
+
+def _shot_logic_local_issues(output: str, script: str = "") -> list[str]:
+    """Local judge for single-fragment shot/action continuity risks."""
+    issues: list[str] = []
+    script_names = _primary_script_character_names(script)
+    has_multi_character_script = len(script_names) >= 2
+    other_character_markers = ("画外", "边缘", "近处", "近侧", "同场", "同一空间", "仍在", "还在", "没有离开")
+
+    for section in _extract_yaml_sections(output or ""):
+        fragment_id = _extract_fragment_id(section) or "未知片段"
+        for shot_id, block in _main_shot_blocks(section):
+            subject = _yaml_line_field(block, "subject")
+            shot = _yaml_line_field(block, "shot")
+            action = _yaml_line_field(block, "action")
+            must_carry = _yaml_line_field(block, "must_carry")
+            continuity = _yaml_line_field(block, "continuity")
+            combined_action_state = " ".join([action, must_carry, continuity])
+
+            if _shot_logic_camera_field_has_action_leak(shot):
+                issues.append(
+                    f"P1｜{fragment_id}/{shot_id}｜镜头字段混入人物动作或表演：{shot}；"
+                    "镜头字段只应保留景别、机位、视角、运镜或前景关系。"
+                )
+
+            clean_action = (action or "").strip().strip("~无")
+            if not clean_action or len(clean_action) < 16 or not _SHOT_LOGIC_ACTION_DETAIL_RE.search(clean_action):
+                issues.append(
+                    f"P1｜{fragment_id}/{shot_id}｜画面动作缺少动作表情链；"
+                    "需要写清起始状态、动作变化、视线/表情/身体反应和镜尾状态。"
+                )
+
+            if _SHOT_LOGIC_PROP_RE.search(block) and not _SHOT_LOGIC_PROP_STATE_RE.search(combined_action_state):
+                issues.append(
+                    f"P1｜{fragment_id}/{shot_id}｜道具状态不够明确；"
+                    "需要说明道具归属、动作阶段和镜尾状态，避免下一镜道具跳变。"
+                )
+
+            if has_multi_character_script and subject:
+                present_names = [name for name in script_names if name and name in subject]
+                missing_names = [name for name in script_names if name and name not in subject]
+                companion_text = " ".join([continuity, must_carry, action])
+                if (
+                    present_names
+                    and missing_names
+                    and not any(name in companion_text for name in missing_names)
+                    and not _SHOT_LOGIC_COMPANION_RE.search(companion_text)
+                    and not any(marker in companion_text for marker in other_character_markers)
+                ):
+                    issues.append(
+                        f"P1｜{fragment_id}/{shot_id}｜单人镜缺少同场人物保留；"
+                        f"需要说明{missing_names[0]}仍在同一空间内的相对位置或画外状态。"
+                    )
+    return issues
+
+
+def _shot_logic_reviewer_system_prompt() -> str:
+    return """你是镜头逻辑裁判，工作在三段式镜头导演之后。
+你不是第四个镜头创意导演，不能重新发明剧情、节奏、人物、道具或台词。
+
+你的唯一任务：审查单片段内部的镜头语言、人物动作、道具状态和镜间连续性是否合逻辑。
+
+必须重点检查：
+1. 镜头字段是否只写摄影信息：景别、机位、视角、运镜、前景关系；不得混入人物动作、表情、台词或戏剧判断。
+2. 画面动作是否有完整动作表情链：起始状态、动作变化、视线/表情/身体反应、镜尾状态。
+3. 单人镜是否保留同场人物：单人镜只改变拍摄主体，不代表另一人消失或离开。
+4. 道具接触戏是否锁定归属、动作阶段和镜尾状态。
+5. 镜头与镜头之间是否继承上一镜尾帧的人物位置、道具状态、视线方向和同侧轴线。
+6. 切镜点是否有因果：信息落下、反应成立、动作阶段完成或尾帧交接完成之后再切。
+
+如果没有硬问题，只输出通过结论。
+如果有问题，给出最小修复。修复只能整理镜头字段、补足画面动作/连续性/切镜点，不得新增剧本外事件。
+
+输出必须是中文，原剧本英文台词可原样保留。严格按这个格式：
+审查结论: 通过
+裁判摘要: ...
+单片段审查:
+  - 片段编号: F01
+    通过: true
+    问题: []
+硬错误: []
+修复后镜头方案:
+"""
+
+
+def _shot_logic_reviewer_user_prompt(
+    *,
+    script: str,
+    planner_output: str,
+    director_brief: str,
+    primary_output: str,
+    local_issues: list[str],
+) -> str:
+    issue_text = "\n".join(f"- {issue}" for issue in local_issues) if local_issues else "本地硬检查未发现明确问题。"
+    return f"""请审查下面的三段式镜头导演最终输出，只看单片段内部逻辑。
+
+【剧本原文】
+{script or "（空）"}
+
+【拆片/节奏交接】
+{planner_output or "（空）"}
+
+【导演总控补充】
+{director_brief or "（空）"}
+
+【本地硬检查提示】
+{issue_text}
+
+【待审查镜头方案】
+{primary_output or "（空）"}
+
+请判断是否通过。若需要修复，把完整修复后的镜头方案放在“修复后镜头方案:”后面，且作为最后一个字段。"""
+
+
+def _parse_shot_logic_review_verdict(report: str) -> str:
+    text = report or ""
+    if re.search(r"审查结论\s*:\s*(?:阻断|不通过|BLOCKED)", text, re.IGNORECASE):
+        return "blocked"
+    if re.search(r"审查结论\s*:\s*(?:需要返修|返修|需修复|REPAIR_REQUIRED)", text, re.IGNORECASE):
+        return "repair_required"
+    if re.search(r"审查结论\s*:\s*(?:通过|ACCEPT)", text, re.IGNORECASE):
+        return "accepted"
+    if "修复后镜头方案" in text and re.search(r"(片段编号|fragment_id)\s*:", text):
+        return "repair_required"
+    return "accepted"
+
+
+def _extract_shot_logic_repaired_yaml(report: str) -> str:
+    match = re.search(r"(?ms)^\s*修复后镜头方案\s*:\s*(?:\|\s*)?\n(?P<body>.*)\Z", report or "")
+    if not match:
+        return ""
+    lines = match.group("body").splitlines()
+    while lines and not lines[0].strip():
+        lines.pop(0)
+    lines = [line for line in lines if not line.strip().startswith("```")]
+    non_empty_indents = [len(line) - len(line.lstrip(" ")) for line in lines if line.strip()]
+    if non_empty_indents:
+        min_indent = min(non_empty_indents)
+        if min_indent:
+            lines = [line[min_indent:] if len(line) >= min_indent else line for line in lines]
+    body = "\n".join(lines).strip()
+    if not re.search(r"(?m)^\s*-?\s*(?:片段编号|fragment_id)\s*:", body):
+        return ""
+    return _clean_shot_director_output(body)
+
+
+def _shot_logic_local_fallback_report(local_issues: list[str], error: Exception | None = None) -> str:
+    verdict = "需要返修" if local_issues else "通过"
+    issue_lines = "\n".join(f"  - {issue}" for issue in local_issues) if local_issues else "  - 无"
+    error_text = f"；裁判模型调用失败：{error}" if error else ""
+    return (
+        f"审查结论: {verdict}\n"
+        f"裁判摘要: 已完成本地镜头逻辑检查{error_text}。\n"
+        "单片段审查:\n"
+        f"{issue_lines}\n"
+        "硬错误: []\n"
+        "修复后镜头方案:\n"
+    )
+
+
 def _run_shot_director_review_board(
     *,
     script: str,
@@ -3667,24 +3975,89 @@ def _run_shot_director_review_board(
     primary_output: str,
     images_base64: list[str] | None = None,
 ) -> tuple[str, dict[str, Any], str]:
-    """Package-local review board for the split shot_director flow.
-
-    This conservative review board does not reinterpret overall rhythm. It
-    validates the primary YAML against script facts, source_event coverage,
-    continuity/hallucination guards and vertical-format discipline, then returns
-    the primary output unless a future deterministic or LLM repair is added.
-    """
-    _ = (script, planner_output, director_brief, images_base64)
+    """Review single-fragment shot logic after the split shot director flow."""
+    _ = images_base64
     started = time.perf_counter()
-    report = "shot_director review board: accepted primary output; no rhythm re-judgement performed."
+    local_issues = _shot_logic_local_issues(primary_output, script)
+    reviewer_report = ""
+    verdict = "accepted" if not local_issues else "repair_required"
+    status = "accepted_primary" if not local_issues else "accepted_primary_with_local_warnings"
+
+    try:
+        reviewer_report = call_llm(
+            _shot_logic_reviewer_system_prompt(),
+            _shot_logic_reviewer_user_prompt(
+                script=script,
+                planner_output=planner_output,
+                director_brief=director_brief,
+                primary_output=primary_output,
+                local_issues=local_issues,
+            ),
+            agent_name="shot_director_logic_reviewer",
+            temperature=0.2,
+            max_retries=1,
+        ).strip()
+        verdict = _parse_shot_logic_review_verdict(reviewer_report)
+    except Exception as exc:
+        report = _shot_logic_local_fallback_report(local_issues, exc)
+        runtime = {
+            "agent_name": "shot_director_logic_reviewer",
+            "mode": "single_fragment_logic_judge",
+            "status": "local_fallback",
+            "verdict": verdict,
+            "local_issue_count": len(local_issues),
+            "elapsed_seconds": round(time.perf_counter() - started, 3),
+            "output_chars": len(primary_output or ""),
+            "report_chars": len(report),
+        }
+        return primary_output, runtime, report
+
+    output = primary_output
+    report = reviewer_report or _shot_logic_local_fallback_report(local_issues)
+    if verdict in {"repair_required", "blocked"}:
+        repaired_yaml = _extract_shot_logic_repaired_yaml(reviewer_report)
+        if repaired_yaml:
+            repaired_yaml = _repair_shot_director_output_contracts(repaired_yaml, script)
+            expected_segments = _shot_logic_expected_segments_from_output(primary_output)
+            hard_issues = _hard_shot_director_issues(
+                _collect_shot_director_issues(
+                    repaired_yaml,
+                    expected_segments=expected_segments,
+                    script=script,
+                    planner_output=planner_output,
+                    aspect_ratio="",
+                )
+            )
+            repaired_local_issues = _shot_logic_local_issues(repaired_yaml, script)
+            if not hard_issues and len(repaired_local_issues) <= len(local_issues):
+                output = repaired_yaml
+                status = "repaired_by_logic_reviewer"
+                report = f"{report}\n\n裁判修复采纳: 是"
+            else:
+                status = "reviewer_repair_rejected"
+                rejection_reasons = [*hard_issues, *repaired_local_issues]
+                report = (
+                    f"{report}\n\n裁判修复采纳: 否\n"
+                    "拒绝原因:\n"
+                    + "\n".join(f"- {issue}" for issue in rejection_reasons[:8])
+                )
+        else:
+            status = "repair_requested_without_safe_yaml"
+            report = f"{report}\n\n裁判修复采纳: 否\n拒绝原因:\n- 裁判没有给出可安全解析的完整镜头方案。"
+    elif local_issues:
+        status = "accepted_primary_with_local_warnings"
+
     runtime = {
-        "agent_name": "shot_director_review_board",
-        "mode": "deterministic_guard",
-        "status": "accepted_primary",
+        "agent_name": "shot_director_logic_reviewer",
+        "mode": "single_fragment_logic_judge",
+        "status": status,
+        "verdict": verdict,
+        "local_issue_count": len(local_issues),
         "elapsed_seconds": round(time.perf_counter() - started, 3),
-        "output_chars": len(primary_output or ""),
+        "output_chars": len(output or ""),
+        "report_chars": len(report or ""),
     }
-    return primary_output, runtime, report
+    return output, runtime, report
 
 def shot_director_node(state: DirectorState) -> DirectorState:
     state = _await_scene_card_generation(state)

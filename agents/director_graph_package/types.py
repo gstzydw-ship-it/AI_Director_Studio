@@ -26,6 +26,7 @@ AGENT_CONFIG_PARENTS = {
     "shot_director_layout": "shot_director",
     "shot_director_blocking": "shot_director",
     "shot_director_guard": "shot_director",
+    "shot_director_logic_reviewer": "shot_director",
     "scene_vision_analyst": "scene_analyst",
     "video_analyst": "scene_analyst",
     "scene_card_designer": "storyboard_designer",

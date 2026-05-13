@@ -755,26 +755,54 @@ def test_review_board_accepts_primary_output(monkeypatch):
     assert "accepted" in report
 
 
-def test_shot_director_node_runs_single_pass_and_stores_output(monkeypatch):
-    """Current shot_director_impl.shot_director_node calls _run_shot_director_single_pass
-    (not review_board) and stores the result. Guard-repair validation is bypassed via
-    monkeypatch so this test is independent of the guard-contract implementation."""
+def test_shot_director_node_runs_three_stage_and_stores_output(monkeypatch):
+    """shot_director_node stores the three-stage final output.
+
+    Guard-repair validation and logic review are bypassed via monkeypatch so
+    this test is independent of those contract implementations.
+    """
     captured: dict[str, object] = {}
 
-    def fake_single_pass(**kwargs):
+    director_output = """- 片段编号: F01
+  片段任务: 建立进入动作
+  节奏: 进入后停住
+  空间连续性总控: 本片段是一段室内进入；人物始终在同一室内空间内。
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-2秒
+      镜头任务: 建立动作
+      拍摄主体: A
+      镜头: 竖屏中景，室内同侧固定机位
+      画面动作: A从门边进入后停在室内，视线向前，身体动作在镜尾稳定。
+      台词: ~
+      必须承载: A进入室内的动作和镜尾停顿
+      切镜点: A停稳后切出
+      连续性: A仍在同一室内空间内，位置没有跳变。
+"""
+
+    def fake_three_stage(**kwargs):
         captured["planner_output"] = kwargs["planner_output"]
         captured["director_brief"] = kwargs["director_brief"]
         return (
-            "- fragment_id: F01\n  main_shots:\n    - shot_id: F01-S01\n",
+            director_output,
             {"elapsed_seconds": 0.1},
             {"final": {"retrieval_mode": "stub"}},
-            {"final": "yaml"},
+            {"final": director_output},
         )
 
-    monkeypatch.setattr(sdi, "_run_shot_director_single_pass", fake_single_pass)
+    monkeypatch.setattr(sdi, "_run_shot_director_three_stage", fake_three_stage)
     monkeypatch.setattr(sdi, "_persist_update", lambda state, update: {**state, **update})
     monkeypatch.setattr(sdi, "_collect_shot_director_issues", lambda *args, **kwargs: [])
     monkeypatch.setattr(sdi, "_hard_shot_director_issues", lambda issues: [])
+    monkeypatch.setattr(
+        sdi,
+        "_run_shot_director_review_board",
+        lambda **kwargs: (
+            kwargs["primary_output"],
+            {"agent_name": "shot_director_logic_reviewer", "status": "accepted_primary"},
+            "审查结论: 通过",
+        ),
+    )
 
     result = sdi.shot_director_node(
         {
@@ -792,7 +820,7 @@ def test_shot_director_node_runs_single_pass_and_stores_output(monkeypatch):
     assert captured["director_brief"] == "film_tone: restrained"
     assert "shot_director" in result["agent_outputs"]
     assert result["agent_outputs"]["shot_director"].startswith("- 片段编号: F01")
-    assert "主镜头列表:" in result["agent_outputs"]["shot_director"]
+    assert "镜头列表:" in result["agent_outputs"]["shot_director"]
 
 
 def test_human_review_pauses_after_story_enhancement(monkeypatch):

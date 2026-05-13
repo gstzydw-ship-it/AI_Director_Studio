@@ -51,6 +51,41 @@ def _cleanup_rhythm_abstract_language(text: str, *, preserve_heading: bool = Fal
     return body
 
 
+_RHYTHM_SUGGESTED_DURATION_RE = re.compile(
+    r"(建议时长(?:[：:])?\s*(?:\n\s*)?)(\d+(?:\.\d+)?)\s*(?:[-—–~～至到]\s*(\d+(?:\.\d+)?))?\s*秒"
+)
+
+
+def _format_rhythm_seconds(value: float) -> str:
+    if value.is_integer():
+        return str(int(value))
+    return f"{value:.1f}".rstrip("0").rstrip(".")
+
+
+def _clamp_rhythm_segment_duration_suggestions(text: str) -> str:
+    if not text:
+        return ""
+
+    def _replace(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        start = float(match.group(2))
+        end_text = match.group(3)
+        if end_text is None:
+            if start <= 15:
+                return match.group(0)
+            return f"{prefix}13-15秒（原建议超过15秒，需压缩或拆为相邻片段）"
+
+        end = float(end_text)
+        lower, upper = sorted((start, end))
+        if upper <= 15:
+            return match.group(0)
+        if lower >= 15:
+            return f"{prefix}13-15秒（原建议超过15秒，需压缩或拆为相邻片段）"
+        return f"{prefix}{_format_rhythm_seconds(lower)}-15秒"
+
+    return _RHYTHM_SUGGESTED_DURATION_RE.sub(_replace, text)
+
+
 def _clean_rhythm_rewritten_script(text: str) -> str:
     cleaned = _cleanup_rhythm_abstract_language(text)
     lines = cleaned.splitlines()
@@ -243,6 +278,14 @@ def _rhythm_supervisor_role_prompt() -> str:
         "- 只有当原文事件密集、动作/反应紧张或无效过渡可压缩时，才建议快切或短段化；不能为了显得快而把普通动作切碎。\n"
         "- 镜头快切只是辅助表达，必须设置最多镜头数和每镜停留边界；镜头过密会损害观感、连续性和信息可读性。\n"
         "- 快段仍必须保留信息命中点、动作顶点、人物第一反应和可继承尾帧，不能把观众需要读懂的反应剪没。\n\n"
+        "片段时长硬约束：\n"
+        "- 单个结构片段的建议时长绝对不得超过15秒；禁止输出 16秒、18-22秒、14-17秒 这类超过15秒上限的建议。\n"
+        "- 如果已有事件在15秒内无法清楚承载，必须改为压缩无效过渡、合并短停留或建议拆成相邻片段；不能用拉长单片段解决。\n"
+        "- 快节奏戏剧任务优先使用 4-10秒短段或 11-15秒紧凑段；普通段也只能写 13-15秒，不得写 18-22秒。\n\n"
+        "硬边界与完整性：\n"
+        "- 当前施工剧本中的转场标识、字幕标识、闪回开始/闪回结束是硬边界；不得把闪回前的现实触发反应和闪回内容合并成同一个结构片段。\n"
+        "- 照片滑出、人物识别、孩子关于照片人物的台词、现实人物第一反应属于照片触发段；后续闪回必须从闪回开始标识之后独立承接。\n"
+        "- 每个原文锚点必须完整写完所有字段，不得输出半截字段名或半截句子；如果内容过长，优先减少条目数量而不是截断字段。\n\n"
         "工作量控制：\n"
         "- 只处理会影响拆片、停顿、段尾状态、尾帧或镜头节奏的关键锚点；普通顺畅动作不必逐条分析。\n"
         "- 每个列表优先控制在 3-5 条；没有必要约束的字段写 无。\n"
@@ -259,8 +302,9 @@ def _rhythm_supervisor_role_prompt() -> str:
         "- 节奏诊断：仅供 UI 和调试查看，不传给下游；最多 3 条，说明为什么需要压缩、保护反应、独立成段或正常承接。\n"
         "- 给结构规划师：只写拆片 agent 需要的操作单；每条必须包含 原文锚点、分段决定、必须包含的原文事件、不能包含的后续事件、建议时长、可以压缩、不能省略、结尾必须停在、承接提醒。\n"
         "- 给镜头导演：只写镜头 agent 需要的操作单；每条必须包含 原文锚点、本段必须拍完整、可以省略、不能省略、最少停留时间、最多镜头数、禁止新增、结尾画面必须是。\n"
-        "- 风险提醒：只保留下游执行会踩坑的硬风险，例如误加动作、误拆、误改道具状态、把节奏建议当剧情事实。\n\n"
+        "- 风险提醒：只保留下游执行会踩坑的硬风险，例如误加动作、误拆、误改道具状态、把节奏建议当剧情事实；没有风险也必须写 无，不能省略该字段。\n\n"
         "给结构规划师.分段决定 只能使用这些明确值：独立成段 / 与前面合并 / 与后面合并 / 留在当前段内 / 正常承接。\n"
+        "给结构规划师.建议时长 必须写 15秒以内的范围或单值；若内容密度过高，写 13-15秒 并在承接提醒中说明需要压缩或拆段，不能写超过15秒。\n"
         "给结构规划师 不能写镜头数量、景别、运镜、情绪解释、戏剧理论或镜头方案。\n\n"
         "给镜头导演.最多镜头数 必须使用具体数量，不得只写高/中/低：\n"
         "- 主镜头：最多主镜头数，例如 1、1-2、2、2-3。\n"
@@ -294,6 +338,9 @@ def _rhythm_supervisor_user_prompt(state: DirectorState) -> str:
         "7. 需要快节奏时，先确认事件密度和人物紧张态，再用有限快切辅助；不得只靠密集切镜制造速度。\n"
         "8. 禁止输出 快推、慢拍、刹车、卡断、尾钩、爆点、爽点、压迫感 等导演黑话；用明确操作字段替代。\n"
         "9. 最多镜头数和最少停留时间必须给具体数量；不要只写高/中/低切镜密度。\n"
+        "10. 给结构规划师的建议时长必须小于或等于15秒；任何 16秒以上或 18-22秒 之类范围都是硬错误，应改成 13-15秒并提示压缩或拆段。\n"
+        "11. 闪回开始/闪回结束、字幕、现实回神是片段边界硬锚点；不要把闪回前的现实照片触发反应和闪回本体合并进同一条结构规划建议。\n"
+        "12. 输出必须以完整的 风险提醒 字段结束；不得停在“不能包含的后”“建议时”等半截字段或半截句子。\n"
     )
 
 
@@ -335,6 +382,7 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
     user_prompt = _rhythm_supervisor_user_prompt(state)
     output = call_llm(system_prompt, user_prompt, agent_name="rhythm_rewrite_director")
     output = _cleanup_rhythm_abstract_language(output)
+    output = _clamp_rhythm_segment_duration_suggestions(output)
     knowledge_metadata = _record_knowledge_metadata(state, "rhythm_rewrite_director", rhythm_hint, retrieval_meta)
     atmosphere_strategy = output.strip()
     outputs["rhythm_rewrite_director"] = atmosphere_strategy

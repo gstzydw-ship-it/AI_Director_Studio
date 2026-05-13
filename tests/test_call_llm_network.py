@@ -25,6 +25,7 @@ class _FakeStreamResponse:
     def iter_lines(self):
         return iter(
             [
+                'data: {"choices":[{"delta":{"reasoning_content":"thinking should be skipped"}}]}',
                 'data: {"choices":[{"delta":{"content":"hello "}}]}',
                 'data: {"choices":[{"delta":{"content":"world"}}]}',
                 "data: [DONE]",

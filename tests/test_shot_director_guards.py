@@ -55,10 +55,10 @@ main_shots:
 
 
 def test_segment_shot_director_uses_local_fallback_after_llm_failure(monkeypatch):
-    def fail_single_pass(**_kwargs):
+    def fail_three_stage(**_kwargs):
         raise RuntimeError("LLM network connection failed")
 
-    monkeypatch.setattr(shot_director_impl, "_run_shot_director_single_pass", fail_single_pass)
+    monkeypatch.setattr(shot_director_impl, "_run_shot_director_three_stage", fail_three_stage)
     monkeypatch.setattr(
         shot_director_impl,
         "_persist_update",

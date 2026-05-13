@@ -15,8 +15,11 @@ from agents.director_graph_package.shot_director_impl import (  # noqa: E402
     _scene_reference_items,
     _rhythm_shot_director_notes_prompt,
     _shot_library_signal_task_card,
+    _shot_director_blocking_rule_block,
     _shot_director_coverage_contract_prompt,
     _shot_director_downstream_context,
+    _shot_director_guard_stage_rule_block,
+    _shot_director_rule_block,
     _shot_director_workflow_contract,
     _repair_shot_director_output_contracts,
     _validate_shot_director_output,
@@ -103,6 +106,153 @@ def test_shot_director_repair_adds_fragment_continuity_context():
     assert "乔熙、商北琛在9-1 夜/内/劳斯莱斯车内的同一空间内" in repaired
     assert "单人镜只改变拍摄主体" in repaired
     assert _validate_shot_director_output(repaired, ["F01"]) == []
+
+
+def test_shot_director_rules_keep_camera_and_performance_fields_separate():
+    rule_block = _shot_director_rule_block("9:16")
+    blocking_rules = _shot_director_blocking_rule_block("9:16")
+    guard_rules = _shot_director_guard_stage_rule_block("9:16")
+
+    for text in (rule_block, blocking_rules, guard_rules):
+        assert "镜头字段只写摄影" in text
+        assert "画面动作" in text
+
+    assert "人物动作表情链" in rule_block
+    assert "起始状态 -> 动作变化 -> 表情/身体反应 -> 结束状态" in rule_block
+    assert "道具接触戏必须锁定道具归属和动作阶段" in rule_block
+    assert "不要在此字段写人物动作" in rule_block
+    assert "动作表情必须写进画面动作" in blocking_rules
+    assert "不要写戏剧判断、人物动作、台词或表情" in guard_rules
+
+
+def test_shot_logic_reviewer_local_issues_flag_camera_action_leak():
+    director_output = """- 片段编号: F01
+  片段任务: 车内命令戴项链
+  节奏: 项链识别反应必须停住
+  空间连续性总控: 本片段是一段车内项链压迫；乔熙和商北琛始终在同一车后排空间内；单人镜只改变拍摄主体，不代表另一人离开。
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-2秒
+      镜头任务: 承载乔熙识别项链
+      拍摄主体: 乔熙
+      镜头: 乔熙中近景，她低头看清项链
+      画面动作: 乔熙看项链
+      台词: ~
+      必须承载: 乔熙认出项链
+      切镜点: 乔熙看清后切出
+      连续性: 项链在画面里
+"""
+    script = """9-1 夜/内/劳斯莱斯车内
+人物：乔熙、商北琛
+"""
+
+    issues = sdi._shot_logic_local_issues(director_output, script)
+
+    assert any("镜头字段混入人物动作" in issue for issue in issues)
+    assert any("画面动作缺少动作表情链" in issue for issue in issues)
+    assert any("单人镜缺少同场人物保留" in issue for issue in issues)
+
+
+def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
+    primary_output = """- 片段编号: F01
+  片段任务: 车内命令戴项链
+  节奏: 项链靠近后乔熙识别
+  空间连续性总控: 本片段是一段车内项链压迫；乔熙和商北琛始终在同一车后排空间内；单人镜只改变拍摄主体，不代表另一人离开。
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-2秒
+      镜头任务: 承载乔熙识别项链
+      拍摄主体: 乔熙
+      镜头: 乔熙中近景，她低头看清项链
+      画面动作: 乔熙看项链
+      台词: ~
+      必须承载: 乔熙认出项链
+      切镜点: 乔熙看清后切出
+      连续性: 项链在画面里
+"""
+    repaired_output = """- 片段编号: F01
+  片段任务: 车内命令戴项链
+  节奏: 项链靠近后乔熙识别
+  空间连续性总控: 本片段是一段车内项链压迫；乔熙和商北琛始终在同一车后排空间内；单人镜只改变拍摄主体，不代表另一人离开。
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-2秒
+      镜头任务: 承载乔熙识别项链
+      拍摄主体: 乔熙
+      镜头: 乔熙中近景，车内同侧微侧机位
+      画面动作: 乔熙原本身体后收，视线先落到商北琛手中的项链，随后低头看清吊坠，眼神短暂停住，肩颈保持绷紧。
+      台词: ~
+      必须承载: 乔熙认出项链，商北琛仍在近侧形成压力，项链仍未戴上。
+      切镜点: 乔熙看清项链后眼神停住时切出
+      连续性: 商北琛仍在乔熙近侧，项链仍在商北琛手中，乔熙坐在原位没有离开。
+"""
+
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
+        assert "镜头逻辑裁判" in system_prompt
+        assert "单片段内部逻辑" in user_prompt
+        assert kwargs["agent_name"] == "shot_director_logic_reviewer"
+        return f"""审查结论: 需要返修
+裁判摘要: 镜头字段混入人物动作，已做最小修复。
+单片段审查:
+  - 片段编号: F01
+    通过: false
+    问题:
+      - 镜头字段混入动作。
+硬错误: []
+修复后镜头方案:
+{repaired_output}
+"""
+
+    monkeypatch.setattr(sdi, "call_llm", fake_call_llm)
+
+    output, runtime, report = sdi._run_shot_director_review_board(
+        script="9-1 夜/内/劳斯莱斯车内\n人物：乔熙、商北琛",
+        planner_output="",
+        director_brief="",
+        primary_output=primary_output,
+    )
+
+    assert runtime["agent_name"] == "shot_director_logic_reviewer"
+    assert runtime["status"] == "repaired_by_logic_reviewer"
+    assert "乔熙中近景，车内同侧微侧机位" in output
+    assert "她低头看清项链" not in sdi._yaml_line_field(output, "shot")
+    assert "裁判修复采纳: 是" in report
+
+
+def test_shot_logic_reviewer_falls_back_to_local_report(monkeypatch):
+    primary_output = """- 片段编号: F01
+  片段任务: 车内命令戴项链
+  节奏: 项链靠近后乔熙识别
+  空间连续性总控: 本片段是一段车内项链压迫；乔熙和商北琛始终在同一车后排空间内；单人镜只改变拍摄主体，不代表另一人离开。
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-2秒
+      镜头任务: 承载乔熙识别项链
+      拍摄主体: 乔熙
+      镜头: 乔熙中近景，她低头看清项链
+      画面动作: 乔熙看项链
+      台词: ~
+      必须承载: 乔熙认出项链
+      切镜点: 乔熙看清后切出
+      连续性: 项链在画面里
+"""
+
+    def fake_call_llm(*args, **kwargs):
+        raise RuntimeError("离线")
+
+    monkeypatch.setattr(sdi, "call_llm", fake_call_llm)
+
+    output, runtime, report = sdi._run_shot_director_review_board(
+        script="9-1 夜/内/劳斯莱斯车内\n人物：乔熙、商北琛",
+        planner_output="",
+        director_brief="",
+        primary_output=primary_output,
+    )
+
+    assert output == primary_output
+    assert runtime["status"] == "local_fallback"
+    assert runtime["local_issue_count"] >= 1
+    assert "本地镜头逻辑检查" in report
 
 
 def test_shot_director_workflow_trace_summarises_planner_fragments():

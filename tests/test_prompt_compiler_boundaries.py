@@ -96,6 +96,26 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
         "segment_names": ["F05"],
         "script": "商北琛：你没有资格。\n严飞：这不是你说了算的。",
         "aspect_ratio": "16:9",
+        "reference_image_manifest": [
+            {
+                "label": "@图片1",
+                "filename": "qiaoxi.png",
+                "role": "character",
+                "purpose": "乔熙人物参考图",
+            },
+            {
+                "label": "@图片2",
+                "filename": "office.png",
+                "role": "scene",
+                "purpose": "办公室场景参考图",
+            },
+            {
+                "label": "@图片3",
+                "filename": "seg00_tail.jpg",
+                "role": "previous_segment_tail_frame",
+                "purpose": "上一段实际尾帧",
+            },
+        ],
         "agent_outputs": {
             "story_planner": (
                 "- fragment_id: F05\n"
@@ -119,6 +139,11 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
                 "      must_carry: 商北琛施压\n"
                 "      cut_point: 台词说完切至严飞反应\n"
                 "      continuity: 保持桌边对峙轴线\n"
+                "      coverage_role: 承载商北琛压迫发言\n"
+                "      cut_reason: 台词落点后切到听者受击反应\n"
+                "      companion_visibility: 严飞保持在办公桌对面画外右侧\n"
+                "      state_delta: 商北琛完成施压，严飞进入受击状态\n"
+                "      tailframe_role: 交给严飞反应镜头承接\n"
             ),
         },
     }
@@ -130,6 +155,17 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
     assert "F05-S01" in captured["user_prompt"]
     assert "商北琛、严飞在同一办公室空间内" in captured["user_prompt"]
     assert "单人镜只改变拍摄主体" in captured["user_prompt"]
+    assert "shot 若是新版输出，只把它当成景别、机位、视角、运镜或前景关系" in captured["user_prompt"]
+    assert "动作、表情、视线、呼吸、肩颈、手部、道具接触和台词落点必须主要来自 action" in captured["user_prompt"]
+    assert "coverage_role / 覆盖职责" in captured["user_prompt"]
+    assert "companion_visibility / 同场人物位置" in captured["user_prompt"]
+    assert "tailframe_role / 尾帧职责" in captured["user_prompt"]
+    assert "承载商北琛压迫发言" in captured["user_prompt"]
+    assert "【最终 Prompt 开头必须输出的参考图说明】" in captured["user_prompt"]
+    assert "@图片1 是人物参考图：乔熙人物参考图（qiaoxi.png）" in captured["user_prompt"]
+    assert "@图片2 是场景参考图：办公室场景参考图（office.png）" in captured["user_prompt"]
+    assert "@图片3 是上一段实际尾帧/抽帧参考图" in captured["user_prompt"]
+    assert "严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌" in captured["user_prompt"]
     assert "fragment_id: F01" not in captured["user_prompt"]
 
 
@@ -212,6 +248,11 @@ def test_prompt_compiler_local_fallback_scrubs_internal_english_terms() -> None:
             "      must_carry: 闹钟停下，手机免提放在玻璃茶几边，小豆丁在乔熙身旁。\n"
             "      cut_point: after the first readable action lands\n"
             "      continuity: preserve established positions, props and eye-lines from the approved upstream plan\n"
+            "      coverage_role: 建立闹钟、免提电话和两人位置关系\n"
+            "      cut_reason: 闹钟停下且手机放稳后切到孩子动作\n"
+            "      companion_visibility: 小豆丁始终在乔熙身旁画面边缘\n"
+            "      state_delta: 手机从闹钟状态变为免提通话状态\n"
+            "      tailframe_role: 把乔熙和小豆丁同处茶几旁的位置交给下一镜\n"
             "    - shot_id: F01-S02\n"
             "      duration: 3-6s\n"
             "      task: 承接孩子拉衣角动作\n"
@@ -236,10 +277,17 @@ def test_prompt_compiler_local_fallback_scrubs_internal_english_terms() -> None:
     assert "竖屏中景双人关系镜头" in compiled
     assert "固定机位" in compiled
     assert "【镜头序列】" in compiled
+    assert "【参考图说明】" in compiled
+    assert "无参考图；不得编造 @图片 占位。" in compiled
     assert "镜头1【0-3秒】【乔熙、小豆丁】" in compiled
     assert "建立闹钟被按掉、电话免提和两人位置关系" in compiled
     assert "Sunny, wake up." in compiled
     assert "闹钟停下，手机免提放在玻璃茶几边，小豆丁在乔熙身旁" in compiled
+    assert "本镜负责：建立闹钟、免提电话和两人位置关系" in compiled
+    assert "同场关系保持：小豆丁始终在乔熙身旁画面边缘" in compiled
+    assert "本镜新增变化：手机从闹钟状态变为免提通话状态" in compiled
+    assert "尾帧交给：把乔熙和小豆丁同处茶几旁的位置交给下一镜" in compiled
+    assert "闹钟停下且手机放稳后切到孩子动作" in compiled
     assert "→镜头" in compiled
     assert "无可用上一段尾帧" in compiled
     assert "relationship shot" not in compiled
@@ -249,6 +297,33 @@ def test_prompt_compiler_local_fallback_scrubs_internal_english_terms() -> None:
     assert "local fallback reason" not in compiled
     assert "task:" not in compiled
     assert "must_carry:" not in compiled
+    assert "coverage_role:" not in compiled
+    assert "tailframe_role:" not in compiled
+    assert "严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌" in compiled
+
+
+def test_seedance_reference_prompt_block_labels_reference_roles() -> None:
+    block = prompt_compiler_impl._seedance_reference_prompt_block(
+        {
+            "reference_image_manifest": [
+                {"label": "@图片1", "filename": "hero.png", "role": "character", "purpose": "乔熙人物参考"},
+                {"label": "@图片2", "filename": "car.jpg", "role": "scene", "purpose": "车后排场景"},
+                {
+                    "label": "@图片3",
+                    "filename": "tail.jpg",
+                    "role": "previous_segment_tail_frame",
+                    "purpose": "上一段尾帧",
+                },
+            ]
+        }
+    )
+
+    assert "@图片1 是人物参考图" in block
+    assert "面部形象、发型、服装" in block
+    assert "@图片2 是场景参考图" in block
+    assert "空间结构、固定家具/道具、光线方向" in block
+    assert "@图片3 是上一段实际尾帧/抽帧参考图" in block
+    assert "本段首帧承接" in block
 
 
 def test_shot_director_local_fallback_uses_chinese_director_language() -> None:
@@ -271,6 +346,33 @@ def test_shot_director_local_fallback_uses_chinese_director_language() -> None:
     assert "relationship shot" not in fallback
     assert "stable camera" not in fallback
     assert "approved upstream" not in fallback
+
+
+def test_shot_director_local_fallback_skips_planner_metadata_events() -> None:
+    fallback = shot_director_impl._build_local_shot_director_fallback(
+        fragment_id="F01",
+        fragment_planner_output=(
+            "- fragment_id: F01\n"
+            "  source_script_events:\n"
+            "    - 1-1 晨/内/乔熙公寓\n"
+            "    - 人物：乔熙、小豆丁\n"
+            "    - 【特写-闹钟：7:30】\n"
+            "    - 【音效：闹钟铃响】\n"
+            "    - ▲闹钟响了三声，乔熙一巴掌拍灭。\n"
+            "    - 乔熙：Kiki, cover for me. I'll be right there!\n"
+            "    - ▲小豆丁整个身子一扭，从半套上的校服里滑出去，缩到床角。\n"
+        ),
+        script="人物：乔熙、小豆丁\n闹钟响了三声，乔熙一巴掌拍灭。",
+        aspect_ratio="9:16",
+        failure=RuntimeError("shot director failed"),
+    )
+
+    assert '画面动作: "1-1 晨/内/乔熙公寓"' not in fallback
+    assert '画面动作: "人物：乔熙、小豆丁"' not in fallback
+    assert '画面动作: "特写-闹钟：7:30"' not in fallback
+    assert "闹钟响了三声，乔熙一巴掌拍灭" in fallback
+    assert "Kiki, cover for me" in fallback
+    assert "小豆丁整个身子一扭" in fallback
 
 
 def test_prompt_compiler_handles_chinese_shot_director_fallback(monkeypatch) -> None:

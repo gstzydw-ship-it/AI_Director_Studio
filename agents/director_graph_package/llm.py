@@ -589,9 +589,15 @@ def _extract_stream_delta_text(chunk: dict[str, Any]) -> str:
         return ""
     delta = first_choice.get("delta")
     if isinstance(delta, dict):
-        text = _extract_message_text(delta)
-        if text:
-            return text
+        content = delta.get("content")
+        if isinstance(content, str) and content:
+            return content
+        if isinstance(content, list):
+            return _extract_message_text({"content": content})
+        for key in ("output_text", "text"):
+            text = delta.get(key)
+            if isinstance(text, str) and text:
+                return text
     message = first_choice.get("message")
     if isinstance(message, dict):
         text = _extract_message_text(message)

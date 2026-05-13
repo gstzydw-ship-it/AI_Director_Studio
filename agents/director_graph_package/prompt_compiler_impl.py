@@ -789,6 +789,11 @@ def _director_shot_rows(director_segment: str) -> list[dict[str, str]]:
                 "must_carry": _yaml_line_field(block, "must_carry"),
                 "cut_point": _yaml_line_field(block, "cut_point") or "cut after the visible action lands",
                 "continuity": _yaml_line_field(block, "continuity") or _yaml_line_field(block, "must_carry"),
+                "coverage_role": _yaml_line_field(block, "coverage_role"),
+                "cut_reason": _yaml_line_field(block, "cut_reason"),
+                "companion_visibility": _yaml_line_field(block, "companion_visibility"),
+                "state_delta": _yaml_line_field(block, "state_delta"),
+                "tailframe_role": _yaml_line_field(block, "tailframe_role"),
             }
         )
     return rows
@@ -867,6 +872,73 @@ def _local_compiler_bridge_text(tail_frame_memory: str) -> str:
     return translated[:260]
 
 
+def _normalise_reference_label(label: Any, index: int) -> str:
+    text = str(label or "").strip()
+    match = re.match(r"^@(图片|image|Image)\s*(\d+)$", text)
+    if match:
+        return f"@图片{match.group(2)}"
+    if text.startswith("@图片"):
+        return text
+    return f"@图片{index + 1}"
+
+
+def _reference_role_text(item: dict[str, Any]) -> str:
+    return " ".join(
+        str(item.get(key) or "")
+        for key in ("role", "type", "asset_type", "purpose", "source", "filename", "description", "note")
+    ).lower()
+
+
+def _reference_descriptor(item: dict[str, Any]) -> str:
+    purpose = str(item.get("purpose") or "").strip()
+    filename = str(item.get("filename") or "").strip()
+    if purpose and filename:
+        return f"{purpose}（{filename}）"
+    return purpose or filename or "参考图"
+
+
+def _reference_usage_line(item: dict[str, Any], index: int) -> str:
+    label = _normalise_reference_label(item.get("label"), index)
+    descriptor = _reference_descriptor(item)
+    role_text = _reference_role_text(item)
+
+    if any(marker in role_text for marker in ("previous_segment_tail_frame", "tail_frame", "上一段", "尾帧")):
+        return (
+            f"{label} 是上一段实际尾帧/抽帧参考图：{descriptor}；仅用于锁定本段首帧承接："
+            "人物最终站位、朝向、姿态、道具状态、空间轴线和光线；不得新增剧情或强行沿用不可见内容。"
+        )
+    if any(marker in role_text for marker in ("character", "portrait", "人物", "角色", "服装", "外观", "演员")):
+        return (
+            f"{label} 是人物参考图：{descriptor}；仅用于锁定对应人物的身份、面部形象、发型、服装、"
+            "体态和可见随身道具一致性；不得把参考图当作剧情道具或新增动作。"
+        )
+    if any(marker in role_text for marker in ("scene", "space", "location", "room", "场景", "空间", "地点", "母版", "九宫格")):
+        return (
+            f"{label} 是场景参考图：{descriptor}；仅用于锁定空间结构、固定家具/道具、光线方向、"
+            "色调和基础轴线；不得复述成建筑说明书，不得新增场景区域。"
+        )
+    if any(marker in role_text for marker in ("prop", "item", "道具", "物件", "项链", "手机", "文件")):
+        return (
+            f"{label} 是道具参考图：{descriptor}；仅用于锁定道具外观、材质、尺寸关系和持有状态；"
+            "不得新增道具用途或剧情。"
+        )
+    return (
+        f"{label} 是视觉参考图：{descriptor}；仅用于锁定已标明的外观、空间或道具事实；"
+        "不得新增人物、剧情、台词、文字或字幕。"
+    )
+
+
+def _seedance_reference_prompt_block(state: DirectorState | dict[str, Any]) -> str:
+    manifest = state.get("reference_image_manifest") or []
+    lines: list[str] = []
+    for index, item in enumerate(manifest):
+        if isinstance(item, dict):
+            lines.append(_reference_usage_line(item, index))
+    if not lines:
+        return "无参考图；不得编造 @图片1、@图片2、@图片3 或任何参考图占位。"
+    return "\n".join(lines)
+
+
 def _local_compiler_duration(duration: str) -> str:
     text = _local_compiler_cn(duration) or "0-3秒"
     text = text.replace("seconds", "秒").replace("second", "秒").replace("secs", "秒").replace("sec", "秒")
@@ -921,18 +993,32 @@ def _local_compiler_shot_line(index: int, row: dict[str, str], total_rows: int) 
     must_carry = _local_compiler_cn(row.get("must_carry", ""))
     cut_point = _local_compiler_cn(row.get("cut_point", ""))
     continuity = _local_compiler_cn(row.get("continuity", ""))
+    coverage_role = _local_compiler_cn(row.get("coverage_role", ""))
+    cut_reason = _local_compiler_cn(row.get("cut_reason", ""))
+    companion_visibility = _local_compiler_cn(row.get("companion_visibility", ""))
+    state_delta = _local_compiler_cn(row.get("state_delta", ""))
+    tailframe_role = _local_compiler_cn(row.get("tailframe_role", ""))
 
     basis_parts = [part for part in (subject, shot) if part]
     basis = "，".join(basis_parts) if basis_parts else f"镜头{index}"
     action_sentence = action or task or must_carry or "承接已确认剧情事件"
     task_clause = _local_compiler_extra_clause("镜头功能：", task, action_sentence)
     carry_clause = _local_compiler_extra_clause("画面必须看清：", must_carry, action_sentence, task)
+    coverage_clause = _local_compiler_extra_clause("本镜负责：", coverage_role, action_sentence, must_carry)
+    companion_clause = _local_compiler_extra_clause("同场关系保持：", companion_visibility, action_sentence, continuity)
+    state_clause = _local_compiler_extra_clause("本镜新增变化：", state_delta, action_sentence, must_carry)
+    tailframe_clause = _local_compiler_extra_clause("尾帧交给：", tailframe_role, action_sentence, continuity)
     dialogue_clause = _local_compiler_dialogue_clause(row.get("dialogue", ""))
     next_target = f"→镜头{index + 1}" if index < total_rows else "后切出"
-    cut_clause = f"（{cut_point}{next_target}）" if cut_point else f"（尾帧稳定{next_target}）"
+    cut_trigger = "，".join(part for part in (cut_point, cut_reason) if part)
+    cut_clause = f"（{cut_trigger}{next_target}）" if cut_trigger else f"（尾帧稳定{next_target}）"
     continuity_clause = _local_compiler_extra_clause("连续性保持：", continuity, action_sentence, must_carry)
 
-    return f"镜头{index}【{duration}】【{subject or '当前主体'}】{basis}，{action_sentence}{task_clause}{dialogue_clause}{carry_clause}{cut_clause}{continuity_clause}。"
+    return (
+        f"镜头{index}【{duration}】【{subject or '当前主体'}】{basis}，"
+        f"{action_sentence}{task_clause}{dialogue_clause}{carry_clause}{coverage_clause}"
+        f"{companion_clause}{state_clause}{cut_clause}{continuity_clause}{tailframe_clause}。"
+    )
 
 
 def _build_local_compiled_prompt(
@@ -946,6 +1032,7 @@ def _build_local_compiled_prompt(
     tail_frame_memory: str,
     reference_context: str,
     failure: Exception,
+    reference_prompt_block: str = "",
 ) -> str:
     rows = _director_shot_rows(director_segment)
     if not rows:
@@ -975,9 +1062,12 @@ def _build_local_compiled_prompt(
     event_text = _local_compiler_cn("；".join(events)) if events else "严格承接已确认拆片规划，不新增剧情。"
     bridge_text = _local_compiler_bridge_text(tail_frame_memory)
     refs_text = _local_compiler_cn(reference_context.strip()[:260]) if reference_context else "无参考图；不得写入参考图占位符。"
+    reference_prompt_block = (reference_prompt_block or "无参考图；不得编造 @图片 占位。").strip()
     return "\n\n".join(
         [
             f"片段{segment_index}｜本地兜底编译｜已确认事件｜~{max(6, len(rows) * 3)}秒",
+            "【参考图说明】",
+            reference_prompt_block,
             "【风格锚点】",
             "清晰、克制、可执行的导演调度语言；只保留可见动作、机位、表情落点和必要切镜触发。",
             "【画幅锚点】",
@@ -992,7 +1082,7 @@ def _build_local_compiled_prompt(
             event_text,
             "【约束】",
             refs_text,
-            "禁止新增剧本外台词、角色、道具或空间。保持人物左右关系、道具状态、视线方向和尾帧可衔接。",
+            "禁止新增剧本外台词、角色、道具或空间。保持人物左右关系、道具状态、视线方向和尾帧可衔接。严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌。",
             f"片段{segment_index} prompt 已输出。",
             "请生成视频后，上传：",
             f"片段{segment_index}的尾帧截图",
@@ -1024,6 +1114,9 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "你的输出必须严格按以下结构，不得增删段落、不得使用 YAML、不得使用教学标签：\n\n"
         "```\n"
         "片段N｜场景名｜情绪/动作关键词(用+连接)｜~秒数秒\n\n"
+        "【参考图说明】\n"
+        "@图片1 是人物参考图，仅用于锁定对应人物的身份、面部形象、发型、服装、体态和可见随身道具一致性。\n"
+        "@图片2 是场景参考图，仅用于锁定空间结构、固定家具/道具、光线方向、色调和基础轴线。\n\n"
         "【风格锚点】\n"
         "一句话风格定义。\n\n"
         "【画幅锚点】\n"
@@ -1039,15 +1132,22 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "【镜头序列】\n"
         "镜头1【X秒】【主体】景别，机位/视角，动作从起点到落点；对白直接嵌入动作句中（具体切镜触发→镜头2）。\n\n"
         "镜头2【X秒】【主体】景别，机位/视角，承接上一镜动作/道具/轴线；必要时用 OS/J-cut/L-cut 把台词压到听者反应上（具体切镜触发→镜头3）。\n\n"
-        "每一行都必须来自上游 shot 的 duration、subject、shot、action、dialogue、must_carry、cut_point、continuity；不得泄漏这些字段名。\n\n"
+        "每一行都必须来自上游 shot 的 duration、subject、shot、action、dialogue、must_carry、cut_point、continuity；"
+        "如果上游有 coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role，也必须翻译进自然镜头句；不得泄漏这些字段名。\n\n"
         "【约束】\n"
-        "主体锁定、空间锁定、道具连续性、禁止项。简洁列出。\n\n"
+        "主体锁定、空间锁定、道具连续性、禁止项。必须包含：严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌。简洁列出。\n\n"
         "片段N prompt 已输出。\n"
         "请生成视频后，上传：\n\n"
         "片段N的尾帧截图\n"
         "当前人物位置关系（若有变化）\n\n"
         "我将基于实际尾帧继续输出片段N+1。\n"
         "```\n\n"
+        "【参考图说明硬约束】\n"
+        "1. 如果【最终 Prompt 开头必须输出的参考图说明】中有 @图片 行，标题行后必须立刻输出【参考图说明】段，逐行照抄并可微调成自然中文；不要删掉、合并或改编号。\n"
+        "2. 人物参考图只锁定人物身份、面部形象、发型、服装、体态和可见随身道具一致性；不得把人物参考图当作剧情动作、台词或场景来源。\n"
+        "3. 场景参考图只锁定空间结构、固定家具/道具、光线方向、色调和基础轴线；不得把场景参考图扩写成建筑说明书。\n"
+        "4. 上一段尾帧/抽帧参考图只锁定本段首帧承接：人物最终站位、朝向、姿态、道具状态、空间轴线和光线；不能覆盖当前片段的剧本事实。\n"
+        "5. 若无参考图，【参考图说明】必须写“无参考图；不得编造 @图片 占位。”\n\n"
         "【语言风格硬约束】\n"
         "1. 用简洁的导演调度语言，不用文学化描写。\n"
         "2. 表情只写关键状态，不堆砌微表情。\n"
@@ -1143,6 +1243,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
             "5. 本桥接决策高于下面旧的尾帧继承规则；direct_cut 时，“必须以视频最终位置为准”只适用于明确可继承的道具/空间状态，不适用于人物首帧站位。"
         )
     reference_context = _reference_context(state)
+    reference_prompt_block = _seedance_reference_prompt_block(state)
     reference_usage_instruction = (
         "第一段也必须调用人物参考图与场景参考图：人物图只锁定身份/五官/服装，场景图只锁定空间/光线/轴线。\n\n"
         if reference_context.strip()
@@ -1206,6 +1307,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"4. 不要在空间总控中扩写复杂场景说明；只保留1-3个关键节点和首帧人物关系，其他信息交给时间轴中的机位与动作承接。\n"
         f"5. 如果场景关系不确定，禁止补写门后、走廊尽头、办公室延伸等推理空间。\n\n"
         f"【参考图清单】\n{reference_context or '无'}\n\n"
+        f"【最终 Prompt 开头必须输出的参考图说明】\n{reference_prompt_block}\n\n"
         f"{revision_block}\n"
         f"【当前任务】\n"
         f"请专门为【片段 {segment_index}】编译最终 Seedance Prompt。\n\n"
@@ -1216,16 +1318,23 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "4. 若上游要求完整发言单元保持连续，意思是语义和声音连续，不是单镜头吃完整段台词；必须保留上游给出的听者反应、同侧过肩、画外音或景别变化；若上游写了反打，单段内改写为同侧听者反应，真反打必须拆段。\n"
         "5. source_script_events 必须全部覆盖，不得遗漏。\n\n"
         "【镜头覆盖字段翻译规则】\n"
-        "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，必须按下面方式编译成【镜头序列】：\n"
+        "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，以及三号守门字段 coverage_role / cut_reason / companion_visibility / state_delta / tailframe_role，必须按下面方式编译成【镜头序列】：\n"
         "0. 空间连续性总控 必须转译进【空间与首帧总控】开头：说明本片段戏剧任务、同一空间、同一人物组和单人镜不代表其他人物离场；不要泄漏字段名。\n"
         "1. duration 只进入镜头编号后的秒数，例如 镜头1【4秒】；不要在最终 prompt 里写 duration 字段名。\n"
         "2. task 决定镜头功能，但最终只写成自然镜头动作，不要输出 task 字段名。\n"
-        "3. subject + shot 必须合成镜头行开头，保留上游的镜头表达句；例如【商北琛、乔熙】双人中景，办公桌侧面固定机位，两人隔着办公桌对峙。若上游仍是旧版 size + camera，只能补成景别 + 简洁机位 + 动作/反应，禁止压缩成术语串或空间说明书。\n"
-        "4. action + dialogue 是镜头行主体；台词直接嵌入动作句中，OS/J-cut/L-cut 写成画外音或声音桥。\n"
-        "5. must_carry 必须转译成画面里看得见的信息或反应，不能只放到约束里。\n"
+        "3. subject + shot 只合成镜头行开头的摄影表达；shot 若是新版输出，只把它当成景别、机位、视角、运镜或前景关系，不要从 shot 字段抽取人物动作。\n"
+        "4. action + dialogue 是镜头行主体；动作、表情、视线、呼吸、肩颈、手部、道具接触和台词落点必须主要来自 action，台词直接嵌入动作句中，画外音或声音桥写成自然中文。\n"
+        "5. must_carry 必须转译成画面里看得见的信息、道具状态、人物距离变化或反应结果，不能只放到约束里，也不能写成抽象戏剧效果。\n"
         "6. cut_point 必须放进括号，写成（动作顶点前切至镜头2）、（台词断点时切至乔熙反应镜头）、（文件内容看清后切至镜头3）这类自然中文触发句；禁止使用箭头式表达。\n"
         "7. continuity 必须落实到镜头行或【约束】里，保证人物左右关系、道具状态、动作路径和尾帧不跳变。\n"
-        "8. 最终 prompt 禁止出现 fragment_task、must_carry、cut_point、continuity、shot_id、fragment_id 等内部字段名。\n\n"
+        "8. coverage_role / 覆盖职责 决定这一镜的信息任务，必须变成自然句里的“本镜负责建立关系/承载对白/听者反应/道具信息/尾帧承接”等可见任务，不要输出字段名。\n"
+        "9. cut_reason / 切镜原因 必须和 cut_point 合并成括号里的切镜触发，绑定动作顶点、台词断点、信息看清、反应出现或尾帧完成；不能写成“更有电影感”。\n"
+        "10. companion_visibility / 同场人物位置 必须转译为镜头行里的同场关系保留：前景肩线、画面边缘、画外左/右侧、同框、过肩或明确出画/入画原因；避免单人镜让其他人物像消失。\n"
+        "11. state_delta / 状态变化 必须写成本镜相对上一镜新增的可见变化：视线、身体距离、道具状态、门状态、情绪或信息变化；不能只写抽象情绪。\n"
+        "12. tailframe_role / 尾帧职责 必须落实到该镜尾句或【约束】中，写清下一镜/下一段可继承的人物位置、视线、道具、门/车/电梯状态。\n"
+        "13. 若三号守门字段与基础字段重复，保留一次自然表达即可；若三号指出硬伤修复，以三号字段为准。\n"
+        "14. 如果上游旧版 shot 字段仍混有动作，必须拆开处理：摄影信息放镜头行开头，人物动作和表情并入 action 的自然句，避免最终 prompt 一句里同时塞摄影和动作导致模型误画。\n"
+        "15. 最终 prompt 禁止出现 fragment_task、must_carry、cut_point、continuity、coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role、shot_id、fragment_id 等内部字段名。\n\n"
         "【Seedance 2.0 场景简写与表演优先规则】\n"
         "1. 最终 Prompt 不要把场景空间写成说明书；空间只服务连续性，不承担戏剧表达。\n"
         "2. 【空间与首帧总控】最多2-3句，只写不可变硬锚点：场景类型、入口/门/电梯/桌边等关键节点、人物首帧站位、光线。\n"
@@ -1236,6 +1345,8 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "7. 背后、侧后方、180度是人物相对机位，不是场景相对机位；只写\"商北琛背后中景/商北琛侧后方中景\"，不要写\"电梯门外背后180度\"。\n"
         "8. 电梯开门/入电梯时只需写\"封闭金属轿厢\"，必要时加\"控制面板\"；并在约束中禁止\"办公区、会议区、走廊、窗户、另一片大堂\"。\n"
         "9. 有众员工/群演时，必须在约束中写明：员工不得与命名人物相似、重复或同脸，优先用匿名差异化面孔、侧脸、背影、轻虚。\n\n"
+        "【最终约束固定项】\n"
+        "【约束】段必须明确写入：严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌；禁止生成招牌文字、手机屏幕文字、文件可读字、UI文字和片内字幕。\n\n"
         "【空间几何字段翻译规则——严禁透传】\n"
         "镜头资产中的 camera_basis / camera_scene_position / camera_looks_toward / subject_position / subject_facing / visible_landmarks 是上游内部结构化字段。\n"
         "你必须将它们翻译成自然中文导演语言，绝对禁止在最终 Prompt 中出现 key=value 格式（如 camera_basis=scene_fixed、visible_landmarks=lobby_entrance=background_center）。\n"
@@ -1267,7 +1378,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"{_director_jargon_translation_rules()}\n"
         "【输出前强制自检】\n"
         "1. 标题行是否为 '片段N｜场景名｜关键词｜~秒数秒' 格式？\n"
-        "2. 是否包含【风格锚点】【画幅锚点】【空间与首帧总控】【人物】【镜头序列】【约束】六个段落？\n"
+        "2. 是否包含【参考图说明】【风格锚点】【画幅锚点】【空间与首帧总控】【人物】【镜头序列】【约束】七个段落？\n"
         "3. 每个镜头行是否为 镜头N【X秒】【主体】景别+简洁机位+动作/对白+括号切镜触发？\n"
         "4. 每个镜头行是否有至少1个可见动作、信息或情绪落点？\n"
         "5. 每个镜头行是否自然简短，不靠堆空间词凑字？\n"
@@ -1293,8 +1404,11 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "24. 【近侧/远端一致性】'近侧侧边''远端''前景''后景'是否与当前摄影机位置和人物朝向的实际几何关系一致？人物面朝电梯+摄影机拍正面时，电梯门框只能在前景/侧边，不能在后景/远端。\n"
         "25. 【空间方位词密度】每个时间段的空间方位词（前景/中景/后景/远端/近侧/边缘/侧边/画面左/画面右/前方/后方/左侧/右侧）是否超过3个？如果超过，只保留最必要的0-1个锚点。\n"
         "26. 【视角翻转铺垫】相邻两个时间段之间是否存在从正面突变为背面（或反之）的视角翻转？如果有，必须在文本中铺垫人物转身动作，或插入侧面过渡机位。\n"
-        "27. 【内部字段泄漏】是否出现 fragment_task、must_carry、cut_point、continuity、空间连续性总控、shot_id、fragment_id 等字段名？如有必须改写成自然中文镜头语言。\n"
+        "27. 【内部字段泄漏】是否出现 fragment_task、must_carry、cut_point、continuity、coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role、空间连续性总控、shot_id、fragment_id 等字段名？如有必须改写成自然中文镜头语言。\n"
         "28. 【导演口语翻译】镜头序列里是否还残留\"稳定器在同一运动里带到\"\"顺势带到\"\"受压反应\"\"权力压住\"\"压入\"\"卡断\"\"炸点\"\"钩子\"\"凝滞\"\"留白\"等导演调度口语？如有必须改成镜头从谁到谁、景别、运动方向、触发动作和低头/屏息/肩膀收紧/眼神回避等可见表演。\n"
+        "29. 【三号守门成果落地】若当前片段镜头资产包含覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责，是否已经分别落进镜头信息任务、切镜触发、同场关系、可见状态变化和尾帧继承？不能只把它们留在上游资产里。\n"
+        "30. 【参考图说明】是否在标题行后立刻说明每个 @图片 的用途，并严格限定人物、场景、道具、尾帧各自的作用？\n"
+        "31. 【无文字字幕】约束段是否明确禁止任何文字、字幕、水印、logo、屏幕文字和可读标牌？\n"
         "全部通过后再输出。"
     )
     compiler_fallback_reason = ""
@@ -1320,6 +1434,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
             tail_frame_memory=tail_frame_memory,
             reference_context=reference_context,
             failure=exc,
+            reference_prompt_block=reference_prompt_block,
         )
     output = _normalise_compiled_prompt(output, segment_index, current_script_context)
     knowledge_metadata = _record_knowledge_metadata(state, "prompt_compiler", compiler_hint, retrieval_meta)

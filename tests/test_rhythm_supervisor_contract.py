@@ -127,6 +127,10 @@ def test_rhythm_supervisor_outputs_time_and_segment_contract(monkeypatch):
     assert "给镜头导演" in captured["system_prompt"]
     assert "快节奏优先来自短时间内的有效事件密度和人物动作/表情紧张态" in captured["system_prompt"]
     assert "镜头快切只是辅助表达" in captured["system_prompt"]
+    assert "单个结构片段的建议时长绝对不得超过15秒" in captured["system_prompt"]
+    assert "禁止输出 16秒、18-22秒、14-17秒" in captured["system_prompt"]
+    assert "闪回开始/闪回结束是硬边界" in captured["system_prompt"]
+    assert "不得把闪回前的现实触发反应和闪回内容合并" in captured["system_prompt"]
     assert "必须包含的原文事件" in captured["system_prompt"]
     assert "不能包含的后续事件" in captured["system_prompt"]
     assert "最多镜头数" in captured["system_prompt"]
@@ -136,6 +140,8 @@ def test_rhythm_supervisor_outputs_time_and_segment_contract(monkeypatch):
     assert "source_anchor" not in captured["system_prompt"]
     assert "shot_director_notes" not in captured["system_prompt"]
     assert "最多镜头数和最少停留时间必须给具体数量" in captured["user_prompt"]
+    assert "建议时长必须小于或等于15秒" in captured["user_prompt"]
+    assert "输出必须以完整的 风险提醒 字段结束" in captured["user_prompt"]
     assert "走向电梯、按按钮、门打开" in captured["user_prompt"]
     assert "不得只靠密集切镜制造速度" in captured["user_prompt"]
     assert "conflict_enhancement_plan" not in captured["system_prompt"]
@@ -154,6 +160,51 @@ def test_rhythm_supervisor_outputs_time_and_segment_contract(monkeypatch):
     assert "给镜头导演" in result["atmosphere_strategy"]
     assert "最多镜头数" in result["atmosphere_strategy"]
     assert "可以省略" in result["atmosphere_strategy"]
+
+
+def test_rhythm_supervisor_clamps_overlong_duration_suggestions(monkeypatch):
+    from agents.director_graph_package import helpers, legacy_impl, nodes, rhythm_rewrite_impl
+
+    monkeypatch.setattr(
+        helpers,
+        "build_system_prompt",
+        lambda prompt, agent_name, context_hint="", **kwargs: (prompt, {"retrieval_mode": "test"}),
+    )
+    monkeypatch.setattr(
+        rhythm_rewrite_impl,
+        "call_llm",
+        lambda *args, **kwargs: (
+            "给结构规划师:\n"
+            "- 建议时长: 18-22秒\n"
+            "- 建议时长：14-17秒\n"
+            "- 建议时长\n"
+            "16-20秒\n"
+            "- 建议时长: 9-11秒\n"
+            "给镜头导演:\n"
+            "- 最少停留时间: 2秒\n"
+        ),
+    )
+    monkeypatch.setattr(legacy_impl, "_record_knowledge_metadata", lambda *args, **kwargs: {})
+    monkeypatch.setattr(legacy_impl, "_persist_update", lambda state, payload: {**state, **payload})
+
+    result = nodes.rhythm_rewrite_director_node(
+        {
+            "script": "闹钟响起，照片滑出，乔熙僵住。",
+            "aspect_ratio": "9:16",
+            "speed_mode": False,
+            "agent_outputs": {},
+        }
+    )
+
+    strategy = result["atmosphere_strategy"]
+    assert "18-22秒" not in strategy
+    assert "14-17秒" not in strategy
+    assert "16-20秒" not in strategy
+    assert "建议时长: 13-15秒（原建议超过15秒，需压缩或拆为相邻片段）" in strategy
+    assert "建议时长：14-15秒" in strategy
+    assert "建议时长\n13-15秒（原建议超过15秒，需压缩或拆为相邻片段）" in strategy
+    assert "建议时长: 9-11秒" in strategy
+    assert "最少停留时间: 2秒" in strategy
 
 
 def test_rhythm_supervisor_receives_enhancement_contract(monkeypatch):

@@ -15,20 +15,26 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: deepseek-v4-pro
+    model: claude-opus-4-6
   rhythm_rewrite_director:
-    base_url: https://www.xkwuai.cn/v1
+    base_url: https://ai.comfly.chat/v1
     temperature: 0.2
     timeout_seconds: 180
     max_retries: 3
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    route_preset: primary
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    route_preset: custom
     read_timeout_seconds: 180
     write_timeout_seconds: 90
     fallback_models:
     - gpt-4o-mini
     - deepseek-v4-flash
-    model: claude-opus-4-7
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
+      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    custom_route:
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    model: gpt-5.5
   scene_analyst:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
@@ -65,29 +71,35 @@ agent_models:
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-7
   shot_director:
-    base_url: https://www.xkwuai.cn/v1
+    base_url: https://ai.comfly.chat/v1
     temperature: 0.3
     timeout_seconds: 240
     read_timeout_seconds: 240
     write_timeout_seconds: 90
     max_retries: 3
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    route_preset: primary
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    route_preset: custom
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: gpt-5.5
+    model: claude-opus-4-7
   prompt_compiler:
-    base_url: https://www.xkwuai.cn/v1
+    base_url: https://ai.comfly.chat/v1
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 3
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    route_preset: primary
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    route_preset: custom
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: deepseek-v4-flash
   quality_inspector:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
@@ -121,11 +133,11 @@ agent_models:
   storyboard_prompt_designer:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    route_preset: primary
+    route_preset: custom
     custom_route:
       base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: deepseek-v4-flash
   script_event_validator:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
@@ -137,27 +149,27 @@ agent_models:
   shot_director_layout:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    route_preset: primary
+    route_preset: custom
     custom_route:
       base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: gpt-5.5
+    model: claude-opus-4-7
   shot_director_blocking:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    route_preset: primary
+    route_preset: custom
     custom_route:
       base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: gpt-5.5
+    model: claude-opus-4-7
   shot_director_guard:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     base_url: https://www.xkwuai.cn/v1
-    route_preset: primary
+    route_preset: custom
     custom_route:
       base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: gpt-5.5
+    model: claude-opus-4-7
 knowledge:
   bm25_top_k: 10
   directory: ./knowledge

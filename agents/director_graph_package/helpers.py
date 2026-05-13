@@ -847,6 +847,11 @@ _YAML_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "continuity": ("continuity", "连续性"),
     "type": ("type", "类型"),
     "audio": ("audio", "声音"),
+    "coverage_role": ("coverage_role", "覆盖职责"),
+    "cut_reason": ("cut_reason", "切镜原因"),
+    "companion_visibility": ("companion_visibility", "同场人物位置"),
+    "state_delta": ("state_delta", "状态变化"),
+    "tailframe_role": ("tailframe_role", "尾帧职责"),
 }
 
 
