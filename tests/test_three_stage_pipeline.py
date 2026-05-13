@@ -131,12 +131,12 @@ def test_single_pass_produces_complete_lean_output(monkeypatch):
     final_output = result["agent_outputs"]["shot_director"]
     assert "F05" in final_output
     assert "F06" in final_output
-    # lean schema 字段
-    assert "subject:" in final_output
-    assert "camera:" in final_output
-    assert "size:" in final_output
-    assert "action:" in final_output
-    assert "intent:" in final_output
+    # lean schema 字段会规范化为面向用户的中文字段
+    assert "拍摄主体:" in final_output
+    assert "机位:" in final_output
+    assert "景别:" in final_output
+    assert "画面动作:" in final_output
+    assert "选择理由:" in final_output
 
     # 单次调用 (primary) + 无 repair 情况下只有 1 ���
     assert call_idx["n"] >= 1

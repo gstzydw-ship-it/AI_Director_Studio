@@ -72,6 +72,18 @@ _REVERSE_SHOT_INSIDE_SEGMENT_RE = _legacy._REVERSE_SHOT_INSIDE_SEGMENT_RE
 _PIXEL_ANCHOR_TERMS_RE = _legacy._PIXEL_ANCHOR_TERMS_RE
 _AXIS_LEFT_RE = _legacy._AXIS_LEFT_RE
 _AXIS_RIGHT_RE = _legacy._AXIS_RIGHT_RE
+_SUBJECT_RELATIVE_LEFT_RIGHT_CAMERA_RE = re.compile(
+    r"(?:摄影机|机位|镜头)?(?:位于|在)?"
+    r"(?:商北琛|乔熙|严飞|苏小可|小豆丁|人物|主体|他|她|两人).{0,8}"
+    r"(?:左前方|右前方|左后方|右后方)"
+)
+_SAFE_CAMERA_POSITION_RE = re.compile(
+    r"(?:"
+    r"(?:摄影机|机位|镜头).{0,40}"
+    r"(?:同侧正面微侧|同侧过肩|同侧固定|办公桌侧面|门口侧面|正面|正前方|侧面|侧背|背后|过肩|桌边侧|门框侧|走廊侧|电梯侧|固定机位|平稳跟拍|背后跟拍|肩后)"
+    r"|(?:同侧正面微侧机位|同侧过肩机位|同侧固定机位|办公桌侧面固定机位|门口侧面固定机位|正面固定机位|侧面固定机位|背后跟拍|平稳跟拍)"
+    r")"
+)
 _SILENT_CUT_TRIGGER_RE = _legacy._SILENT_CUT_TRIGGER_RE
 _NEW_SUBJECT_FRAMING_RE = _legacy._NEW_SUBJECT_FRAMING_RE
 
@@ -103,6 +115,13 @@ _COMPLEX_CAMERA_PHRASE_RE = re.compile(
     r"眼平高度"
     r")",
     re.IGNORECASE,
+)
+_UNSTABLE_FRAME_COMPOSITION_RE = re.compile(
+    r"(?:"
+    r"站在(?:门框|窗框|框架)里|"
+    r"(?:门框|窗框).{0,8}(?:形成|构成).{0,8}(?:前景|压线|框景)|"
+    r"前景压线|框住人物|被(?:门框|窗框|框架)框住|框景压迫"
+    r")"
 )
 
 
@@ -398,7 +417,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         issues.append(
             "- 机位/运镜存在模糊描述："
             + "、".join(ambiguous_camera_terms[:6])
-            + "。请改成摄影机位于人物正前方/左前方/右前方/背后+角度+镜头高度+固定/轨道/稳定器跟拍。"
+            + "。请改成简洁机位，例如同侧过肩机位、同侧固定机位、同侧正面微侧机位、办公桌侧面固定机位、背后跟拍。"
         )
 
     abstract_terms = [term for term in _ABSTRACT_PROMPT_TERMS if term in prompt]
@@ -421,6 +440,14 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             "- Prompt 残留复杂摄影字段："
             + "、".join(complex_camera_terms[:5])
             + "。请降级为 Seedance 稳定短句：一个主体焦点、一个景别、一个机位、最多一种运动；反应落点改为同侧切镜。"
+        )
+    unstable_frame_terms = sorted(set(match.group(0) for match in _UNSTABLE_FRAME_COMPOSITION_RE.finditer(execution_text)))
+    if unstable_frame_terms:
+        issues.append(
+            "- Prompt 包含不稳定构图表达："
+            + "、".join(unstable_frame_terms[:5])
+            + "。请改成自然可执行表达，例如\"同侧过肩机位，从乔熙肩后看向门口，小豆丁站在门口等她\"；"
+            "门、窗、桌等只作为空间边界或阻隔物，不写成框住人物的构图术语。"
         )
 
     space_section = _prompt_section(prompt, "空间与首帧总控")
@@ -453,11 +480,8 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         if not _EMPLOYEE_FACE_LOCK_RE.search(prompt):
             issues.append("- 群演身份锁缺失：众员工/群演不得与命名人物相似、重复或同脸，应写成匿名差异化面孔/侧脸/背影/轻虚。")
 
-    if not re.search(
-        r"(?:摄影机|机位|镜头).{0,32}(?:正面|正前方|左前方|右前方|左侧|右侧|侧面|背后|左后方|右后方|场景固定|固定机位)",
-        prompt,
-    ):
-        issues.append('- Prompt 缺少可执行摄影机位置：至少一个时间段应明确"正面/左前方/右前方/侧面/背后/场景固定机位"等简洁机位。')
+    if not _SAFE_CAMERA_POSITION_RE.search(prompt):
+        issues.append('- Prompt 缺少可执行摄影机位置：至少一个时间段应明确简洁机位，例如"同侧过肩机位/同侧固定机位/同侧正面微侧机位/办公桌侧面固定机位/背后跟拍"。')
 
     unsafe_action_terms = [term for term in _UNSAFE_ACTION_TERMS if term in prompt]
     if unsafe_action_terms:
@@ -673,6 +697,14 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
                 "会让人物左右颠倒、背景翻面。请把这两个机位拆到不同 segment，并通过转身或场景固定机位过渡。"
             )
             break
+    for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
+        if _SUBJECT_RELATIVE_LEFT_RIGHT_CAMERA_RE.search(body):
+            issues.append(
+                f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 时间轴第 {index} 个时间段使用了人物相对左右机位："
+                "人物正面、背面或转身后左/右会反，视频模型无法稳定理解。请改成同侧轴线内的简洁机位，"
+                '例如"同侧过肩机位""同侧固定机位""同侧正面微侧机位""办公桌侧面固定机位"。'
+            )
+            break
 
     # === [PROMPT-CUT-BUDGET-001] 隐性切镜识别 ===
     # "同一机位继续 / 镜头保持" 后 60 字内若引入 "新主体名 + 新景别"，视为隐性切镜
@@ -743,6 +775,7 @@ def _director_shot_rows(director_segment: str) -> list[dict[str, str]]:
             {
                 "shot_id": match.group(1).strip(),
                 "duration": _yaml_line_field(block, "duration") or "2s",
+                "task": _yaml_line_field(block, "task"),
                 "subject": _yaml_line_field(block, "subject") or "current subject",
                 "shot": _yaml_line_field(block, "shot")
                 or _yaml_line_field(block, "camera")
@@ -753,6 +786,7 @@ def _director_shot_rows(director_segment: str) -> list[dict[str, str]]:
                 or _yaml_line_field(block, "must_carry")
                 or "continue the approved action beat",
                 "dialogue": _yaml_line_field(block, "dialogue"),
+                "must_carry": _yaml_line_field(block, "must_carry"),
                 "cut_point": _yaml_line_field(block, "cut_point") or "cut after the visible action lands",
                 "continuity": _yaml_line_field(block, "continuity") or _yaml_line_field(block, "must_carry"),
             }
@@ -773,6 +807,134 @@ def _source_event_lines(planner_segment: str, script_context: str) -> list[str]:
     return fallback[:5]
 
 
+_LOCAL_COMPILER_CN_REPLACEMENTS: tuple[tuple[str, str], ...] = (
+    ("vertical medium relationship shot", "竖屏中景双人关系镜头"),
+    ("stable medium relationship shot", "中景双人关系镜头，固定机位"),
+    ("medium close relationship shot", "中近景双人关系镜头"),
+    ("medium relationship shot", "中景双人关系镜头"),
+    ("stable medium shot", "中景固定机位"),
+    ("stable camera", "固定机位"),
+    ("clear blocking", "人物调度清楚"),
+    ("same screen direction", "保持同侧轴线"),
+    ("after the first readable action lands", "第一个可读动作落点后"),
+    ("after the reaction or information beat is visible", "反应或信息落点清楚后"),
+    ("after the visible action lands", "可见动作落点后"),
+    ("cut after the visible action lands", "可见动作落点后切镜"),
+    ("cut after the action is readable", "动作清楚可读后切镜"),
+    ("after the order lands", "台词落点后"),
+    ("after the door opens", "开门动作落点后"),
+    ("keep the same eyeline", "保持同一视线方向"),
+    ("keep screen direction", "保持画面轴线方向"),
+    (
+        "preserve established positions, props and eye-lines from the approved upstream plan",
+        "保持上游已确认的人物位置、道具状态和视线方向",
+    ),
+    ("preserve the approved upstream blocking", "保持上游已确认的人物调度"),
+    ("end on a readable tail frame for the next segment handoff", "以可读尾帧结束，便于下一段承接"),
+    ("current characters", "当前人物"),
+    ("current subject", "当前主体"),
+    ("continue the approved story beat", "承接已确认剧情事件"),
+    ("continue the approved action beat", "承接已确认动作落点"),
+    (
+        "No visual bridge is available; compile the next segment from its own scene and shot assets.",
+        "没有可用视觉衔接；本段按当前场景和镜头资产重新开镜。",
+    ),
+    ("No previous tail frame was provided", "未提供上一段尾帧"),
+    ("direct_cut", "直接切入"),
+)
+
+
+def _local_compiler_cn(text: Any) -> str:
+    result = str(text or "").strip()
+    if result in {"~", "无", "none", "None", "null", "NULL"}:
+        return ""
+    for source, target in _LOCAL_COMPILER_CN_REPLACEMENTS:
+        result = result.replace(source, target)
+    result = re.sub(r"\bcontinuity\s*:", "连续性：", result)
+    result = re.sub(r"\breason\s*:", "原因：", result)
+    result = re.sub(r"\bbridge_strategy\s*:", "衔接策略：", result)
+    result = re.sub(r"\s+", " ", result).strip()
+    return result
+
+
+def _local_compiler_bridge_text(tail_frame_memory: str) -> str:
+    raw = (tail_frame_memory or "").strip()
+    if not raw:
+        return "无上一段尾帧输入；按当前拆片与镜头规划重新开段。"
+    translated = _local_compiler_cn(raw)
+    if "没有可用视觉衔接" in translated or re.search(r"bridge_available\s*:\s*false", raw, re.IGNORECASE):
+        return "无可用上一段尾帧；本段按当前拆片与镜头规划重新开段，不新增剧情。"
+    return translated[:260]
+
+
+def _local_compiler_duration(duration: str) -> str:
+    text = _local_compiler_cn(duration) or "0-3秒"
+    text = text.replace("seconds", "秒").replace("second", "秒").replace("secs", "秒").replace("sec", "秒")
+    text = re.sub(r"(?<=\d)s\b", "秒", text)
+    if re.fullmatch(r"\d+(?:\.\d+)?", text):
+        text = f"{text}秒"
+    return text
+
+
+def _local_compiler_subjects(rows: list[dict[str, str]], script_context: str) -> str:
+    names = _primary_script_character_names(script_context)
+    if names:
+        return "、".join(names[:4])
+    subjects: list[str] = []
+    for row in rows:
+        subject = _local_compiler_cn(row.get("subject", ""))
+        if not subject or subject in {"当前人物", "当前主体"}:
+            continue
+        for part in re.split(r"[、,，/／\s]+", subject):
+            part = part.strip()
+            if part and part not in subjects:
+                subjects.append(part)
+    return "、".join(subjects[:4]) if subjects else "本片段已建立人物"
+
+
+def _local_compiler_extra_clause(prefix: str, value: str, action: str, existing: str = "") -> str:
+    text = _local_compiler_cn(value)
+    if not text:
+        return ""
+    compact = re.sub(r"\s+", "", text)
+    action_compact = re.sub(r"\s+", "", action)
+    existing_compact = re.sub(r"\s+", "", existing)
+    if compact and (compact in action_compact or compact in existing_compact):
+        return ""
+    return f"；{prefix}{text}"
+
+
+def _local_compiler_dialogue_clause(dialogue: str) -> str:
+    text = _local_compiler_cn(dialogue)
+    if not text:
+        return ""
+    text = text.strip().strip("\"'")
+    return f"；台词原文嵌入动作：\"{text}\""
+
+
+def _local_compiler_shot_line(index: int, row: dict[str, str], total_rows: int) -> str:
+    duration = _local_compiler_duration(row.get("duration", ""))
+    subject = _local_compiler_cn(row.get("subject", ""))
+    shot = _local_compiler_cn(row.get("shot", ""))
+    task = _local_compiler_cn(row.get("task", ""))
+    action = _local_compiler_cn(row.get("action", ""))
+    must_carry = _local_compiler_cn(row.get("must_carry", ""))
+    cut_point = _local_compiler_cn(row.get("cut_point", ""))
+    continuity = _local_compiler_cn(row.get("continuity", ""))
+
+    basis_parts = [part for part in (subject, shot) if part]
+    basis = "，".join(basis_parts) if basis_parts else f"镜头{index}"
+    action_sentence = action or task or must_carry or "承接已确认剧情事件"
+    task_clause = _local_compiler_extra_clause("镜头功能：", task, action_sentence)
+    carry_clause = _local_compiler_extra_clause("画面必须看清：", must_carry, action_sentence, task)
+    dialogue_clause = _local_compiler_dialogue_clause(row.get("dialogue", ""))
+    next_target = f"→镜头{index + 1}" if index < total_rows else "后切出"
+    cut_clause = f"（{cut_point}{next_target}）" if cut_point else f"（尾帧稳定{next_target}）"
+    continuity_clause = _local_compiler_extra_clause("连续性保持：", continuity, action_sentence, must_carry)
+
+    return f"镜头{index}【{duration}】【{subject or '当前主体'}】{basis}，{action_sentence}{task_clause}{dialogue_clause}{carry_clause}{cut_clause}{continuity_clause}。"
+
+
 def _build_local_compiled_prompt(
     *,
     segment_index: int,
@@ -788,40 +950,34 @@ def _build_local_compiled_prompt(
     rows = _director_shot_rows(director_segment)
     if not rows:
         events = _source_event_lines(planner_segment, script_context)
-        event = events[0] if events else "continue the approved story beat"
+        event = events[0] if events else "承接已确认剧情事件"
         rows = [
             {
                 "shot_id": f"F{segment_index:02d}-S01",
                 "duration": "0-3s",
-                "subject": "current characters",
-                "shot": "stable medium relationship shot",
+                "task": "承接已确认剧情事件",
+                "subject": "当前人物",
+                "shot": "中景双人关系镜头，固定机位",
                 "action": event,
                 "dialogue": "",
-                "cut_point": "cut after the action is readable",
-                "continuity": "preserve the approved upstream blocking",
+                "must_carry": event,
+                "cut_point": "动作清楚可读后切镜",
+                "continuity": "保持上游已确认的人物调度",
             }
         ]
 
     events = _source_event_lines(planner_segment, script_context)
-    character_names = _primary_script_character_names(script_context)
-    character_text = "、".join(character_names[:4]) if character_names else "本片段已建立人物"
-    failure_note = str(failure).splitlines()[0][:160]
+    character_text = _local_compiler_subjects(rows, script_context)
     shot_lines: list[str] = []
     for index, row in enumerate(rows, start=1):
-        dialogue = row["dialogue"]
-        dialogue_text = f"；台词直接嵌入动作：{dialogue}" if dialogue else ""
-        continuity = f"；连续性：{row['continuity']}" if row["continuity"] else ""
-        shot_lines.append(
-            f"镜头{index}【{row['duration']}】【{row['subject']}】{row['shot']}，"
-            f"{row['action']}{dialogue_text}（{row['cut_point']}）{continuity}。"
-        )
+        shot_lines.append(_local_compiler_shot_line(index, row, len(rows)))
 
-    event_text = "；".join(events) if events else "严格承接已确认拆片规划，不新增剧情。"
-    bridge_text = tail_frame_memory.strip()[:260] if tail_frame_memory else "无上一段尾帧输入；按当前拆片与镜头规划重新开段。"
-    refs_text = reference_context.strip()[:260] if reference_context else "无参考图；不得写入参考图占位符。"
+    event_text = _local_compiler_cn("；".join(events)) if events else "严格承接已确认拆片规划，不新增剧情。"
+    bridge_text = _local_compiler_bridge_text(tail_frame_memory)
+    refs_text = _local_compiler_cn(reference_context.strip()[:260]) if reference_context else "无参考图；不得写入参考图占位符。"
     return "\n\n".join(
         [
-            f"片段{segment_index}｜本地兜底编译｜已确认事件｜约{max(6, len(rows) * 3)}秒",
+            f"片段{segment_index}｜本地兜底编译｜已确认事件｜~{max(6, len(rows) * 3)}秒",
             "【风格锚点】",
             "清晰、克制、可执行的导演调度语言；只保留可见动作、机位、表情落点和必要切镜触发。",
             "【画幅锚点】",
@@ -834,9 +990,9 @@ def _build_local_compiled_prompt(
             "\n".join(shot_lines),
             "【事件覆盖】",
             event_text,
-            "【参考与约束】",
+            "【约束】",
             refs_text,
-            f"禁止新增剧本外台词、角色、道具或空间。保持人物左右关系、道具状态、视线方向和尾帧可衔接。local fallback reason: {failure_note}",
+            "禁止新增剧本外台词、角色、道具或空间。保持人物左右关系、道具状态、视线方向和尾帧可衔接。",
             f"片段{segment_index} prompt 已输出。",
             "请生成视频后，上传：",
             f"片段{segment_index}的尾帧截图",
@@ -1062,7 +1218,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，必须按下面方式编译成【镜头序列】：\n"
         "1. duration 只进入镜头编号后的秒数，例如 镜头1【4秒】；不要在最终 prompt 里写 duration 字段名。\n"
         "2. task 决定镜头功能，但最终只写成自然镜头动作，不要输出 task 字段名。\n"
-        "3. subject + shot 必须合成镜头行开头，例如【乔熙】过肩视角半身以上中景。若上游仍是旧版 size + camera，则先合并成同样的【视角+景别】短语。\n"
+        "3. subject + shot 必须合成镜头行开头，保留上游的镜头表达句；例如【商北琛、乔熙】双人中景，办公桌侧面固定机位，两人隔着办公桌对峙。若上游仍是旧版 size + camera，只能补成景别 + 简洁机位 + 动作/反应，禁止压缩成术语串或空间说明书。\n"
         "4. action + dialogue 是镜头行主体；台词直接嵌入动作句中，OS/J-cut/L-cut 写成画外音或声音桥。\n"
         "5. must_carry 必须转译成画面里看得见的信息或反应，不能只放到约束里。\n"
         "6. cut_point 必须放进括号，写成（动作顶点前切至镜头2）、（台词断点时切至乔熙反应镜头）、（文件内容看清后切至镜头3）这类自然中文触发句；禁止使用箭头式表达。\n"
@@ -1073,7 +1229,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "2. 【空间与首帧总控】最多2-3句，只写不可变硬锚点：场景类型、入口/门/电梯/桌边等关键节点、人物首帧站位、光线。\n"
         "3. 每个时间段优先写：机位在哪里、谁做什么、动作从哪里到哪里、视线看向谁、表情怎样变化、结束时停在哪里。\n"
         "4. 每个时间段的空间锚点最多0-1个短语，且必须是当前镜头确实需要看见的节点；不要反复堆叠前景/中景/后景/左右/远近/边缘。\n"
-        "5. 空间锚点可以少，但剪辑交接词不能省；除第一个时间段外，每段开头必须写\"同一机位继续/延续上一镜/镜头切至/切回\"，禁止单段内写\"反打至\"。\n"
+        "5. 空间信息可以少，但剪辑交接词不能省；除第一个时间段外，每段开头必须写\"同一机位继续/延续上一镜/镜头切至/切回\"，禁止单段内写\"反打至\"。\n"
         "6. compiler 只翻译上游导演输出，不新增拍摄技巧；但如果上游写了动作匹配、视线引导、同侧过肩、听者反应、出画入画、景别递进等设计，必须保留成可执行时间轴语言。\n"
         "7. 背后、侧后方、180度是人物相对机位，不是场景相对机位；只写\"商北琛背后中景/商北琛侧后方中景\"，不要写\"电梯门外背后180度\"。\n"
         "8. 电梯开门/入电梯时只需写\"封闭金属轿厢\"，必要时加\"控制面板\"；并在约束中禁止\"办公区、会议区、走廊、窗户、另一片大堂\"。\n"
@@ -1085,11 +1241,11 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "2. camera_basis=subject_relative 时，只能用于人物朝向和位置稳定的说话/反应镜头；人物穿过门框、进入电梯、进入车门时必须改用 scene_fixed。\n"
         "3. visible_landmarks 只允许挑选当前镜头最必要的1-2个可见锚点翻译，不得把全部锚点硬塞进前景/中景/后景说明。\n"
         "4. subject_facing 和 angle 冲突时，优先修正 angle 或 visible_landmarks；不要保留互相打架的\"正面+朝门+后景门框\"。\n"
-        "5. camera_scene_position → 只在必须保持空间连续时翻译成短句；如果会造成歧义，改成人物相对机位，如\"商北琛侧后方中景\"。\n"
+        "5. camera_scene_position → 只在必须保持空间连续时翻译成短句；如果会造成歧义，改成同侧轴线内的简洁机位，如\"同侧过肩中近景\"\"办公桌侧面固定机位\"。\n"
         "6. visible_landmarks → 只挑一个当前镜头必要锚点写成短语，如\"电梯门旁\"；不要翻译成长串前景/中景/后景说明。\n"
         "7. subject_position/subject_facing → 只在必要时翻译成人物站位和朝向，如\"商北琛站在通道中，面朝电梯\"；不要写南侧/远端/近侧/外侧/内侧等多重方位链。\\n"
         "8. 摄影机后退可行性：如果人物面朝电梯/门口且机位在正前方0度，同速后退会让摄影机退进电梯/撞墙；"
-        "必须改用侧面跟拍或场景固定机位，或改用左前方45度/右前方45度。\n"
+        "必须改用侧面跟拍、背后跟拍、门框侧固定机位或场景固定机位，不得改用人物左前方/右前方。\n"
         "9. 视角翻转铺垫：相邻时间段不得从正面突变为背面（或反之），除非文本中明确写出人物转身动作；"
         "如需视角大幅变化，必须插入侧面过渡机位或在时间轴中写明转身动作。\n\n"
         "错误示例（绝对禁止出现在最终输出中）：camera_basis=scene_fixed，camera_scene_position=lobby_axis_between_entrance_and_elevator，visible_landmarks=lobby_entrance=background_center。\n"

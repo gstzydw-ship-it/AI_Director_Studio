@@ -84,10 +84,18 @@ def test_segment_shot_director_uses_local_fallback_after_llm_failure(monkeypatch
     output = result["agent_outputs"]["shot_director_segment_F01"]
     runtime = result["knowledge_metadata"]["shot_director"]["runtime"]
 
-    assert "fallback_mode: \"shot_director_local_fallback_v1\"" in output
+    assert "兜底模式: \"镜头导演本地兜底\"" in output
+    assert "镜头编号: F01-S01" in output
+    assert "同侧固定机位" in output
+    assert "位于画面中段" not in output
     assert "schema_version:" not in output
+    assert "fallback_mode:" not in output
+    assert "shot_id:" not in output
+    assert "must_carry:" not in output
     assert "Alex opens the door." in output
-    assert result["step"] == "step_4_storyboard"
+    assert "relationship shot" not in output
+    assert "stable camera" not in output
+    assert result["step"] == "step_4_compile"
     assert runtime["local_fallback"] is True
     assert runtime["final"]["status"] == "local_fallback"
 
@@ -519,6 +527,8 @@ def test_shot_director_runtime_rules_and_rule_card_are_present():
     assert "镜头数量由节奏任务决定" in rhythm_rules
     assert "9:16 竖屏下，半身/中景/双人关系镜头是主力" in rhythm_rules
     assert "rules/shot_director/SHOT-SOURCE-EVENT-FIDELITY-001.md" in critical_files
+    assert "07_Seedance输出词典与模型适配.md" in critical_files
+    assert "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md" not in critical_files
 
 
 def test_shot_director_rhythm_compliance_rules_present():

@@ -6,6 +6,7 @@ from agents.director_graph_package import nodes
 from agents.director_graph_package import helpers
 from agents.director_graph_package import legacy_impl
 from agents.director_graph_package import prompt_compiler_impl
+from agents.director_graph_package import shot_director_impl
 from agents.director_graph_package import state_store
 
 
@@ -178,10 +179,143 @@ def test_prompt_compiler_uses_local_fallback_after_llm_failure(monkeypatch) -> N
 
     assert "compiled_segment_1" in outputs
     assert "Alex looks at Blair" in outputs["compiled_segment_1"]
-    assert "local fallback reason" in outputs["compiled_segment_1"]
+    assert "local fallback reason" not in outputs["compiled_segment_1"]
     assert "prompt_compiler_fallback_seg01" in outputs
     assert "LLM gateway failed" in outputs["prompt_compiler_fallback_seg01"]
     assert result["step"] == "step_5_inspect"
+
+
+def test_prompt_compiler_local_fallback_scrubs_internal_english_terms() -> None:
+    compiled = prompt_compiler_impl._build_local_compiled_prompt(
+        segment_index=1,
+        total_segments=2,
+        aspect_label="9:16竖屏",
+        planner_segment=(
+            "- fragment_id: F01\n"
+            "  source_script_events:\n"
+            "    - 乔熙按掉闹钟，把手机按成免提放在玻璃茶几边。\n"
+            "    - 小豆丁扯住乔熙衣角。\n"
+        ),
+        director_segment=(
+            "- fragment_id: F01\n"
+            "  shots:\n"
+            "    - shot_id: F01-S01\n"
+            "      duration: 0-3s\n"
+            "      task: 建立闹钟被按掉、电话免提和两人位置关系\n"
+            "      subject: 乔熙、小豆丁\n"
+            "      shot: vertical medium relationship shot, stable camera, clear blocking\n"
+            "      action: 乔熙按掉闹钟，把手机按成免提放在玻璃茶几边。\n"
+            "      dialogue: \"Sunny, wake up.\"\n"
+            "      must_carry: 闹钟停下，手机免提放在玻璃茶几边，小豆丁在乔熙身旁。\n"
+            "      cut_point: after the first readable action lands\n"
+            "      continuity: preserve established positions, props and eye-lines from the approved upstream plan\n"
+            "    - shot_id: F01-S02\n"
+            "      duration: 3-6s\n"
+            "      task: 承接孩子拉衣角动作\n"
+            "      subject: 乔熙、小豆丁\n"
+            "      shot: medium close relationship shot, stable camera, same screen direction\n"
+            "      action: 小豆丁扯住乔熙衣角。\n"
+            "      dialogue: \"Come on, baby.\"\n"
+            "      must_carry: 小豆丁动作落点清楚，乔熙和孩子仍在同一侧轴线内。\n"
+            "      cut_point: after the reaction or information beat is visible\n"
+            "      continuity: end on a readable tail frame for the next segment handoff\n"
+        ),
+        script_context="乔熙按掉闹钟，把手机按成免提放在玻璃茶几边。",
+        tail_frame_memory=(
+            "bridge_available: false\n"
+            "reason: \"No visual bridge is available; compile the next segment from its own scene and shot assets.\"\n"
+            "bridge_strategy: direct_cut\n"
+        ),
+        reference_context="@图片1 集团门口.png：自动匹配场景参考图；补充说明：auto: 集团门口",
+        failure=RuntimeError("LLM gateway failed"),
+    )
+
+    assert "竖屏中景双人关系镜头" in compiled
+    assert "固定机位" in compiled
+    assert "【镜头序列】" in compiled
+    assert "镜头1【0-3秒】【乔熙、小豆丁】" in compiled
+    assert "建立闹钟被按掉、电话免提和两人位置关系" in compiled
+    assert "Sunny, wake up." in compiled
+    assert "闹钟停下，手机免提放在玻璃茶几边，小豆丁在乔熙身旁" in compiled
+    assert "→镜头" in compiled
+    assert "无可用上一段尾帧" in compiled
+    assert "relationship shot" not in compiled
+    assert "stable camera" not in compiled
+    assert "No visual bridge" not in compiled
+    assert "approved upstream" not in compiled
+    assert "local fallback reason" not in compiled
+    assert "task:" not in compiled
+    assert "must_carry:" not in compiled
+
+
+def test_shot_director_local_fallback_uses_chinese_director_language() -> None:
+    fallback = shot_director_impl._build_local_shot_director_fallback(
+        fragment_id="F01",
+        fragment_planner_output=(
+            "- fragment_id: F01\n"
+            "  source_script_events:\n"
+            "    - 乔熙按掉闹钟。\n"
+            "    - 小豆丁扯住乔熙衣角。\n"
+        ),
+        script="乔熙按掉闹钟。小豆丁扯住乔熙衣角。",
+        aspect_ratio="9:16",
+        failure=RuntimeError("shot director failed"),
+    )
+
+    assert "竖屏中景双人关系镜头" in fallback
+    assert "固定机位" in fallback
+    assert "第一个可读动作落点后" in fallback
+    assert "relationship shot" not in fallback
+    assert "stable camera" not in fallback
+    assert "approved upstream" not in fallback
+
+
+def test_prompt_compiler_handles_chinese_shot_director_fallback(monkeypatch) -> None:
+    def fail_call_llm_with_mcp(*_args, **_kwargs):
+        raise RuntimeError("LLM gateway failed")
+
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fail_call_llm_with_mcp)
+    monkeypatch.setattr(
+        prompt_compiler_impl,
+        "_persist_update",
+        lambda state, update: {**dict(state), **dict(update)},
+    )
+
+    planner_output = (
+        "- fragment_id: F01\n"
+        "  source_script_events:\n"
+        "    - 乔熙按掉闹钟。\n"
+        "    - 小豆丁扯住乔熙衣角。\n"
+    )
+    shot_fallback = shot_director_impl._build_local_shot_director_fallback(
+        fragment_id="F01",
+        fragment_planner_output=planner_output,
+        script="乔熙按掉闹钟。小豆丁扯住乔熙衣角。",
+        aspect_ratio="9:16",
+        failure=RuntimeError("shot director failed"),
+    )
+
+    result = prompt_compiler_impl.prompt_compiler_node(
+        {
+            "active_segment_index": 1,
+            "current_segment_index": 1,
+            "total_segments": 1,
+            "segment_names": ["F01"],
+            "script": "乔熙按掉闹钟。小豆丁扯住乔熙衣角。",
+            "aspect_ratio": "9:16",
+            "agent_outputs": {
+                "story_planner": planner_output,
+                "shot_director": shot_fallback,
+            },
+        }
+    )
+
+    compiled = result["agent_outputs"]["compiled_segment_1"]
+    assert "竖屏中景双人关系镜头" in compiled
+    assert "固定机位" in compiled
+    assert "台词直接嵌入动作：~" not in compiled
+    assert "relationship shot" not in compiled
+    assert "local fallback reason" not in compiled
 
 
 def test_prompt_compiler_accepts_legacy_local_shot_fallback_marker(monkeypatch) -> None:

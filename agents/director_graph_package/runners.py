@@ -547,7 +547,7 @@ def _run_phase_2_compile_direct(
     tail_frame_b64: str | None = None,
     video_path: str | None = None,
 ) -> Any:
-    from .nodes import segment_complete_node, storyboard_designer_node
+    from .nodes import segment_complete_node
     from .prompt_compiler_impl import prompt_compiler_node
     from .quality_inspector_impl import quality_inspector_node, qc_router_node
     from .shot_director_impl import run_shot_director_for_segment
@@ -558,10 +558,6 @@ def _run_phase_2_compile_direct(
 
     shot_update = run_shot_director_for_segment(working_state, segment_index)
     working_state = _merge_state_update(working_state, shot_update)
-    _save_runner_state(dict(working_state))
-
-    storyboard_update = storyboard_designer_node(working_state)
-    working_state = _merge_state_update(working_state, storyboard_update)
     _save_runner_state(dict(working_state))
 
     while True:
@@ -586,7 +582,6 @@ def _run_phase_2_until_review(
     tail_frame_b64: str | None = None,
     video_path: str | None = None,
 ) -> Any:
-    from .nodes import storyboard_designer_node
     from .prompt_compiler_impl import prompt_compiler_node
     from .shot_director_impl import run_shot_director_for_segment
 
@@ -597,11 +592,6 @@ def _run_phase_2_until_review(
 
     shot_update = run_shot_director_for_segment(working_state, segment_index)
     working_state = _merge_state_update(working_state, shot_update)
-    working_state["human_review_enabled"] = True
-    _save_runner_state(dict(working_state))
-
-    storyboard_update = storyboard_designer_node(working_state)
-    working_state = _merge_state_update(working_state, storyboard_update)
     working_state["human_review_enabled"] = True
     _save_runner_state(dict(working_state))
 

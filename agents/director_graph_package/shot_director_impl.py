@@ -395,11 +395,12 @@ def _spatial_geometry_contract_rules() -> str:
     return (
         "【空间几何合同硬规则】\n"
         "1. 当前轻量施工单不再输出 camera_basis 等内部字段；空间几何必须翻译进 shot 与 continuity。内部校验仍使用 camera_basis、scene_fixed、visible_landmarks 等合同词判断前景/中景/后景是否闭环。\n"
-        "2. shot 只写【视角+景别】，例如过肩视角半身以上中景、侧面视角双人中景、背后视角半身中景；不要写复杂机位坐标或运镜说明。\n"
-        "3. continuity 必须写清人物站位、朝向、左右关系、道具位置和可继承尾帧；不能只写\"保持连续\"。\n"
-        "4. 人物转身、穿门、进电梯/车门/房门等阈值动作，优先使用侧面、背后或场景固定机位；不要用人物正前方固定机位硬拍动作路径。\n"
-        "5. 如果人物面朝电梯/门口且镜头拍正面，门框只能是前景或侧边锚点，不能写成后景。\n"
-        "6. 几何闭环优先于好听文案：shot、action、continuity 三者必须互相兼容。\n"
+        "2. shot 必须写成镜头表达句，格式为【景别 + 简洁机位 + 人物动作/台词/反应】；例如\"双人中景，办公桌侧面固定机位，两人隔着办公桌对峙\"。\n"
+        "3. 禁止把机位锚点、空间方位和景别硬拼成抽象短语；不要写坐标式空间说明或摄影机位置说明书。\n"
+        "4. continuity 必须写清具名人物站位、朝向、道具位置和可继承尾帧；不能只写\"保持连续\"，也不能只写\"画面左侧/右侧\"而不说明谁看向谁。\n"
+        "5. 人物转身、穿门、进电梯/车门/房门等阈值动作，优先使用侧面、背后或场景固定机位；不要用人物正前方固定机位硬拍动作路径。\n"
+        "6. 如果人物面朝电梯/门口且镜头拍正面，门框只能是前景或侧边锚点，不能写成后景。\n"
+        "7. 几何闭环优先于好听文案：shot、action、continuity 三者必须互相兼容。\n"
     )
 
 def _camera_execution_rules() -> str:
@@ -408,11 +409,11 @@ def _camera_execution_rules() -> str:
         "1. 内部镜头设计必须保留完整镜头语法：主体+主体景别、焦段、景深、机位高度、拍摄角度、唯一运镜、动作/表演、光源；不得因为最终要给 Seedance 就提前丢掉焦段/景深/高度/角度判断。\n"
         "2. 每个 shot 只能有一个主体焦点、一个景别基底、一个主导运镜；景别可以在子分镜内递进，但不能写成\"纵深中全景到半身中景\"这种单字段混合景别。\n"
         "3. 机位高度从仰拍、平视、俯拍、顶拍、虫眼中选择；普通关系/对白可用平视，权力压制可用仰拍，弱势/群体散开可用俯拍。最终 prompt 可把\"平视\"译成自然短句，避免机械写\"眼平高度\"。\n"
-        "4. 拍摄角度从正面、左前方、右前方、左侧、右侧、背后、过肩、荷兰角、POV 中选择；POV 必须先有建立镜头说明谁在看，禁止直接跳 POV。\n"
+        "4. 拍摄角度从正面、侧面、侧背、背后、过肩、场景固定机位、荷兰角、POV 中选择；POV 必须先有建立镜头说明谁在看，禁止直接跳 POV。禁止用人物相对的左前方/右前方/左后方/右后方当机位，因为人物转身后左右会反。不要每段都写数字角度。\n"
         "5. 运镜从推镜、拉镜、横移、横摇、垂直摇、升降、变焦、稳定器跟拍、手持、固定机位中选唯一主导运镜；禁止在一个 shot 内同时推近、横移、摇摄、再回主位。\n"
         "6. 运镜必须服务镜头目的：推近/切近/转特写只能服务信息逼近、情绪暴露、压迫上升、受击反应变重要、道具或局部动作成为焦点；禁止把慢推近当通用情绪模板。\n"
         "7. 反应落点优先按层级处理：主分镜负责主体关系和空间重心，子分镜负责受击、表情重音、局部动作；不要把\"同一运动里带到反应再回主位\"写成一个复杂主镜头。\n"
-        "8. 禁止复合景别/复合机位：不要写\"纵深中全景到半身中景\"\"中景转电梯口关系景\"\"右后方中景转固定机位\"\"同轴线偏右侧\"\"前后景关系\"。改成结构化字段：shot_size=MS/MCU，angle=正面/斜侧面/背面，movement=固定/跟拍。\n"
+        "8. 禁止复合景别/复合机位：不要写\"纵深中全景到半身中景\"\"中景转电梯口关系景\"\"右后方中景转固定机位\"\"同轴线偏右侧\"\"前后景关系\"。改成结构化字段：shot_size=MS/MCU，angle=正面/侧面/侧背/背面/过肩/场景固定，movement=固定/跟拍。\n"
         "9. 禁止使用模糊机位词：三分之四角度、斜侧、斜前方、轻微前推、轻微前推跟随、缓慢靠近、背影轻压。\n"
         "10. 禁止抽象判断句。不要写\"沉默就是回应\"\"权力关系锁住\"\"空气收紧\"\"命令落地即见效\"\"形成清晰钩子\"。必须改写成可见动作：停顿几秒、谁看向谁、谁后退半步、谁让出通道、电梯门停在什么开合状态。\n"
         "11. 内部可以技术化，最终编译必须感知化：85mm浅景深可译为\"背景虚化、主体突出\"，深景深可译为\"前后景都清楚\"，不得把\"电影感/高级感\"写成空壳标签。\n"
@@ -425,8 +426,8 @@ def _camera_task_selection_rules() -> str:
         "2. 主分镜只在主体关系变化、场面权力关系变化、叙事重心变化、空间观察点变化、当前主镜头无法承载下一动作单元时新开；不要用主分镜机械对应每句台词。\n"
         "3. 完整发言单元优先保持在同一主分镜内；长挑衅/揭晓/质问台词超过2秒时，用子分镜/L-cut 切受击者，让后半句以画外音落在反应上。\n"
         "4. 听者受击、视线撞上、回神、表情冻结：优先挂到现有主镜头或新增 sub_shot；受击者机位必须落在同侧轴线内，并写 companion_visibility，不要靠横移摆尾带到反应。\n"
-        "5. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先左侧、右侧、左后方、右后方或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定轴线一侧。\n"
-        "6. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背面、斜侧面或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
+        "5. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先场景固定机位、门框侧机位、桌边侧机位、走廊侧机位、背面跟拍或过肩前景遮挡；目标是看清起点、路径、接触点和终点。整段保持同一场景锚点侧。\n"
+        "6. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背面跟拍、侧面跟拍、门框侧固定机位或 scene_fixed；目标是看清人物前方目标与阈值关系，不使用人物左后方/右后方。\n"
         "7. 9:16 主力景别为半身景/中景/MS，MCU 只用于压迫段或信息逼近中间层，CU 只用于信息炸点/受击反应/情绪顶点；禁止长期只在 MCU 与 CU 之间摆动。\n"
         "8. 群体调度必须保留空间容量：群体四散、主管退让、员工让路不能用面部特写承接，优先中景关系、半身关系或 scene_fixed。\n"
         "9. 每个 main_shot 必须有 cut_reason，回答为什么从上一主镜头切到这里；有效理由包括台词落点后切听者反应、动作中间态切接续、需要回关系景确认距离/门状态、tailframe_reset。\n"
@@ -436,26 +437,26 @@ def _camera_task_selection_rules() -> str:
 
 def _space_rules_contract_rules() -> str:
     return (
-        "[Scene Map Contract]\n"
-        "1. Every fragment must include space_rules before shots. This is the floor-plan contract for layout, blocking, guard, and compiler.\n"
-        "2. space_rules.space_anchors must name the stable set pieces / thresholds / landmarks and their relative directions, such as door=north, table=center, window=east.\n"
-        "3. space_rules.character_positions must describe each active character's start position, end position when known, and body facing relative to the anchors.\n"
-        "4. space_rules.action_axis must define the main eyeline/action axis and which side is the safe camera side.\n"
-        "5. space_rules.safe_camera_zones must list physically valid camera zones that preserve the axis and keep required bodies/landmarks visible.\n"
-        "6. space_rules.blocked_camera_zones must list forbidden or risky zones, such as axis-crossing seats, occluded corners, impossible doorway positions, or positions that hide the body path.\n"
-        "7. main_shot.camera_scene_position and visible_landmarks must be compatible with space_rules. If a shot uses scene_fixed, it must come from a safe_camera_zones entry or explain the exception in selection_reason.\n"
+        "【场面调度地图合同】\n"
+        "1. 每个片段必须先写空间规则，再写镜头列表；这是摆位、调度、守门和编译共用的平面图合同。\n"
+        "2. 空间锚点必须列出稳定布景、门槛和地标，并说明相对方向，例如门在北侧、桌在中央、窗在东侧。\n"
+        "3. 人物位置必须说明每个出场人物的起点、已知终点，以及身体朝向与空间锚点的关系。\n"
+        "4. 动作轴线必须说明主要视线/动作轴，以及安全机位应落在哪一侧。\n"
+        "5. 安全机位区必须列出物理可拍、能保轴且能保留必要人物/地标可见的机位区域。\n"
+        "6. 禁用机位区必须列出越轴、遮挡、门口物理不可能或隐藏动作路径的危险位置。\n"
+        "7. 主镜头的机位位置和可见地标必须与空间规则兼容；如果使用固定场景机位，必须来自安全机位区，或在选择理由里说明例外。\n"
     )
 
 def _best_shot_selection_rules() -> str:
     return (
-        "[Best Shot Selection Contract]\n"
-        "1. Do not choose a shot only because it matches a rule category. First decide the viewer's attention job.\n"
-        "2. Every main_shot must include attention_target: who or what the viewer must watch at this exact moment.\n"
-        "3. Every main_shot must include information_strategy: what the shot reveals, delays, hides, or lets the viewer miss.\n"
-        "4. Every main_shot must include selection_reason: why this specific shot size / angle / camera seat is the strongest choice now.\n"
-        "5. Every main_shot must include rejected_alternatives: at least one tempting but weaker option and why it was rejected.\n"
-        "6. selection_reason cannot be generic words such as cinematic, looks good, follows rules, or more emotional. Tie it to attention, information, space, body action, or cut continuity.\n"
-        "7. If the shot is a reaction, explain why the viewer needs the receiver now instead of the speaker; if it is an action path, explain why the body path must stay readable; if it is a relation reset, explain what spatial confusion it repairs.\n"
+        "【最佳镜头选择合同】\n"
+        "1. 不要因为某个镜头命中了规则分类就直接选择；先判断观众此刻应该看什么。\n"
+        "2. 每个主镜头必须写注意目标：观众此刻必须看谁或看什么。\n"
+        "3. 每个主镜头必须写信息策略：这一镜揭示、延迟、隐藏或故意让观众错过什么。\n"
+        "4. 每个主镜头必须写选择理由：为什么此刻这个景别、角度和机位最强。\n"
+        "5. 每个主镜头必须写放弃方案：至少一个看似可用但更弱的选择，以及放弃原因。\n"
+        "6. 选择理由不能写成“有电影感、好看、符合规则、更有情绪”等空泛词，必须绑定注意力、信息、空间、身体动作或切镜连续性。\n"
+        "7. 如果是反应镜头，说明为什么现在观众需要看承受者而不是说话者；如果是动作路径镜头，说明为什么身体路径必须清楚；如果是关系复位镜头，说明它修复了什么空间混乱。\n"
     )
 
 def _has_body_mechanics_action(block: str) -> bool:
@@ -924,11 +925,11 @@ def _truncate_for_prompt(text: str, limit: int = 12000) -> str:
 
 def _runtime_context_contract_card() -> str:
     return (
-        "[Runtime Context Contract]\n"
-        "- story_planner 保留原始剧本作为逐字引用来源；其他阶段不要重新理解全剧本。\n"
-        "- layout 只负责 shots 机位骨架，不承担剧本理解、情绪设计、动作调度或身份锁定。\n"
-        "- blocking/guard/prompt_compiler 只使用当前片段资产和当前镜头资产，避免被其他片段带偏。\n"
-        "- 参考图只负责身份/空间锚定；人物形象细节不需要在最终 prompt 中重复展开。\n"
+        "【运行上下文合同】\n"
+        "- 结构规划保留原始剧本作为逐字引用来源；其他阶段不要重新理解全剧本。\n"
+        "- 摆位只负责镜头机位骨架，不承担剧本理解、情绪设计、动作调度或身份锁定。\n"
+        "- 调度、守门和提示词编译只使用当前片段资产和当前镜头资产，避免被其他片段带偏。\n"
+        "- 参考图只负责身份/空间锚定；人物形象细节不需要在最终提示词中重复展开。\n"
         "- 如果人物面朝电梯且镜头写正面，电梯门框只能是前景边缘/左右侧边缘，不能写成后景。"
     )
 
@@ -1141,6 +1142,112 @@ def _repair_shot_director_contract_output(output: str, script: str) -> str:
 
     return _MAIN_SHOT_BLOCK_RE.sub(repl, output)
 
+_SHOT_DIRECTOR_CHINESE_FIELD_NAMES: tuple[tuple[str, str], ...] = (
+    ("fragment_id", "片段编号"),
+    ("fragment_task", "片段任务"),
+    ("fragment_intent", "片段意图"),
+    ("rhythm", "节奏"),
+    ("fallback_mode", "兜底模式"),
+    ("fallback_reason", "兜底原因"),
+    ("space_rules", "空间规则"),
+    ("space_anchors", "空间锚点"),
+    ("character_positions", "人物位置"),
+    ("action_axis", "动作轴线"),
+    ("safe_camera_zones", "安全机位区"),
+    ("blocked_camera_zones", "禁用机位区"),
+    ("shots", "镜头列表"),
+    ("main_shots", "主镜头列表"),
+    ("sub_shots", "子镜头列表"),
+    ("shot_id", "镜头编号"),
+    ("parent_shot_id", "父镜头编号"),
+    ("duration", "时长"),
+    ("duration_hint", "时长建议"),
+    ("task", "镜头任务"),
+    ("subject", "拍摄主体"),
+    ("shot", "镜头"),
+    ("camera", "机位"),
+    ("size", "景别"),
+    ("shot_size", "景别"),
+    ("camera_height", "机位高度"),
+    ("camera_angle", "拍摄角度"),
+    ("angle", "拍摄角度"),
+    ("movement", "运镜"),
+    ("camera_movement", "运镜"),
+    ("lens", "焦段"),
+    ("depth", "景深"),
+    ("action", "画面动作"),
+    ("dialogue", "台词"),
+    ("must_carry", "必须承载"),
+    ("cut_point", "切镜点"),
+    ("continuity", "连续性"),
+    ("type", "类型"),
+    ("audio", "声音"),
+    ("coverage_role", "覆盖职责"),
+    ("cut_reason", "切镜原因"),
+    ("companion_visibility", "同场人物位置"),
+    ("state_delta", "状态变化"),
+    ("tailframe_role", "尾帧职责"),
+    ("tailframe_reset", "尾帧复位"),
+    ("dialogue_coverage", "对白覆盖"),
+    ("reaction_coverage", "反应覆盖"),
+    ("attention_target", "注意目标"),
+    ("information_strategy", "信息策略"),
+    ("selection_reason", "选择理由"),
+    ("rejected_alternatives", "放弃方案"),
+    ("shot_intent", "镜头意图"),
+    ("transition_type", "转场类型"),
+    ("trigger", "触发点"),
+    ("beat_purpose", "节拍目的"),
+    ("emotion_anchor", "情绪锚点"),
+    ("action_phase", "动作阶段"),
+    ("camera_basis", "机位依据"),
+    ("camera_scene_position", "场景机位位置"),
+    ("camera_looks_toward", "镜头朝向"),
+    ("subject_position", "主体位置"),
+    ("subject_facing", "主体朝向"),
+    ("visible_landmarks", "可见地标"),
+)
+
+_SHOT_DIRECTOR_TEXT_REPLACEMENTS: tuple[tuple[re.Pattern[str], str], ...] = (
+    (re.compile(r"\bshot_director_local_fallback_v1\b"), "镜头导演本地兜底"),
+    (re.compile(r"\bLocal fallback from approved story-planner events:\s*", re.IGNORECASE), "根据已批准结构规划事件本地兜底："),
+    (re.compile(r"\bFollow upstream rhythm; keep each shot to one readable action\.", re.IGNORECASE), "遵循上游节奏；每个镜头只承载一个可读动作。"),
+    (re.compile(r"\bEstablish the current beat and spatial relationship from:\s*", re.IGNORECASE), "建立当前节拍和空间关系："),
+    (re.compile(r"\bCarry the reaction or next action from:\s*", re.IGNORECASE), "承接反应或下一动作："),
+    (re.compile(r"\bvertical medium relationship shot\b", re.IGNORECASE), "竖屏中景关系镜头"),
+    (re.compile(r"\bmedium close relationship shot\b", re.IGNORECASE), "中近景关系镜头"),
+    (re.compile(r"\bmedium relationship shot\b", re.IGNORECASE), "中景关系镜头"),
+    (re.compile(r"\bstable camera\b", re.IGNORECASE), "固定机位"),
+    (re.compile(r"\bclear blocking\b", re.IGNORECASE), "调度清晰"),
+    (re.compile(r"\bsame screen direction\b", re.IGNORECASE), "保持同一画面方向"),
+    (re.compile(r"\bafter the first readable action lands\b", re.IGNORECASE), "第一个可读动作落下后"),
+    (re.compile(r"\bpreserve established positions, props and eye-lines from the approved upstream plan\b", re.IGNORECASE), "保留已批准上游方案中的站位、道具和视线关系"),
+    (re.compile(r"\bafter the reaction or information beat is visible\b", re.IGNORECASE), "反应或信息节拍可见后"),
+    (re.compile(r"\bend on a readable tail frame for the next segment handoff\b", re.IGNORECASE), "以可读尾帧结束，交给下一片段"),
+    (re.compile(r"\bviewer attention stays on\b", re.IGNORECASE), "观众注意力停留在"),
+    (re.compile(r"\binformation strategy is\b", re.IGNORECASE), "信息策略是"),
+    (re.compile(r"\bchoice supports\b", re.IGNORECASE), "选择服务于"),
+    (re.compile(r"\bwhile preserving space/action/cut continuity\b", re.IGNORECASE), "同时保持空间、动作和切镜连续"),
+)
+
+
+def _translate_shot_director_english_contract_output(output: str) -> str:
+    """Translate legacy English shot-director fields and fallback phrases to Chinese."""
+    if not output:
+        return output
+    translated = output
+    for english, chinese in sorted(_SHOT_DIRECTOR_CHINESE_FIELD_NAMES, key=lambda item: len(item[0]), reverse=True):
+        translated = re.sub(
+            rf"(?m)^(\s*-?\s*){re.escape(english)}(\s*:)",
+            rf"\1{chinese}\2",
+            translated,
+        )
+    for pattern, replacement in _SHOT_DIRECTOR_TEXT_REPLACEMENTS:
+        translated = pattern.sub(replacement, translated)
+    translated = re.sub(r"(?mi)(:\s*)[\"']?none[\"']?\s*$", r'\1"~"', translated)
+    translated = re.sub(r"(?m)(\d+(?:\.\d+)?)s\b", r"\1秒", translated)
+    return translated
+
 def _repair_body_mechanics_contract_output(output: str) -> str:
     if not output:
         return output
@@ -1190,6 +1297,7 @@ def _repair_shot_director_output_contracts(output: str, script: str) -> str:
     repaired = _repair_shot_layout_output(output)
     repaired = _repair_shot_director_contract_output(repaired, script)
     repaired = _repair_body_mechanics_contract_output(repaired)
+    repaired = _translate_shot_director_english_contract_output(repaired)
     return repaired
 
 def _has_elevator_facing(value: str) -> bool:
@@ -1259,20 +1367,20 @@ def _layout_selection_reason_from_fields(block: str) -> str:
         text = text.replace(":", " -").strip(" -")
         return text or fallback
 
-    attention = clean(_yaml_scalar_field(block, "attention_target"), clean(_yaml_scalar_field(block, "subject"), "current subject"))
+    attention = clean(_yaml_scalar_field(block, "attention_target"), clean(_yaml_scalar_field(block, "subject"), "当前主体"))
     information = clean(
         _yaml_scalar_field(block, "information_strategy"),
-        clean(_yaml_scalar_field(block, "shot_intent"), "current story information"),
+        clean(_yaml_scalar_field(block, "shot_intent"), "当前剧情信息"),
     )
-    coverage = clean(_yaml_scalar_field(block, "coverage_role"), "coverage beat")
-    cut_reason = clean(_yaml_scalar_field(block, "cut_reason"), "this cut point")
+    coverage = clean(_yaml_scalar_field(block, "coverage_role"), "当前覆盖节拍")
+    cut_reason = clean(_yaml_scalar_field(block, "cut_reason"), "当前切镜点")
     camera_seat = clean(
         _yaml_scalar_field(block, "camera_scene_position"),
-        clean(_yaml_scalar_field(block, "angle"), "this camera seat"),
+        clean(_yaml_scalar_field(block, "angle"), "当前机位"),
     )
     return (
-        f"viewer attention stays on {attention}; information strategy is {information}; "
-        f"the {camera_seat} choice supports {coverage} at {cut_reason} while preserving space/action/cut continuity"
+        f"观众注意力停留在{attention}；信息策略是{information}；"
+        f"{camera_seat}的选择服务于{coverage}，切点是{cut_reason}，同时保持空间、动作和切镜连续。"
     )
 
 def _insert_yaml_scalar_after(block: str, after_fields: tuple[str, ...], field: str, value: str) -> str:
@@ -1465,12 +1573,12 @@ def _shot_director_rule_block(aspect_ratio: str) -> str:
         "2. 不新增人物。\n"
         "3. 不新增台词。\n"
         "4. 不新增动作。\n"
-        "5. 不改变 id 和 fragment_id。\n"
+        "5. 不改变片段编号和镜头编号。\n"
         "6. 不改变人物出入场关系。\n"
-        "7. 不保留 rejected_alternatives 的具体错误画面描述。\n"
-        "8. 所有 must_not_show 必须简短，不要展开描述。\n"
-        "9. action 只写可见动作，不写心理解释。\n"
-        "10. 如果字段冲突，优先保留 continuity、space_rules、shots.action。\n"
+        "7. 不保留放弃方案里的具体错误画面描述。\n"
+        "8. 所有禁止呈现内容必须简短，不要展开描述。\n"
+        "9. 画面动作只写可见动作，不写心理解释。\n"
+        "10. 如果字段冲突，优先保留连续性、空间规则和镜头动作。\n"
     )
 
 def _indent_level(line: str) -> int:
@@ -1546,18 +1654,18 @@ def _trim_layout_text(value: str, limit: int = 120) -> str:
 def _shot_director_layout_context(planner_output: str, aspect_ratio: str) -> str:
     sections = _extract_yaml_sections(planner_output or "")
     if not sections:
-        return f"[Aspect Ratio]\n{aspect_ratio}\n\n[Planner Excerpt]\n{(planner_output or '').strip()[:2000]}"
+        return f"【画幅】\n{aspect_ratio}\n\n【结构规划摘录】\n{(planner_output or '').strip()[:2000]}"
 
     lines = [
-        "[Layout Input Contract]",
-        "Design only the camera skeleton for each fragment.",
-        "Use the planner summary below. Do not re-interpret the whole script.",
+        "【摆位输入合同】",
+        "只为每个片段设计机位骨架。",
+        "使用下面的结构规划摘要，不要重新解读全剧本。",
         _runtime_context_contract_card(),
         "",
-        "[Aspect Ratio]",
+        "【画幅】",
         aspect_ratio,
         "",
-        "[Fragments]",
+        "【片段】",
     ]
     for section in sections:
         fragment_id = _extract_fragment_id(section) or "unknown"
@@ -1578,24 +1686,24 @@ def _shot_director_layout_context(planner_output: str, aspect_ratio: str) -> str
 
         lines.extend(
             [
-                f"- fragment_id: {fragment_id}",
-                f"  dramatic_unit: {_trim_layout_text(dramatic_unit, 120) or 'n/a'}",
-                f"  active_cast: {', '.join(active_cast) if active_cast else 'n/a'}",
-                f"  must_not_show: {', '.join(must_not_show) if must_not_show else 'n/a'}",
-                f"  continuity_entry: {_trim_layout_text(continuity_entry, 140) or 'n/a'}",
-                f"  continuity_exit: {_trim_layout_text(continuity_exit, 140) or 'n/a'}",
-                "  key_events:",
+                f"- 片段编号: {fragment_id}",
+                f"  戏剧单元: {_trim_layout_text(dramatic_unit, 120) or '无'}",
+                f"  出场人物: {', '.join(active_cast) if active_cast else '无'}",
+                f"  禁止呈现: {', '.join(must_not_show) if must_not_show else '无'}",
+                f"  入场连续性: {_trim_layout_text(continuity_entry, 140) or '无'}",
+                f"  出场连续性: {_trim_layout_text(continuity_exit, 140) or '无'}",
+                "  关键事件:",
             ]
         )
         if key_events:
             lines.extend(f"    - {event}" for event in key_events)
         else:
-            lines.append("    - n/a")
-        lines.append("  dialogue_lines:")
+            lines.append("    - 无")
+        lines.append("  台词行:")
         if dialogue_lines:
             lines.extend(f"    - {line}" for line in dialogue_lines)
         else:
-            lines.append("    - none")
+            lines.append("    - 无")
     return "\n".join(lines)
 
 def _sections_by_fragment(yaml_text: str) -> dict[str, str]:
@@ -1753,7 +1861,7 @@ def _fragment_compact_context(
 ) -> str:
     planner_section = planner_sections.get(fragment_id, "")
     if not planner_section:
-        return f"[Aspect Ratio]\n{aspect_ratio}\n\n[Fragment]\n- fragment_id: {fragment_id}\n"
+        return f"【画幅】\n{aspect_ratio}\n\n【片段】\n- 片段编号: {fragment_id}\n"
     return _shot_director_layout_context(planner_section, aspect_ratio)
 
 def _call_stage_split_by_fragment(
@@ -2330,10 +2438,10 @@ def _run_shot_director_single_pass_impl(
             "【镜头库调用方式】\n"
             "你必须先根据【镜头库调用任务单】识别当前片段属于对白覆盖、受击/碰撞、信息揭示、门/电梯阈值、尾帧承接或权力压迫等哪类镜头任务，"
             "再从知识库里的镜头库、多机位模板和连续性规则中选择合适结构。"
-            "镜头选择必须继承总导演意图、节奏总控和 story_planner 的 source_script_events；不得为了套模板新增剧情。"
+            "镜头选择必须继承总导演意图、节奏总控和结构规划中的原文事件；不得为了套模板新增剧情。"
             "节奏总控只提供给镜头导演的操作单，不是镜头硬模板；你负责把必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面合法转译成镜头语言。\n\n"
             "【输出语言硬规则】\n"
-            "最终 YAML 必须使用中文字段名，不要输出 fragment_id、shot_id、duration、task、subject、must_carry、cut_point、continuity 等英文字段名。\n\n"
+            "最终 YAML 必须使用中文字段名，不要输出任何旧版英文字段名。\n\n"
             "【每个片段必须交付】\n"
             "1. 片段任务 — 本片段的剧情施工任务，例如建立关系、冲突升级、信息揭示、反应落点、权力反转、喜剧泄压、尾帧钩子。\n"
             "2. 节奏 — 继承节奏总控给镜头导演的操作单，写清哪些内容拍完整、哪些内容可以省略、哪里必须停留、最多几个镜头；若发生冲突，说明按原剧本/连续性优先。\n\n"
@@ -2341,7 +2449,7 @@ def _run_shot_director_single_pass_impl(
             "1. 时长 — 该镜头在片段内的时间段，必须连续，例如 0-2秒、2-5秒。\n"
             "2. 镜头任务 — 这个镜头负责什么：建立关系、承载对白、动作推进、信息揭示、反应落点、尾帧承接等。\n"
             "3. 拍摄主体 — 拍谁（人物名、双人关系或剧本已有道具）。\n"
-            "4. 镜头 — 只写【视角+景别】，例如过肩视角半身以上中景、侧面视角双人中景、背后视角半身中景。\n"
+            "4. 镜头 — 写成镜头表达句：景别 + 简洁机位 + 人物动作/台词/反应；例如双人中景，办公桌侧面固定机位，两人隔着办公桌对峙。\n"
             "5. 画面动作 — 在干嘛（可见动作，不写心理）。\n"
             "6. 台词 — 原剧本台词、画外音或 ~；不得新增台词。\n"
             "7. 必须承载 — 这个镜头必须承载的剧情信息或表演落点。\n"
@@ -2356,10 +2464,11 @@ def _run_shot_director_single_pass_impl(
             "3. 长台词或高压命令必须拆出视觉覆盖：说话者起句、同侧听者反应/过肩、必要时后半句以画外音、声音先行或声音延续落到反应上。\n"
             "4. 切镜点不许只写\"切出/继续/增强情绪\"，必须写清触发物，例如动作顶点、台词断点、信息看清、反应出现、门关闭完成、尾帧状态稳定。\n"
             "5. 片段编号必须沿用拆片方案的 F01/F02/F03...，不得改名合并跳号。\n"
-            "6. 同一片段有3个及以上镜头时，必须至少变化一种维度：拍摄主体、景别、视角/机位、声音承载或镜头任务；不得无理由连续重复。\n"
+            "6. 同一片段有3个及以上镜头时，必须变化主体、景别、视角/机位、声音承载或镜头任务；不得把同侧固定机位或中近景当默认答案。\n"
             "7. 走路、上车、开门、进入新空间等无戏剧增量过程优先用机位/景别/主体切换省略，只保留关键起点帧和终点帧。\n"
-            "8. 冲突裁决顺序：原剧本事实 > story_planner片段边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
-            f"9. 画幅：{aspect_ratio}",
+            "8. 镜头语言要按任务大胆选择：忙乱动作可用侧面跟拍或手部局部短镜头，孩子抗拒可用低机位贴近孩子，哄劝可用肩后过肩或双人半身关系景；同侧只是不越轴，不是固定机位模板。\n"
+            "9. 冲突裁决顺序：原剧本事实 > story_planner片段边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
+            f"10. 画幅：{aspect_ratio}",
             "shot_director",
             context_hint=hint,
             retrieval_profile=retrieval_profile,
@@ -2380,7 +2489,7 @@ def _run_shot_director_single_pass_impl(
             "      时长: 0-2秒\n"
             "      镜头任务: 建立关系/承载对白/动作推进/信息揭示/反应落点/尾帧承接\n"
             "      拍摄主体: 人物名/双人关系/剧本已有道具\n"
-            "      镜头: 视角+景别，例如过肩视角半身以上中景\n"
+            "      镜头: 景别 + 简洁机位 + 人物动作/台词/反应，例如双人中景，办公桌侧面固定机位，两人隔着办公桌对峙\n"
             "      画面动作: 可见动作，不写心理\n"
             "      台词: 原剧本台词/画外音或 ~\n"
             "      必须承载: 这个镜头必须承载的剧情信息或表演落点\n"
@@ -2399,7 +2508,7 @@ def _run_shot_director_single_pass_impl(
             "8. 不要输出任何英文字段名；字段名必须使用上面的中文写法。\n\n"
             "9. 每个片段必须执行【镜头库调用任务单】里的镜头库任务：先判断剧情信号，再决定镜头结构和切点；"
             "如果任务单与原剧本事件冲突，以原剧本事件和拆片边界为准。\n\n"
-            "10. 每个片段必须主动判断剪辑省略点和镜头语言变化策略；不要让一个中景/同一机位吃完整段戏。\n\n"
+            "10. 每个片段必须主动判断剪辑省略点和镜头语言变化策略；不要让一个中景/同一机位吃完整段戏，不要连续堆同侧固定机位和中近景。\n\n"
             f"{_shot_director_coverage_contract_prompt()}\n"
             f"{rule_block}"
             "请只输出完整 YAML 镜头方案。"
@@ -2586,44 +2695,47 @@ def _build_local_shot_director_fallback(
     if not source_events:
         source_events = [line.strip() for line in re.split(r"[\n。.!?]+", script or "") if line.strip()][:3]
     if not source_events:
-        source_events = ["Continue the approved story-planner beat without adding new story facts."]
+        source_events = ["承接已确认的拆片事件，不新增剧情事实。"]
 
     characters = _primary_script_character_names(script)
-    subject = "、".join(characters[:2]) if characters else "current characters"
+    subject = "、".join(characters[:2]) if characters else "当前人物"
     event_a = source_events[0]
     event_b = source_events[1] if len(source_events) > 1 else source_events[0]
     event_tail = source_events[-1]
-    relation_size = "vertical medium relationship shot" if "9:16" in (aspect_ratio or "") else "medium relationship shot"
-    failure_note = str(failure).splitlines()[0][:160]
+    relation_size = "竖屏中景双人关系镜头" if "9:16" in (aspect_ratio or "") else "中景双人关系镜头"
+    shot_a = f"{relation_size}，同侧固定机位，{subject}完成当前动作落点，人物调度清楚"
+    shot_b = f"中近景关系镜头，同侧固定机位，{subject}承接反应或下一个动作落点，保持同侧轴线"
+    _ = failure
+    failure_note = "大模型调用失败，已启用本地兜底。"
 
     return "\n".join(
         [
-            f"- fragment_id: {fragment_id}",
-            f"  fragment_task: {_yaml_quote('Local fallback from approved story-planner events: ' + event_a[:120])}",
-            "  rhythm: \"Follow upstream rhythm; keep each shot to one readable action.\"",
-            "  fallback_mode: \"shot_director_local_fallback_v1\"",
-            f"  fallback_reason: {_yaml_quote(failure_note)}",
-            "  shots:",
-            f"    - shot_id: {fragment_id}-S01",
-            "      duration: \"0-3s\"",
-            f"      task: {_yaml_quote('Establish the current beat and spatial relationship from: ' + event_a[:120])}",
-            f"      subject: {_yaml_quote(subject)}",
-            f"      shot: {_yaml_quote(relation_size + ', stable camera, clear blocking')}",
-            f"      action: {_yaml_quote(event_a)}",
-            "      dialogue: \"\"",
-            f"      must_carry: {_yaml_quote(event_a)}",
-            "      cut_point: \"after the first readable action lands\"",
-            "      continuity: \"preserve established positions, props and eye-lines from the approved upstream plan\"",
-            f"    - shot_id: {fragment_id}-S02",
-            "      duration: \"3-6s\"",
-            f"      task: {_yaml_quote('Carry the reaction or next action from: ' + event_b[:120])}",
-            f"      subject: {_yaml_quote(subject)}",
-            "      shot: \"medium close relationship shot, stable camera, same screen direction\"",
-            f"      action: {_yaml_quote(event_b)}",
-            "      dialogue: \"\"",
-            f"      must_carry: {_yaml_quote(event_tail)}",
-            "      cut_point: \"after the reaction or information beat is visible\"",
-            "      continuity: \"end on a readable tail frame for the next segment handoff\"",
+            f"- 片段编号: {fragment_id}",
+            f"  片段任务: {_yaml_quote('本地兜底承接已确认拆片事件：' + event_a[:120])}",
+            "  节奏: \"承接上游节奏；每个镜头只保留一个可读动作。\"",
+            "  兜底模式: \"镜头导演本地兜底\"",
+            f"  兜底原因: {_yaml_quote(failure_note)}",
+            "  镜头列表:",
+            f"    - 镜头编号: {fragment_id}-S01",
+            "      时长: \"0-3秒\"",
+            f"      镜头任务: {_yaml_quote('建立当前事件落点和人物空间关系：' + event_a[:120])}",
+            f"      拍摄主体: {_yaml_quote(subject)}",
+            f"      镜头: {_yaml_quote(shot_a)}",
+            f"      画面动作: {_yaml_quote(event_a)}",
+            "      台词: \"~\"",
+            f"      必须承载: {_yaml_quote(event_a)}",
+            "      切镜点: \"第一个可读动作落点后\"",
+            "      连续性: \"保持上游已确认的人物位置、道具状态和视线方向\"",
+            f"    - 镜头编号: {fragment_id}-S02",
+            "      时长: \"3-6秒\"",
+            f"      镜头任务: {_yaml_quote('承接反应或下一个动作落点：' + event_b[:120])}",
+            f"      拍摄主体: {_yaml_quote(subject)}",
+            f"      镜头: {_yaml_quote(shot_b)}",
+            f"      画面动作: {_yaml_quote(event_b)}",
+            "      台词: \"~\"",
+            f"      必须承载: {_yaml_quote(event_tail)}",
+            "      切镜点: \"反应或信息落点清楚后\"",
+            "      连续性: \"以可读尾帧结束，便于下一段承接\"",
         ]
     )
 
@@ -2664,7 +2776,7 @@ def run_shot_director_for_segment(
             state,
             {
                 "status": "running_phase_2",
-                "step": "step_4_storyboard",
+                "step": "step_4_compile",
                 "message": f"第 {selected_index} 段镜头导演已存在，正在进入 Prompt 编译。",
                 "agent_outputs": outputs,
                 "total_segments": total_segments,
@@ -2826,7 +2938,7 @@ def run_shot_director_for_segment(
         state,
         {
             "status": "running_phase_2",
-            "step": "step_4_storyboard",
+            "step": "step_4_compile",
             "message": f"第 {selected_index} 段镜头导演完成，正在进入 Prompt 编译。",
             "agent_outputs": outputs,
             "knowledge_metadata": knowledge_metadata,

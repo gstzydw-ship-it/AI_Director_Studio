@@ -1727,6 +1727,7 @@ select option {
     color: var(--text-primary);
     font-size: 13px;
     line-height: 1.45;
+    overflow-wrap: anywhere;
 }
 
 .shot-card-top span {
@@ -1748,6 +1749,7 @@ select option {
     color: var(--text-muted);
     font-size: 11px;
     line-height: 1.5;
+    overflow-wrap: anywhere;
 }
 
 .shot-card-field p,
@@ -1755,6 +1757,7 @@ select option {
     color: var(--text-secondary);
     font-size: 12px;
     line-height: 1.55;
+    overflow-wrap: anywhere;
 }
 
 .candidate-strip {

@@ -582,6 +582,7 @@ AGENT_KNOWLEDGE_MAP = {
         "03_镜头切换与推进规则.md",
         "04_对白与表演镜头规则.md",
         "06_连续性与安全规则.md",
+        "07_Seedance输出词典与模型适配.md",
         "14_动作描述精细化控制规则.md",
         "15_故事节奏控制规则.md",
         "18_情绪锚点与逐段交互与仰拍限制补丁.md",
@@ -589,26 +590,25 @@ AGENT_KNOWLEDGE_MAP = {
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
         "28_全场景分镜与转场案例库.md",
-        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",
     ],
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",
         "02_焦段景深与景别画幅策略.md",
         "06_连续性与安全规则.md",
+        "07_Seedance输出词典与模型适配.md",
         "21_镜头调用规则与多机位模板.md",
         "22_多机位分镜与镜头多样性规则.md",
         "28_全场景分镜与转场案例库.md",
-        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",
     ],
     "shot_director_blocking": [
         "26_动作调度与受击覆盖规则.md",
         "04_对白与表演镜头规则.md",
         "06_连续性与安全规则.md",
+        "07_Seedance输出词典与模型适配.md",
         "14_动作描述精细化控制规则.md",
         "18_情绪锚点与逐段交互与仰拍限制补丁.md",
         "21_镜头调用规则与多机位模板.md",
         "28_全场景分镜与转场案例库.md",
-        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",
     ],
     "shot_director_guard": [
         "27_规则守门与最小修复规则.md",
@@ -664,23 +664,23 @@ CRITICAL_KNOWLEDGE_MAP = {
         "02_焦段景深与景别画幅策略.md",   # 镜头设计核心查表
         "04_对白与表演镜头规则.md",       # 对白覆盖与反应切镜
         "06_连续性与安全规则.md",          # 安全约束必须全文
+        "07_Seedance输出词典与模型适配.md",  # 输出语言必须自然中文、可执行
         "21_镜头调用规则与多机位模板.md",  # 机位调用与执行模板
-        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # Seedance 稳定短句降级
     ],
     "shot_director_layout": [
         "25_镜头摆位主分镜骨架规则.md",   # 一号机位摆位导演的职责合同
         "04_对白与表演镜头规则.md",       # 对白覆盖与表演落点
         "02_焦段景深与景别画幅策略.md",   # 景别/焦段/画幅主规则
         "06_连续性与安全规则.md",          # 接缝与状态安全
+        "07_Seedance输出词典与模型适配.md",  # 输出语言必须自然中文、可执行
         "21_镜头调用规则与多机位模板.md",  # 主镜头骨架模板
-        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 单任务镜头基底
     ],
     "shot_director_blocking": [
         "26_动作调度与受击覆盖规则.md",   # 二号动作调度导演的职责合同
         "06_连续性与安全规则.md",          # 受击接续需要连续性保障
+        "07_Seedance输出词典与模型适配.md",  # 输出语言必须自然中文、可执行
         "14_动作描述精细化控制规则.md",   # 动作描述精度
         "04_对白与表演镜头规则.md",       # 对白落点规则
-        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 禁止复杂摆尾运镜
     ],
     "shot_director_guard": [
         "27_规则守门与最小修复规则.md",   # 三号守门导演的职责合同
@@ -699,7 +699,7 @@ CRITICAL_KNOWLEDGE_MAP = {
         "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",  # 禁止滥用同一机位继续
         "rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md",  # 抽象情绪转身体语言
         "rules/prompt_compiler/PROMPT-SMALL-ACTION-STABILITY-001.md",  # 小动作优先与动作拆链
-        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 复杂运镜降级
+        "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 编译阶段复杂运镜降级
     ],
     "quality_inspector": [
         "17_结果质检与回溯修正规则.md",    # 质检核心文件
@@ -756,6 +756,27 @@ def get_agent_knowledge_files(agent_name: str, critical_only: bool = False) -> l
     # lose RRF ranking to larger generic documents.
     if critical_only:
         knowledge_dir = get_knowledge_dir()
+
+        def scoped_to_agent(content: str) -> bool:
+            metadata = _frontmatter_metadata(content)
+            if not metadata:
+                return False
+            scope = set(_normalise_agent_scope(metadata.get("agent_scope")))
+            served_agents = set(_normalise_agent_scope(metadata.get("served_agents")))
+            return agent_name in (scope | served_agents)
+
+        def same_folder_rule_applies(content: str) -> bool:
+            metadata = _frontmatter_metadata(content)
+            if not metadata:
+                return True
+            scope = set(_normalise_agent_scope(metadata.get("agent_scope")))
+            served_agents = set(_normalise_agent_scope(metadata.get("served_agents")))
+            explicit_scope = scope | served_agents
+            if explicit_scope:
+                return agent_name in explicit_scope
+            owner_agent = str(metadata.get("owner_agent") or "").strip()
+            return not owner_agent or owner_agent == agent_name
+
         agent_rules_dir = os.path.join(knowledge_dir, "rules", agent_name)
         if os.path.isdir(agent_rules_dir):
             for fname in sorted(os.listdir(agent_rules_dir)):
@@ -765,6 +786,7 @@ def get_agent_knowledge_files(agent_name: str, critical_only: bool = False) -> l
                     files,
                     f"rules/{agent_name}/{fname}",
                     os.path.join(agent_rules_dir, fname),
+                    include=same_folder_rule_applies,
                 )
         # Also include shared rule cards from rules/shared/
         shared_rules_dir = os.path.join(knowledge_dir, "rules", "shared")
@@ -784,13 +806,6 @@ def get_agent_knowledge_files(agent_name: str, critical_only: bool = False) -> l
         # also scopes shot_director and quality_inspector). Without this pass
         # those rules only land in the owner's critical knowledge, leaving
         # other in-scope agents to rely on RAG retrieval, which is unreliable.
-        def scoped_to_agent(content: str) -> bool:
-            metadata = _frontmatter_metadata(content)
-            if not metadata:
-                return False
-            scope = set(_normalise_agent_scope(metadata.get("agent_scope")))
-            return agent_name in scope
-
         rules_root = os.path.join(knowledge_dir, "rules")
         if os.path.isdir(rules_root):
             for sub in sorted(os.listdir(rules_root)):

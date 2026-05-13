@@ -252,8 +252,16 @@ def test_agent_connection_test_uses_current_form_profiles(monkeypatch):
         "llm": {"api_key": "old-text-key", "base_url": "https://old-text.example/v1"},
         "image_generation": {"api_key": "old-image-key", "base_url": "https://old-image.example/v1"},
         "agent_models": {
-            "director_showrunner": {"model": "old-text-model"},
-            "storyboard_designer": {"model": "old-image-model"},
+            "director_showrunner": {
+                "model": "old-text-model",
+                "base_url": "https://stale-text-agent.example/v1",
+                "api_key": "stale-text-agent-key",
+            },
+            "storyboard_designer": {
+                "model": "old-image-model",
+                "base_url": "https://stale-image-agent.example/v1",
+                "api_key": "stale-image-agent-key",
+            },
         },
     })
     monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
@@ -505,6 +513,60 @@ def test_save_config_persists_agent_custom_route(monkeypatch):
     assert director["available_models"] == ["custom-model", "custom-backup"]
     assert director["route_model_pools"]["custom"] == ["custom-model", "custom-backup"]
     assert director["route_model_pools"]["primary"] == ["old-model"]
+
+
+def test_save_config_primary_route_uses_current_text_profile(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "old-text-key", "base_url": "https://old-text.example/v1"},
+        "image_generation": {"api_key": "image-key", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "embedding-key", "base_url": "https://embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "stale-model",
+                "base_url": "https://stale-custom.example/v1",
+                "api_key": "stale-custom-key",
+                "route_preset": "custom",
+                "available_models": [f"stale-{index}" for index in range(120)],
+            },
+        },
+    }
+    saved: dict[str, dict] = {}
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_save_raw_settings", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(web_app, "_public_model_config", lambda: {"agent_models": {}})
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "agent_models": {
+                    "director_showrunner": {
+                        "model": "gpt-5.5",
+                        "route_preset": "primary",
+                        "available_models": [f"model-{index}" for index in range(120)],
+                    }
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    director = saved["config"]["agent_models"]["director_showrunner"]
+    assert director["route_preset"] == "primary"
+    assert director["base_url"] == "https://text.example/v1"
+    assert director["api_key"] == "text-key"
+    assert director["model"] == "gpt-5.5"
+    assert len(director["available_models"]) == 80
 
 
 def test_save_config_normalises_nested_model_payload_and_derived_routes(monkeypatch):

@@ -3649,7 +3649,7 @@ def _normalise_optional_model(value: object) -> str:
     return text
 
 
-def _normalise_model_pool_payload(value: object, *, limit: int = 500) -> list[str]:
+def _normalise_model_pool_payload(value: object, *, limit: int = 80) -> list[str]:
     if not isinstance(value, list):
         return []
     models: list[str] = []
@@ -4098,8 +4098,8 @@ async def api_save_config(request: Request):
             selected_api_key = custom_api_key
             next_fallback = {"base_url": fallback_base_url, "api_key": fallback_api_key}
         else:
-            selected_base_url = str(agent_config.get("base_url") or default_base_url)
-            selected_api_key = str(agent_config.get("api_key") or default_api_key)
+            selected_base_url = default_base_url
+            selected_api_key = default_api_key
             next_fallback = {"base_url": fallback_base_url, "api_key": fallback_api_key}
         agent_config.pop("model", None)
         agent_config.pop("default_model", None)
@@ -4231,13 +4231,14 @@ async def api_test_agent_connections(request: Request):
     async def _run_probe(agent_name: str) -> dict:
         category = _agent_category(agent_name)
         stored_agent = raw_agent_models.get(agent_name) if isinstance(raw_agent_models.get(agent_name), dict) else {}
+        has_submitted_payload = agent_name in agent_models_payload
         submitted_payload = agent_models_payload.get(agent_name)
         model = _agent_payload_model(submitted_payload or stored_agent.get("model"))
         route_payload = _agent_payload_route(submitted_payload)
         profile_base_url = image_base_url if category == "image" else text_base_url
         profile_api_key = image_key if category == "image" else text_key
-        base_url = str(stored_agent.get("base_url") or profile_base_url)
-        api_key = str(stored_agent.get("api_key") or profile_api_key)
+        base_url = str(profile_base_url if has_submitted_payload else (stored_agent.get("base_url") or profile_base_url))
+        api_key = str(profile_api_key if has_submitted_payload else (stored_agent.get("api_key") or profile_api_key))
         route_preset = str(route_payload.get("route_preset") or stored_agent.get("route_preset") or "primary")
         if route_preset == "custom":
             custom_route = stored_agent.get("custom_route") if isinstance(stored_agent.get("custom_route"), dict) else {}

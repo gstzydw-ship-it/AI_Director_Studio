@@ -183,6 +183,11 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
         qc_issues.append(
             "- [PROMPT-VISIBLE-BODY-LANGUAGE-001] prompt 仍残留抽象导演词：必须翻译成停顿时长、视线方向、肩膀收紧、下颌收紧、嘴唇停住、身体距离或门/道具状态等可见画面。"
         )
+    if re.search(r"站在(?:门框|窗框|框架)里|(?:门框|窗框).{0,8}(?:形成|构成).{0,8}(?:前景|压线|框景)|前景压线|框住人物|被(?:门框|窗框|框架)框住|框景压迫", prompt):
+        qc_issues.append(
+            "- [PROMPT-SHOT-EXPRESSION-CORE-001] prompt 仍残留不稳定构图表达：门、窗、桌等只能作为空间边界或阻隔物，"
+            "不要写成框住人物的构图术语；改成同侧过肩机位、门口/门边站位和具体人物动作。"
+        )
 
     timeline_blocks = _timeline_blocks(prompt)
     for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(timeline_blocks[1:], start=2):
@@ -204,12 +209,24 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单时间段轴线锁 — 检查编译后 prompt ===
     compiled_timeline_blocks = _timeline_blocks(prompt)
     for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(compiled_timeline_blocks, start=1):
+        if re.search(
+            r"(?:摄影机|机位|镜头)?(?:位于|在)?"
+            r"(?:商北琛|乔熙|严飞|苏小可|小豆丁|人物|主体|他|她|两人).{0,8}"
+            r"(?:左前方|右前方|左后方|右后方)",
+            blk_body,
+        ):
+            qc_issues.append(
+                f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 的时间轴第 {block_idx} 个时间段"
+                "使用了人物相对左右机位。人物正面、背面或转身后左/右会反，模型无法稳定理解；"
+                "必须改成同侧轴线内的简洁机位。"
+            )
+            break
         if _AXIS_LEFT_RE.search(blk_body) and _AXIS_RIGHT_RE.search(blk_body):
             qc_issues.append(
                 f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 的时间轴第 {block_idx} 个时间段"
                 '同时出现"左前方"和"右前方"机位（跨 180° 轴线）。'
                 "Seedance 单次生成无法跨轴反打，会让人物左右颠倒、背景翻面。"
-                '单段 prompt 只能选一个轴线侧（全部"右前方"或全部"左前方"），拆轴必须拆 segment。'
+                "单段 prompt 必须保持同侧轴线，拆轴必须拆 segment。"
             )
             break
 

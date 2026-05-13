@@ -133,8 +133,8 @@ def test_shot_director_reads_chinese_story_planner_handoff():
     assert trace["fragments"][0]["fragment_id"] == "F01"
     assert trace["fragments"][0]["source_event_count"] == 2
     assert "乔熙拿起书包" in context
-    assert "active_cast: 乔熙" in context
-    assert "continuity_exit: 照片滑落到地面" in context
+    assert "出场人物: 乔熙" in context
+    assert "出场连续性: 照片滑落到地面" in context
 
 
 def test_rhythm_shot_director_notes_are_extracted_for_handoff():

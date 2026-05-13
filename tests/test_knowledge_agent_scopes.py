@@ -39,3 +39,20 @@ def test_frontmatter_agent_scope_rule_cards_are_critical_for_scoped_agents():
     assert rule_card in get_agent_knowledge_files("shot_director", critical_only=True)
     assert rule_card in get_agent_knowledge_files("prompt_compiler", critical_only=True)
     assert rule_card in get_agent_knowledge_files("quality_inspector", critical_only=True)
+
+
+def test_shot_director_uses_existing_natural_language_knowledge_not_compiler_degrade_rule():
+    natural_language_rulebook = "07_Seedance输出词典与模型适配.md"
+    degrade_rule = "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md"
+
+    for agent_name in ("shot_director", "shot_director_layout", "shot_director_blocking", "shot_director_guard"):
+        critical_files = get_agent_knowledge_files(agent_name, critical_only=True)
+        runtime_files = get_agent_knowledge_files(agent_name)
+        if agent_name != "shot_director_guard":
+            assert natural_language_rulebook in AGENT_KNOWLEDGE_MAP[agent_name]
+            assert natural_language_rulebook in critical_files
+        assert degrade_rule not in critical_files
+        assert degrade_rule not in runtime_files
+
+    compiler_critical = get_agent_knowledge_files("prompt_compiler", critical_only=True)
+    assert degrade_rule in compiler_critical

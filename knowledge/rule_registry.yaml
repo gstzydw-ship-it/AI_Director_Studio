@@ -1421,7 +1421,7 @@ rules:
     priority: "P0"
     applies_when: "编译最终 Seedance prompt，单段内同时出现多个机位描述、双人关系镜头或反打需求。"
     instruction: "每个 segment 必须在开头明确轴线方向并选定摄影机一侧（左/中/右），整段 prompt 内不得跨到另一侧；真要反打必须由 story_planner 拆段，并通过人物自然转身、越轴中性镜头或 scene_fixed 机位作为过渡。"
-    avoid_when: "单段同时出现“左前方”+“右前方”、单段出现“反打至/反打镜头/翻拍至”、用“同一机位继续”承接反向机位描述。"
+    avoid_when: "单段出现人物相对的“左前方/右前方/左后方/右后方”、单段出现“反打至/反打镜头/翻拍至”、用“同一机位继续”承接反向机位描述。"
     source_files:
       - "knowledge/rules/prompt_compiler/PROMPT-AXIS-LOCK-PER-SEGMENT-001.md"
       - "knowledge/06_连续性与安全规则.md"
@@ -1691,7 +1691,7 @@ rules:
     owner_agent: "shot_director_guard"
     priority: "P1"
     applies_when: "规则守门导演发现切镜前后人物位置跳变、让路关系漂移、关系镜头被单人大头吞掉，或下一个事件的时间预算被特写占用。"
-    instruction: "把无解释的位置跳变判为硬伤；右前方让路位不得无动作解释变成主角身后或并排行走；9:16 大头特写不得吞掉群体反应、台词落点或空间交代时间，必要时改回肩部以上、胸口以上、半身或双层关系中景。"
+    instruction: "把无解释的位置跳变判为硬伤；画面侧边让路位不得无动作解释变成主角身后或并排行走；9:16 大头特写不得吞掉群体反应、台词落点或空间交代时间，必要时改回肩部以上、胸口以上、半身或双层关系中景。"
     avoid_when: "只有剧本明确进入梦境、错觉或主观空间错乱时，才允许破坏空间连续，但必须显式标注动机。"
     source_files:
       - "knowledge/27_规则守门与最小修复规则.md"

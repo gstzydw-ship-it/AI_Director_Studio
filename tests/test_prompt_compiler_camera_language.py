@@ -18,7 +18,8 @@ from agents.director_graph_package.prompt_compiler_impl import (
 def test_camera_execution_rules_ban_ambiguous_camera_language():
     rules = _camera_execution_rules()
 
-    assert "正面、左前方、右前方、左侧、右侧、背后" in rules
+    assert "正面、侧面、侧背、背后、过肩、场景固定机位" in rules
+    assert "禁止用人物相对的左前方/右前方/左后方/右后方当机位" in rules
     assert "不要每段都写数字角度" in rules
     assert "轻微前推跟随" in rules
     assert "纵深中全景到半身中景" in rules
@@ -29,10 +30,10 @@ def test_camera_execution_rules_ban_ambiguous_camera_language():
 def test_camera_task_selection_rules_map_tasks_to_angles():
     rules = _camera_task_selection_rules()
 
-    assert "优先左侧、右侧、左后方、右后方" in rules
-    assert "优先背后、左后方、右后方" in rules
+    assert "优先场景固定机位、门框侧机位、桌边侧机位、走廊侧机位" in rules
+    assert "优先背面跟拍、侧面跟拍、门框侧固定机位" in rules
     assert "单一主机位持续承担整段" in rules
-    assert "同段切换只能发生在选定一侧内部" in rules
+    assert "同段切换只能保持同一场景锚点侧" in rules
     assert "cut_point" in rules
 
 
@@ -105,6 +106,31 @@ def test_compiler_guard_flags_complex_camera_fields_from_old_shot_director():
     assert "truck right" in report
 
 
+def test_compiler_guard_flags_unstable_frame_composition_language():
+    prompt = """片段1｜公寓门口｜出门停顿｜~6秒
+
+【镜头序列】
+镜头1【3秒】【乔熙、小豆丁】同侧过肩机位，从乔熙肩后看向门口，小豆丁站在门框里，门框形成前景压线。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "不稳定构图表达" in report
+    assert "小豆丁站在门口等她" in report
+
+
+def test_compiler_guard_accepts_natural_over_shoulder_doorway_language():
+    prompt = """片段1｜公寓门口｜出门停顿｜~6秒
+
+【镜头序列】
+镜头1【3秒】【乔熙、小豆丁】同侧过肩机位，从乔熙肩后看向门口，小豆丁站在门口等她，乔熙停住半秒。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "不稳定构图表达" not in report
+
+
 def test_compiler_guard_does_not_flag_style_anchor_only_jargon():
     prompt = """片段1｜天御集团大堂｜入场立威｜~12秒
 
@@ -131,6 +157,32 @@ def test_compiler_guard_accepts_explicit_camera_position_language():
 
     assert "机位/运镜存在模糊描述" not in report
     assert "不可生成的抽象情绪判断" not in report
+    assert "缺少可执行摄影机位置" not in report
+
+
+def test_compiler_guard_rejects_subject_relative_left_right_camera_position():
+    prompt = """片段1｜总裁办公室｜压迫对白｜~10秒
+
+【时间轴】
+0-5秒：乔熙半身中景，摄影机位于乔熙左前方，固定机位。乔熙看向商北琛，商北琛在画面左侧前景虚化。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "PROMPT-AXIS-LOCK-PER-SEGMENT-001" in report
+    assert "人物相对左右机位" in report
+
+
+def test_compiler_guard_accepts_concise_same_side_camera_position():
+    prompt = """片段1｜总裁办公室｜压迫对白｜~10秒
+
+【时间轴】
+0-5秒：乔熙中近景，同侧过肩机位。乔熙看向商北琛，听完后停住半秒。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "人物相对左右机位" not in report
     assert "缺少可执行摄影机位置" not in report
 
 

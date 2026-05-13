@@ -750,7 +750,8 @@ def test_shot_director_node_runs_single_pass_and_stores_output(monkeypatch):
     assert captured["planner_output"] == "- fragment_id: F01\n"
     assert captured["director_brief"] == "film_tone: restrained"
     assert "shot_director" in result["agent_outputs"]
-    assert result["agent_outputs"]["shot_director"].startswith("- fragment_id: F01")
+    assert result["agent_outputs"]["shot_director"].startswith("- 片段编号: F01")
+    assert "主镜头列表:" in result["agent_outputs"]["shot_director"]
 
 
 def test_human_review_pauses_after_story_enhancement(monkeypatch):

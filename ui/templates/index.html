@@ -2152,9 +2152,20 @@
             reference_bindings: '参考图绑定',
             no_reference_video_or_audio: '无参考视频/音频',
             unresolved_global: '待确认问题',
+            fragment_id: '片段编号',
+            fragment_task: '片段任务',
+            fragment_intent: '片段意图',
+            fallback_mode: '兜底模式',
+            fallback_reason: '兜底原因',
+            space_rules: '空间规则',
+            space_anchors: '空间锚点',
+            character_positions: '人物位置',
+            action_axis: '动作轴线',
+            safe_camera_zones: '安全机位区',
+            blocked_camera_zones: '禁用机位区',
             segments: '片段列表',
             segment: '片段',
-            segment_id: '片段 ID',
+            segment_id: '片段编号',
             source_scene: '原始场景',
             content_scope: '内容范围',
             construction: '构建方式',
@@ -2174,18 +2185,54 @@
             primary_action: '主要动作',
             action_completeness: '动作完整性',
             must_keep_utterance: '必须保留台词',
-            shot_id: '镜头 ID',
+            shots: '镜头列表',
+            main_shots: '主镜头列表',
+            sub_shots: '子镜头列表',
+            shot_id: '镜头编号',
+            parent_shot_id: '父镜头编号',
             shot: '镜头',
             shot_type: '镜头类型',
             shot_size: '景别',
+            size: '景别',
             camera: '机位',
+            camera_basis: '机位依据',
+            camera_scene_position: '场景机位位置',
+            camera_looks_toward: '镜头朝向',
+            subject_position: '主体位置',
+            subject_facing: '主体朝向',
+            visible_landmarks: '可见地标',
+            camera_height: '机位高度',
             camera_angle: '角度',
             camera_movement: '运镜',
             movement: '运镜',
             duration: '时长',
+            duration_hint: '时长建议',
             action: '动作',
             dialogue: '台词',
             subject: '主体',
+            task: '镜头任务',
+            must_carry: '必须承载',
+            cut_point: '切镜点',
+            coverage_role: '覆盖职责',
+            cut_reason: '切镜原因',
+            companion_visibility: '同场人物位置',
+            state_delta: '状态变化',
+            tailframe_role: '尾帧职责',
+            tailframe_reset: '尾帧复位',
+            dialogue_coverage: '对白覆盖',
+            reaction_coverage: '反应覆盖',
+            attention_target: '注意目标',
+            information_strategy: '信息策略',
+            selection_reason: '选择理由',
+            rejected_alternatives: '放弃方案',
+            shot_intent: '镜头意图',
+            transition_type: '转场类型',
+            trigger: '触发点',
+            beat_purpose: '节拍目的',
+            emotion_anchor: '情绪锚点',
+            action_phase: '动作阶段',
+            lens: '焦段',
+            depth: '景深',
             scene: '场景',
             beat: '节奏点',
             transition: '转场',
@@ -2269,6 +2316,36 @@
             [/\bPause Positions\b/g, '停顿位置'],
             [/\bCut Points\b/g, '卡断点'],
             [/\bTail Frame\b/g, '尾帧'],
+            [/\bMust Carry\b/g, '必须承载'],
+            [/\bDialogue Coverage\b/g, '对白覆盖'],
+            [/\bSelection Reason\b/g, '选择理由'],
+            [/\bShot\b/g, '镜头'],
+            [/\bTask\b/g, '任务'],
+            [/\bDuration\b/g, '时长'],
+            [/\bSubject\b/g, '主体'],
+            [/\bAction\b/g, '动作'],
+            [/\bDialogue\b/g, '台词'],
+            [/\bContinuity\b/g, '连续性'],
+            [/\bvertical medium relationship shot\b/ig, '竖屏中景关系镜头'],
+            [/\bmedium close relationship shot\b/ig, '中近景关系镜头'],
+            [/\bmedium relationship shot\b/ig, '中景关系镜头'],
+            [/\bstable camera\b/ig, '固定机位'],
+            [/\bclear blocking\b/ig, '调度清晰'],
+            [/\bsame screen direction\b/ig, '保持同一画面方向'],
+            [/\bLocal fallback from approved story-planner events:\s*/ig, '根据已批准结构规划事件本地兜底：'],
+            [/\bFollow upstream rhythm; keep each shot to one readable action\./ig, '遵循上游节奏；每个镜头只承载一个可读动作。'],
+            [/\bEstablish the current beat and spatial relationship from:\s*/ig, '建立当前节拍和空间关系：'],
+            [/\bCarry the reaction or next action from:\s*/ig, '承接反应或下一动作：'],
+            [/\bafter the first readable action lands\b/ig, '第一个可读动作落下后'],
+            [/\bpreserve established positions, props and eye-lines from the approved upstream plan\b/ig, '保留已批准上游方案中的站位、道具和视线关系'],
+            [/\bafter the reaction or information beat is visible\b/ig, '反应或信息节拍可见后'],
+            [/\bend on a readable tail frame for the next segment handoff\b/ig, '以可读尾帧结束，交给下一片段'],
+            [/\bviewer attention stays on\b/ig, '观众注意力停留在'],
+            [/\binformation strategy is\b/ig, '信息策略是'],
+            [/\bchoice supports\b/ig, '选择服务于'],
+            [/\bwhile preserving space\/action\/cut continuity\b/ig, '同时保持空间、动作和切镜连续'],
+            [/\bnone\b/ig, '无'],
+            [/\bshot_director_local_fallback_v1\b/g, '镜头导演本地兜底'],
             [/\bSothebie[’']?s auction\b/ig, '苏富比拍卖会'],
             [/\bSotheby[’']?s auction\b/ig, '苏富比拍卖会'],
             [/\bauction\b/ig, '拍卖会'],
@@ -2305,7 +2382,9 @@
         }
 
         function isDialogueField(key) {
-            return DIALOGUE_FIELD_KEYS.has(normaliseReadableKey(key));
+            const cleanKey = String(key || '').trim().replace(/^[-\s]+/, '').replace(/:$/, '');
+            return ['台词', '对白', '对白内容', '原文台词'].includes(cleanKey)
+                || DIALOGUE_FIELD_KEYS.has(normaliseReadableKey(cleanKey));
         }
 
         function looksLikeDialogue(text) {
@@ -2419,7 +2498,7 @@
 
                 const indent = (rawLine.match(/^\s*/) || [''])[0].length;
                 const line = rawLine.trim();
-                const keyValue = line.match(/^([A-Za-z0-9_.\/-]+)\s*[:：]\s*(.*)$/u);
+                const keyValue = line.match(/^(?:[-*]\s*)?([^:：]{1,40})\s*[:：]\s*(.*)$/u);
                 const bullet = line.match(/^[-*]\s+(.+)$/u);
 
                 if (keyValue) {
@@ -4228,9 +4307,13 @@
             cleaned.split(/\r?\n/).forEach(rawLine => {
                 const line = rawLine.trim();
                 if (!line) return;
-                if (/^(?:[-*]\s*)?(?:shot[_\s-]?id|shot|镜头|鏡頭)\s*[:：#-]?\s*([A-Za-z0-9_.-]+)?/i.test(line)) {
+                const shotHeader = line.match(/^(?:[-*]\s*)?(shot[_\s-]?id|shot|镜头编号|镜头|鏡頭)\s*[:：#-]?\s*(.+)?$/i);
+                if (shotHeader) {
                     if (current) cards.push(current);
-                    current = { title: line.replace(/^[-*]\s*/, '') };
+                    const [, headerKey, headerValue = ''] = shotHeader;
+                    const headerLabel = readableFieldLabel(headerKey);
+                    const headerText = cleanReadableValue(headerValue, headerKey);
+                    current = { title: headerText ? `${headerLabel}：${headerText}` : headerLabel };
                     return;
                 }
                 if (!current) return;
@@ -4247,20 +4330,29 @@
 
         function renderShotCards(cards = []) {
             if (!cards.length) return '';
-            const priorityKeys = ['shot_id', 'shot', '镜头', '景别', 'shot_size', 'camera', 'camera_angle', 'movement', 'camera_movement', 'duration', 'action', 'dialogue', 'composition', 'lighting'];
+            const priorityKeys = [
+                'shot_id', '镜头编号', 'shot', '镜头', 'duration', '时长', 'task', '镜头任务',
+                'subject', '拍摄主体', 'shot_size', '景别', 'camera', '机位', 'camera_angle', '拍摄角度',
+                'movement', 'camera_movement', '运镜', 'action', '画面动作', 'dialogue', '台词',
+                'must_carry', '必须承载', 'cut_point', '切镜点', 'continuity', '连续性',
+                'coverage_role', '覆盖职责', 'cut_reason', '切镜原因', 'companion_visibility', '同场人物位置',
+                'state_delta', '状态变化', 'tailframe_role', '尾帧职责', 'dialogue_coverage', '对白覆盖',
+                'selection_reason', '选择理由', 'composition', '构图', 'lighting', '光线'
+            ];
             return `
                 <div class="shot-card-board">
                     ${cards.map((card, index) => {
-                        const title = card.title || card.shot_id || card.shot || card['镜头'] || `Shot ${index + 1}`;
+                        const rawTitle = card.title || card.shot_id || card['镜头编号'] || card.shot || card['镜头'] || `镜头 ${index + 1}`;
+                        const title = cleanReadableValue(rawTitle);
                         const bodyKeys = Object.keys(card).filter(key => key !== 'title').sort((a, b) => {
                             const ai = priorityKeys.indexOf(a);
                             const bi = priorityKeys.indexOf(b);
                             return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
-                        }).slice(0, 8);
+                        });
                         const body = bodyKeys.map(key => `
                             <div class="shot-card-field">
                                 <span>${escapeHtml(readableFieldLabel(key))}</span>
-                                <p>${escapeHtml(String(card[key] || ''))}</p>
+                                <p>${escapeHtml(cleanReadableValue(card[key], key))}</p>
                             </div>
                         `).join('');
                         return `

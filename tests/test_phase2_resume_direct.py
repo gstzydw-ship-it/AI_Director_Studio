@@ -243,21 +243,10 @@ def test_phase_2_resume_uses_persisted_shot_director_without_graph_resume(monkey
             "agent_outputs": node_state["agent_outputs"],
         }
 
-    def storyboard_node(node_state):
-        calls.append(("storyboard", str(node_state["active_segment_index"])))
-        outputs = dg._agent_outputs(node_state)
-        outputs["storyboard_designer"] = "storyboard"
-        return {
-            "status": "running_phase_2",
-            "step": "step_4_storyboard",
-            "agent_outputs": outputs,
-        }
-
     monkeypatch.setattr(prompt_compiler_impl, "prompt_compiler_node", prompt_node)
     monkeypatch.setattr(quality_inspector_impl, "quality_inspector_node", inspect_node)
     monkeypatch.setattr(quality_inspector_impl, "qc_router_node", route_node)
     monkeypatch.setattr(pkg_nodes, "segment_complete_node", complete_node)
-    monkeypatch.setattr(pkg_nodes, "storyboard_designer_node", storyboard_node)
 
     def shot_node(node_state, segment_index):
         calls.append(("shot", str(segment_index)))
@@ -280,12 +269,66 @@ def test_phase_2_resume_uses_persisted_shot_director_without_graph_resume(monkey
     assert saved_states[0]["step"] == "step_3_direct"
     assert calls == [
         ("shot", "9"),
-        ("storyboard", "2"),
         ("compile", "tail-2-frame"),
         ("inspect", "compiled"),
         ("route", "pass"),
         ("complete", "2"),
     ]
+
+
+def test_phase_2_review_resume_skips_storyboard_before_prompt_compiler(monkeypatch):
+    state = _base_state({"story_planner": "planner"})
+    state["human_review_enabled"] = True
+    calls: list[tuple[str, str]] = []
+    marked_reviews: list[object] = []
+
+    monkeypatch.setattr(
+        pkg_runners,
+        "_prepare_phase_2_compile_state",
+        lambda _state, segment_index, *_args: {
+            "status": "running_phase_2",
+            "step": "step_3_direct",
+            "active_segment_index": segment_index,
+            "tail_frame_analysis": f"tail-{segment_index}",
+            "qc_retry_count": 0,
+            "revision_instruction": "",
+        },
+    )
+    monkeypatch.setattr(pkg_runners, "_save_runner_state", lambda _saved: None)
+
+    def mark_review(review_state, next_nodes):
+        marked_reviews.append(next_nodes)
+        review_state["review_agent"] = "quality_inspector"
+        return review_state
+
+    monkeypatch.setattr(pkg_runners, "_mark_human_review_state", mark_review)
+
+    def shot_node(node_state, segment_index):
+        calls.append(("shot", str(segment_index)))
+        outputs = dg._agent_outputs(node_state)
+        outputs["shot_director"] = "director"
+        return {"agent_outputs": outputs}
+
+    def prompt_node(node_state):
+        calls.append(("compile", node_state["tail_frame_analysis"]))
+        outputs = dg._agent_outputs(node_state)
+        outputs["compiled_segment_2"] = "compiled"
+        outputs["prompt_compiler"] = "compiled"
+        return {"agent_outputs": outputs}
+
+    def fail_storyboard(*_args, **_kwargs):
+        raise AssertionError("storyboard should not run before prompt compiler on the temporary production path")
+
+    monkeypatch.setattr(shot_director_impl, "run_shot_director_for_segment", shot_node)
+    monkeypatch.setattr(prompt_compiler_impl, "prompt_compiler_node", prompt_node)
+    monkeypatch.setattr(pkg_nodes, "storyboard_designer_node", fail_storyboard)
+
+    result = pkg_runners._run_phase_2_until_review(state, 2)
+
+    assert calls == [("shot", "2"), ("compile", "tail-2")]
+    assert marked_reviews == [("quality_inspector",)]
+    assert result["review_agent"] == "quality_inspector"
+    assert "storyboard_designer" not in result["agent_outputs"]
 
 
 def test_phase_1_review_resume_runs_next_agent_without_graph_resume(monkeypatch):

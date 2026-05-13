@@ -1091,7 +1091,7 @@ def _spatial_geometry_contract_rules() -> str:
 
         "10. compiler 翻译时间轴时必须服从这些字段，不得为了\"保留空间锚点\"临时把不可见锚点塞进后景。\n"
         "11. 摄影机后退路径物理可行性：如果 subject_facing=toward_elevator 且 angle=正前方0度，摄影机在电梯方向；"
-        "此时若运镜=同速后退，摄影机会退进电梯。必须改用 scene_fixed 侧面或背后机位，或改用 angle=左前方45度/右前方45度 让后退路径沿大堂侧面。\n"
+        "此时若运镜=同速后退，摄影机会退进电梯。必须改用 scene_fixed 场景固定机位、门框侧机位、走廊侧机位或人物背面跟拍，让后退路径沿真实空间展开。\n"
         "12. 相邻 main_shot 视角翻转限制：同一 fragment 内相邻两个 main_shot 不得从正面(0度)直接跳到背后(180度)或反之，"
         "除非 state_delta 明确包含转身动作。如需从正面切到背面，必须插入侧面过渡机位(90度)或在 state_delta 写明人物转身。\n"
         "13. visible_landmarks 精简：每个 main_shot 的 visible_landmarks 最多列3个锚点；优先列出当前镜头任务必须看见的锚点，"
@@ -1103,7 +1103,7 @@ def _camera_execution_rules() -> str:
     return (
         "【机位与运镜可执行硬规则】\n"
         "1. 每个时间段第一句必须写清：主体+景别+简洁机位+镜头高度+运镜方式；人物朝向只在动作需要时补一句。\n"
-        "2. 摄影机位置优先使用大模型更稳的短词：正面、左前方、右前方、左侧、右侧、背后、左后方、右后方。只有空间易混淆时才补 0度/45度/90度/180度，不要每段都写数字角度。\n"
+        "2. 摄影机位置优先使用大模型更稳的短词：正面、侧面、侧背、背后、过肩、场景固定机位、门框侧、桌边侧、走廊侧。禁止用人物相对的左前方/右前方/左后方/右后方当机位，因为人物转身后左右会反；不要每段都写数字角度。\n"
         "3. 镜头高度必须写成眼平高度、低机位仰拍、高机位俯拍之一；不要只写\"平视侧前方\"\"平视三分之四角度\"。\n"
         "4. 运镜必须写成固定机位、轨道前推 dolly-in、轨道后拉 dolly-out、稳定器跟拍 tracking shot、稳定器在人物前方同速后退、稳定器在人物背后同速前进、横移 truck left/right、摇镜 pan left/right 之一。\n"
         "5. 如果写\"跟随\"，必须说明摄影机在人物前方/背后/左侧/右侧，以及它是同速后退、同速前进还是平行横移；禁止写\"轻微前推跟随\"。\n"
@@ -1117,13 +1117,13 @@ def _camera_task_selection_rules() -> str:
     return (
         "【镜头任务到机位选择硬规则】\n"
         "1. 先判断当前 main_shot 的任务，再决定 angle 与 camera_basis；不要先挑一个好听的机位，再把动作硬塞进去。\n"
-        "2. 发言承载、正面施压、冷处理对峙：单段只能从 正前方0度、左前方30度/45度、右前方30度/45度 三类中**选一类并贯穿全段**——同段不得同时出现\"左前方\"和\"右前方\"这种 180° 跨轴。前提是人物朝向稳定，且没有转身、穿门、进电梯这类阈值动作。\n"
+        "2. 发言承载、正面施压、冷处理对峙：单段只能从正面、侧面、过肩、桌边侧、门框侧、场景固定机位中选一类并贯穿全段；同段不得使用人物相对的左前方/右前方/左后方/右后方。前提是人物朝向稳定，且没有转身、穿门、进电梯这类阈值动作。\n"
         "3. 听者受击、视线撞上、回神、表情冻结：受击者机位必须落在第 2 条选定的同侧；并保留对手肩线、门框、桌边或人物边缘虚化作为空间锚点。\n"
-        "4. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先 左侧90度、右侧90度、左后方135度、右后方135度，或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定一侧。\n"
-        "5. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先 背后180度、左后方135度、右后方135度，或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
+        "4. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先场景固定机位、门框侧机位、桌边侧机位、走廊侧机位、背面跟拍或过肩前景遮挡；目标是看清起点、路径、接触点和终点。整段保持同一场景锚点侧。\n"
+        "5. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背面跟拍、侧面跟拍、门框侧固定机位或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
         "6. 双人关系复位、群体关系复位、尾帧交接：优先 双人半身关系景 或 scene_fixed 关系景，重新交代距离、站位、轴线和谁仍在画内。\n"
         "7. **机内连续运动不计为切镜**：稳机推近 dolly-in、稳机后拉 dolly-out、上摇 tilt-up、下摇 tilt-down、横移 truck、跟拍 tracking 都属于同一镜头内部的镜头细分；优先用机内运动承担景别变化，而不是硬切。\n"
-        "8. 同段切换只能发生在选定一侧内部（例如全段右前方，可以从右前方半身→右前方过肩→右前方双人关系景）；跨到另一侧本段不得擅自跨。\n"
+        "8. 同段切换只能发生在同一场景锚点侧内部（例如全段桌边侧，可以从桌边侧半身→桌边侧过肩→桌边侧双人关系景）；跨到另一侧本段不得擅自跨。\n"
         "9. 只有在 单一主体 + 单一动作 + 没有说话者切换 + 没有受击反应 + 没有进门/进电梯/过阈值 时，才允许单一主机位持续承担整段。\n"
         "10. 每次硬切都必须由 cut_reason 解释，例如 scene_entry、speaker_to_receiver、action_path_visibility、space_reset、tailframe_reset；禁止 cut_reason 写 axis_flip / reverse_angle / 反打。\n"
         "11. 如果一个 fragment 里有多个 shots，禁止所有 shot 都重复同一套 camera_basis + camera_scene_position + camera_looks_toward + angle 直到片段结束。\n"
@@ -1197,9 +1197,9 @@ def _blocking_camera_task_selection_rules() -> str:
         "【blocking 专属机位决策树】\n"
         "1. 先读 layout 交接的 coverage_role、cut_reason、tailframe_role、shot_intent、dialogue_coverage，再读本轮 blocking_plan、state_chain、event_coverage、reaction_coverage、sub_shots；blocking 的判断目标是\"保留、挂靠、最小修正、补第二个 main_shot\"四选一。\n"
         "2. 只补对白承载、停顿、眼神承接、轻微站位保持时，保留原 main_shot 机位；用 state_delta 与 companion_visibility 补清动作，不为了微表情或短停顿新增主机位。\n"
-        "3. 台词落点后的受击、回神、表情冻结、视线撞上，优先挂 reaction sub_shot 到 receiver_reaction_setup 或 speaker_to_receiver 父镜头；父镜头应面向受击者正前方0度或左/右前方30度/45度，并保留对手肩线、门框、桌边或人物边缘虚化作为空间锚点。\n"
+        "3. 台词落点后的受击、回神、表情冻结、视线撞上，优先挂 reaction sub_shot 到 receiver_reaction_setup 或 speaker_to_receiver 父镜头；父镜头应使用受击者正面、同侧过肩、桌边侧或门框侧，并保留对手肩线、门框、桌边或人物边缘虚化作为空间锚点。\n"
         "4. 如果 reaction_coverage 落在说话者正面机位、动作路径机位或看不见受击者的父镜头上，必须最小修正父镜头 angle、cut_reason、companion_visibility 或改挂到更合适的父镜头；不要把受击反应硬塞回说话者覆盖镜头。\n"
-        "5. blocking_plan 或 state_chain 出现身体位移、擦身而过、碰撞、扶住、松手、转身、穿门、进入电梯/车门/房门时，父 main_shot 必须使用 scene_fixed，或左/右侧90度、左/右后方135度、背后180度；禁止沿用 subject_relative 正面机位承担动作路径。\n"
+        "5. blocking_plan 或 state_chain 出现身体位移、擦身而过、碰撞、扶住、松手、转身、穿门、进入电梯/车门/房门时，父 main_shot 必须使用 scene_fixed、门框侧、桌边侧、走廊侧、侧面跟拍或背后跟拍；禁止沿用 subject_relative 正面机位承担动作路径。\n"
         "6. 动作路径缺机位时，不要用局部 sub_shot 掩盖路径缺口；应补第二个 main_shot，或把已有 action_insert_slot 最小修正为 scene_fixed，并把 cut_reason 写成 action_path_visibility、threshold_crossing、impact_visibility 或 space_reset。\n"
         "7. impact、mid_action、pre_action 类 sub_shot 只能做短重音，必须继承 parent_shot_id 的空间轴线，并在 state_delta 写清起点、路径、接触点、终点；不能把 sub_shot 写成新的独立机位或新事件。\n"
         "8. reset 阶段优先回到 two_shot_relation_reset、scene_fixed 关系景或 tailframe_reset 主镜头；如果尾帧停在局部、单人反应或手部细节，blocking 必须补回可继承的关系景或明确空间状态。\n"
@@ -3057,6 +3057,25 @@ _LISTENER_COVERAGE_RE = re.compile(r"(听者|对手|对方|受击|反应|反打|
 # 同一时间段内同时出现 左前方 + 右前方 即为跨轴
 _AXIS_LEFT_RE = re.compile(r"左前方")
 _AXIS_RIGHT_RE = re.compile(r"右前方")
+_SUBJECT_RELATIVE_LEFT_RIGHT_CAMERA_RE = re.compile(
+    r"(?:摄影机|机位|镜头)?(?:位于|在)?"
+    r"(?:商北琛|乔熙|严飞|苏小可|小豆丁|人物|主体|他|她|两人).{0,8}"
+    r"(?:左前方|右前方|左后方|右后方)"
+)
+_SAFE_CAMERA_POSITION_RE = re.compile(
+    r"(?:"
+    r"(?:摄影机|机位|镜头).{0,40}"
+    r"(?:同侧正面微侧|同侧过肩|同侧固定|办公桌侧面|门口侧面|正面|正前方|侧面|侧背|背后|过肩|门框侧|桌边侧|走廊侧|电梯侧|场景固定|固定机位|平稳跟拍|背后跟拍|肩后)"
+    r"|(?:同侧正面微侧机位|同侧过肩机位|同侧固定机位|办公桌侧面固定机位|门口侧面固定机位|正面固定机位|侧面固定机位|背后跟拍|平稳跟拍)"
+    r")"
+)
+_UNSTABLE_FRAME_COMPOSITION_RE = re.compile(
+    r"(?:"
+    r"站在(?:门框|窗框|框架)里|"
+    r"(?:门框|窗框).{0,8}(?:形成|构成).{0,8}(?:前景|压线|框景)|"
+    r"前景压线|框住人物|被(?:门框|窗框|框架)框住|框景压迫"
+    r")"
+)
 # 单段 prompt 内出现"反打"即视为跨轴硬失败
 _REVERSE_SHOT_INSIDE_SEGMENT_RE = re.compile(r"反打(?:至|镜头|过来)")
 
@@ -3182,7 +3201,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         issues.append(
             "- 机位/运镜存在模糊描述："
             + "、".join(ambiguous_camera_terms[:6])
-            + "。请改成摄影机位于人物正前方/左前方/右前方/背后+角度+镜头高度+固定/轨道/稳定器跟拍。"
+            + "。请改成简洁机位，例如同侧过肩机位、同侧固定机位、同侧正面微侧机位、办公桌侧面固定机位、背后跟拍。"
         )
 
     abstract_terms = [term for term in _ABSTRACT_PROMPT_TERMS if term in prompt]
@@ -3191,6 +3210,14 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             "- Prompt 包含不可生成的抽象情绪判断："
             + "、".join(abstract_terms[:6])
             + "。请改写为停顿时长、视线方向、身体距离、站位变化、让路动作、电梯门状态等可见画面。"
+        )
+    unstable_frame_terms = sorted(set(match.group(0) for match in _UNSTABLE_FRAME_COMPOSITION_RE.finditer(prompt)))
+    if unstable_frame_terms:
+        issues.append(
+            "- Prompt 包含不稳定构图表达："
+            + "、".join(unstable_frame_terms[:5])
+            + "。请改成自然可执行表达，例如\"同侧过肩机位，从乔熙肩后看向门口，小豆丁站在门口等她\"；"
+            "门、窗、桌等只作为空间边界或阻隔物，不写成框住人物的构图术语。"
         )
 
     space_section = _prompt_section(prompt, "空间与首帧总控")
@@ -3223,11 +3250,8 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         if not _EMPLOYEE_FACE_LOCK_RE.search(prompt):
             issues.append("- 群演身份锁缺失：众员工/群演不得与命名人物相似、重复或同脸，应写成匿名差异化面孔/侧脸/背影/轻虚。")
 
-    if not re.search(
-        r"(?:摄影机|机位|镜头).{0,32}(?:正面|正前方|左前方|右前方|左侧|右侧|侧面|背后|左后方|右后方|场景固定|固定机位)",
-        prompt,
-    ):
-        issues.append('- Prompt 缺少可执行摄影机位置：至少一个时间段应明确"正面/左前方/右前方/侧面/背后/场景固定机位"等简洁机位。')
+    if not _SAFE_CAMERA_POSITION_RE.search(prompt):
+        issues.append('- Prompt 缺少可执行摄影机位置：至少一个时间段应明确简洁机位，例如"同侧过肩机位/同侧固定机位/同侧正面微侧机位/办公桌侧面固定机位/背后跟拍"。')
 
     unsafe_action_terms = [term for term in _UNSAFE_ACTION_TERMS if term in prompt]
     if unsafe_action_terms:
@@ -3441,6 +3465,14 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
                 f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 时间轴第 {index} 个时间段跨 180° 轴线："
                 '同段同时出现"左前方"和"右前方"机位。Seedance 单次生成无法跨轴反打，'
                 "会让人物左右颠倒、背景翻面。请把这两个机位拆到不同 segment，并通过转身或场景固定机位过渡。"
+            )
+            break
+    for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
+        if _SUBJECT_RELATIVE_LEFT_RIGHT_CAMERA_RE.search(body):
+            issues.append(
+                f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 时间轴第 {index} 个时间段使用了人物相对左右机位："
+                "人物正面、背面或转身后左/右会反，视频模型无法稳定理解。请改成同侧轴线内的简洁机位，"
+                '例如"同侧过肩机位""同侧固定机位""同侧正面微侧机位""办公桌侧面固定机位"。'
             )
             break
 
@@ -5646,7 +5678,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，必须按下面方式编译成【镜头序列】：\n"
         "1. duration 只进入镜头编号后的秒数，例如 镜头1【4秒】；不要在最终 prompt 里写 duration 字段名。\n"
         "2. task 决定镜头功能，但最终只写成自然镜头动作，不要输出 task 字段名。\n"
-        "3. subject + size + camera 必须合成镜头行开头，例如【乔熙】中近景，右前方同侧过肩固定机位。\n"
+        "3. subject + size + camera 必须合成镜头行开头，例如【乔熙】中近景，桌边侧同侧过肩固定机位。\n"
         "4. action + dialogue 是镜头行主体；台词直接嵌入动作句中，OS/J-cut/L-cut 写成画外音或声音桥。\n"
         "5. must_carry 必须转译成画面里看得见的信息或反应，不能只放到约束里。\n"
         "6. cut_point 必须放进括号，写成（动作顶点前→镜头2）、（台词断点切至乔熙反应→镜头4）、（文件内容看清后→镜头3）这类具体触发。\n"
@@ -5682,11 +5714,11 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "2. camera_basis=subject_relative 时，只能用于人物朝向和位置稳定的说话/反应镜头；人物穿过门框、进入电梯、进入车门时必须改用 scene_fixed。\n"
         "3. visible_landmarks 只允许挑选当前镜头最必要的1-2个可见锚点翻译，不得把全部锚点硬塞进前景/中景/后景说明。\n"
         "4. subject_facing 和 angle 冲突时，优先修正 angle 或 visible_landmarks；不要保留互相打架的\"正面+朝门+后景门框\"。\n"
-        "5. camera_scene_position → 只在必须保持空间连续时翻译成短句；如果会造成歧义，改成人物相对机位，如\"商北琛侧后方中景\"。\n"
+        "5. camera_scene_position → 只在必须保持空间连续时翻译成短句；如果会造成歧义，改成同侧轴线内的简洁机位，如\"同侧过肩中近景\"\"办公桌侧面固定机位\"。\n"
         "6. visible_landmarks → 只挑一个当前镜头必要锚点写成短语，如\"电梯门旁\"；不要翻译成长串前景/中景/后景说明。\n"
         "7. subject_position/subject_facing → 只在必要时翻译成人物站位和朝向，如\"商北琛站在通道中，面朝电梯\"；不要写南侧/远端/近侧/外侧/内侧等多重方位链。\\n"
         "8. 摄影机后退可行性：如果人物面朝电梯/门口且机位在正前方0度，同速后退会让摄影机退进电梯/撞墙；"
-        "必须改用侧面跟拍或场景固定机位，或改用左前方45度/右前方45度。\n"
+        "必须改用侧面跟拍、背后跟拍、门框侧固定机位或场景固定机位，不得改用人物左前方/右前方。\n"
         "9. 视角翻转铺垫：相邻时间段不得从正面突变为背面（或反之），除非文本中明确写出人物转身动作；"
         "如需视角大幅变化，必须插入侧面过渡机位或在时间轴中写明转身动作。\n\n"
         "错误示例（绝对禁止出现在最终输出中）：camera_basis=scene_fixed，camera_scene_position=lobby_axis_between_entrance_and_elevator，visible_landmarks=lobby_entrance=background_center。\n"
@@ -5819,12 +5851,19 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单时间段轴线锁 — 检查编译后 prompt ===
     compiled_timeline_blocks = _timeline_blocks(prompt)
     for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(compiled_timeline_blocks, start=1):
+        if _SUBJECT_RELATIVE_LEFT_RIGHT_CAMERA_RE.search(blk_body):
+            qc_issues.append(
+                f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 的时间轴第 {block_idx} 个时间段"
+                "使用了人物相对左右机位。人物正面、背面或转身后左/右会反，模型无法稳定理解；"
+                "必须改成同侧轴线内的简洁机位。"
+            )
+            break
         if _AXIS_LEFT_RE.search(blk_body) and _AXIS_RIGHT_RE.search(blk_body):
             qc_issues.append(
                 f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 的时间轴第 {block_idx} 个时间段"
                 '同时出现"左前方"和"右前方"机位（跨 180° 轴线）。'
                 "Seedance 单次生成无法跨轴反打，会让人物左右颠倒、背景翻面。"
-                "单段 prompt 只能选一个轴线侧（全部\"右前方\"或全部\"左前方\"），拆轴必须拆 segment。"
+                "单段 prompt 必须保持同侧轴线，拆轴必须拆 segment。"
             )
             break
 
