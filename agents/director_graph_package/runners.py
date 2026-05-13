@@ -190,8 +190,6 @@ def _invoke_runner_graph(input_value: Any, thread_id: str) -> Any:
 
 
 def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
-    from .nodes import shot_director_node  # late import so test monkeypatches take effect
-
     state = _load_runner_state()
     if not state:
         raise RuntimeError("No saved pipeline state; cannot rerun shot director.")
@@ -217,16 +215,15 @@ def _rerun_shot_director(*, clear_knowledge_metadata: bool) -> Any:
             knowledge_metadata.pop("shot_director", None)
 
     state["agent_outputs"] = outputs
-    state["status"] = "running_phase_1"
+    state["status"] = "waiting_for_user_input"
     state["step"] = "step_3_direct"
-    state["message"] = (
-        "Reusing previous planning outputs and restarting shot director..."
-        if clear_knowledge_metadata
-        else "Resuming shot director from saved partial output..."
-    )
+    state["message"] = "Story planning is ready; generate the current segment through the per-segment pipeline."
     state["error"] = ""
+    state["current_segment_index"] = int(state.get("current_segment_index") or 1)
+    state.pop("active_segment_index", None)
+    state["director_review_required"] = False
     _save_runner_state(state)
-    return shot_director_node(state)
+    return state
 
 
 def _clear_phase_1_downstream_state(state: dict[str, Any], agent: str) -> dict[str, Any]:

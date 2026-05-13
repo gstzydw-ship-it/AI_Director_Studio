@@ -369,6 +369,15 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
 
     rhythm_hint = _rhythm_context_hint(state)
     rhythm_profile = _rhythm_retrieval_profile(state)
+    _persist_update(
+        state,
+        {
+            "status": "running_phase_1",
+            "step": "step_0_rhythm",
+            "message": "节奏总控正在检索节奏规则和上下文...",
+            "agent_outputs": outputs,
+        },
+    )
     system_prompt, retrieval_meta = build_system_prompt(
         _rhythm_supervisor_role_prompt(),
         "rhythm_rewrite_director",
@@ -380,6 +389,15 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
     )
 
     user_prompt = _rhythm_supervisor_user_prompt(state)
+    _persist_update(
+        state,
+        {
+            "status": "running_phase_1",
+            "step": "step_0_rhythm",
+            "message": "节奏总控正在调用大模型生成节奏策略...",
+            "agent_outputs": outputs,
+        },
+    )
     output = call_llm(system_prompt, user_prompt, agent_name="rhythm_rewrite_director")
     output = _cleanup_rhythm_abstract_language(output)
     output = _clamp_rhythm_segment_duration_suggestions(output)

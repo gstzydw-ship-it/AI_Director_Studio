@@ -54,7 +54,7 @@ main_shots:
     assert "main_shots:" in cleaned
 
 
-def test_segment_shot_director_uses_local_fallback_after_llm_failure(monkeypatch):
+def test_segment_shot_director_errors_without_local_fallback_after_llm_failure(monkeypatch):
     def fail_three_stage(**_kwargs):
         raise RuntimeError("LLM network connection failed")
 
@@ -81,8 +81,16 @@ def test_segment_shot_director_uses_local_fallback_after_llm_failure(monkeypatch
     }
 
     result = shot_director_impl.run_shot_director_for_segment(state, 1)
-    output = result["agent_outputs"]["shot_director_segment_F01"]
+    output = ""
     runtime = result["knowledge_metadata"]["shot_director"]["runtime"]
+
+    assert result["status"] == "error"
+    assert result["step"] == "step_3_direct"
+    assert "shot_director_segment_F01" not in result["agent_outputs"]
+    assert "shot_director_error_fragment_F01" in result["agent_outputs"]
+    assert runtime["local_fallback"] is False
+    assert runtime["status"] == "error"
+    return
 
     assert "兜底模式: \"镜头导演本地兜底\"" in output
     assert "镜头编号: F01-S01" in output
@@ -463,18 +471,15 @@ def test_shot_director_rejects_vague_cut_point_in_construction_sheet():
     assert any("cut_reason 过于空泛" in issue for issue in issues)
 
 
-def test_shot_director_restart_rerun_uses_package_shot_director_node():
+def test_shot_director_restart_rerun_waits_for_per_segment_generation():
     state = {
         "agent_outputs": {"story_planner": "planner-output"},
         "knowledge_metadata": {"shot_director": {"old": True}},
     }
     saved_states = []
-    calls: list[str] = []
 
     previous_load_state = legacy_impl.load_state
     previous_save_state = legacy_impl.save_state
-    previous_legacy_shot_director_node = legacy_impl.shot_director_node
-    previous_package_shot_director_node = shot_director_impl.shot_director_node
 
     def fake_load_state():
         return state
@@ -482,30 +487,18 @@ def test_shot_director_restart_rerun_uses_package_shot_director_node():
     def fake_save_state(updated_state):
         saved_states.append(dict(updated_state))
 
-    def fake_legacy_shot_director_node(_state):
-        calls.append("legacy")
-        raise AssertionError("rerun unexpectedly used legacy shot_director_node")
-
-    def fake_package_shot_director_node(updated_state):
-        calls.append("package")
-        return {**updated_state, "result": "ok"}
-
     legacy_impl.load_state = fake_load_state
     legacy_impl.save_state = fake_save_state
-    legacy_impl.shot_director_node = fake_legacy_shot_director_node
-    shot_director_impl.shot_director_node = fake_package_shot_director_node
     try:
         result = runners.run_shot_director_restart_from_story_plan()
     finally:
         legacy_impl.load_state = previous_load_state
         legacy_impl.save_state = previous_save_state
-        legacy_impl.shot_director_node = previous_legacy_shot_director_node
-        shot_director_impl.shot_director_node = previous_package_shot_director_node
 
-    assert calls == ["package"]
     assert saved_states and saved_states[-1]["step"] == "step_3_direct"
     assert "shot_director" not in state["knowledge_metadata"]
-    assert result["result"] == "ok"
+    assert result["status"] == "waiting_for_user_input"
+    assert result["current_segment_index"] == 1
 
 
 def test_shot_director_closeup_density_is_soft_issue():

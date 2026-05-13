@@ -3575,29 +3575,44 @@ def run_shot_director_for_segment(
             resume_stage_meta={},
         )
     except Exception as exc:
-        output = _build_local_shot_director_fallback(
-            fragment_id=fragment_id,
-            fragment_planner_output=fragment_planner_output,
-            script=state.get("script", ""),
-            aspect_ratio=state.get("aspect_ratio", "16:9"),
-            failure=exc,
-        )
+        error_message = f"镜头导演大模型调用失败，未启用本地兜底：{exc}"
+        print(f"  [shot_director] {error_message}")
         shot_runtime = {
-            "final": {
-                "agent_name": "shot_director",
-                "mode": "local_fallback",
-                "status": "local_fallback",
-                "error": str(exc),
-                "output_chars": len(output),
-            },
-            "final_source": "local_fallback",
-            "workflow_trace": [],
-            "local_fallback": True,
+            **stage_runtimes,
+            "mode": "per_segment",
+            "active_fragment_id": fragment_id,
+            "path": "direct_llm_only",
+            "mcp_enabled": False,
+            "status": "error",
+            "error_type": type(exc).__name__,
+            "error": str(exc),
+            "total_elapsed_seconds": round(time.perf_counter() - shot_runtime_started, 3),
+            "local_fallback": False,
         }
-        stage_meta = {"final": {"local_fallback": True, "error": str(exc)}}
-        stage_outputs = {"final": output}
+        stage_meta = {"final": {"status": "error", "error": str(exc), "local_fallback": False}}
+        knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta["final"])
+        knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
+        knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
+        outputs["shot_director_error"] = error_message
+        outputs[f"shot_director_error_fragment_{fragment_id}"] = error_message
+        return _persist_update(
+            state,
+            {
+                "status": "error",
+                "step": "step_3_direct",
+                "message": error_message,
+                "agent_outputs": outputs,
+                "knowledge_metadata": knowledge_metadata,
+                "total_segments": total_segments,
+                "segment_names": segment_names,
+                "active_segment_index": selected_index,
+                "current_segment_index": selected_index,
+            },
+        )
     output = _repair_shot_director_output_contracts(output, state.get("script", ""))
     merged_output = _merge_repaired_yaml_sections(outputs.get("shot_director", ""), output, [fragment_id])
+    outputs.pop("shot_director_error", None)
+    outputs.pop(f"shot_director_error_fragment_{fragment_id}", None)
     outputs[f"shot_director_segment_{fragment_id}"] = output
     outputs[f"shot_director_fragment_{fragment_id}"] = output
     outputs["shot_director"] = merged_output
@@ -4060,6 +4075,29 @@ def _run_shot_director_review_board(
     return output, runtime, report
 
 def shot_director_node(state: DirectorState) -> DirectorState:
+    outputs = _agent_outputs(state)
+    planner_output = outputs.get("story_planner", "")
+    segment_names = list(state.get("segment_names") or [])
+    total_segments = int(state.get("total_segments") or 0)
+    if not segment_names:
+        derived_total, segment_names = _derive_segments_from_planner_output(planner_output)
+        if not total_segments:
+            total_segments = derived_total
+    current_segment_index = int(state.get("current_segment_index") or state.get("active_segment_index") or 1)
+    return _persist_update(
+        state,
+        {
+            "status": "waiting_for_user_input",
+            "step": "step_3_direct",
+            "message": "Story planning is ready; generate the current segment through the per-segment pipeline.",
+            "agent_outputs": outputs,
+            "total_segments": total_segments,
+            "segment_names": segment_names,
+            "current_segment_index": max(1, min(current_segment_index, max(total_segments or 1, 1))),
+            "director_review_required": False,
+        },
+    )
+
     state = _await_scene_card_generation(state)
     outputs = _agent_outputs(state)
     director_brief_text = _director_brief(state)

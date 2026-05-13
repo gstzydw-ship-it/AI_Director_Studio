@@ -432,6 +432,7 @@ def test_resume_after_review_failure_marks_failing_downstream_step(tmp_path, mon
 
 def test_resume_after_review_clears_review_fields_when_runner_advances(tmp_path, monkeypatch):
     import ui.app as web_app
+    from agents.request_context import emit_runtime_event
 
     session_id = "web_review_cleared"
     task_state = web_app._task_state(session_id)
@@ -451,16 +452,23 @@ def test_resume_after_review_clears_review_fields_when_runner_advances(tmp_path,
 
     monkeypatch.setattr(web_app, "OUTPUT_DIR", str(tmp_path))
     monkeypatch.setattr(web_app, "_merge_latest_disk_state_for_session", lambda _session_id, _state: False)
-    monkeypatch.setattr(
-        web_app,
-        "resume_after_human_review",
-        lambda _edited, _agent: {
+    def resume_with_runtime_event(_edited, _agent):
+        emit_runtime_event(
+            "llm_attempt_started",
+            agent_name="rhythm_rewrite_director",
+            model="unit-test-model",
+            route_host="unit.test",
+            attempt=1,
+            max_retries=1,
+        )
+        return {
             "status": "waiting_for_user_input",
             "step": "step_3_direct",
             "message": "Story planning confirmed; waiting to generate the next segment.",
             "agent_outputs": {"story_planner": "planner"},
-        },
-    )
+        }
+
+    monkeypatch.setattr(web_app, "resume_after_human_review", resume_with_runtime_event)
     web_app.active_task_generations[session_id] = 1
 
     web_app._resume_after_human_review_in_thread(
@@ -475,3 +483,5 @@ def test_resume_after_review_clears_review_fields_when_runner_advances(tmp_path,
     assert "review_mode" not in task_state
     assert "review_agent" not in task_state
     assert "review_output" not in task_state
+    events = web_app._read_task_events(session_id)
+    assert any(event["event"] == "llm_attempt_started" for event in events)

@@ -59,6 +59,15 @@ def _normalise_model_name(model: Any) -> str:
     return value
 
 
+def _is_masked_api_key(value: Any) -> bool:
+    return bool(re.fullmatch(r"\*{3,}", str(value or "").strip()))
+
+
+def _clean_api_key(value: Any) -> str:
+    api_key = str(value or "").strip()
+    return "" if _is_masked_api_key(api_key) else api_key
+
+
 def _optional_float(value: Any) -> float | None:
     try:
         return float(value) if value is not None else None
@@ -153,8 +162,8 @@ def _profile_agent_layers(profile: dict[str, Any], agent_name: str) -> list[tupl
 
 
 def _apply_llm_config_layer(settings: dict[str, Any], layer: dict[str, Any]) -> None:
-    if layer.get("api_key"):
-        settings["api_key"] = layer["api_key"]
+    if _clean_api_key(layer.get("api_key")):
+        settings["api_key"] = _clean_api_key(layer.get("api_key"))
     if layer.get("base_url"):
         settings["base_url"] = layer["base_url"]
     if layer.get("model"):
@@ -163,6 +172,28 @@ def _apply_llm_config_layer(settings: dict[str, Any], layer: dict[str, Any]) -> 
         settings["model"] = layer["default_model"]
     if "temperature" in layer:
         settings["temperature"] = layer["temperature"]
+
+    route_preset = str(layer.get("route_preset") or "").strip()
+    route: dict[str, Any] = {}
+    if route_preset == "custom":
+        route = _as_mapping(layer.get("custom_route"))
+        if not route and (layer.get("custom_base_url") or layer.get("custom_api_key")):
+            route = {
+                "base_url": layer.get("custom_base_url"),
+                "api_key": layer.get("custom_api_key"),
+            }
+    elif route_preset == "fallback":
+        fallback_routes = layer.get("fallback_routes")
+        if isinstance(fallback_routes, list) and fallback_routes:
+            route = _as_mapping(fallback_routes[0])
+    if route:
+        if route.get("base_url"):
+            settings["base_url"] = route["base_url"]
+        route_api_key = _clean_api_key(route.get("api_key"))
+        if route_api_key:
+            settings["api_key"] = route_api_key
+        if route.get("model") or route.get("default_model"):
+            settings["model"] = route.get("model") or route.get("default_model")
 
 
 def resolve_llm_settings(agent_name: str = "", full_config: dict[str, Any] | None = None) -> LLMSettings:
@@ -262,6 +293,15 @@ def _coerce_bool(value: Any, default: bool = False) -> bool:
     return default
 
 
+def _is_shot_director_agent(agent_name: str) -> bool:
+    return agent_name in {
+        "shot_director",
+        "shot_director_layout",
+        "shot_director_blocking",
+        "shot_director_guard",
+    }
+
+
 def _get_llm_runtime_option(agent_name: str, key: str, default: Any) -> Any:
     full_config = load_config()
     value = _as_mapping(full_config.get("llm")).get(key, default)
@@ -282,7 +322,7 @@ def _get_llm_runtime_option(agent_name: str, key: str, default: Any) -> Any:
     # config/settings.yaml value and caused "已重试 1 次" failures.  Keep a
     # conservative floor for this agent unless the caller explicitly passes a
     # max_retries argument to call_llm().
-    if agent_name == "shot_director" and key == "max_retries":
+    if _is_shot_director_agent(agent_name) and key == "max_retries":
         value = max(_coerce_int(value, 3, minimum=1), 3)
     return value
 
@@ -336,7 +376,7 @@ def _normalise_fallback_routes(value: Any) -> list[dict[str, Any]]:
             continue
         routes.append(
             {
-                "api_key": str(route.get("api_key") or "").strip(),
+                "api_key": _clean_api_key(route.get("api_key")),
                 "base_url": base_url,
                 "model": model,
                 "fallback_models": _normalise_model_list(route.get("fallback_models", [])),
@@ -407,7 +447,7 @@ def _configured_api_key_for_base_url(base_url: str, agent_name: str = "") -> str
     candidates.extend(_as_mapping(value) for value in profile_agent_models.values())
 
     for candidate in candidates:
-        api_key = str(candidate.get("api_key") or "").strip()
+        api_key = _clean_api_key(candidate.get("api_key"))
         candidate_base_url = candidate.get("base_url")
         if api_key and candidate_base_url and _host_matches_base_url(candidate_base_url, base_url):
             return api_key
@@ -441,6 +481,11 @@ def _effective_timeout_settings(
         connect_timeout = min(connect_timeout, 20.0)
         read_timeout = min(max(read_timeout, 300.0), 360.0)
         write_timeout = min(max(write_timeout, 60.0), 90.0)
+    elif _is_shot_director_agent(agent_name):
+        request_timeout = min(max(request_timeout, 600.0), 900.0)
+        connect_timeout = min(connect_timeout, 20.0)
+        read_timeout = min(max(read_timeout, 600.0), 900.0)
+        write_timeout = min(max(write_timeout, 90.0), 120.0)
     return request_timeout, connect_timeout, read_timeout, write_timeout
 
 

@@ -1930,21 +1930,25 @@ def _resume_shot_director_in_thread(
     task_generation: int = 0,
     session_id: str = DEFAULT_SESSION_ID,
 ):
-    """Resume Phase 1 shot director from persisted layout/blocking output."""
+    """Legacy entry point: continue through the per-segment pipeline."""
     session_id = _normalise_session_id(session_id)
     task_state = _task_state(session_id)
     try:
         with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
-            task_state["status"] = "running_phase_1"
+            segment_index = int(task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1)
+            task_state["status"] = "running_phase_2"
             task_state["step"] = "step_3_direct"
             task_state["message"] = "正在复用已完成的镜头摆位骨架，续跑三段镜头导演..."
+            task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
             task_state["error"] = ""
+            task_state["current_segment_index"] = segment_index
+            task_state["active_segment_index"] = segment_index
             _touch_task_progress(task_state)
             _save_task_state_for_session(session_id, task_state)
 
-            state = run_shot_director_resume_from_partial()
+            state = run_phase_2_compile_segment(segment_index)
             if task_generation != _active_task_generation(session_id):
                 return
             task_state.update(state)
@@ -1986,7 +1990,7 @@ def _resume_after_human_review_in_thread(
         edited_chars=len(edited_output or ""),
     )
     try:
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 _append_task_log(
                     session_id,
@@ -2217,21 +2221,25 @@ def _restart_shot_director_from_planner_in_thread(
     task_generation: int = 0,
     session_id: str = DEFAULT_SESSION_ID,
 ):
-    """Resume Phase 1 by rerunning shot director from the saved story planner."""
+    """Legacy entry point: start the current segment from the saved story planner."""
     session_id = _normalise_session_id(session_id)
     task_state = _task_state(session_id)
     try:
         with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
-            task_state["status"] = "running_phase_1"
+            segment_index = int(task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1)
+            task_state["status"] = "running_phase_2"
             task_state["step"] = "step_3_direct"
             task_state["message"] = "已复用前三步宏观规划，正在重新启动镜头导演摆位骨架...（4/6）"
+            task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
             task_state["error"] = ""
+            task_state["current_segment_index"] = segment_index
+            task_state["active_segment_index"] = segment_index
             _touch_task_progress(task_state)
             _save_task_state_for_session(session_id, task_state)
 
-            state = run_shot_director_restart_from_story_plan()
+            state = run_phase_2_compile_segment(segment_index)
             if task_generation != _active_task_generation(session_id):
                 return
             task_state.update(state)
@@ -2739,6 +2747,7 @@ async def api_rerun_phase1_agent(
 async def api_retry_shot_director(
     session_id: str = Form(DEFAULT_SESSION_ID),
     script: str = Form(""),
+    force_restart: bool = Form(False),
 ):
     """Resume or restart the shot director from the best persisted checkpoint.
     
@@ -2755,12 +2764,11 @@ async def api_retry_shot_director(
     outputs = task_state.get("agent_outputs") or {}
     if not outputs.get("story_planner"):
         return JSONResponse({"success": False, "error": "缺少结构规划输出，无法续跑镜头导演。"})
-    if outputs.get("shot_director"):
-        return JSONResponse({"success": False, "error": "镜头导演最终输出已存在，无需续跑。"})
+    force_restart = force_restart or bool(outputs.get("shot_director") or outputs.get("shot_director_final"))
 
     # 检测剧本是否发生变化
     script_changed = False
-    if script and script.strip():
+    if not force_restart and script and script.strip():
         old_script = task_state.get("input_script", "")
         disk_state = load_state()
         if disk_state:
@@ -2832,17 +2840,118 @@ async def api_retry_shot_director(
             }
         )
 
+    if force_restart:
+        for key in (
+            "shot_director_layout",
+            "shot_director_blocking",
+            "shot_director_guard",
+            "shot_director_final",
+            "shot_director",
+            "shot_director_error",
+            "storyboard_designer",
+            "prompt_compiler",
+            "quality_inspector",
+        ):
+            outputs.pop(key, None)
+        for key in list(outputs):
+            if re.match(
+                r"^(shot_director_(?:layout|blocking|guard|final|segment|fragment|error)(?:_fragment)?_|compiled_segment_|quality_inspector_segment_|storyboard_prompt_seg|storyboard_image_seg)",
+                key,
+            ):
+                outputs.pop(key, None)
+        task_state["agent_outputs"] = outputs
+        task_state["current_segment_index"] = 1
+        task_state.pop("active_segment_index", None)
+        task_state.pop("review_agent", None)
+        task_state.pop("review_output", None)
+        task_state.pop("review_mode", None)
+        knowledge_metadata = task_state.get("knowledge_metadata")
+        if isinstance(knowledge_metadata, dict):
+            for key in (
+                "shot_director",
+                "shot_director_layout",
+                "shot_director_blocking",
+                "shot_director_guard",
+                "storyboard_designer",
+                "prompt_compiler",
+                "quality_inspector",
+            ):
+                knowledge_metadata.pop(key, None)
+
+        disk_state = load_state()
+        if disk_state:
+            disk_outputs = disk_state.get("agent_outputs") if isinstance(disk_state.get("agent_outputs"), dict) else {}
+            for key in list(disk_outputs):
+                if key.startswith("shot_director_") or re.match(
+                    r"^(compiled_segment_|quality_inspector_segment_|storyboard_prompt_seg|storyboard_image_seg)",
+                    key,
+                ):
+                    disk_outputs.pop(key, None)
+            for key in (
+                "shot_director_layout",
+                "shot_director_blocking",
+                "shot_director_guard",
+                "shot_director_final",
+                "shot_director",
+                "shot_director_error",
+                "storyboard_designer",
+                "prompt_compiler",
+                "quality_inspector",
+            ):
+                disk_outputs.pop(key, None)
+            disk_state["agent_outputs"] = {**disk_outputs, **outputs}
+            disk_state["current_segment_index"] = 1
+            disk_state.pop("active_segment_index", None)
+            disk_metadata = disk_state.get("knowledge_metadata")
+            if isinstance(disk_metadata, dict):
+                for key in (
+                    "shot_director",
+                    "shot_director_layout",
+                    "shot_director_blocking",
+                    "shot_director_guard",
+                    "storyboard_designer",
+                    "prompt_compiler",
+                    "quality_inspector",
+                ):
+                    disk_metadata.pop(key, None)
+            save_state(disk_state)
+
     # 剧本未变化，正常续跑shot_director
     has_layout_checkpoint = bool(outputs.get("shot_director_layout"))
+    for key in list(outputs):
+        if key == "shot_director_error" or key.startswith("shot_director_error_"):
+            outputs.pop(key, None)
+    if not has_layout_checkpoint:
+        for key in (
+            "shot_director_layout",
+            "shot_director_blocking",
+            "shot_director_guard",
+            "shot_director_final",
+            "shot_director",
+        ):
+            outputs.pop(key, None)
+        for key in list(outputs):
+            if re.match(
+                r"^shot_director_(?:layout|blocking|guard|final|segment|fragment|error)",
+                key,
+            ):
+                outputs.pop(key, None)
+    task_state["agent_outputs"] = outputs
     task_generation = _bump_task_generation(session_id)
-    task_state["status"] = "running_phase_1"
+    segment_index = int(task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1)
+    total_segments = int(task_state.get("total_segments") or segment_index or 1)
+    segment_index = max(1, min(segment_index, total_segments))
+    task_state["status"] = "running_phase_2"
     task_state["step"] = "step_3_direct"
     task_state["message"] = (
         "正在复用已完成的镜头摆位骨架，续跑三段镜头导演..."
         if has_layout_checkpoint
         else "已复用前三步宏观规划，正在重新启动镜头导演摆位骨架...（4/6）"
     )
+    task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
     task_state["error"] = ""
+    task_state["current_segment_index"] = segment_index
+    task_state["active_segment_index"] = segment_index
     _save_task_state_for_session(session_id, task_state)
 
     thread = threading.Thread(
@@ -3332,7 +3441,7 @@ def _mask_config_key(section: dict) -> dict:
     result = dict(section or {})
     api_key = str(result.get("api_key") or "").strip()
     result["api_key"] = ""
-    result["has_api_key"] = bool(api_key) and not _looks_like_env_placeholder(api_key)
+    result["has_api_key"] = _is_real_api_key(api_key)
     return result
 
 
@@ -3345,7 +3454,7 @@ def _mask_route_secrets(value: object) -> object:
             api_key = str(masked.get("api_key") or "").strip()
             previous_has_api_key = bool(masked.get("has_api_key"))
             masked["api_key"] = ""
-            masked["has_api_key"] = previous_has_api_key or (bool(api_key) and not _looks_like_env_placeholder(api_key))
+            masked["has_api_key"] = previous_has_api_key or _is_real_api_key(api_key)
         for key in ("fallback_routes", "custom_route"):
             if key in masked:
                 masked[key] = _mask_route_secrets(masked[key])
@@ -3364,6 +3473,11 @@ def _looks_like_env_placeholder(value: str) -> bool:
 
 def _is_masked_api_key(value: object) -> bool:
     return bool(re.fullmatch(r"\*{3,}", str(value or "").strip()))
+
+
+def _is_real_api_key(value: object) -> bool:
+    text = str(value or "").strip()
+    return bool(text) and not _looks_like_env_placeholder(text) and not _is_masked_api_key(text)
 
 
 AGENT_LABELS: dict[str, str] = {
@@ -3842,13 +3956,15 @@ async def api_model_list(request: Request):
 
 def _resolve_saved_api_key(raw_config: dict, profile: str, submitted_key: str, fallback_key: str = "") -> str:
     submitted_key = str(submitted_key or "").strip()
-    if submitted_key and not _is_masked_api_key(submitted_key):
+    if _is_real_api_key(submitted_key):
         return submitted_key
     existing_key = str(_profile_source(raw_config, profile).get("api_key") or "").strip()
     if _looks_like_env_placeholder(existing_key):
         expanded = os.path.expandvars(existing_key).strip()
         existing_key = "" if expanded == existing_key else expanded
-    return existing_key or fallback_key
+    if _is_real_api_key(existing_key):
+        return existing_key
+    return str(fallback_key or "").strip() if _is_real_api_key(fallback_key) else ""
 
 
 def _ensure_config_section(raw_config: dict, section_name: str) -> dict:
@@ -3881,10 +3997,12 @@ def _route_api_key_from_submission(
     profile_key: str,
 ) -> str:
     submitted = str(submitted_key or "").strip()
-    if submitted and not _is_masked_api_key(submitted):
+    if _is_real_api_key(submitted):
         return submitted
     existing_key = str(previous_route.get("api_key") or "").strip()
-    return existing_key or profile_key
+    if _is_real_api_key(existing_key):
+        return existing_key
+    return str(profile_key or "").strip() if _is_real_api_key(profile_key) else ""
 
 
 def _agent_connection_preview(response: httpx.Response) -> str:
@@ -4132,7 +4250,11 @@ async def api_save_config(request: Request):
             profile_key="",
         )
         fallback_base_url = str(previous_fallback.get("base_url") or default_base_url).strip()
-        fallback_api_key = str(previous_fallback.get("api_key") or default_api_key).strip()
+        fallback_api_key = _route_api_key_from_submission(
+            submitted_key=None,
+            previous_route=previous_fallback,
+            profile_key=default_api_key,
+        )
         if route_preset == "fallback":
             selected_base_url = fallback_base_url
             selected_api_key = fallback_api_key

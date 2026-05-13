@@ -2141,12 +2141,15 @@
             }
             if (agent === 'shot_director') {
                 const canContinue = canRetryShotDirector(currentPublicState) || canContinueShotDirectorFromPlanner(currentPublicState);
+                const hasFinal = Boolean(latestShotDirectorOutput(outputs));
                 return {
                     enabled: canContinue,
                     label: '重跑镜头导演',
                     title: canContinue
-                        ? '复用前置规划，从镜头导演阶段继续。'
-                        : '镜头导演最终输出已存在时，当前后端暂不支持只清除并重跑这一段。',
+                        ? (hasFinal
+                            ? '清除镜头导演及下游结果，复用结构规划重新生成。'
+                            : '复用前置规划，从镜头导演阶段继续。')
+                        : '缺少结构规划输出，无法重跑镜头导演。',
                 };
             }
             if (agent === 'storyboard_designer') {
@@ -3072,9 +3075,8 @@
             const outputs = state.agent_outputs || {};
             const status = String(state.status || '');
             const recoverableStatus = ['error', 'idle', 'aborted'].includes(status);
-            return recoverableStatus
-                && Boolean(outputs.story_planner)
-                && !outputs.shot_director;
+            return Boolean(outputs.story_planner)
+                && (recoverableStatus || Boolean(latestShotDirectorOutput(outputs)));
         }
 
         function canContinueShotDirectorFromPlanner(state = {}) {
@@ -3116,17 +3118,23 @@
             const formData = new FormData();
             formData.append('session_id', getSessionId());
             // 发送当前剧本输入框中的内容，支持用户修改剧本后重新生成
+            const outputs = currentPublicState.agent_outputs || {};
+            const forceRestart = Boolean(latestShotDirectorOutput(outputs));
+            if (forceRestart) {
+                formData.append('force_restart', 'true');
+            }
             const currentScript = document.getElementById('scriptInput').value.trim();
-            if (currentScript) {
+            if (currentScript && !forceRestart) {
                 formData.append('script', currentScript);
             }
-            const outputs = currentPublicState.agent_outputs || {};
-            const hasLayout = Boolean(outputs.shot_director_layout);
-            document.getElementById('pipelineMsg').textContent = hasLayout
+            const hasLayout = Boolean(outputs.shot_director_layout) && !forceRestart;
+            document.getElementById('pipelineMsg').textContent = forceRestart
+                ? '正在清除镜头导演及下游结果，重新生成三段镜头导演...'
+                : hasLayout
                 ? '正在从已完成的镜头骨架继续...'
                 : '正在复用前三步成果，从镜头导演重新启动...';
             document.getElementById('interactiveBox').innerHTML = '';
-            updateAgentStatus('running', hasLayout ? '续跑三段镜头导演' : '重启镜头导演');
+            updateAgentStatus('running', forceRestart ? '重跑三段镜头导演' : (hasLayout ? '续跑三段镜头导演' : '重启镜头导演'));
             try {
                 const resp = await fetch('/api/retry_shot_director', { method: 'POST', body: formData });
                 const data = await resp.json();

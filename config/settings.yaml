@@ -8,7 +8,7 @@ agent_models:
     max_retries: 1
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     fallback_models: []
-    route_preset: custom
+    route_preset: primary
     custom_route:
       base_url: https://ai.comfly.chat/v1
       api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
@@ -19,55 +19,64 @@ agent_models:
   rhythm_rewrite_director:
     base_url: https://ai.comfly.chat/v1
     temperature: 0.2
-    timeout_seconds: 180
-    max_retries: 3
+    timeout_seconds: 90
+    read_timeout_seconds: 90
+    write_timeout_seconds: 45
+    max_retries: 1
+    max_tokens: 4096
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
-    route_preset: custom
-    read_timeout_seconds: 180
-    write_timeout_seconds: 90
+    route_preset: primary
     fallback_models:
     - gpt-4o-mini
-    - deepseek-v4-flash
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     custom_route:
       base_url: https://ai.comfly.chat/v1
       api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
-    model: gpt-5.5
+    model: claude-opus-4-7
   scene_analyst:
-    base_url: https://www.xkwuai.cn/v1
+    base_url: https://ai.comfly.chat/v1
     temperature: 0.1
     timeout_seconds: 240
     read_timeout_seconds: 240
     max_retries: 3
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-7
   scene_vision_analyst:
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    base_url: https://www.xkwuai.cn/v1
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    base_url: https://ai.comfly.chat/v1
     route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-7
   story_planner:
-    base_url: https://www.xkwuai.cn/v1
+    base_url: https://ai.comfly.chat/v1
     temperature: 0.2
     timeout_seconds: 240
     read_timeout_seconds: 240
     write_timeout_seconds: 90
     max_retries: 3
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     fallback_models:
     - claude-3-5-sonnet
     route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-7
   shot_director:
@@ -78,21 +87,21 @@ agent_models:
     write_timeout_seconds: 90
     max_retries: 3
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
-    route_preset: custom
+    route_preset: primary
     custom_route:
       base_url: https://ai.comfly.chat/v1
       api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: gpt-5.5
   prompt_compiler:
     base_url: https://ai.comfly.chat/v1
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 3
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
-    route_preset: custom
+    route_preset: primary
     custom_route:
       base_url: https://ai.comfly.chat/v1
       api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
@@ -101,12 +110,15 @@ agent_models:
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: deepseek-v4-flash
   quality_inspector:
-    base_url: https://www.xkwuai.cn/v1
+    base_url: https://ai.comfly.chat/v1
     temperature: 0.1
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-7
   storyboard_designer:
@@ -118,11 +130,14 @@ agent_models:
     route_preset: primary
     model: gpt-image-2-all
   video_analyst:
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    base_url: https://www.xkwuai.cn/v1
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    base_url: https://ai.comfly.chat/v1
     route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-7
   scene_card_designer:
@@ -131,45 +146,60 @@ agent_models:
     route_preset: primary
     model: gpt-image-2-all
   storyboard_prompt_designer:
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    base_url: https://www.xkwuai.cn/v1
-    route_preset: custom
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    base_url: https://ai.comfly.chat/v1
+    route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: deepseek-v4-flash
   script_event_validator:
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    base_url: https://www.xkwuai.cn/v1
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    base_url: https://ai.comfly.chat/v1
     route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-7
   shot_director_layout:
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    base_url: https://www.xkwuai.cn/v1
-    route_preset: custom
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    base_url: https://ai.comfly.chat/v1
+    route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: gpt-5.5
   shot_director_blocking:
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    base_url: https://www.xkwuai.cn/v1
-    route_preset: custom
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    base_url: https://ai.comfly.chat/v1
+    route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: gpt-5.5
   shot_director_guard:
-    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    base_url: https://www.xkwuai.cn/v1
-    route_preset: custom
+    api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    base_url: https://ai.comfly.chat/v1
+    route_preset: primary
     custom_route:
-      base_url: https://www.xkwuai.cn/v1
+      base_url: https://ai.comfly.chat/v1
+      api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+    fallback_routes:
+    - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: gpt-5.5
 knowledge:
   bm25_top_k: 10
   directory: ./knowledge
@@ -179,8 +209,8 @@ knowledge:
   retrieval_mode: hybrid
   vector_top_k: 10
 llm:
-  api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-  base_url: https://www.xkwuai.cn/v1
+  api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
+  base_url: https://ai.comfly.chat/v1
   max_tokens: 8192
   max_retries: 2
   model: gpt-5.5
@@ -188,6 +218,9 @@ llm:
   stream: true
   temperature: 0.3
   timeout_seconds: 180
+  fallback_routes:
+  - base_url: https://www.xkwuai.cn/v1
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
 mcp:
   enabled: true
   fallback_enabled: true
@@ -212,7 +245,7 @@ ui:
   host: 127.0.0.1
   port: 8686
 vectordb:
-  api_key: sk-wWVtakMDwdy566420oOIKaHcsooWxtNImwIRNiBWGgBb4Hjb
+  api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
   base_url: https://ai.comfly.chat/v1
   chunk_overlap: 100
   chunk_size: 800

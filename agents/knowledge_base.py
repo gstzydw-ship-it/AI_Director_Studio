@@ -65,6 +65,11 @@ def _coerce_non_negative_int(value: Any, default: int) -> int:
     return parsed if parsed >= 0 else default
 
 
+def _clean_api_key(value: Any) -> str:
+    api_key = str(value or "").strip()
+    return "" if re.fullmatch(r"\*{3,}", api_key) else api_key
+
+
 def _load_session_model_profile() -> dict[str, Any]:
     session_id = re.sub(r"[^A-Za-z0-9_-]", "", request_session_id.get("local") or "local")[:80] or "local"
     state_path = os.path.join(get_output_dir(), "sessions", session_id, "pipeline_state.json")
@@ -89,7 +94,7 @@ def _get_embed_client() -> OpenAI:
     config = load_config() or {}
     vdb_config = config.get("vectordb") or {}
     profile = _load_session_model_profile()
-    api_key = profile.get("vectordb_api_key") or profile.get("api_key") or vdb_config.get("api_key") or ""
+    api_key = _clean_api_key(profile.get("vectordb_api_key")) or _clean_api_key(vdb_config.get("api_key"))
     base_url = profile.get("vectordb_base_url") or vdb_config.get("base_url") or COMFLY_BASE_URL
     timeout_seconds = _coerce_positive_float(
         profile.get("vectordb_timeout_seconds") or vdb_config.get("timeout_seconds"),

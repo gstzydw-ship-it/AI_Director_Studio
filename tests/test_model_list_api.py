@@ -1008,6 +1008,63 @@ def test_save_config_rejects_unresolved_placeholder_api_keys(monkeypatch):
     assert "API Key" in data["error"]
 
 
+def test_save_config_rejects_masked_api_keys_when_no_real_saved_key(monkeypatch):
+    import ui.app as web_app
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "********", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "********", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "********", "base_url": "https://embedding.example/v1"},
+        "agent_models": {},
+    })
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "********",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "********",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "********",
+                "embedding_model": "text-embedding-3-large",
+                "agent_models": {"director_showrunner": "gpt-5.5"},
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 400
+    assert data["success"] is False
+    assert "API Key" in data["error"]
+
+
+def test_public_model_config_does_not_report_masked_keys_as_saved(monkeypatch):
+    import ui.app as web_app
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "********", "base_url": "https://text.example/v1"},
+        "vectordb": {"api_key": "********", "base_url": "https://embedding.example/v1"},
+        "image_generation": {"api_key": "real-image-key", "base_url": "https://image.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "api_key": "********",
+                "base_url": "https://text.example/v1",
+                "custom_route": {"api_key": "********", "base_url": "https://custom.example/v1"},
+            },
+        },
+    })
+    monkeypatch.setattr(web_app, "_safe_knowledge_index_status", lambda: {})
+
+    config = web_app._public_model_config()
+
+    assert config["llm"]["has_api_key"] is False
+    assert config["vectordb"]["has_api_key"] is False
+    assert config["image_generation"]["has_api_key"] is True
+    assert config["agent_models"]["director_showrunner"]["has_api_key"] is False
+    assert config["agent_models"]["director_showrunner"]["custom_route"]["has_api_key"] is False
+
+
 def test_public_model_config_reports_public_frontend_source(monkeypatch, tmp_path):
     import ui.app as web_app
 
