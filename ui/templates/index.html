@@ -3023,11 +3023,11 @@
             const totalSegments = Number(state.total_segments || segIdx || 1);
             const completedSegment = Math.max(0, segIdx - 1);
             const titleText = completedSegment > 0
-                ? `第 ${completedSegment} 段完成：上传视频后生成第 ${segIdx} 段分镜故事板`
-                : `拆片完成：准备生成第 ${segIdx} 段分镜故事板`;
+                ? `第 ${completedSegment} 段完成：上传视频后生成第 ${segIdx} 段`
+                : `宏观规划完成：准备生成第 ${segIdx} 段`;
             const helpText = completedSegment > 0
-                ? `上传第 ${completedSegment} 段完整视频或尾帧图后，系统会先生成第 ${segIdx} 段镜头导演，再生成分镜故事板，最后编译 Seedance Prompt。`
-                : `现在可以直接生成第 ${segIdx} 段：镜头导演 -> 分镜故事板 -> Seedance Prompt。`;
+                ? `上传第 ${completedSegment} 段完整视频或尾帧图后，系统会先运行第 ${segIdx} 段三段式镜头导演，再生成分镜故事板，最后编译 Seedance Prompt。`
+                : `现在可以直接生成第 ${segIdx} 段：三段式镜头导演 -> 分镜故事板 -> Seedance Prompt。`;
             const videoInputHtml = completedSegment > 0
                 ? `
                     <div style="flex:1; min-width: 200px;">
@@ -3048,11 +3048,11 @@
                             <input type="file" id="tailFrameUpload" accept="image/png, image/jpeg, image/webp" />
                         </div>
                     </div>
-                    <button class="btn-primary" style="width: 100%;" onclick="resumePipeline(${segIdx})">生成第 ${segIdx} 段分镜故事板 / ${totalSegments}</button>
+                    <button class="btn-primary" style="width: 100%;" onclick="resumePipeline(${segIdx})">生成第 ${segIdx} 段：三段式镜头导演 / 分镜 / Prompt（共 ${totalSegments} 段）</button>
                 </div>
             `;
             markWaitingForInput(state);
-            updateAgentStatus('idle', '等待人类指令');
+            updateAgentStatus('idle', `等待生成第 ${segIdx} 段`);
             resetBtn();
         }
 
@@ -3439,7 +3439,7 @@
             };
             setResultOutput('prompt_compiler', renderCompiledSegments(agentOutputs, currentPublicState));
             document.getElementById('interactiveBox').innerHTML = '';
-            document.getElementById('pipelineMsg').textContent = `已提交上一段视频，正在生成片段 ${segmentIndex}`;
+            document.getElementById('pipelineMsg').textContent = `正在生成片段 ${segmentIndex}：三段式镜头导演 / 分镜 / Prompt`;
             updateAgentStatus('running', `生成片段 ${segmentIndex}`);
             const btn = document.getElementById('btnRun');
             btn.disabled = true;
@@ -3502,7 +3502,9 @@
             'step_2_plan': 2,
             'step_3_direct': 3,
             'step_4_storyboard': 4,
+            'step_4_compile': 5,
             'step_5_compile': 5,
+            'step_5_inspect': 6,
             'step_6_inspect': 6,
         };
 
@@ -3628,6 +3630,11 @@
 
             if (status === 'waiting_for_user_input' && state.step === 'step_5_inspect') {
                 setStepVisual('inspect', 'done', '等待输入');
+                return;
+            }
+
+            if (status === 'waiting_for_user_input' && state.step === 'step_3_direct') {
+                setStepVisual('direct', 'active', '等待触发');
             }
         }
 
@@ -3771,7 +3778,7 @@
             const previousSegment = Math.max(0, segIdx - 1);
             const msg = previousSegment > 0
                 ? `片段 ${previousSegment} 已完成，请上传片段 ${previousSegment} 完整视频后生成片段 ${segIdx}`
-                : `宏观规划已完成，可以生成片段 ${segIdx}`;
+                : `宏观规划已完成，可以生成片段 ${segIdx}：下一步会先运行三段式镜头导演`;
             document.getElementById('pipelineMsg').textContent = msg;
         }
 

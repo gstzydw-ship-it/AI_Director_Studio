@@ -1821,6 +1821,24 @@ def _run_pipeline_in_thread(
                 return
             task_state.update(state)
             _touch_task_progress(task_state)
+            if (
+                task_state.get("status") == "waiting_for_user_input"
+                and not task_state.get("review_agent")
+                and not task_state.get("review_mode")
+                and int(task_state.get("current_segment_index") or 1) == 1
+                and int(task_state.get("total_segments") or 0) > 0
+            ):
+                task_state["status"] = "running_phase_2"
+                task_state["step"] = "step_3_direct"
+                task_state["message"] = "Shot director is generating segment 1 camera plan..."
+                task_state["active_segment_index"] = 1
+                _touch_task_progress(task_state)
+                _save_task_state_for_session(session_id, task_state)
+                state = run_phase_2_compile_segment(1)
+                if task_generation != _active_task_generation(session_id):
+                    return
+                task_state.update(state)
+                _touch_task_progress(task_state)
         
         # 保存结果到文件以便审计
         output_dir = _session_subdir(session_id, "audit", "agent_outputs")
