@@ -3579,7 +3579,7 @@ def _extract_tail_frame_from_video(video_path: str, segment_index: int = 0) -> t
         if not ok:
             return None, None, "尾帧 JPEG 编码失败。"
 
-        output_dir = os.path.join(OUTPUT_DIR, "auto_tail_frames")
+        output_dir = os.path.join(_session_output_dir(), "agents", "segment_flow", "auto_tail_frames")
         os.makedirs(output_dir, exist_ok=True)
         safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", os.path.splitext(os.path.basename(video_path))[0]).strip("._")
         safe_stem = safe_stem or "segment"

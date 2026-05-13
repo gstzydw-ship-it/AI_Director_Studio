@@ -563,19 +563,20 @@ select option {
 
 .agent-model-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-    gap: 10px;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 12px;
 }
 
 .agent-model-row {
     display: grid;
-    grid-template-columns: auto minmax(112px, 0.55fr) minmax(130px, 1fr);
-    align-items: center;
-    gap: 10px;
-    padding: 10px;
+    grid-template-columns: auto minmax(0, 1fr);
+    align-items: start;
+    gap: 8px 10px;
+    padding: 12px;
     border: 1px solid var(--border-color);
     border-radius: var(--radius-sm);
     background: rgba(15, 23, 42, 0.45);
+    min-width: 0;
 }
 
 .agent-model-row input[type="checkbox"] {
@@ -601,6 +602,29 @@ select option {
 }
 
 .agent-model-row select {
+    width: 100%;
+    min-width: 0;
+}
+
+.agent-route-editor {
+    display: grid;
+    gap: 8px;
+    grid-column: 1 / -1;
+    min-width: 0;
+}
+
+.agent-custom-route,
+.agent-model-pick {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 0.8fr);
+    gap: 8px;
+}
+
+.agent-model-pick {
+    grid-template-columns: minmax(0, 1fr) minmax(88px, auto);
+}
+
+.agent-custom-route input {
     width: 100%;
     min-width: 0;
 }
@@ -719,6 +743,11 @@ select option {
 
     .agent-test-actions .btn-secondary {
         flex: 1 1 120px;
+    }
+
+    .agent-custom-route,
+    .agent-model-pick {
+        grid-template-columns: 1fr;
     }
 }
 

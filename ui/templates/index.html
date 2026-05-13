@@ -414,10 +414,6 @@
                         <div class="config-section-title">默认模型</div>
                         <div class="config-grid">
                             <div class="setting-group">
-                                <label>默认文本模型</label>
-                                <select id="configDefaultModel"></select>
-                            </div>
-                            <div class="setting-group">
                                 <label>向量嵌入模型</label>
                                 <select id="configEmbeddingModel"></select>
                             </div>
@@ -715,7 +711,7 @@
                 embedding: [vectordb.embedding_model],
             };
             Object.entries(config.agent_models || {}).forEach(([name, cfg]) => {
-                const model = cfg && typeof cfg === 'object' ? cfg.model : '';
+                const model = cfg && typeof cfg === 'object' ? normalizeModelValue(cfg.model) : '';
                 const category = agentCategory(name);
                 if (category === 'image') {
                     seeds.image.push(model);
@@ -762,13 +758,27 @@
         }
 
         function selectOptions(models = [], currentValue = '', placeholder = '请选择模型') {
-            const current = currentValue || '';
-            const options = uniqueModels([current, ...models]);
+            const current = normalizeModelValue(currentValue);
+            const options = uniqueModels([current, ...models.map(normalizeModelValue)]);
             const placeholderSelected = current ? '' : ' selected';
             return `<option value=""${placeholderSelected}>${escapeHtml(placeholder)}</option>` + options.map(model => {
                 const selected = model === current ? ' selected' : '';
                 return `<option value="${escapeHtml(model)}"${selected}>${escapeHtml(model)}</option>`;
             }).join('');
+        }
+
+        function normalizeModelValue(value) {
+            if (value && typeof value === 'object') {
+                return normalizeModelValue(value.model || value.id || '');
+            }
+            let text = String(value || '').trim();
+            for (let i = 0; i < 3; i += 1) {
+                if (!text.startsWith('{') || !text.includes('model')) break;
+                const match = text.match(/['"]model['"]\s*:\s*(['"])(.*?)\1/);
+                if (!match || !match[2] || match[2] === text) break;
+                text = match[2].trim();
+            }
+            return text;
         }
 
         function refreshModelDatalists() {
@@ -783,8 +793,16 @@
         }
 
         function agentModelPool(agentName) {
-            const category = agentCategory(agentName);
-            return modelPools[category] || modelPools.text || [];
+            const cfg = (systemConfig.agent_models || {})[agentName] || {};
+            const routePreset = cfg.route_preset || 'primary';
+            const routePools = cfg.route_model_pools || {};
+            if (Array.isArray(routePools[routePreset]) && routePools[routePreset].length) {
+                return uniqueModels([normalizeModelValue(cfg.model), ...routePools[routePreset].map(normalizeModelValue)]);
+            }
+            if (Array.isArray(cfg.available_models) && cfg.available_models.length) {
+                return uniqueModels([normalizeModelValue(cfg.model), ...cfg.available_models.map(normalizeModelValue)]);
+            }
+            return uniqueModels([normalizeModelValue(cfg.model)]);
         }
 
         function categoryLabel(category) {
@@ -796,19 +814,56 @@
             }[category] || '文本模型';
         }
 
-        function agentModelSelectOptions(currentValue = '') {
-            const current = currentValue || '';
-            return selectOptions(modelPools.text, current, modelPools.text.length ? '请选择模型' : '先拉取文本模型列表');
+        function agentRouteOptions(cfg = {}, category = 'text') {
+            const fallback = Array.isArray(cfg.fallback_routes) && cfg.fallback_routes.length ? cfg.fallback_routes[0] : {};
+            const custom = cfg.custom_route || {};
+            return {
+                primary: { label: '路线 1', base_url: cfg.base_url || '', has_api_key: !!cfg.has_api_key },
+                fallback: { label: '路线 2', base_url: fallback.base_url || '', has_api_key: !!fallback.has_api_key },
+                custom: { label: '自定义中转站', base_url: custom.base_url || '', has_api_key: !!custom.has_api_key },
+            };
+        }
+
+        function routeSelectOptions(cfg = {}, category = 'text') {
+            const current = cfg.route_preset || 'primary';
+            const routes = agentRouteOptions(cfg, category);
+            return Object.entries(routes).map(([key, route]) => {
+                const selected = key === current ? ' selected' : '';
+                const disabled = key === 'fallback' && (!route.base_url || !route.has_api_key) ? ' disabled' : '';
+                const suffix = route.base_url
+                    ? ` · ${route.base_url}${disabled ? '（未配置 Key）' : ''}`
+                    : '';
+                return `<option value="${key}" data-base-url="${escapeHtml(route.base_url || '')}"${selected}${disabled}>${escapeHtml(route.label + suffix)}</option>`;
+            }).join('');
+        }
+
+        function selectedAgentRouteBaseUrl(row) {
+            const routeSelect = row?.querySelector('[data-agent-route]');
+            const routePreset = routeSelect?.value || 'primary';
+            if (routePreset === 'custom') {
+                return row?.querySelector('[data-agent-custom-base]')?.value?.trim() || '';
+            }
+            return routeSelect?.selectedOptions?.[0]?.dataset?.baseUrl || '';
+        }
+
+        function applyAgentRouteVisibility(row) {
+            const route = row.querySelector('[data-agent-route]')?.value || 'primary';
+            row.querySelectorAll('[data-custom-route-field]').forEach(item => {
+                item.style.display = route === 'custom' ? '' : 'none';
+            });
+        }
+
+        function onAgentRouteChanged(select) {
+            const row = select.closest('.agent-model-row');
+            if (!row) return;
+            applyAgentRouteVisibility(row);
+            syncCurrentAgentSelections();
+            renderAgentModelGrid(systemConfig);
         }
 
         function refreshPrimaryModelSelects() {
-            const llm = systemConfig.llm || {};
             const vectordb = systemConfig.vectordb || {};
-            const defaultModel = document.getElementById('configDefaultModel');
             const embeddingModel = document.getElementById('configEmbeddingModel');
-            if (defaultModel) {
-                defaultModel.innerHTML = selectOptions(modelPools.text, defaultModel.value || llm.model || '', modelPools.text.length ? '请选择默认文本模型' : '先拉取文本模型列表');
-            }
             if (embeddingModel) {
                 embeddingModel.innerHTML = selectOptions(modelPools.embedding, embeddingModel.value || vectordb.embedding_model || '', modelPools.embedding.length ? '请选择 Embedding 模型' : '先拉取 Embedding 模型列表');
             }
@@ -819,7 +874,15 @@
             document.querySelectorAll('[data-agent-model]').forEach(input => {
                 const name = input.dataset.agentModel;
                 if (!agentModels[name]) agentModels[name] = {};
-                agentModels[name].model = input.value.trim();
+                agentModels[name].model = normalizeModelValue(input.value);
+                const row = input.closest('.agent-model-row');
+                if (row) {
+                    agentModels[name].route_preset = row.querySelector('[data-agent-route]')?.value || 'primary';
+                    agentModels[name].custom_route = {
+                        base_url: row.querySelector('[data-agent-custom-base]')?.value?.trim() || '',
+                        has_api_key: !!(agentModels[name].custom_route || {}).has_api_key,
+                    };
+                }
             });
             systemConfig.agent_models = agentModels;
         }
@@ -840,10 +903,11 @@
             grid.innerHTML = names.map(name => {
                 const cfg = agentModels[name] || {};
                 const label = labels[name] || name;
-                const value = cfg.model || '';
+                const value = normalizeModelValue(cfg.model);
                 const category = agentCategory(name);
                 const pool = agentModelPool(name);
                 const placeholder = pool.length ? `请选择${categoryLabel(category)}` : `先拉取${categoryLabel(category)}列表`;
+                const customRoute = cfg.custom_route || {};
                 return `
                     <div class="agent-model-row">
                         <input type="checkbox" data-agent-test-select="${escapeHtml(name)}" checked aria-label="选择 ${escapeHtml(label)} 参与连通性测试">
@@ -851,12 +915,25 @@
                             <strong>${escapeHtml(label)}</strong>
                             <small>${escapeHtml(name)} · ${escapeHtml(categoryLabel(category))}</small>
                         </span>
-                        <select data-agent-model="${escapeHtml(name)}">
-                            ${selectOptions(pool, value, placeholder)}
-                        </select>
+                        <div class="agent-route-editor">
+                            <select data-agent-route="${escapeHtml(name)}" onchange="onAgentRouteChanged(this)">
+                                ${routeSelectOptions(cfg, category)}
+                            </select>
+                            <div class="agent-custom-route" data-custom-route-field>
+                                <input type="text" data-agent-custom-base="${escapeHtml(name)}" value="${escapeHtml(customRoute.base_url || '')}" placeholder="https://your-router.example/v1">
+                                <input type="password" data-agent-custom-key="${escapeHtml(name)}" placeholder="${customRoute.has_api_key ? '已保存，留空不修改' : '自定义 API Key'}">
+                            </div>
+                            <div class="agent-model-pick">
+                                <select data-agent-model="${escapeHtml(name)}">
+                                    ${selectOptions(pool, value, placeholder)}
+                                </select>
+                                <button class="btn-small" type="button" onclick="fetchAgentModelList('${escapeHtml(name)}', this)">拉取模型</button>
+                            </div>
+                        </div>
                     </div>
                 `;
             }).join('');
+            grid.querySelectorAll('.agent-model-row').forEach(applyAgentRouteVisibility);
         }
 
         function setProfileInput(profile, data = {}) {
@@ -941,6 +1018,62 @@
             }
         }
 
+        async function fetchAgentModelList(agentName, button = null) {
+            const row = button?.closest('.agent-model-row');
+            if (!row) return;
+            const routePreset = row.querySelector('[data-agent-route]')?.value || 'primary';
+            const category = agentCategory(agentName);
+            const profile = category === 'image' ? 'image' : 'text';
+            const customBaseInput = row.querySelector('[data-agent-custom-base]');
+            const customKeyInput = row.querySelector('[data-agent-custom-key]');
+            const baseUrl = selectedAgentRouteBaseUrl(row);
+            const apiKey = routePreset === 'custom' ? (customKeyInput?.value?.trim() || '') : '';
+            const originalText = button ? button.textContent : '';
+            if (button) {
+                button.disabled = true;
+                button.textContent = '拉取中...';
+            }
+            setConfigStatus(`正在为 ${agentName} 拉取模型列表...`, 'info');
+            try {
+                const resp = await fetch('/api/model_list', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        profile,
+                        agent_name: agentName,
+                        route_preset: routePreset,
+                        base_url: baseUrl,
+                        api_key: apiKey,
+                    }),
+                });
+                const data = await resp.json();
+                if (!data.success) throw new Error(data.error || '模型列表拉取失败');
+                const groups = data.groups || {};
+                const models = category === 'image'
+                    ? (groups.image || data.image_models || data.models || [])
+                    : (category === 'vision' ? (groups.vision || groups.text || data.models || []) : (groups.text || data.models || []));
+                const normalizedModels = uniqueModels(models.map(normalizeModelValue));
+                if (!systemConfig.agent_models) systemConfig.agent_models = {};
+                if (!systemConfig.agent_models[agentName]) systemConfig.agent_models[agentName] = {};
+                systemConfig.agent_models[agentName].available_models = normalizedModels;
+                systemConfig.agent_models[agentName].route_model_pools = {
+                    ...(systemConfig.agent_models[agentName].route_model_pools || {}),
+                    [routePreset]: normalizedModels,
+                };
+                syncCurrentAgentSelections();
+                refreshModelDatalists();
+                renderAgentModelGrid(systemConfig);
+                setConfigStatus(`已为 ${agentName} 拉取 ${normalizedModels.length} 个模型，请选择后保存。`, 'success');
+            } catch (e) {
+                setConfigStatus(`拉取 ${agentName} 模型失败：${e.message}`, 'error');
+            } finally {
+                if (button) {
+                    button.disabled = false;
+                    button.textContent = originalText;
+                }
+            }
+        }
+
         function addManualModels(profile = 'text') {
             const label = categoryLabel(profile);
             const raw = window.prompt(`输入${label}名称；多个模型可用逗号或换行分隔。`);
@@ -970,7 +1103,18 @@
             }
             const agentModels = {};
             document.querySelectorAll('[data-agent-model]').forEach(input => {
-                agentModels[input.dataset.agentModel] = input.value.trim();
+                const name = input.dataset.agentModel;
+                const row = input.closest('.agent-model-row');
+                agentModels[name] = {
+                    model: normalizeModelValue(input.value),
+                    route_preset: row?.querySelector('[data-agent-route]')?.value || 'primary',
+                    custom_base_url: row?.querySelector('[data-agent-custom-base]')?.value?.trim() || '',
+                    custom_api_key: row?.querySelector('[data-agent-custom-key]')?.value?.trim() || '',
+                    available_models: Array.isArray((systemConfig.agent_models || {})[name]?.available_models)
+                        ? (systemConfig.agent_models || {})[name].available_models
+                        : [],
+                    route_model_pools: (systemConfig.agent_models || {})[name]?.route_model_pools || {},
+                };
             });
             try {
                 const resp = await fetch('/api/config', {
@@ -983,7 +1127,6 @@
                         image_api_key: document.getElementById('imageApiKey').value.trim(),
                         embedding_base_url: document.getElementById('embeddingBaseUrl').value.trim(),
                         embedding_api_key: document.getElementById('embeddingApiKey').value.trim(),
-                        default_model: document.getElementById('configDefaultModel').value.trim(),
                         embedding_model: document.getElementById('configEmbeddingModel').value.trim(),
                         agent_models: agentModels,
                     }),
@@ -1017,7 +1160,14 @@
         function collectAgentModels() {
             const agentModels = {};
             document.querySelectorAll('[data-agent-model]').forEach(input => {
-                agentModels[input.dataset.agentModel] = input.value.trim();
+                const name = input.dataset.agentModel;
+                const row = input.closest('.agent-model-row');
+                agentModels[name] = {
+                    model: normalizeModelValue(input.value),
+                    route_preset: row?.querySelector('[data-agent-route]')?.value || 'primary',
+                    custom_base_url: row?.querySelector('[data-agent-custom-base]')?.value?.trim() || '',
+                    custom_api_key: row?.querySelector('[data-agent-custom-key]')?.value?.trim() || '',
+                };
             });
             return agentModels;
         }

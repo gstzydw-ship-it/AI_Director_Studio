@@ -10,8 +10,8 @@ from typing import Any, Callable, Literal
 
 from .helpers import _fragment_id_for_segment_index, _segment_block_by_fragment_id
 from .llm import call_llm
-from .state_store import _agent_outputs, _persist_update
-from .types import DirectorState, OUTPUT_DIR
+from .state_store import _agent_outputs, _persist_update, _session_output_dir
+from .types import DirectorState
 
 _LEGACY_ANALYZE_TAIL_FRAME: Callable[..., str] | None = None
 
@@ -249,7 +249,7 @@ def _extract_bridge_frame_candidates(
                 }
             )
 
-        output_dir = os.path.join(OUTPUT_DIR, "auto_bridge_frames")
+        output_dir = os.path.join(_session_output_dir(), "agents", "segment_flow", "auto_bridge_frames")
         os.makedirs(output_dir, exist_ok=True)
         safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", os.path.splitext(os.path.basename(video_path))[0]).strip("._")
         safe_stem = safe_stem or "segment"

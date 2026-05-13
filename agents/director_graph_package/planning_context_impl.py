@@ -85,18 +85,49 @@ def _parse_director_showrunner_yaml(output: str) -> dict[str, Any]:
         payload = yaml.safe_load(text)
     except yaml.YAMLError:
         return {}
-    return payload if isinstance(payload, dict) else {}
+    if not isinstance(payload, dict):
+        return {}
+
+    canonical_fields = {
+        "审查结论": ("审查结论", "review_verdict", "verdict"),
+        "增强版剧本": ("增强版剧本", "最终增强版剧本", "修复后增强版剧本", "审查后增强版剧本", "enhanced_script"),
+        "多维审查": ("多维审查", "审查小组", "审查结果", "multi_dimensional_review"),
+        "硬错误": ("硬错误", "硬错误清单", "hard_errors"),
+        "评分": ("评分", "评分表", "scores"),
+        "逻辑审查": ("逻辑审查", "逻辑审查结果", "logic_review"),
+        "最终处理": ("最终处理", "处理结论", "final_handling"),
+        "增强依据": ("增强依据", "enhancement_basis"),
+        "主线保护": ("主线保护", "mainline_protection"),
+        "节奏总控交接": ("节奏总控交接", "节奏交接", "rhythm_supervisor_handoff"),
+        "需用户确认": ("需用户确认", "需要用户确认", "needs_user_confirmation"),
+    }
+
+    normalised = dict(payload)
+    for canonical, aliases in canonical_fields.items():
+        if canonical in normalised:
+            continue
+        for key, value in payload.items():
+            key_text = str(key).strip()
+            if key_text in aliases:
+                normalised[canonical] = value
+                break
+            if canonical in key_text or any(alias and alias in key_text for alias in aliases):
+                normalised[canonical] = value
+                break
+    return normalised
 
 
 def _extract_enhanced_script(output: str, fallback_script: str) -> str:
     payload = _parse_director_showrunner_yaml(output)
-    for key in ("增强版剧本", "enhanced_script"):
+    for key in ("增强版剧本", "enhanced_script", "最终增强版剧本", "修复后增强版剧本", "审查后增强版剧本"):
         value = payload.get(key)
         if isinstance(value, str) and value.strip():
             return value.strip()
 
     match = re.search(
-        r"(?ms)^\s*(?:增强版剧本|enhanced_script)\s*[：:]\s*(?:\|\s*)?\n?(.*?)(?=^\S[^：:\n]{0,40}[：:]|\Z)",
+        r"(?ms)^\s*(?:最终|修复后|审查后|最终修复后)?\s*(?:增强版剧本|enhanced_script)"
+        r"(?:[（(][^）)\n]{0,40}[）)])?\s*[：:]\s*(?:\|\s*)?\n?"
+        r"(.*?)(?=^\S[^：:\n]{0,40}[：:]|\Z)",
         _strip_yaml_fence(output),
     )
     if match and match.group(1).strip():

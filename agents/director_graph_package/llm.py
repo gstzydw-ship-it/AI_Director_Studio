@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import os
 import re
 import time as _time
@@ -37,7 +38,22 @@ def _normalise_base_url(base_url: Any) -> str:
 
 
 def _normalise_model_name(model: Any) -> str:
+    if isinstance(model, dict):
+        return _normalise_model_name(model.get("model") or model.get("id"))
     value = str(model or "").strip()
+    for _ in range(3):
+        if not (value.startswith("{") and "model" in value):
+            break
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            break
+        if not isinstance(parsed, dict) or "model" not in parsed:
+            break
+        next_value = str(parsed.get("model") or "").strip()
+        if not next_value or next_value == value:
+            break
+        value = next_value
     if value.startswith("openai/"):
         value = value.replace("openai/", "", 1)
     return value
@@ -385,6 +401,8 @@ def _configured_api_key_for_base_url(base_url: str, agent_name: str = "") -> str
 def _effective_retry_budget(agent_name: str, max_retries: int) -> int:
     if agent_name in {"story_planner", "director_showrunner"}:
         return max(max_retries, 3)
+    if agent_name == "director_showrunner_logic_reviewer":
+        return max(max_retries, 2)
     return max_retries
 
 
@@ -399,6 +417,11 @@ def _effective_timeout_settings(
         request_timeout = min(max(request_timeout, 180.0), 240.0)
         connect_timeout = min(connect_timeout, 20.0)
         read_timeout = min(max(read_timeout, 180.0), 240.0)
+        write_timeout = min(max(write_timeout, 60.0), 90.0)
+    elif agent_name in {"director_showrunner", "director_showrunner_logic_reviewer"}:
+        request_timeout = min(max(request_timeout, 300.0), 360.0)
+        connect_timeout = min(connect_timeout, 20.0)
+        read_timeout = min(max(read_timeout, 300.0), 360.0)
         write_timeout = min(max(write_timeout, 60.0), 90.0)
     return request_timeout, connect_timeout, read_timeout, write_timeout
 

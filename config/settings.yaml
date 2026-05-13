@@ -2,31 +2,20 @@ agent_models:
   director_showrunner:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
-    timeout_seconds: 180
-    read_timeout_seconds: 180
-    max_retries: 3
+    timeout_seconds: 300
+    read_timeout_seconds: 300
+    write_timeout_seconds: 90
+    max_retries: 4
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     fallback_models:
-    - claude-opus-4-7
-    fallback_routes:
-    - base_url: https://ai.comfly.chat/v1
-      api_key: null
-      model: kimi-k2.6
-      fallback_models:
-      - claude-3-5-sonnet
-    model: kimi-k2.6
+    - claude-3-5-sonnet
+    model: claude-opus-4-6
   rhythm_rewrite_director:
     base_url: https://www.xkwuai.cn/v1
     temperature: 0.2
     timeout_seconds: 180
     max_retries: 3
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    fallback_routes:
-    - base_url: https://ai.comfly.chat/v1
-      api_key: null
-      model: claude-3-5-sonnet
-      fallback_models:
-      - gpt-5.5
     model: claude-opus-4-7
   scene_analyst:
     base_url: https://www.xkwuai.cn/v1
@@ -46,12 +35,6 @@ agent_models:
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     fallback_models:
     - claude-3-5-sonnet
-    fallback_routes:
-    - base_url: https://ai.comfly.chat/v1
-      api_key: null
-      model: claude-3-5-sonnet
-      fallback_models:
-      - gpt-5.5
     model: claude-opus-4-7
   shot_director:
     base_url: https://www.xkwuai.cn/v1

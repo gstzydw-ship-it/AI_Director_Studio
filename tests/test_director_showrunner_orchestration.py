@@ -460,6 +460,19 @@ def test_director_showrunner_system_prompt_is_capped():
     assert "规则压缩提示" in capped
 
 
+def test_director_showrunner_extracts_review_script_field_aliases():
+    output = (
+        "审查结论: PASS\n"
+        "最终增强版剧本（审查修复后）: |\n"
+        "  A rushes in.\n"
+        "多维审查: []\n"
+    )
+
+    assert pci._extract_enhanced_script(output, "fallback") == "A rushes in."
+    payload = pci._parse_director_showrunner_yaml(output)
+    assert payload["增强版剧本"].strip() == "A rushes in."
+
+
 def test_director_showrunner_strict_review_runs_second_round_when_repair_required(monkeypatch):
     monkeypatch.setattr(
         pci,

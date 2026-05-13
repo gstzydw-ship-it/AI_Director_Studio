@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import ast
 import os
 import re
 import time
@@ -54,7 +55,22 @@ def _normalise_base_url(base_url: Any) -> str:
 
 
 def _normalise_model_name(model: Any) -> str:
+    if isinstance(model, dict):
+        return _normalise_model_name(model.get("model") or model.get("id"))
     value = str(model or "").strip()
+    for _ in range(3):
+        if not (value.startswith("{") and "model" in value):
+            break
+        try:
+            parsed = ast.literal_eval(value)
+        except (SyntaxError, ValueError):
+            break
+        if not isinstance(parsed, dict) or "model" not in parsed:
+            break
+        next_value = str(parsed.get("model") or "").strip()
+        if not next_value or next_value == value:
+            break
+        value = next_value
     if value.startswith("openai/"):
         value = value.replace("openai/", "", 1)
     return value

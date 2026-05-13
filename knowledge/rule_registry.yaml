@@ -1518,6 +1518,26 @@ rules:
       - "09:21"
       - "09:22"
 
+  - id: "RHYTHM-CUTTING-TEMPO-HANDOFF-002"
+    title: "快切、慢叙述与弹性片段时长交接"
+    owner_agent: "rhythm_rewrite_director"
+    agent_scope:
+      - "story_planner"
+      - "shot_director"
+      - "quality_inspector"
+    priority: "P0"
+    applies_when: "节奏总控需要把哪里快切、哪里慢停、哪里用长镜头、哪里允许短段明确传给拆片和镜头导演。"
+    instruction: "给下游只输出任务清单，不输出解释段落；必须包含 segment_duration_policy、story_planner_tasks、shot_director_tasks 和 quality_check_tasks。每条任务写清秒数、边界、保留事件、省略事件、切点、反应归属和尾帧状态。story_planner_tasks 要写是否拆 4-10 秒短段、short_segment_reason、keep_events、omit_events；shot_director_tasks 要写快切如何进行：2-3 个镜头、每镜 1-2 秒、动作 50%-70% 切出、下一镜从 30%-50% 接续、切受击者/关键道具/动作结果；慢叙述如何进行：1 个稳定主镜头、必要时 1 个反应镜头、主停顿 1.5-3 秒、只拍呼吸/视线/姿态/道具状态变化。普通段仍优先 13-15 秒，高密度快切、钩子阻断、动作压入或切镜预算超载时允许 4-10 秒短段。"
+    avoid_when: "禁止只写“快/慢/电影感/更紧张”；禁止把快切误写成快速运镜+快速动作+复杂背景三快叠加；禁止把慢叙述写成空镜拖时长或无信息慢走；禁止切断完整发言单元。"
+    source_files:
+      - "knowledge/rules/rhythm_rewrite_director/RHYTHM-CUTTING-TEMPO-HANDOFF-002.md"
+      - "knowledge/05_剧本拆分与15秒片段规划规则.md"
+      - "knowledge/15_故事节奏控制规则.md"
+      - "knowledge/rules/shot_director/SHOT-RHYTHM-SIGNAL-MAPPING-001.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-CUT-BUDGET-001.md"
+    source_rules:
+      - "RHYTHM-CUTTING-TEMPO-HANDOFF-002"
+
   - id: "RHYTHM-MICRO-PAUSE-001"
     title: "高压段必须切出 Micro-Pause"
     owner_agent: "shot_director"

@@ -11,6 +11,7 @@ import asyncio
 import threading
 import traceback
 import re
+import ast
 import shutil
 import copy
 import ipaddress
@@ -252,6 +253,10 @@ task_state = _task_state(DEFAULT_SESSION_ID)
 
 def _session_output_dir(session_id: str) -> str:
     return os.path.join(OUTPUT_DIR, "sessions", _normalise_session_id(session_id))
+
+
+def _session_subdir(session_id: str, *parts: str) -> str:
+    return os.path.join(_session_output_dir(session_id), *parts)
 
 
 def _migrate_legacy_state_if_needed(session_id: str) -> bool:
@@ -1421,7 +1426,7 @@ async def _read_reference_uploads(
     return image_data_urls, manifest
 
 
-async def _save_segment_video_upload(upload: UploadFile | None) -> str | None:
+async def _save_segment_video_upload(upload: UploadFile | None, session_id: str = DEFAULT_SESSION_ID) -> str | None:
     if not upload or not upload.filename:
         return None
 
@@ -1434,7 +1439,7 @@ async def _save_segment_video_upload(upload: UploadFile | None) -> str | None:
     if not content:
         return None
 
-    output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output", "uploaded_segment_videos")
+    output_dir = _session_subdir(session_id, "uploads", "segment_videos")
     os.makedirs(output_dir, exist_ok=True)
     safe_stem = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in os.path.splitext(upload.filename)[0]).strip("._") or "segment"
     filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_stem}{ext}"
@@ -1444,7 +1449,7 @@ async def _save_segment_video_upload(upload: UploadFile | None) -> str | None:
     return path
 
 
-def _extract_tail_frame_b64_from_video(video_path: str) -> str | None:
+def _extract_tail_frame_b64_from_video(video_path: str, session_id: str = DEFAULT_SESSION_ID) -> str | None:
     """Extract the final readable video frame and return it as JPEG base64."""
     if not video_path or not os.path.exists(video_path):
         return None
@@ -1483,7 +1488,7 @@ def _extract_tail_frame_b64_from_video(video_path: str) -> str | None:
 
         # tobytes() 数据量可能较大（数百KB），只计算一次
         encoded_bytes = encoded.tobytes()
-        output_dir = os.path.join(OUTPUT_DIR, "auto_tail_frames")
+        output_dir = _session_subdir(session_id, "agents", "segment_flow", "auto_tail_frames")
         os.makedirs(output_dir, exist_ok=True)
         frame_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.path.splitext(os.path.basename(video_path))[0]}_tail.jpg"
         with open(os.path.join(output_dir, frame_name), "wb") as f:
@@ -1538,7 +1543,11 @@ def _previous_tail_frame_manifest(
     }
 
 
-def _extract_tail_frame_data_from_video(video_path: str, segment_index: int) -> tuple[str | None, str | None]:
+def _extract_tail_frame_data_from_video(
+    video_path: str,
+    segment_index: int,
+    session_id: str = DEFAULT_SESSION_ID,
+) -> tuple[str | None, str | None]:
     if not video_path or not os.path.exists(video_path):
         return None, None
     cap = None
@@ -1575,7 +1584,7 @@ def _extract_tail_frame_data_from_video(video_path: str, segment_index: int) -> 
             return None, None
 
         encoded_bytes = encoded.tobytes()
-        output_dir = os.path.join(OUTPUT_DIR, "auto_tail_frames")
+        output_dir = _session_subdir(session_id, "agents", "segment_flow", "auto_tail_frames")
         os.makedirs(output_dir, exist_ok=True)
         safe_stem = "".join(
             ch if ch.isalnum() or ch in "._-" else "_"
@@ -1600,9 +1609,13 @@ def _extract_tail_frame_data_from_video(video_path: str, segment_index: int) -> 
                 pass
 
 
-def _build_previous_segment_video_tail_frame_asset(video_path: str, segment_index: int) -> dict[str, Any] | None:
+def _build_previous_segment_video_tail_frame_asset(
+    video_path: str,
+    segment_index: int,
+    session_id: str = DEFAULT_SESSION_ID,
+) -> dict[str, Any] | None:
     """Extract and register metadata for the previous segment video tail frame."""
-    raw_b64, saved_path = _extract_tail_frame_data_from_video(video_path, segment_index)
+    raw_b64, saved_path = _extract_tail_frame_data_from_video(video_path, segment_index, session_id)
     if not raw_b64:
         return None
 
@@ -1661,11 +1674,12 @@ def _select_previous_continuity_asset(
     state: dict,
     *,
     segment_index: int,
+    session_id: str = DEFAULT_SESSION_ID,
     video_path: str | None = None,
     tail_frame_b64: str = "",
 ) -> dict[str, Any]:
     if video_path:
-        video_asset = _build_previous_segment_video_tail_frame_asset(video_path, segment_index)
+        video_asset = _build_previous_segment_video_tail_frame_asset(video_path, segment_index, session_id)
         if video_asset:
             return video_asset
 
@@ -1807,7 +1821,7 @@ def _run_pipeline_in_thread(
             _touch_task_progress(task_state)
         
         # 保存结果到文件以便审计
-        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
+        output_dir = _session_subdir(session_id, "audit", "agent_outputs")
         try:
             os.makedirs(output_dir, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1888,7 +1902,7 @@ def _resume_pipeline_in_thread(
             final_outputs[key] = clean_prompt
             final_outputs["prompt_compiler"] = clean_prompt
         
-        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
+        output_dir = _session_subdir(session_id, "audit", "prompt_compiler")
         os.makedirs(output_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
@@ -2447,12 +2461,13 @@ async def api_resume(
         return JSONResponse({"success": False, "error": "当前未处于等待交互状态"})
 
     try:
-        video_path = await _save_segment_video_upload(previous_video_file)
+        video_path = await _save_segment_video_upload(previous_video_file, session_id)
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)})
     continuity_asset = _select_previous_continuity_asset(
         task_state,
         segment_index=segment_index,
+        session_id=session_id,
         video_path=video_path,
         tail_frame_b64=tail_frame_b64,
     )
@@ -2990,7 +3005,7 @@ async def api_abort(session_id: str = Form(DEFAULT_SESSION_ID)):
         _save_task_state_for_session(session_id, task_state)
         # 保存已有的中间输出
         if task_state.get("agent_outputs"):
-            output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
+            output_dir = _session_subdir(session_id, "audit", "aborted")
             try:
                 os.makedirs(output_dir, exist_ok=True)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -3320,6 +3335,27 @@ def _mask_config_key(section: dict) -> dict:
     return result
 
 
+def _mask_route_secrets(value: object) -> object:
+    if isinstance(value, list):
+        return [_mask_route_secrets(item) for item in value]
+    if isinstance(value, dict):
+        masked = dict(value)
+        if "api_key" in masked:
+            api_key = str(masked.get("api_key") or "").strip()
+            previous_has_api_key = bool(masked.get("has_api_key"))
+            masked["api_key"] = ""
+            masked["has_api_key"] = previous_has_api_key or (bool(api_key) and not _looks_like_env_placeholder(api_key))
+        for key in ("fallback_routes", "custom_route"):
+            if key in masked:
+                masked[key] = _mask_route_secrets(masked[key])
+        return masked
+    return value
+
+
+def _mask_agent_model_config(section: dict) -> dict:
+    return _mask_route_secrets(_mask_config_key(section))  # type: ignore[return-value]
+
+
 def _looks_like_env_placeholder(value: str) -> bool:
     text = str(value or "").strip()
     return bool(re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", text) or re.fullmatch(r"%[A-Za-z_][A-Za-z0-9_]*%", text))
@@ -3501,7 +3537,7 @@ def _public_model_config() -> dict:
                 continue
             agent_config = agent_models[agent_name]
             if isinstance(agent_config, dict):
-                masked = _mask_config_key(agent_config)
+                masked = _mask_agent_model_config(agent_config)
                 agent_config.clear()
                 agent_config.update(masked)
     else:
@@ -3594,7 +3630,62 @@ def _extract_model_ids(raw_models: object) -> list[str]:
 
 
 def _normalise_optional_model(value: object) -> str:
-    return str(value or "").strip()
+    if isinstance(value, dict):
+        return _normalise_optional_model(value.get("model"))
+    text = str(value or "").strip()
+    for _ in range(3):
+        if not (text.startswith("{") and "model" in text):
+            break
+        try:
+            parsed = ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            break
+        if not isinstance(parsed, dict) or "model" not in parsed:
+            break
+        next_text = str(parsed.get("model") or "").strip()
+        if not next_text or next_text == text:
+            break
+        text = next_text
+    return text
+
+
+def _normalise_model_pool_payload(value: object, *, limit: int = 500) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    models: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        model = _normalise_optional_model(item)
+        if not model or model in seen:
+            continue
+        models.append(model)
+        seen.add(model)
+        if len(models) >= limit:
+            break
+    return models
+
+
+def _agent_route_by_base_url(agent_config: dict, base_url: str) -> dict:
+    target = _normalise_config_base_url(base_url) if base_url else ""
+    if not target:
+        return {}
+    candidate_routes: list[dict] = []
+    if isinstance(agent_config, dict):
+        candidate_routes.append(agent_config)
+        fallback_routes = agent_config.get("fallback_routes")
+        if isinstance(fallback_routes, list):
+            candidate_routes.extend(route for route in fallback_routes if isinstance(route, dict))
+        custom_route = agent_config.get("custom_route")
+        if isinstance(custom_route, dict):
+            candidate_routes.append(custom_route)
+    for route in candidate_routes:
+        try:
+            route_url = _normalise_config_base_url(str(route.get("base_url") or ""))
+        except ValueError:
+            continue
+        if route_url == target:
+            return route
+    return {}
 
 
 @app.post("/api/model_list")
@@ -3609,13 +3700,35 @@ async def api_model_list(request: Request):
     profile = str(payload.get("profile") or "text").strip() or "text"
     if profile not in MODEL_PROFILE_LABELS:
         profile = "text"
+    agent_name = str(payload.get("agent_name") or "").strip()
+    route_preset = str(payload.get("route_preset") or "primary").strip()
+    agent_config = {}
+    if agent_name:
+        raw_agent_models = raw_config.get("agent_models") or {}
+        if isinstance(raw_agent_models, dict) and isinstance(raw_agent_models.get(agent_name), dict):
+            agent_config = raw_agent_models.get(agent_name) or {}
+    fallback_routes = agent_config.get("fallback_routes") if isinstance(agent_config.get("fallback_routes"), list) else []
+    fallback_route = fallback_routes[0] if fallback_routes and isinstance(fallback_routes[0], dict) else {}
+    custom_route = agent_config.get("custom_route") if isinstance(agent_config.get("custom_route"), dict) else {}
+    saved_route = agent_config
+    if route_preset == "fallback":
+        saved_route = fallback_route
+    elif route_preset == "custom":
+        saved_route = custom_route
     try:
-        base_url = _normalise_config_base_url(str(payload.get("base_url") or _profile_source(raw_config, profile).get("base_url") or ""))
+        requested_base_url = str(payload.get("base_url") or "").strip()
+        base_url = _normalise_config_base_url(
+            requested_base_url or saved_route.get("base_url") or _profile_source(raw_config, profile).get("base_url") or ""
+        )
     except ValueError as exc:
         return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    if agent_config and requested_base_url:
+        matching_route = _agent_route_by_base_url(agent_config, base_url)
+        if matching_route:
+            saved_route = matching_route
     api_key = str(payload.get("api_key") or "").strip()
     if not api_key or api_key == "***":
-        api_key = str(_profile_source(raw_config, profile).get("api_key") or "").strip()
+        api_key = str(saved_route.get("api_key") or _profile_source(raw_config, profile).get("api_key") or "").strip()
     if _looks_like_env_placeholder(api_key):
         api_key = ""
     if not api_key:
@@ -3702,6 +3815,29 @@ def _ensure_config_section(raw_config: dict, section_name: str) -> dict:
 def _write_profile_credentials(section: dict, api_key: str, base_url: str) -> None:
     section["api_key"] = api_key
     section["base_url"] = base_url
+
+
+def _agent_payload_model(value: object) -> str:
+    if isinstance(value, dict):
+        return _normalise_optional_model(value.get("model"))
+    return _normalise_optional_model(value)
+
+
+def _agent_payload_route(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _route_api_key_from_submission(
+    *,
+    submitted_key: object,
+    previous_route: dict,
+    profile_key: str,
+) -> str:
+    submitted = str(submitted_key or "").strip()
+    if submitted and submitted != "***":
+        return submitted
+    existing_key = str(previous_route.get("api_key") or "").strip()
+    return existing_key or profile_key
 
 
 def _agent_connection_preview(response: httpx.Response) -> str:
@@ -3875,7 +4011,6 @@ async def api_save_config(request: Request):
         text_api_key = str(payload.get("text_api_key") or payload.get("api_key") or "").strip()
         image_api_key = str(payload.get("image_api_key") or "").strip()
         embedding_api_key = str(payload.get("embedding_api_key") or "").strip()
-        default_model = _normalise_optional_model(payload.get("default_model"))
         embedding_model = _normalise_optional_model(payload.get("embedding_model"))
         agent_models_payload = payload.get("agent_models") or {}
         if not isinstance(agent_models_payload, dict):
@@ -3896,8 +4031,6 @@ async def api_save_config(request: Request):
 
     llm_config = _ensure_config_section(raw_config, "llm")
     _write_profile_credentials(llm_config, text_key, text_base_url)
-    if default_model:
-        llm_config["model"] = default_model
 
     image_config = _ensure_config_section(raw_config, "image_generation")
     _write_profile_credentials(image_config, image_key, image_base_url)
@@ -3924,14 +4057,84 @@ async def api_save_config(request: Request):
     agent_order = {name: index for index, name in enumerate(AGENT_MODEL_UI_NAMES)}
     selected_models: dict[str, str] = {}
 
-    def write_agent_config(agent_name: str, selected_model: str, category: str) -> None:
+    def write_agent_config(agent_name: str, selected_payload: object, category: str) -> None:
         agent_config = dict(previous_agent_models.get(agent_name) or {})
+        selected_model = _agent_payload_model(selected_payload)
+        route_payload = _agent_payload_route(selected_payload)
+        previous_custom_route = agent_config.get("custom_route") if isinstance(agent_config.get("custom_route"), dict) else {}
+        payload_custom_route = route_payload.get("custom_route") if isinstance(route_payload.get("custom_route"), dict) else {}
+        previous_fallback_routes = agent_config.get("fallback_routes") if isinstance(agent_config.get("fallback_routes"), list) else []
+        payload_fallback_routes = route_payload.get("fallback_routes") if isinstance(route_payload.get("fallback_routes"), list) else []
+        if not previous_fallback_routes and payload_fallback_routes:
+            previous_fallback_routes = payload_fallback_routes
+        previous_fallback = previous_fallback_routes[0] if previous_fallback_routes and isinstance(previous_fallback_routes[0], dict) else {}
+        default_base_url = image_base_url if category == "image" else text_base_url
+        default_api_key = image_key if category == "image" else text_key
+        route_preset = str(route_payload.get("route_preset") or agent_config.get("route_preset") or "primary").strip()
+        if route_preset not in {"primary", "fallback", "custom"}:
+            route_preset = "primary"
+        custom_base_url = str(
+            route_payload.get("custom_base_url")
+            or previous_custom_route.get("base_url")
+            or payload_custom_route.get("base_url")
+            or ""
+        ).strip()
+        custom_api_key = _route_api_key_from_submission(
+            submitted_key=route_payload.get("custom_api_key"),
+            previous_route=previous_custom_route or payload_custom_route,
+            profile_key=default_api_key,
+        )
+        fallback_base_url = str(previous_fallback.get("base_url") or default_base_url).strip()
+        fallback_api_key = str(previous_fallback.get("api_key") or default_api_key).strip()
+        if route_preset == "fallback":
+            selected_base_url = fallback_base_url
+            selected_api_key = fallback_api_key
+            next_fallback = {
+                "base_url": agent_config.get("base_url") or default_base_url,
+                "api_key": agent_config.get("api_key") or default_api_key,
+            }
+        elif route_preset == "custom":
+            selected_base_url = _normalise_config_base_url(custom_base_url)
+            selected_api_key = custom_api_key
+            next_fallback = {"base_url": fallback_base_url, "api_key": fallback_api_key}
+        else:
+            selected_base_url = str(agent_config.get("base_url") or default_base_url)
+            selected_api_key = str(agent_config.get("api_key") or default_api_key)
+            next_fallback = {"base_url": fallback_base_url, "api_key": fallback_api_key}
         agent_config.pop("model", None)
         agent_config.pop("default_model", None)
-        if _agent_category(agent_name) == "image":
-            _write_profile_credentials(agent_config, image_key, image_base_url)
+        _write_profile_credentials(agent_config, selected_api_key, selected_base_url)
+        agent_config["route_preset"] = route_preset
+        agent_config["fallback_routes"] = [next_fallback]
+        available_models = _normalise_model_pool_payload(route_payload.get("available_models"))
+        if available_models:
+            agent_config["available_models"] = available_models
         else:
-            _write_profile_credentials(agent_config, text_key, text_base_url)
+            agent_config.pop("available_models", None)
+        submitted_route_pools = route_payload.get("route_model_pools")
+        route_model_pools: dict[str, list[str]] = {}
+        if isinstance(submitted_route_pools, dict):
+            for route_key in ("primary", "fallback", "custom"):
+                route_models = _normalise_model_pool_payload(submitted_route_pools.get(route_key))
+                if route_models:
+                    route_model_pools[route_key] = route_models
+        if route_model_pools:
+            agent_config["route_model_pools"] = route_model_pools
+        else:
+            agent_config.pop("route_model_pools", None)
+        fallback_api_key = str(next_fallback.get("api_key") or "").strip()
+        if (
+            not fallback_api_key
+            or _normalise_config_base_url(selected_base_url) == _normalise_config_base_url(str(next_fallback.get("base_url") or ""))
+        ):
+            agent_config.pop("fallback_routes", None)
+        else:
+            agent_config["fallback_routes"] = [next_fallback]
+        if custom_base_url:
+            agent_config["custom_route"] = {
+                "base_url": _normalise_config_base_url(custom_base_url),
+                "api_key": custom_api_key,
+            }
         if selected_model:
             agent_config["model"] = selected_model
         if category == "image" and selected_model:
@@ -3939,17 +4142,17 @@ async def api_save_config(request: Request):
         agent_models[agent_name] = agent_config
 
     for agent_name in sorted(known_agents, key=lambda name: agent_order.get(name, len(agent_order))):
-        selected_model = _normalise_optional_model(
-            agent_models_payload.get(agent_name) or previous_agent_models.get(agent_name, {}).get("model")
-        )
+        submitted_payload = agent_models_payload.get(agent_name)
+        selected_model = _agent_payload_model(submitted_payload or previous_agent_models.get(agent_name, {}).get("model"))
         selected_models[agent_name] = selected_model
-        write_agent_config(agent_name, selected_model, _agent_category(agent_name))
+        write_agent_config(agent_name, submitted_payload or selected_model, _agent_category(agent_name))
 
     for derived_agent, source_agent in DERIVED_AGENT_MODEL_SOURCES.items():
         if source_agent not in selected_models:
             continue
         source_category = _agent_category(source_agent)
-        write_agent_config(derived_agent, selected_models[source_agent], source_category)
+        source_payload = agent_models.get(source_agent) or {"model": selected_models[source_agent]}
+        write_agent_config(derived_agent, source_payload, source_category)
 
     try:
         _save_raw_settings(raw_config)
@@ -4028,9 +4231,27 @@ async def api_test_agent_connections(request: Request):
     async def _run_probe(agent_name: str) -> dict:
         category = _agent_category(agent_name)
         stored_agent = raw_agent_models.get(agent_name) if isinstance(raw_agent_models.get(agent_name), dict) else {}
-        model = _normalise_optional_model(agent_models_payload.get(agent_name) or stored_agent.get("model"))
-        base_url = image_base_url if category == "image" else text_base_url
-        api_key = image_key if category == "image" else text_key
+        submitted_payload = agent_models_payload.get(agent_name)
+        model = _agent_payload_model(submitted_payload or stored_agent.get("model"))
+        route_payload = _agent_payload_route(submitted_payload)
+        profile_base_url = image_base_url if category == "image" else text_base_url
+        profile_api_key = image_key if category == "image" else text_key
+        base_url = str(stored_agent.get("base_url") or profile_base_url)
+        api_key = str(stored_agent.get("api_key") or profile_api_key)
+        route_preset = str(route_payload.get("route_preset") or stored_agent.get("route_preset") or "primary")
+        if route_preset == "custom":
+            custom_route = stored_agent.get("custom_route") if isinstance(stored_agent.get("custom_route"), dict) else {}
+            base_url = str(route_payload.get("custom_base_url") or custom_route.get("base_url") or base_url)
+            api_key = _route_api_key_from_submission(
+                submitted_key=route_payload.get("custom_api_key"),
+                previous_route=custom_route,
+                profile_key=profile_api_key,
+            )
+        elif route_preset == "fallback":
+            fallback_routes = stored_agent.get("fallback_routes") if isinstance(stored_agent.get("fallback_routes"), list) else []
+            fallback_route = fallback_routes[0] if fallback_routes and isinstance(fallback_routes[0], dict) else {}
+            base_url = str(fallback_route.get("base_url") or base_url)
+            api_key = str(fallback_route.get("api_key") or api_key)
         async with semaphore:
             return await _probe_agent_connection(
                 agent_name=agent_name,

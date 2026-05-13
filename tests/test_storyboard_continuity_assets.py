@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import asyncio
 import sys
 from io import BytesIO
 
@@ -35,6 +36,13 @@ class _FakeCapture:
 
     def release(self) -> None:
         self.released = True
+
+
+class _FakeUpload:
+    filename = "previous segment.mp4"
+
+    async def read(self) -> bytes:
+        return b"fake video upload"
 
 
 def _jpeg_bytes() -> bytes:
@@ -73,7 +81,8 @@ def test_previous_segment_video_tail_frame_asset_registers_manifest(tmp_path, mo
     assert asset["image_data_url"].startswith("data:image/jpeg;base64,")
     assert base64.b64decode(asset["raw_b64"]) == jpeg_payload
     assert asset["saved_path"]
-    assert (tmp_path / "output" / "auto_tail_frames").exists()
+    assert (tmp_path / "output" / "sessions" / "local" / "agents" / "segment_flow" / "auto_tail_frames").exists()
+    assert not (tmp_path / "output" / "auto_tail_frames").exists()
 
     manifest = asset["manifest_item"]
     assert manifest["role"] == "previous_segment_tail_frame"
@@ -90,6 +99,20 @@ def test_previous_segment_video_tail_frame_asset_registers_manifest(tmp_path, mo
     assert state["reference_image_count"] == 2
     assert state["reference_image_manifest"][-1]["role"] == "previous_segment_tail_frame"
     assert state["reference_image_b64s"][-1].startswith("data:image/jpeg;base64,")
+
+
+def test_segment_video_upload_is_saved_inside_session_workspace(tmp_path, monkeypatch):
+    monkeypatch.setattr(ui_app, "OUTPUT_DIR", str(tmp_path / "output"))
+
+    saved_path = asyncio.run(ui_app._save_segment_video_upload(_FakeUpload(), session_id="web_upload"))
+
+    assert saved_path is not None
+    assert "sessions" in saved_path
+    assert "web_upload" in saved_path
+    assert "uploads" in saved_path
+    assert "uploaded_segment_videos" not in saved_path
+    assert not (tmp_path / "output" / "uploaded_segment_videos").exists()
+    assert (tmp_path / "output" / "sessions" / "web_upload" / "uploads" / "segment_videos").exists()
 
 
 def test_previous_continuity_falls_back_to_storyboard_placeholder_then_out_state_text():
