@@ -182,29 +182,19 @@
                                         <div class="step-status">等待</div>
                                     </button>
                                     <div class="step-arrow">→</div>
-                                    <button type="button" class="step" id="step-rhythm" data-agent="rhythm_rewrite_director"
-                                        onclick="switchPipelineStepOutput(this)" aria-label="查看节奏总控输出">
+                                    <button type="button" class="step" id="step-plan" data-agent="story_planner"
+                                        onclick="switchPipelineStepOutput(this)" aria-label="查看节奏拆片导演输出">
                                         <div class="step-icon">03</div>
                                         <div class="step-info">
-                                            <div class="step-name">节奏总控</div>
-                                            <div class="step-desc">快慢/停顿/卡断</div>
-                                        </div>
-                                        <div class="step-status">等待</div>
-                                    </button>
-                                    <div class="step-arrow">→</div>
-                                    <button type="button" class="step" id="step-plan" data-agent="story_planner"
-                                        onclick="switchPipelineStepOutput(this)" aria-label="查看结构规划输出">
-                                        <div class="step-icon">04</div>
-                                        <div class="step-info">
-                                            <div class="step-name">结构规划</div>
-                                            <div class="step-desc">拆片/连续性</div>
+                                            <div class="step-name">节奏拆片导演</div>
+                                            <div class="step-desc">快慢/时长/动作节奏/交接</div>
                                         </div>
                                         <div class="step-status">等待</div>
                                     </button>
                                     <div class="step-arrow">→</div>
                                     <button type="button" class="step" id="step-direct" data-agent="shot_director"
                                         onclick="switchPipelineStepOutput(this)" aria-label="查看三段镜头导演输出">
-                                        <div class="step-icon">05</div>
+                                        <div class="step-icon">04</div>
                                         <div class="step-info">
                                             <div class="step-name">三段镜头导演</div>
                                             <div class="step-desc">摆位/调度/守门</div>
@@ -214,7 +204,7 @@
                                     <div class="step-arrow">→</div>
                                     <button type="button" class="step" id="step-storyboard" data-agent="storyboard_designer"
                                         onclick="switchPipelineStepOutput(this)" aria-label="查看分镜流程图输出">
-                                        <div class="step-icon">06</div>
+                                        <div class="step-icon">05</div>
                                         <div class="step-info">
                                             <div class="step-name">分镜流程图</div>
                                             <div class="step-desc">可视化设计</div>
@@ -224,7 +214,7 @@
                                     <div class="step-arrow">→</div>
                                     <button type="button" class="step" id="step-compile" data-agent="prompt_compiler"
                                         onclick="switchPipelineStepOutput(this)" aria-label="查看 Seedance 编译输出">
-                                        <div class="step-icon">07</div>
+                                        <div class="step-icon">06</div>
                                         <div class="step-info">
                                             <div class="step-name">Seedance编译</div>
                                             <div class="step-desc">单段Prompt</div>
@@ -234,7 +224,7 @@
                                     <div class="step-arrow">→</div>
                                     <button type="button" class="step" id="step-inspect" data-agent="quality_inspector"
                                         onclick="switchPipelineStepOutput(this)" aria-label="查看质检导演输出">
-                                        <div class="step-icon">08</div>
+                                        <div class="step-icon">07</div>
                                         <div class="step-info">
                                             <div class="step-name">质检导演</div>
                                             <div class="step-desc">判例/返修</div>
@@ -285,14 +275,9 @@
                                         <span class="result-tab-name">剧情增强</span>
                                         <small data-tab-status>等待输出</small>
                                     </button>
-                                    <button class="result-tab" data-agent="rhythm_rewrite_director"
-                                        onclick="switchResultTab(this)">
-                                        <span class="result-tab-name">节奏策略</span>
-                                        <small data-tab-status>等待输出</small>
-                                    </button>
                                     <button class="result-tab" data-agent="story_planner"
                                         onclick="switchResultTab(this)">
-                                        <span class="result-tab-name">拆片规划</span>
+                                        <span class="result-tab-name">节奏拆片导演</span>
                                         <small data-tab-status>等待输出</small>
                                     </button>
                                     <button class="result-tab" data-agent="shot_director"
@@ -1935,9 +1920,9 @@
 
         const REVIEW_AGENT_LABELS = {
             director_showrunner: '剧情增强',
-            rhythm_rewrite_director: '节奏总控',
+            rhythm_rewrite_director: '节奏拆片导演',
             scene_analyst: '场景预分析',
-            story_planner: '结构规划',
+            story_planner: '节奏拆片导演',
             shot_director: '三段镜头导演',
             shot_director_layout: '镜头摆位骨架',
             shot_director_blocking: '动作调度导演',
@@ -1950,8 +1935,8 @@
         const AGENT_RESULT_META = {
             scene_analyst: { title: '场景预分析', desc: '空间拆解、俯视图、九宫格机位图' },
             director_showrunner: { title: '剧情增强', desc: '补强动机、冲突和主线保护' },
-            rhythm_rewrite_director: { title: '节奏策略', desc: '短视频节奏、爽点和信息释放' },
-            story_planner: { title: '拆片规划', desc: '把剧情拆成可连续生成的片段' },
+            rhythm_rewrite_director: { title: '节奏拆片导演', desc: '由节奏拆片同步生成的快慢和动作节奏摘要' },
+            story_planner: { title: '节奏拆片导演', desc: '判断快慢、目标时长、动作节奏，并拆成镜头导演可接收的片段' },
             shot_director: { title: '三段镜头导演', desc: '镜头骨架、人物调度和规则守门' },
             storyboard_designer: { title: '分镜流程图', desc: '首帧/分镜图提示词与图片' },
             prompt_compiler: { title: 'Seedance 编译', desc: '最终可用于视频生成的分段 Prompt' },
@@ -2129,8 +2114,8 @@
             if (agent === 'director_showrunner' || agent === 'rhythm_rewrite_director' || agent === 'story_planner') {
                 const phase1Labels = {
                     director_showrunner: '重跑剧情增强',
-                    rhythm_rewrite_director: '重跑节奏策略',
-                    story_planner: '重跑拆片规划',
+                    rhythm_rewrite_director: '重跑节奏拆片',
+                    story_planner: '重跑节奏拆片',
                 };
                 return {
                     enabled: Boolean((document.getElementById('scriptInput')?.value || currentPublicState.input_script || '').trim()),
@@ -2147,9 +2132,9 @@
                     label: '重跑镜头导演',
                     title: canContinue
                         ? (hasFinal
-                            ? '清除镜头导演及下游结果，复用结构规划重新生成。'
+                            ? '清除镜头导演及下游结果，复用节奏拆片重新生成。'
                             : '复用前置规划，从镜头导演阶段继续。')
-                        : '缺少结构规划输出，无法重跑镜头导演。',
+                        : '缺少节奏拆片输出，无法重跑镜头导演。',
                 };
             }
             if (agent === 'storyboard_designer') {
@@ -3031,7 +3016,7 @@
             if (false && canContinueShotDirectorFromPlanner(state)) {
                 showBestAvailableResult(state);
                 renderShotDirectorRetryBox(state);
-                document.getElementById('pipelineMsg').textContent = readableStatusMessage(state.message) || '结构规划已完成，请继续镜头导演。';
+                document.getElementById('pipelineMsg').textContent = readableStatusMessage(state.message) || '节奏拆片已完成，请继续镜头导演。';
                 return;
             }
             const segIdx = Number(state.current_segment_index || 1);
@@ -3093,12 +3078,12 @@
             const hasLayout = Boolean(outputs.shot_director_layout);
             const isPlannerHandoff = canContinueShotDirectorFromPlanner(state);
             const nextStage = outputs.shot_director_blocking ? '规则守门导演' : '动作调度导演';
-            const title = isPlannerHandoff ? '拆片规划已完成' : (hasLayout ? '三段镜头导演可继续' : '可从镜头导演重新启动');
+            const title = isPlannerHandoff ? '节奏拆片已完成' : (hasLayout ? '三段镜头导演可继续' : '可从镜头导演重新启动');
             const helpText = isPlannerHandoff
-                ? '已保留场景预分析、剧情增强、节奏改写和结构规划，点击后进入镜头导演，不重跑前四步。'
+                ? '已保留场景预分析、剧情增强和节奏拆片，点击后进入镜头导演，不重跑前置规划。'
                 : (hasLayout
                     ? `已保留镜头摆位骨架，将从${nextStage}继续。`
-                    : '已保留场景预分析、剧情增强、节奏改写和结构规划，将从镜头导演重新开始，不重跑前四步。');
+                    : '已保留场景预分析、剧情增强和节奏拆片，将从镜头导演重新开始，不重跑前置规划。');
             const buttonText = isPlannerHandoff ? '继续镜头导演' : (hasLayout ? '继续三段镜头导演' : '从镜头导演继续');
             document.getElementById('interactiveBox').innerHTML = `
                 <div style="padding: 16px; background: rgba(245, 158, 11, 0.12); border: 1.5px solid var(--accent-warning); border-radius: 10px; margin-top: 16px;">
@@ -3122,10 +3107,6 @@
             const forceRestart = Boolean(latestShotDirectorOutput(outputs));
             if (forceRestart) {
                 formData.append('force_restart', 'true');
-            }
-            const currentScript = document.getElementById('scriptInput').value.trim();
-            if (currentScript && !forceRestart) {
-                formData.append('script', currentScript);
             }
             const hasLayout = Boolean(outputs.shot_director_layout) && !forceRestart;
             document.getElementById('pipelineMsg').textContent = forceRestart
@@ -3511,18 +3492,18 @@
         }
 
         // 进度条只以 /api/status 返回的后端状态为准。
-        const STEP_ORDER = ['analyze', 'enhance', 'rhythm', 'plan', 'direct', 'storyboard', 'compile', 'inspect'];
+        const STEP_ORDER = ['analyze', 'enhance', 'plan', 'direct', 'storyboard', 'compile', 'inspect'];
         const STEP_KEY_MAP = {
             'step_0_scene': 0,
             'step_1_analyze': 0,
             'step_0_enhance': 1,
             'step_0_rhythm': 2,
             'step_1_rhythm': 2,
-            'step_2_plan': 3,
-            'step_3_direct': 4,
-            'step_4_storyboard': 5,
-            'step_5_compile': 6,
-            'step_6_inspect': 7,
+            'step_2_plan': 2,
+            'step_3_direct': 3,
+            'step_4_storyboard': 4,
+            'step_5_compile': 5,
+            'step_6_inspect': 6,
         };
 
         function latestShotDirectorOutput(outputs = {}) {
@@ -3555,11 +3536,11 @@
             if (outputs.scene_analyst) doneIdx = Math.max(doneIdx, 0);
             if (outputs.director_showrunner) doneIdx = Math.max(doneIdx, 1);
             if (outputs.rhythm_rewrite_director) doneIdx = Math.max(doneIdx, 2);
-            if (outputs.story_planner) doneIdx = Math.max(doneIdx, 3);
-            if (latestShotDirectorOutput(outputs)) doneIdx = Math.max(doneIdx, 4);
-            if (hasStoryboardOutput(outputs)) doneIdx = Math.max(doneIdx, 5);
-            if (hasCompiledPrompt(outputs, state)) doneIdx = Math.max(doneIdx, 6);
-            if (hasQualityOutput(outputs)) doneIdx = Math.max(doneIdx, 7);
+            if (outputs.story_planner) doneIdx = Math.max(doneIdx, 2);
+            if (latestShotDirectorOutput(outputs)) doneIdx = Math.max(doneIdx, 3);
+            if (hasStoryboardOutput(outputs)) doneIdx = Math.max(doneIdx, 4);
+            if (hasCompiledPrompt(outputs, state)) doneIdx = Math.max(doneIdx, 5);
+            if (hasQualityOutput(outputs)) doneIdx = Math.max(doneIdx, 6);
             if (state.status === 'done') doneIdx = STEP_ORDER.length - 1;
             return doneIdx;
         }
@@ -3580,29 +3561,29 @@
             const stepIdx = STEP_KEY_MAP[state.step];
             if (stepIdx !== undefined) return stepIdx;
 
-            if (/quality_inspector/i.test(diagnosticMessage)) return 7;
-            if (/prompt_compiler/i.test(diagnosticMessage)) return 6;
-            if (/storyboard_designer/i.test(diagnosticMessage)) return 5;
-            if (/shot_director/i.test(diagnosticMessage)) return 4;
-            if (/story_planner/i.test(diagnosticMessage)) return 3;
+            if (/quality_inspector/i.test(diagnosticMessage)) return 6;
+            if (/prompt_compiler/i.test(diagnosticMessage)) return 5;
+            if (/storyboard_designer/i.test(diagnosticMessage)) return 4;
+            if (/shot_director/i.test(diagnosticMessage)) return 3;
+            if (/story_planner/i.test(diagnosticMessage)) return 2;
             if (/rhythm_rewrite_director/i.test(diagnosticMessage)) return 2;
             if (/director_showrunner/i.test(diagnosticMessage)) return 1;
             if (/scene_analyst/i.test(diagnosticMessage)) return 0;
 
-            if (/质检|quality|inspect/i.test(statusMessage)) return 7;
-            if (/Seedance|编译|Prompt|compile/i.test(statusMessage)) return 6;
-            if (/分镜流程图|storyboard/i.test(statusMessage)) return 5;
-            if (/镜头导演|动作调度|守门|shot_director|blocking|layout|guard/i.test(statusMessage)) return 4;
-            if (/结构规划|拆片|story_planner|plan/i.test(statusMessage)) return 3;
+            if (/质检|quality|inspect/i.test(statusMessage)) return 6;
+            if (/Seedance|编译|Prompt|compile/i.test(statusMessage)) return 5;
+            if (/分镜流程图|storyboard/i.test(statusMessage)) return 4;
+            if (/镜头导演|动作调度|守门|shot_director|blocking|layout|guard/i.test(statusMessage)) return 3;
+            if (/结构规划|拆片|story_planner|plan/i.test(statusMessage)) return 2;
             if (/场景预分析|场景分析|scene_analyst/i.test(statusMessage)) return 0;
             if (/节奏总控|rhythm/i.test(statusMessage)) return 2;
             if (/剧情增强|director_showrunner|enhance/i.test(statusMessage)) return 1;
 
-            if (hasQualityOutput(outputs)) return 7;
-            if (hasCompiledPrompt(outputs, state)) return 6;
-            if (hasStoryboardOutput(outputs)) return 5;
-            if (latestShotDirectorOutput(outputs)) return 4;
-            if (outputs.story_planner) return 3;
+            if (hasQualityOutput(outputs)) return 6;
+            if (hasCompiledPrompt(outputs, state)) return 5;
+            if (hasStoryboardOutput(outputs)) return 4;
+            if (latestShotDirectorOutput(outputs)) return 3;
+            if (outputs.story_planner) return 2;
             if (outputs.rhythm_rewrite_director) return 2;
             if (outputs.director_showrunner) return 1;
             if (outputs.scene_analyst) return 0;
@@ -4352,7 +4333,6 @@
             const fallbackCandidates = [
                 ['scene_analyst', agentOutputs.scene_analyst || hasSceneReferenceCards(agentOutputs)],
                 ['director_showrunner', agentOutputs.director_showrunner],
-                ['rhythm_rewrite_director', agentOutputs.rhythm_rewrite_director],
                 ['story_planner', agentOutputs.story_planner],
                 ['shot_director', latestShotDirectorOutput(agentOutputs)],
                 ['storyboard_designer', hasStoryboardOutput(agentOutputs)],

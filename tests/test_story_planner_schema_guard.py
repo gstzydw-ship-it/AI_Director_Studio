@@ -82,6 +82,29 @@ def test_story_planner_accepts_minimal_chinese_handoff_schema():
     assert _extract_segments(planner_output) == (1, ["片段01"])
 
 
+def test_story_planner_rejects_overlong_urgent_short_action():
+    planner_output = """
+- 片段编号: F01
+  目标时长: "8-10秒"
+  施工剧本原文事件:
+    - "乔熙急促小跑进门。"
+    - "她推开门。"
+  出现人物:
+    - "乔熙"
+  入场状态: "乔熙在门外。"
+  出场状态: "乔熙已经进入室内。"
+  承接要求: "无需独立反应。"
+"""
+
+    issues = _validate_story_planner_output(
+        planner_output,
+        "乔熙急促小跑进门。\n她推开门。",
+    )
+
+    assert any("急促短动作" in issue for issue in issues)
+    assert any("2-5秒" in issue for issue in issues)
+
+
 def test_story_planner_requires_only_planning_handoff_fields():
     planner_output = """
 - fragment_id: F01
@@ -596,3 +619,135 @@ def test_story_planner_prompt_uses_current_script_with_slim_rule_digest(monkeypa
     assert captured["retrieval_meta"]["matched_sources"] == ["rule_registry.yaml"]
     assert captured["retrieval_meta"]["registry_rule_ids"] == ["SEG-NOT-EQUAL-002"]
     assert "照片滑落后不拆" in captured["rhythm_guidance"]
+
+
+def test_rhythm_story_planner_node_merges_rhythm_and_planning(monkeypatch):
+    captured: dict[str, object] = {}
+    planner_yaml = """
+- 片段编号: F01
+  片段任务: "乔熙在闹钟和电话催促下急忙处理小豆丁外套。"
+  目标时长: "5-6秒"
+  节奏类型: "快节奏"
+  事件密度判断: "多个短动作连续发生，属于短时间密集事件。"
+  动作节奏指导: "乔熙必须急急忙忙、多任务并行，动作短促叠压；禁止慢悠悠完成每个动作。"
+  施工剧本原文事件:
+    - "闹钟响，乔熙一把按掉。"
+    - "乔熙把手机夹在肩与耳之间，腾出双手去够小豆丁的外套。"
+    - "小豆丁坐在沙发边缘，身体往后缩，两条腿乱蹬。"
+    - "乔熙：Kiki, cover for me. I'll be right there!"
+    - "乔熙单手扯开外套拉链，另一只手试图按住小豆丁的肩。"
+    - "小豆丁整个人扭向沙发靠背。"
+  出现人物:
+    - "乔熙"
+    - "小豆丁"
+  入场状态: "闹钟催促，乔熙正在赶时间。"
+  出场状态: "小豆丁扭向沙发靠背，乔熙仍在边通话边处理外套。"
+  承接要求: "急促处理留在本段内部完成。"
+  镜头导演交接: "必须拍完整乔熙同时处理电话和孩子；可以压缩拿外套和拉拉链完整过程；最多主镜头2-3个，辅助插入0-1个；结尾停在小豆丁扭向沙发靠背。"
+"""
+
+    monkeypatch.setattr(spi, "_persist_update", lambda state, payload: {**state, **payload})
+    monkeypatch.setattr(spi, "_llm_validate_source_events", lambda *args, **kwargs: [])
+    monkeypatch.setattr(spi, "_record_knowledge_metadata", lambda *args, **kwargs: {})
+    monkeypatch.setattr(
+        spi,
+        "query_rule_registry",
+        lambda query, agent_name, n_results: [
+            {
+                "rule_id": "RHYTHM-SHORT-ACTION-TEST",
+                "title": "急促短动作预算",
+                "text": "急促短动作应压缩到 2-5秒，多个短动作可用 5-6秒紧凑段。",
+            }
+        ],
+    )
+
+    def fake_run_story_planner(**kwargs):
+        captured["system_prompt"] = kwargs["system_prompt"]
+        captured["user_prompt"] = kwargs["user_prompt"]
+        captured["rhythm_guidance"] = kwargs["rhythm_guidance"]
+        return planner_yaml, [{"status": "success"}]
+
+    monkeypatch.setattr(spi, "_run_story_planner_with_schema_repair", fake_run_story_planner)
+
+    result = spi.rhythm_story_planner_node(
+        {
+            "script": "\n".join(
+                [
+                    "闹钟响，乔熙一把按掉。",
+                    "乔熙把手机夹在肩与耳之间，腾出双手去够小豆丁的外套。",
+                    "小豆丁坐在沙发边缘，身体往后缩，两条腿乱蹬。",
+                    "乔熙：Kiki, cover for me. I'll be right there!",
+                    "乔熙单手扯开外套拉链，另一只手试图按住小豆丁的肩。",
+                    "小豆丁整个人扭向沙发靠背。",
+                ]
+            ),
+            "director_brief": "保护乔熙赶时间的状态。",
+            "agent_outputs": {},
+            "aspect_ratio": "9:16",
+        }
+    )
+
+    prompt = str(captured["user_prompt"])
+    assert "节奏拆片导演" in str(captured["system_prompt"])
+    assert "短时间 + 密集有效事件" in prompt
+    assert "5-6秒" in prompt
+    assert "动作节奏指导" in prompt
+    assert "禁止输出任何镜头设计字段" in prompt
+    assert "story_planner" in result["agent_outputs"]
+    assert "rhythm_rewrite_director" in result["agent_outputs"]
+    assert "给镜头导演" in result["atmosphere_strategy"]
+    assert "急急忙忙" in result["atmosphere_strategy"]
+    assert result["total_segments"] == 1
+
+
+def test_rhythm_story_planner_rejects_split_domestic_scramble_cluster(monkeypatch):
+    monkeypatch.setattr(spi, "_llm_validate_source_events", lambda *args, **kwargs: [])
+    script = "\n".join(
+        [
+            "闹钟响，乔熙一把按掉。",
+            "乔熙把手机夹在肩与耳之间，腾出双手去够小豆丁的外套。",
+            "小豆丁坐在沙发边缘，身体往后缩，两条腿乱蹬。",
+            "乔熙：Kiki, cover for me. I'll be right there!",
+            "乔熙单手扯开外套拉链，另一只手试图按住小豆丁的肩。",
+        ]
+    )
+    planner_output = """
+- 片段编号: F01
+  片段任务: "乔熙关闹钟并接电话。"
+  目标时长: "5-6秒"
+  节奏类型: "快节奏"
+  事件密度判断: "闹钟和电话连续发生。"
+  动作节奏指导: "急急忙忙、动作叠压。"
+  施工剧本原文事件:
+    - "闹钟响，乔熙一把按掉。"
+    - "乔熙：Kiki, cover for me. I'll be right there!"
+  出现人物: ["乔熙"]
+  入场状态: "闹钟响。"
+  出场状态: "乔熙接通电话。"
+  承接要求: "下一段承接乔熙通话。"
+  镜头导演交接: "完整保留台词，压缩无信息停顿。"
+
+- 片段编号: F02
+  片段任务: "乔熙夹手机并处理小豆丁外套。"
+  目标时长: "5-6秒"
+  节奏类型: "快节奏"
+  事件密度判断: "手机、外套和孩子抗拒连续发生。"
+  动作节奏指导: "急急忙忙、动作叠压。"
+  施工剧本原文事件:
+    - "乔熙把手机夹在肩与耳之间，腾出双手去够小豆丁的外套。"
+    - "小豆丁坐在沙发边缘，身体往后缩，两条腿乱蹬。"
+    - "乔熙单手扯开外套拉链，另一只手试图按住小豆丁的肩。"
+  出现人物: ["乔熙", "小豆丁"]
+  入场状态: "乔熙正在通话。"
+  出场状态: "小豆丁仍在抗拒。"
+  承接要求: "无独立反应。"
+  镜头导演交接: "外套和孩子抗拒连续处理，不拖慢。"
+"""
+
+    issues = spi._validate_story_planner_output(
+        planner_output,
+        script,
+        require_rhythm_fields=True,
+    )
+
+    assert any("同一急促生活动作群" in issue for issue in issues)

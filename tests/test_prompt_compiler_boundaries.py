@@ -82,12 +82,7 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
         captured["context_hint"] = context_hint
         return base_system, {"retrieval_mode": "stub"}
 
-    def fake_call_llm_with_mcp(_system_prompt, user_prompt, **_kwargs):
-        captured["user_prompt"] = user_prompt
-        return "片段 1｜测试 Prompt\n\n【镜头序列】\n镜头1【3秒】【商北琛】中景，正面固定机位，说出台词。\n\n【约束】\n保持办公室空间。"
-
     monkeypatch.setattr(prompt_compiler_impl, "build_system_prompt", fake_build_system_prompt)
-    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fake_call_llm_with_mcp)
 
     state = {
         "active_segment_index": 1,
@@ -99,9 +94,9 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
         "reference_image_manifest": [
             {
                 "label": "@图片1",
-                "filename": "qiaoxi.png",
+                "filename": "shangbeichen.png",
                 "role": "character",
-                "purpose": "乔熙人物参考图",
+                "purpose": "商北琛人物参考图",
             },
             {
                 "label": "@图片2",
@@ -149,31 +144,28 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
     }
 
     result = prompt_compiler_impl.prompt_compiler_node(state)
+    compiled = result["agent_outputs"]["compiled_segment_1"]
 
     assert "compiled_segment_1" in result["agent_outputs"]
-    assert "fragment_id: F05" in captured["user_prompt"]
-    assert "F05-S01" in captured["user_prompt"]
-    assert "商北琛、严飞在同一办公室空间内" in captured["user_prompt"]
-    assert "单人镜只改变拍摄主体" in captured["user_prompt"]
-    assert "shot 若是新版输出，只把它当成景别、机位、视角、运镜或前景关系" in captured["user_prompt"]
-    assert "动作、表情、视线、呼吸、肩颈、手部、道具接触和台词落点必须主要来自 action" in captured["user_prompt"]
-    assert "coverage_role / 覆盖职责" in captured["user_prompt"]
-    assert "companion_visibility / 同场人物位置" in captured["user_prompt"]
-    assert "tailframe_role / 尾帧职责" in captured["user_prompt"]
-    assert "承载商北琛压迫发言" in captured["user_prompt"]
-    assert "【最终 Prompt 开头必须输出的参考图说明】" in captured["user_prompt"]
-    assert "@图片1 是人物参考图：乔熙人物参考图（qiaoxi.png）" in captured["user_prompt"]
-    assert "@图片2 是场景参考图：办公室场景参考图（office.png）" in captured["user_prompt"]
-    assert "@图片3 是上一段实际尾帧/抽帧参考图" in captured["user_prompt"]
-    assert "严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌" in captured["user_prompt"]
-    assert "fragment_id: F01" not in captured["user_prompt"]
+    assert "【风格锚点】" in compiled
+    assert "【画幅锚点】" in compiled
+    assert "【空间与首帧总控】" in compiled
+    assert "【人物】" in compiled
+    assert "【镜头序列】" in compiled
+    assert "【约束】" in compiled
+    assert "商北琛、严飞在同一办公室空间内" in compiled
+    assert "单人镜只改变拍摄主体" in compiled
+    assert "镜头1【0-3秒】【商北琛】" in compiled
+    assert "承载商北琛压迫发言" in compiled
+    assert "严飞保持在办公桌对面画外右侧" in compiled
+    assert "交给严飞反应镜头承接" in compiled
+    assert "【参考图说明】" not in compiled
+    assert "@图片" not in compiled
+    assert "严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌" in compiled
+    assert "fragment_id: F01" not in compiled
 
 
-def test_prompt_compiler_uses_local_fallback_after_llm_failure(monkeypatch) -> None:
-    def fail_call_llm_with_mcp(*_args, **_kwargs):
-        raise RuntimeError("LLM gateway failed")
-
-    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fail_call_llm_with_mcp)
+def test_prompt_compiler_uses_deterministic_shot_director_handoff(monkeypatch) -> None:
     monkeypatch.setattr(
         prompt_compiler_impl,
         "_persist_update",
@@ -219,8 +211,7 @@ def test_prompt_compiler_uses_local_fallback_after_llm_failure(monkeypatch) -> N
     assert "compiled_segment_1" in outputs
     assert "Alex looks at Blair" in outputs["compiled_segment_1"]
     assert "local fallback reason" not in outputs["compiled_segment_1"]
-    assert "prompt_compiler_fallback_seg01" in outputs
-    assert "LLM gateway failed" in outputs["prompt_compiler_fallback_seg01"]
+    assert "prompt_compiler_fallback_seg01" not in outputs
     assert result["step"] == "step_5_inspect"
 
 
@@ -277,8 +268,9 @@ def test_prompt_compiler_local_fallback_scrubs_internal_english_terms() -> None:
     assert "竖屏中景双人关系镜头" in compiled
     assert "固定机位" in compiled
     assert "【镜头序列】" in compiled
-    assert "【参考图说明】" in compiled
-    assert "无参考图；不得编造 @图片 占位。" in compiled
+    assert "【参考图说明】" not in compiled
+    assert "【风格锚点】" in compiled
+    assert "参考图只作为隐性约束" in compiled
     assert "镜头1【0-3秒】【乔熙、小豆丁】" in compiled
     assert "建立闹钟被按掉、电话免提和两人位置关系" in compiled
     assert "Sunny, wake up." in compiled
@@ -288,7 +280,7 @@ def test_prompt_compiler_local_fallback_scrubs_internal_english_terms() -> None:
     assert "本镜新增变化：手机从闹钟状态变为免提通话状态" in compiled
     assert "尾帧交给：把乔熙和小豆丁同处茶几旁的位置交给下一镜" in compiled
     assert "闹钟停下且手机放稳后切到孩子动作" in compiled
-    assert "→镜头" in compiled
+    assert "切至镜头2" in compiled
     assert "无可用上一段尾帧" in compiled
     assert "relationship shot" not in compiled
     assert "stable camera" not in compiled
@@ -300,6 +292,44 @@ def test_prompt_compiler_local_fallback_scrubs_internal_english_terms() -> None:
     assert "coverage_role:" not in compiled
     assert "tailframe_role:" not in compiled
     assert "严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌" in compiled
+
+
+def test_prompt_compiler_local_fallback_uses_planner_target_duration() -> None:
+    compiled = prompt_compiler_impl._build_local_compiled_prompt(
+        segment_index=1,
+        total_segments=1,
+        aspect_label="9:16竖屏",
+        planner_segment=(
+            "- 片段编号: F01\n"
+            "  目标时长: 5-6秒\n"
+            "  施工剧本原文事件:\n"
+            "    - 闹钟响，乔熙一把按掉。\n"
+            "    - 乔熙把手机夹在肩与耳之间，腾出双手去够小豆丁的外套。\n"
+        ),
+        director_segment=(
+            "片段编号: F01\n"
+            "镜头列表:\n"
+            "  - 镜头编号: F01-S01\n"
+            "    时长: 2秒\n"
+            "    镜头任务: 承载闹钟和手机动作\n"
+            "    拍摄主体: 乔熙\n"
+            "    镜头: 中景固定机位\n"
+            "    画面动作: 乔熙一把按掉闹钟并夹住手机。\n"
+            "  - 镜头编号: F01-S02\n"
+            "    时长: 3.5秒\n"
+            "    镜头任务: 承载外套和小豆丁抗拒\n"
+            "    拍摄主体: 乔熙、小豆丁\n"
+            "    镜头: 双人关系景\n"
+            "    画面动作: 乔熙急忙够外套，小豆丁乱蹬。\n"
+        ),
+        script_context="闹钟响，乔熙一把按掉。",
+        tail_frame_memory="",
+        reference_context="",
+        failure=RuntimeError("LLM gateway failed"),
+    )
+
+    assert compiled.startswith("片段1｜本地兜底编译｜已确认事件｜5-6秒")
+    assert "｜~9秒" not in compiled
 
 
 def test_seedance_reference_prompt_block_labels_reference_roles() -> None:
@@ -324,6 +354,61 @@ def test_seedance_reference_prompt_block_labels_reference_roles() -> None:
     assert "空间结构、固定家具/道具、光线方向" in block
     assert "@图片3 是上一段实际尾帧/抽帧参考图" in block
     assert "本段首帧承接" in block
+
+
+def test_seedance_reference_prompt_block_does_not_treat_scene_layout_as_tail_frame() -> None:
+    block = prompt_compiler_impl._seedance_reference_prompt_block(
+        {
+            "reference_image_manifest": [
+                {
+                    "label": "@图片12",
+                    "filename": "scene_layout_01.png",
+                    "role": "scene_layout",
+                    "type": "scene_layout",
+                    "purpose": "集团门口场景俯视布局图；运动过程由片段出入场状态和视频尾帧承接",
+                },
+            ]
+        }
+    )
+
+    assert "@图片12 是场景参考图" in block
+    assert "上一段实际尾帧/抽帧参考图" not in block
+
+
+def test_seedance_reference_prompt_block_filters_to_current_segment_context() -> None:
+    state = {
+        "reference_image_manifest": [
+            {"label": "@图片1", "filename": "集团门口.png", "role": "scene", "purpose": "自动匹配场景参考图：集团门口"},
+            {"label": "@图片2", "filename": "乔熙公寓-客厅.png", "role": "scene", "purpose": "自动匹配场景参考图：乔熙公寓-客厅"},
+            {"label": "@图片3", "filename": "商北琛.png", "role": "character", "purpose": "商北琛人物参考"},
+            {
+                "label": "@图片4",
+                "filename": "scene_layout_02.png",
+                "role": "scene_layout",
+                "type": "scene_layout",
+                "name": "@图片2｜乔熙公寓-客厅.png｜自动匹配场景参考图：乔熙公寓-客厅",
+                "purpose": "乔熙公寓-客厅场景俯视布局图；运动过程由片段出入场状态和视频尾帧承接",
+            },
+            {
+                "label": "@图片5",
+                "filename": "seg01_tail.jpg",
+                "role": "previous_segment_tail_frame",
+                "purpose": "上一段尾帧",
+            },
+        ]
+    }
+
+    block = prompt_compiler_impl._seedance_reference_prompt_block(
+        state,
+        segment_index=1,
+        current_context="片段1｜乔熙公寓｜闹钟铃响。场景：乔熙公寓-客厅。主体：闹钟。",
+    )
+
+    assert "@图片2 是场景参考图" in block
+    assert "@图片4 是场景参考图" in block
+    assert "集团门口" not in block
+    assert "商北琛" not in block
+    assert "上一段实际尾帧/抽帧参考图" not in block
 
 
 def test_shot_director_local_fallback_uses_chinese_director_language() -> None:
@@ -376,10 +461,10 @@ def test_shot_director_local_fallback_skips_planner_metadata_events() -> None:
 
 
 def test_prompt_compiler_handles_chinese_shot_director_fallback(monkeypatch) -> None:
-    def fail_call_llm_with_mcp(*_args, **_kwargs):
+    def fail_call_llm(*_args, **_kwargs):
         raise RuntimeError("LLM gateway failed")
 
-    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fail_call_llm_with_mcp)
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm", fail_call_llm)
     monkeypatch.setattr(
         prompt_compiler_impl,
         "_persist_update",
@@ -424,10 +509,10 @@ def test_prompt_compiler_handles_chinese_shot_director_fallback(monkeypatch) -> 
 
 
 def test_prompt_compiler_accepts_legacy_local_shot_fallback_marker(monkeypatch) -> None:
-    def fail_call_llm_with_mcp(*_args, **_kwargs):
+    def fail_call_llm(*_args, **_kwargs):
         raise RuntimeError("LLM gateway failed")
 
-    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fail_call_llm_with_mcp)
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm", fail_call_llm)
     monkeypatch.setattr(
         prompt_compiler_impl,
         "_persist_update",

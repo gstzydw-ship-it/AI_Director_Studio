@@ -483,6 +483,9 @@ class TestGraphIntegration:
 
         graph = create_director_graph()
         edges = list(graph.edges)
+        assert ("director_showrunner", "story_planner") in edges
+        assert "rhythm_rewrite_director" not in graph.nodes
+        assert ("director_showrunner", "rhythm_rewrite_director") not in edges
         assert ("story_planner", "wait_for_segment_request") in edges
         assert ("shot_director", "storyboard_designer") not in edges
         assert ("storyboard_designer", "wait_for_segment_request") not in edges

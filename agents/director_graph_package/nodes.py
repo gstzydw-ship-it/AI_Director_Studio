@@ -29,6 +29,10 @@ def story_planner_node(state: Any) -> Any:
     return _story_planner_impl.story_planner_node(state)
 
 
+def rhythm_story_planner_node(state: Any) -> Any:
+    return _story_planner_impl.rhythm_story_planner_node(state)
+
+
 def shot_director_node(state: Any) -> Any:
     return _shot_director_impl.shot_director_node(state)
 
@@ -63,6 +67,7 @@ __all__ = [
     "director_showrunner_node",
     "scene_analyst_node",
     "story_planner_node",
+    "rhythm_story_planner_node",
     "shot_director_node",
     "wait_for_segment_request_node",
     "prompt_compiler_node",

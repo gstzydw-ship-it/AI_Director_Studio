@@ -50,6 +50,7 @@ _PUBLIC_EXPORTS = {
     "build_system_prompt",
     "create_director_graph",
     "rhythm_rewrite_director_node",
+    "rhythm_story_planner_node",
     "director_showrunner_node",
     "scene_analyst_node",
     "story_planner_node",

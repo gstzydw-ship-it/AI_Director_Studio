@@ -42,7 +42,7 @@ REVIEW_AGENT_LABELS = {
     "director_showrunner": "剧情增强",
     "rhythm_rewrite_director": "节奏总控",
     "scene_analyst": "场景预分析",
-    "story_planner": "结构规划",
+    "story_planner": "节奏拆片",
     "shot_director": "镜头导演",
     "storyboard_designer": "分镜流程图",
     "prompt_compiler": "Seedance编译",
@@ -62,7 +62,7 @@ REVIEW_AGENT_STEPS = {
 
 NEXT_REVIEW_AGENT_AFTER_APPROVAL = {
     "scene_analyst": "director_showrunner",
-    "director_showrunner": "rhythm_rewrite_director",
+    "director_showrunner": "story_planner",
     "rhythm_rewrite_director": "story_planner",
     "story_planner": "prompt_compiler",
     "shot_director": "storyboard_designer",
@@ -73,7 +73,7 @@ NEXT_REVIEW_AGENT_AFTER_APPROVAL = {
 _NEXT_NODE_TO_REVIEW_AGENT = {
     "director_showrunner": "scene_analyst",
     "rhythm_rewrite_director": "director_showrunner",
-    "story_planner": "rhythm_rewrite_director",
+    "story_planner": "director_showrunner",
     "shot_director": "story_planner",
     "storyboard_designer": "shot_director",
     "wait_for_segment_request": "story_planner",
@@ -88,8 +88,8 @@ PHASE_1_RERUN_AGENTS = {
 }
 
 _PHASE_1_RERUN_NEXT_NODES = {
-    "director_showrunner": ("rhythm_rewrite_director",),
-    "rhythm_rewrite_director": ("story_planner",),
+    "director_showrunner": ("story_planner",),
+    "rhythm_rewrite_director": ("wait_for_segment_request",),
     "story_planner": ("wait_for_segment_request",),
 }
 
@@ -279,7 +279,7 @@ def rerun_phase_1_agent(agent: str) -> Any:
     if agent not in PHASE_1_RERUN_AGENTS:
         raise RuntimeError(f"Unsupported phase-1 rerun agent: {agent or '<empty>'}")
 
-    from .nodes import director_showrunner_node, rhythm_rewrite_director_node, story_planner_node
+    from .nodes import director_showrunner_node, rhythm_story_planner_node
 
     state = _load_runner_state()
     if not state:
@@ -290,8 +290,8 @@ def rerun_phase_1_agent(agent: str) -> Any:
         raise RuntimeError("Missing scene analysis output; cannot rerun story enhancement.")
     if agent == "rhythm_rewrite_director" and not outputs.get("director_showrunner"):
         raise RuntimeError("Missing story enhancement output; cannot rerun rhythm strategy.")
-    if agent == "story_planner" and not outputs.get("rhythm_rewrite_director"):
-        raise RuntimeError("Missing rhythm strategy output; cannot rerun story planning.")
+    if agent == "story_planner" and not outputs.get("director_showrunner"):
+        raise RuntimeError("Missing story enhancement output; cannot rerun rhythm story planning.")
 
     working_state = _clear_phase_1_downstream_state(dict(state), agent)
     working_state["status"] = "running_phase_1"
@@ -302,8 +302,8 @@ def rerun_phase_1_agent(agent: str) -> Any:
 
     node_by_agent = {
         "director_showrunner": director_showrunner_node,
-        "rhythm_rewrite_director": rhythm_rewrite_director_node,
-        "story_planner": story_planner_node,
+        "rhythm_rewrite_director": rhythm_story_planner_node,
+        "story_planner": rhythm_story_planner_node,
     }
     result = node_by_agent[agent](working_state)
     reviewed = _mark_human_review_state(dict(result), _PHASE_1_RERUN_NEXT_NODES[agent])
@@ -608,7 +608,7 @@ def _run_phase_2_until_review(
 
 
 def _resume_phase_1_review_direct(state: dict[str, Any], agent: str, edited: str) -> Any:
-    from .nodes import director_showrunner_node, rhythm_rewrite_director_node, story_planner_node
+    from .nodes import director_showrunner_node, rhythm_story_planner_node, story_planner_node
 
     working_state = _apply_human_review_edit(dict(state), agent, edited)
     working_state["human_review_enabled"] = True
@@ -618,13 +618,13 @@ def _resume_phase_1_review_direct(state: dict[str, Any], agent: str, edited: str
         update = director_showrunner_node(working_state)
         working_state = _merge_state_update(working_state, update)
         working_state["human_review_enabled"] = True
-        return _mark_human_review_state(dict(working_state), ("rhythm_rewrite_director",))
+        return _mark_human_review_state(dict(working_state), ("story_planner",))
 
     if agent == "director_showrunner":
-        update = rhythm_rewrite_director_node(working_state)
+        update = rhythm_story_planner_node(working_state)
         working_state = _merge_state_update(working_state, update)
         working_state["human_review_enabled"] = True
-        return _mark_human_review_state(dict(working_state), ("story_planner",))
+        return _mark_human_review_state(dict(working_state), ("wait_for_segment_request",))
 
     if agent == "rhythm_rewrite_director":
         update = story_planner_node(working_state)

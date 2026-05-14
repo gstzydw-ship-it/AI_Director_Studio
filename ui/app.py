@@ -295,6 +295,7 @@ _AGENT_KEY_MAP = {
     "剧情增强导演": "director_showrunner",
     "总导演统筹": "director_showrunner",
     "节奏总控导演": "rhythm_rewrite_director",
+    "节奏拆片导演": "story_planner",
     "场景分析师": "scene_analyst",
     "结构规划师": "story_planner",
     "镜头导演": "shot_director",
@@ -305,10 +306,10 @@ _AGENT_KEY_MAP = {
 
 _AGENT_DISPLAY_NAMES = {
     "director_showrunner": "📝 剧情增强",
-    "rhythm_rewrite_director": "🎼 节奏改写",
+    "rhythm_rewrite_director": "🎬 节奏拆片摘要",
     "scene_analyst": "📋 场景预分析",
     "scene_vision_analyst": "📷 场景视觉分析",
-    "story_planner": "🎬 结构规划",
+    "story_planner": "🎬 节奏拆片导演",
     "shot_director": "🎥 镜头设计",
     "storyboard_designer": "🎨 分镜流程图",
     "prompt_compiler": "✍️ Seedance Prompt",
@@ -713,13 +714,13 @@ def _recover_stale_running_state(session_id: str, state: dict) -> bool:
 _load_latest_results_on_startup()
 
 _STEP_LABELS = {
-    "场景分析师":  ("step_0_scene",    "📋 场景预分析正在读取参考图、人物站位和空间信息...（1/8）"),
-    "剧情增强导演":  ("step_0_enhance", "📝 剧情增强导演正在按场景约束增强剧本...（2/8）"),
-    "节奏总控导演":  ("step_0_rhythm",  "🎼 节奏总控导演正在改写剧本...（3/8）"),
-    "结构规划师":  ("step_2_plan",     "🎬 结构规划师正在拆片规划...（4/8）"),
-    "镜头导演":    ("step_3_direct",   "🎥 镜头导演正在设计分镜...（5/8）"),
-    "Seedance编译师": ("step_4_compile", "✍️ Seedance编译师正在生成Prompt...（7/8）"),
-    "质检导演":    ("step_5_inspect",  "🔍 质检导演正在审查产物...（8/8）"),
+    "场景分析师":  ("step_0_scene",    "📋 场景预分析正在读取参考图、人物站位和空间信息...（1/7）"),
+    "剧情增强导演":  ("step_0_enhance", "📝 剧情增强导演正在按场景约束增强剧本...（2/7）"),
+    "节奏总控导演":  ("step_2_plan",    "🎼 节奏拆片导演正在判断快慢、时长和片段边界...（3/7）"),
+    "结构规划师":  ("step_2_plan",     "🎬 节奏拆片导演正在输出片段施工清单...（3/7）"),
+    "镜头导演":    ("step_3_direct",   "🎥 镜头导演正在设计分镜...（4/7）"),
+    "Seedance编译师": ("step_4_compile", "✍️ Seedance编译师正在生成Prompt...（6/7）"),
+    "质检导演":    ("step_5_inspect",  "🔍 质检导演正在审查产物...（7/7）"),
 }
 
 
@@ -2715,9 +2716,9 @@ async def api_rerun_phase1_agent(
     if agent_name == "director_showrunner" and not (outputs.get("scene_analyst") or task_state.get("scene_context_brief")):
         return JSONResponse({"success": False, "error": "缺少场景预分析结果，无法只重跑剧情增强。"})
     if agent_name == "rhythm_rewrite_director" and not outputs.get("director_showrunner"):
-        return JSONResponse({"success": False, "error": "缺少剧情增强结果，无法只重跑节奏策略。"})
-    if agent_name == "story_planner" and not outputs.get("rhythm_rewrite_director"):
-        return JSONResponse({"success": False, "error": "缺少节奏策略结果，无法只重跑拆片规划。"})
+        return JSONResponse({"success": False, "error": "缺少剧情增强结果，无法重跑节奏拆片。"})
+    if agent_name == "story_planner" and not outputs.get("director_showrunner"):
+        return JSONResponse({"success": False, "error": "缺少剧情增强结果，无法重跑节奏拆片。"})
 
     label = _AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
     task_generation = _bump_task_generation(session_id)
@@ -2748,12 +2749,13 @@ async def api_retry_shot_director(
     session_id: str = Form(DEFAULT_SESSION_ID),
     script: str = Form(""),
     force_restart: bool = Form(False),
+    allow_script_update: bool = Form(False),
 ):
     """Resume or restart the shot director from the best persisted checkpoint.
     
-    If a new script is provided and differs from the previous one, clear the
-    story_planner output and re-run the full Phase 1 pipeline (rhythm rewrite,
-    scene analysis, story planning) before running shot director.
+    The shot-director retry path reuses the saved story plan by default.  A
+    caller must explicitly opt in to script updates before this endpoint clears
+    story_planner and restarts the full Phase 1 pipeline.
     """
     session_id = _normalise_session_id(session_id)
     _refresh_task_state_from_disk(session_id)
@@ -2763,12 +2765,12 @@ async def api_retry_shot_director(
 
     outputs = task_state.get("agent_outputs") or {}
     if not outputs.get("story_planner"):
-        return JSONResponse({"success": False, "error": "缺少结构规划输出，无法续跑镜头导演。"})
+        return JSONResponse({"success": False, "error": "缺少节奏拆片输出，无法续跑镜头导演。"})
     force_restart = force_restart or bool(outputs.get("shot_director") or outputs.get("shot_director_final"))
 
     # 检测剧本是否发生变化
     script_changed = False
-    if not force_restart and script and script.strip():
+    if allow_script_update and not force_restart and script and script.strip():
         old_script = task_state.get("input_script", "")
         disk_state = load_state()
         if disk_state:
@@ -2971,7 +2973,7 @@ async def api_retry_shot_director(
             "message": (
                 "已从镜头导演中间产物继续执行"
                 if has_layout_checkpoint
-                else "已从结构规划继续执行镜头导演"
+                else "已从节奏拆片继续执行镜头导演"
             ),
         }
     )
@@ -3482,11 +3484,11 @@ def _is_real_api_key(value: object) -> bool:
 
 AGENT_LABELS: dict[str, str] = {
     "director_showrunner": "剧情增强",
-    "rhythm_rewrite_director": "节奏总控",
+    "rhythm_rewrite_director": "节奏拆片摘要",
     "scene_analyst": "场景预分析",
     "scene_vision_analyst": "场景视觉分析",
     "scene_card_designer": "场景俯视/九宫格生图",
-    "story_planner": "拆片规划",
+    "story_planner": "节奏拆片导演",
     "shot_director": "三段镜头导演",
     "prompt_compiler": "Seedance 编译",
     "quality_inspector": "质检报告",
@@ -3505,7 +3507,6 @@ AGENT_CATEGORIES: dict[str, str] = {
 
 AGENT_MODEL_UI_NAMES: tuple[str, ...] = (
     "director_showrunner",
-    "rhythm_rewrite_director",
     "scene_analyst",
     "scene_vision_analyst",
     "story_planner",

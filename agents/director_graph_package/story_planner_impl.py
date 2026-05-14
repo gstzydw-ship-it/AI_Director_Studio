@@ -110,7 +110,8 @@ def _story_planner_granularity_rules() -> str:
         "6. 反应归属只做高层判断：留在本段、下一段承接、无须独立反应；不要替镜头导演设计具体镜头。\n"
         "7. 一个片段只承担一个核心剧情任务；若同一段里同时包含入场、对白、群体反应、道具动作、空间变化、情绪重音，应优先拆开，而不是把所有任务压进一个片段。\n"
         "8. 大动作优先拆成连续小任务链，例如进入门缝→撞上→扶住→停住；不要把复杂动作整包塞成一句笼统事件后再期待下游补救。\n"
-        "9. 文戏/情绪戏/对白戏优先保持可延长的连续段；武戏/高动作冲突戏优先拆成可拼接的短段。\n"
+        "9. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，若没有完整发言、信息揭示或明确反应落点，目标时长必须压到 2-5秒；不要写成 8-10秒。\n"
+        "10. 文戏/情绪戏/对白戏优先保持可延长的连续段；武戏/高动作冲突戏优先拆成可拼接的短段。\n"
     )
 
 def _extract_yaml_sections(yaml_text: str) -> list[str]:
@@ -355,6 +356,144 @@ def _source_script_events(section: str) -> list[str]:
         if item.strip()
     ]
 
+_URGENT_SHORT_ACTION_RE = re.compile(
+    r"急促|小跑|快步|冲|闯|赶|跑|扑|撞|追|抢|打断|推开|拉开|踉跄|摔|"
+    r"开门|进门|出门|上车|下车|电梯|门口|聚拢|列队|整理仪表"
+)
+
+_DURATION_EXTENSION_REASON_RE = re.compile(
+    r"长台词|长对白|质问|命令|信息揭示|发现|看清|照片|受击|反转|停住|愣"
+)
+
+_NO_REACTION_RE = re.compile(r"无需独立反应|无须独立反应|不涉及独立反应|无受击|无需反应|无须反应")
+
+_DURATION_SECONDS_RE = re.compile(
+    r"(\d+(?:\.\d+)?)\s*(?:[-—–~～至到]\s*(\d+(?:\.\d+)?))?\s*(?:秒|s)\b",
+    re.IGNORECASE,
+)
+
+_DOMESTIC_SCRAMBLE_MARKERS = (
+    ("闹钟", "alarm"),
+    ("手机", "phone"),
+    ("外套", "coat", "jacket"),
+    ("小豆丁", "孩子", "kid", "child"),
+)
+
+def _duration_upper_seconds(text: str) -> float | None:
+    values: list[float] = []
+    for match in _DURATION_SECONDS_RE.finditer(text or ""):
+        values.append(float(match.group(1)))
+        if match.group(2) is not None:
+            values.append(float(match.group(2)))
+    return max(values) if values else None
+
+def _has_duration_extension_reason(text: str) -> bool:
+    normalized = _NO_REACTION_RE.sub("", text or "")
+    return bool(_DURATION_EXTENSION_REASON_RE.search(normalized))
+
+def _story_planner_duration_contract_issues(planner_output: str) -> list[str]:
+    sections = _extract_yaml_sections(planner_output)
+    issues: list[str] = []
+    for section in sections:
+        fragment_id = _extract_fragment_id(section) or "unknown"
+        duration = _field_value(section, "duration_target")
+        upper_seconds = _duration_upper_seconds(duration)
+        if upper_seconds is None or upper_seconds <= 6:
+            continue
+
+        event_text = "\n".join(_source_script_events(section))
+        combined_text = "\n".join(
+            part
+            for part in (
+                event_text,
+                _field_value(section, "dramatic_unit"),
+                _field_value(section, "reaction_plan"),
+                duration,
+            )
+            if part
+        )
+        if not _URGENT_SHORT_ACTION_RE.search(combined_text):
+            continue
+        if _has_duration_extension_reason(combined_text):
+            continue
+
+        issues.append(
+            f"{fragment_id} 是急促短动作但目标时长为 {duration}；"
+            "无长对白、信息揭示或明确反应落点时必须压到 2-5秒，多个短动作叠加也应控制在 5-6秒，不能写成慢动作段。"
+        )
+    return issues
+
+def _rhythm_planning_contract_issues(planner_output: str) -> list[str]:
+    sections = _extract_yaml_sections(planner_output)
+    issues: list[str] = []
+    for section in sections:
+        fragment_id = _extract_fragment_id(section) or "unknown"
+        required_fields = (
+            ("节奏类型", ("节奏类型",)),
+            ("事件密度判断", ("事件密度判断",)),
+            ("动作节奏指导", ("动作节奏指导",)),
+        )
+        for display_name, aliases in required_fields:
+            if not _has_planner_field_alias(section, aliases):
+                issues.append(f"{fragment_id} 缺少字段 {display_name}。")
+
+        rhythm_type = _field_value(section, "节奏类型")
+        action_rhythm = _field_value(section, "动作节奏指导")
+        if rhythm_type and "快" in rhythm_type:
+            duration = _field_value(section, "duration_target")
+            upper_seconds = _duration_upper_seconds(duration)
+            if upper_seconds is not None and upper_seconds > 6:
+                issues.append(
+                    f"{fragment_id} 标记为快节奏但目标时长为 {duration}；"
+                    "这类短动作密集段必须压到 5-6秒以内。"
+                )
+            if action_rhythm and not re.search(r"急|忙|叠|短促|紧凑|抢时间", action_rhythm):
+                issues.append(f"{fragment_id} 的动作节奏指导没有明确急忙、叠压或短促执行。")
+    return issues
+
+def _story_planner_fast_cluster_merge_issues(planner_output: str) -> list[str]:
+    sections = _extract_yaml_sections(planner_output)
+    if len(sections) <= 1:
+        return []
+
+    combined_text = "\n".join(
+        "\n".join(
+            part
+            for part in (
+                _field_value(section, "dramatic_unit"),
+                _field_value(section, "duration_target"),
+                _field_value(section, "节奏类型"),
+                _field_value(section, "事件密度判断"),
+                _field_value(section, "动作节奏指导"),
+                "\n".join(_source_script_events(section)),
+            )
+            if part
+        )
+        for section in sections
+    )
+    lowered = combined_text.lower()
+    marker_hits = sum(any(marker.lower() in lowered for marker in markers) for markers in _DOMESTIC_SCRAMBLE_MARKERS)
+    if marker_hits < 4:
+        return []
+    if _has_duration_extension_reason(combined_text):
+        return []
+
+    fast_sections = [
+        section
+        for section in sections
+        if "快" in _field_value(section, "节奏类型")
+        and (_duration_upper_seconds(_field_value(section, "duration_target")) or 0) <= 6
+    ]
+    if len(fast_sections) < 2:
+        return []
+
+    first_id = _extract_fragment_id(fast_sections[0]) or "unknown"
+    last_id = _extract_fragment_id(fast_sections[-1]) or "unknown"
+    return [
+        f"{first_id}-{last_id} 属于同一急促生活动作群（闹钟/手机/外套/孩子抗拒），但被拆成多个连续快节奏短段；"
+        "这类短动作群应优先合并为一个 5-6秒 紧凑段，并在动作节奏指导中写明急急忙忙、动作叠压。"
+    ]
+
 def _llm_validate_source_events(
     sections: list[str], script: str
 ) -> list[str]:
@@ -529,7 +668,12 @@ def _run_story_planner_agent_validator(
         "elapsed_seconds": round(time.perf_counter() - started, 3),
     }
 
-def _validate_story_planner_output(planner_output: str, script: str = "") -> list[str]:
+def _validate_story_planner_output(
+    planner_output: str,
+    script: str = "",
+    *,
+    require_rhythm_fields: bool = False,
+) -> list[str]:
     issues: list[str] = []
     sections = _extract_yaml_sections(planner_output)
     if not sections:
@@ -554,6 +698,10 @@ def _validate_story_planner_output(planner_output: str, script: str = "") -> lis
                 issues.append(f"{fragment_id} 缺少字段 {display_name}。")
 
     issues.extend(_story_planner_fragment_granularity_issues(planner_output))
+    issues.extend(_story_planner_duration_contract_issues(planner_output))
+    if require_rhythm_fields:
+        issues.extend(_rhythm_planning_contract_issues(planner_output))
+        issues.extend(_story_planner_fast_cluster_merge_issues(planner_output))
 
     # 剧本外事件语义审查（大模型批量审查，放在 per-section 循环之后）
     if source_script:
@@ -578,12 +726,15 @@ def _story_planner_repair_prompt(
         "【修复硬约束】\n"
         "1. 只输出 YAML，不要解释、不要 Markdown 代码围栏、不要前后说明。\n"
         "2. 片段编号必须从 F01 开始顺序递增，不能跳号，不能使用场次号或复合编号。\n"
-        "3. 每个片段只需要包含：片段编号、片段任务、目标时长、施工剧本原文事件、出现人物、入场状态、出场状态、承接要求、镜头导演交接。\n"
+        "3. 每个片段只需要包含：片段编号、片段任务、目标时长、节奏类型、事件密度判断、动作节奏指导、施工剧本原文事件、出现人物、入场状态、出场状态、承接要求、镜头导演交接。\n"
         "4. 禁止输出镜头、机位、景别、子分镜、剧情解释、场景预分析简表、剧情增强约束或风险长说明。\n"
         "5. 施工剧本原文事件必须逐条引用【当前施工剧本】中的原文，不能概括、改写或新增剧本外动作。\n"
         "6. 只做分段，不做分镜；不要写 shots、shot_id、sub_shots、camera、angle、beat_design。\n"
         "7. 按 15 秒估算：普通对白段约 6-8 条原文事件；动作密集段约 2-4 条原文事件；一句完整台词或一个未完成动作不要从中间拆。\n"
-        "8. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本重建完整 YAML。\n\n"
+        "8. 每个片段必须补齐 节奏类型、事件密度判断、动作节奏指导；动作节奏指导必须明确急忙/叠压/短促/慢处理等执行状态。\n"
+        "9. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，若没有长对白、信息揭示或明确反应落点，目标时长必须压到 2-5秒；多个短动作叠加也应控制在 5-6秒，禁止写成 8-10秒。\n"
+        "10. 闹钟/手机/外套/孩子抗拒这类同一生活动作群若被拆成多个连续快节奏短段，应合并为一个 5-6秒 紧凑段，除非有长对白、信息揭示、场景转换或明确反应落点。\n"
+        "11. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本重建完整 YAML。\n\n"
         f"【节奏总控施工指令】\n{_truncate_for_prompt(rhythm_guidance or 'none', 2400)}\n\n"
         f"【当前施工剧本】\n{original_script}\n\n"
         f"【上一轮无效输出】\n{_truncate_for_prompt(previous_output, 9000)}\n\n"
@@ -668,7 +819,6 @@ def _story_planner_local_fallback_after_error(
             validation_issues=planner_issues[:40],
             upstream_error=str(error)[:800],
             path="local_verbatim_script_fallback",
-            mcp_enabled=False,
         )
     )
     if planner_issues:
@@ -682,6 +832,7 @@ def _run_story_planner_with_schema_repair(
     original_script: str,
     scene_output: str,
     rhythm_guidance: str = "",
+    require_rhythm_fields: bool = False,
 ) -> tuple[str, list[dict[str, Any]]]:
     """Run story_planner and give it one focused repair pass on schema failure."""
     attempts: list[dict[str, Any]] = []
@@ -703,7 +854,6 @@ def _run_story_planner_with_schema_repair(
                     error=exc,
                     attempt=attempt_index,
                     path="direct_llm_only",
-                    mcp_enabled=False,
                 )
             )
             fallback_result = _story_planner_local_fallback_after_error(
@@ -720,7 +870,11 @@ def _run_story_planner_with_schema_repair(
             raise RuntimeError(f"story_planner 结构修复调用失败，仍未得到可校验 YAML：{exc}") from exc
 
         output = _normalise_story_planner_output(raw_output, original_script)
-        planner_issues = _validate_story_planner_output(output, original_script)
+        planner_issues = _validate_story_planner_output(
+            output,
+            original_script,
+            require_rhythm_fields=require_rhythm_fields,
+        )
         soft_issues = _story_planner_soft_validation_issues(output) if not planner_issues else []
         agent_validation: dict[str, Any] = {"status": "skip", "issues": []}
         if soft_issues:
@@ -747,7 +901,6 @@ def _run_story_planner_with_schema_repair(
                 soft_validation_issues=soft_issues[:40],
                 agent_validation=agent_validation,
                 path="direct_llm_only",
-                mcp_enabled=False,
             )
         )
 
@@ -845,6 +998,146 @@ def _extract_rhythm_story_planner_notes(atmosphere_strategy: str) -> str:
     )
     return legacy or text
 
+def _build_rhythm_handoff_from_planner_output(planner_output: str) -> str:
+    sections = _extract_yaml_sections(planner_output or "")
+    lines = [
+        "节奏诊断:",
+        "  - 节奏拆片导演已在同一次推理中完成节奏判断和片段拆分，避免二次翻译拉长动作节奏。",
+        "给镜头导演:",
+    ]
+    for section in sections:
+        fragment_id = _extract_fragment_id(section) or "unknown"
+        task = _field_value(section, "dramatic_unit") or "当前片段"
+        duration = _field_value(section, "duration_target") or "按片段目标时长执行"
+        rhythm_type = _field_value(section, "节奏类型") or "按片段任务判断"
+        density = _field_value(section, "事件密度判断") or "按施工剧本原文事件密度执行"
+        action_rhythm = _field_value(section, "动作节奏指导") or "按原文动作速度执行，不额外拖慢。"
+        handoff = _field_value(section, "director_brief") or _infer_shot_director_handoff(section)
+        lines.extend(
+            [
+                f"  - 片段: {fragment_id}",
+                f"    片段任务: {task}",
+                f"    目标时长: {duration}",
+                f"    节奏类型: {rhythm_type}",
+                f"    事件密度判断: {density}",
+                f"    动作节奏指导: {action_rhythm}",
+                f"    镜头导演交接: {handoff}",
+            ]
+        )
+    if not sections:
+        lines.append("  - 无可解析片段；以 story_planner 输出为准。")
+    lines.append("风险提醒: 节奏指导不是新增剧情来源；若与施工剧本原文事件冲突，必须以原文事件为准。")
+    return "\n".join(lines)
+
+def _rhythm_story_planner_system_prompt() -> str:
+    return (
+        "你是节奏拆片导演，合并承担原节奏总控导演和结构规划师的职责。\n"
+        "你的工作是分析当前施工剧本，直接拆成给镜头导演使用的片段清单，并在每个片段内写清节奏预算、动作节奏和镜头导演交接。\n"
+        "你不能和镜头导演混同：禁止设计具体镜头、机位、景别、焦段、运镜、子分镜或镜头方案。\n"
+        "快节奏的定义是短时间 + 密集有效事件 + 短动作连续发生；不是把很多短动作拉长到 8-10 秒慢慢演。\n"
+        "急促动作、短位移、冲入、小跑聚拢、闹钟按掉、夹手机、够外套、扯拉链、按肩、开门入场、上下车或电梯进出，"
+        "如果没有完整发言、信息揭示或明确反应落点，通常应压到 2-5秒；多短动作叠加但都很短时可用 5-6秒紧凑段。\n"
+        "同一急促生活动作群（例如闹钟、手机、外套、孩子抗拒在同一小段时间里连续发生）优先合并成一个 5-6秒 紧凑段，"
+        "不要拆成多个 5-6秒 快节奏段。\n"
+        "人物动作节奏必须写清：急急忙忙、动作叠压、正常承接、停住观察、慢处理或犹豫拖延。"
+    )
+
+def _rhythm_story_planner_user_prompt(
+    *,
+    state: DirectorState,
+    truncated_script: str,
+    slim_rules: str,
+) -> str:
+    director_contract = str(state.get("director_brief") or "").strip()
+    scene_context = str(state.get("scene_context_brief") or "").strip()
+    user_intent = str(state.get("director_notes") or state.get("user_prompt") or state.get("prompt") or "").strip()
+    return (
+        "请把以下【当前施工剧本】直接拆成若干片段。当前施工剧本可能已经由前序 agent 改写并经用户确认；"
+        "施工剧本原文事件必须引用这个版本，不要退回原始剧本。\n\n"
+        f"【当前施工剧本】\n{truncated_script}\n\n"
+        f"【剧情增强导演契约】\n{director_contract or '无；仅以当前施工剧本为准。'}\n\n"
+        f"【场景预分析约束】\n{scene_context or '无；不得自行补充空间、站位或道具。'}\n\n"
+        f"【用户导演意图/补充要求】\n{user_intent or '无单独补充。'}\n\n"
+        f"【画幅】{state.get('aspect_ratio', '16:9')}\n\n"
+        "【知识库极简规则】\n"
+        f"{slim_rules or '无额外规则；按下方分段规则执行。'}\n\n"
+        "【输出格式】\n"
+        "只输出 YAML 列表。每个片段只允许中文字段；不要 Markdown 代码围栏。\n"
+        "每个片段必须包含：\n"
+        "- 片段编号：必须从 F01 开始顺序递增。\n"
+        "- 片段任务：一句话说明本段要完成的剧情施工任务，只概括原文事件，不写镜头、机位、景别或运镜。\n"
+        "- 目标时长：通常 15 秒以内；急促短动作按 2-5秒 或 5-6秒紧凑段处理。\n"
+        "- 节奏类型：快节奏 / 慢节奏 / 正常承接 / 停顿反应。\n"
+        "- 事件密度判断：说明是短时间密集事件、低密度过渡、完整发言单元或反应落点。\n"
+        "- 动作节奏指导：明确人物动作应急急忙忙、动作叠压、正常承接、停住观察、慢处理或犹豫拖延；这是给动作调度导演和镜头导演的节奏约束。\n"
+        "- 施工剧本原文事件：数组，逐条照抄当前施工剧本里的动作或台词原文。\n"
+        "- 出现人物：只写本片段出现或被明确听见的人物。\n"
+        "- 入场状态：本片段开始时，人物、道具、门、电梯、空间等必要状态。\n"
+        "- 出场状态：本片段结束时，需要下游接住的必要状态。\n"
+        "- 承接要求：只写分段承接提醒，例如反应留在本段、下一段承接某状态、无需独立反应。\n"
+        "- 镜头导演交接：写清必须拍完整、可压缩/可省略、不能省略、最少停留、最多镜头数、结尾画面；不得写具体镜头方案。\n\n"
+        "【分段与节奏规则】\n"
+        "1. 只按剧情动作单元、完整发言单元、场景/状态变化来分段，不平均切秒数。\n"
+        "2. 快节奏 = 短时间 + 密集有效事件 + 短动作连续发生；不要把短动作拆成慢悠悠的长段。\n"
+        "3. 多个短动作叠加时，优先压缩成紧凑短段，例如 5-6秒，而不是写成 8-10秒。\n"
+        "4. 急促动作、短位移、闹钟按掉、夹手机、够外套、扯拉链、按肩、冲入、小跑、开门入场、上下车或电梯进出，没有完整发言/信息揭示/明确反应落点时，目标时长必须是 2-5秒。\n"
+        "5. 如果短时间内同时有电话台词、孩子抗拒、外套动作等多个短动作，可写 5-6秒紧凑段，并在动作节奏指导中写明急急忙忙、动作叠压。\n"
+        "6. 闹钟/手机/外套/孩子抗拒这类同一生活动作群，如果没有长对白、信息揭示、场景转换或明确反应落点，不要按闹钟、电话、外套分别拆成多个 5-6秒段；应合并成一个 5-6秒 紧凑段。\n"
+        "7. 节奏提示只能影响片段边界、片段任务、目标时长、入场状态、出场状态、承接要求、动作节奏指导和镜头导演交接，不得变成新的剧本事件。\n"
+        "8. 不要在一句话中间、一个动作中间、同一个反应尚未落地、只是换表情或未来会换镜头的位置拆开。\n"
+        "9. 禁止输出任何镜头设计字段，包括 shots、shot_id、sub_shots、camera、angle、size、beat_design、景别、机位、运镜。"
+    )
+
+def rhythm_story_planner_node(state: DirectorState) -> DirectorState:
+    outputs = _agent_outputs(state)
+    truncated_script = _truncate_for_prompt(state.get("script", ""), 12000)
+    planner_hint = f"节奏拆片导演 短时间密集事件 急促动作 2-5秒 5-6秒 动作节奏指导 不做分镜 {truncated_script[:200]}"
+    slim_rules, retrieval_meta = _story_planner_slim_rule_digest(planner_hint, n_results=5)
+    retrieval_meta["context_hint"] = planner_hint
+    retrieval_meta["reason"] = "merged rhythm_story_planner uses one slim rule-registry digest for rhythm and segmentation."
+    system_prompt = _rhythm_story_planner_system_prompt()
+    user_prompt = _rhythm_story_planner_user_prompt(
+        state=state,
+        truncated_script=truncated_script,
+        slim_rules=slim_rules,
+    )
+    output, planner_attempts = _run_story_planner_with_schema_repair(
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        original_script=state.get("script", ""),
+        scene_output=str(state.get("scene_context_brief") or ""),
+        rhythm_guidance="节奏与拆片已合并到同一次推理；修复时继续遵守急促短动作 2-5秒、紧凑短动作群 5-6秒。",
+        require_rhythm_fields=True,
+    )
+    knowledge_metadata = _record_knowledge_metadata(state, "story_planner", planner_hint, retrieval_meta)
+    knowledge_metadata.setdefault("story_planner", {})["runtime"] = planner_attempts[-1] if planner_attempts else {}
+    knowledge_metadata["story_planner"]["attempts"] = planner_attempts
+    knowledge_metadata["story_planner"]["merged_from_agents"] = ["rhythm_rewrite_director", "story_planner"]
+    knowledge_metadata.setdefault("rhythm_rewrite_director", {})["merged_into"] = "story_planner"
+    knowledge_metadata["rhythm_rewrite_director"]["runtime"] = planner_attempts[-1] if planner_attempts else {}
+    planner_issues = _validate_story_planner_output(output, state.get("script", ""), require_rhythm_fields=True)
+    total_segments, segment_names = _extract_segments(output)
+    if planner_issues:
+        raise RuntimeError("rhythm_story_planner 输出未满足知识驱动结构要求：\n" + "\n".join(f"- {issue}" for issue in planner_issues))
+    atmosphere_strategy = _build_rhythm_handoff_from_planner_output(output)
+    outputs["rhythm_rewrite_director"] = atmosphere_strategy
+    outputs["story_planner"] = output
+    return _persist_update(
+        state,
+        {
+            "status": "running_phase_1",
+            "step": "step_3_direct",
+            "message": "节奏拆片完成，等待生成当前片段镜头方案...（4/6）",
+            "atmosphere_strategy": atmosphere_strategy,
+            "agent_outputs": outputs,
+            "knowledge_metadata": knowledge_metadata,
+            "director_review_report": state.get("director_review_report", ""),
+            "total_segments": total_segments,
+            "segment_names": segment_names,
+            "current_segment_index": 1,
+        },
+    )
+
 def story_planner_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
     rhythm_guidance_full = state.get("atmosphere_strategy", "") or outputs.get("rhythm_rewrite_director", "")
@@ -885,9 +1178,10 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         "3. 一段太长或同时包含多个清楚任务时再拆开；普通停顿、短反应、信息揭示不用单独拆成一段。\n"
         "4. 节奏提示只能影响片段边界、片段任务、目标时长、入场状态、出场状态、承接要求和镜头导演交接，不得变成新的剧本事件。\n"
         "5. 15 秒估算尺：普通对白段通常可容纳 6-8 条原文事件；动作密集段通常只容纳 2-4 条原文事件；长对白按完整意思单元拆。\n"
-        "6. 优先在进门完成、照片落地、人物发现、关系反转、场景切换、动作结果已经成立的位置拆开。\n"
-        "7. 不要在一句话中间、一个动作中间、同一个反应尚未落地、只是换表情或未来会换镜头的位置拆开。\n"
-        "8. 禁止输出任何镜头设计字段，包括 shots、shot_id、sub_shots、camera、angle、size、beat_design。"
+        "6. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，没有完整发言/信息揭示/明确反应落点时，目标时长必须是 2-5秒；不要为了凑 10秒让人物慢慢走、慢慢停、慢慢看。\n"
+        "7. 优先在进门完成、照片落地、人物发现、关系反转、场景切换、动作结果已经成立的位置拆开。\n"
+        "8. 不要在一句话中间、一个动作中间、同一个反应尚未落地、只是换表情或未来会换镜头的位置拆开。\n"
+        "9. 禁止输出任何镜头设计字段，包括 shots、shot_id、sub_shots、camera、angle、size、beat_design。"
     )
     output, planner_attempts = _run_story_planner_with_schema_repair(
         system_prompt=system_prompt,
