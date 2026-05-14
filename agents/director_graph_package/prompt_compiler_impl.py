@@ -33,11 +33,26 @@ from .helpers import (
     _segment_block_by_fragment_id,
     _primary_script_character_names,
 )
-from .llm import call_llm  # kept as a patch point for tests/legacy callers; deterministic compiler does not call it.
+from .llm import call_llm
 from .prompting import build_system_prompt
 from .state_store import _agent_outputs, _persist_update
 
-_ORIGINAL_CALL_LLM = call_llm
+_LOCAL_FALLBACK_INPUT_MARKERS = (
+    "本地兜底编译",
+    "本地兜底",
+    "镜头导演本地兜底",
+    "shot_director_local_fallback_v1",
+    "local fallback",
+    "deterministic fallback",
+)
+
+
+def _contains_local_fallback_input(value: Any) -> bool:
+    text = str(value or "")
+    lowered = text.lower()
+    return any(marker in text or marker in lowered for marker in _LOCAL_FALLBACK_INPUT_MARKERS)
+
+
 _record_knowledge_metadata = _legacy._record_knowledge_metadata
 _scene_memory_card = _legacy._scene_memory_card
 _current_segment_event_card = _legacy._current_segment_event_card
@@ -818,66 +833,6 @@ def _source_event_lines(planner_segment: str, script_context: str) -> list[str]:
     return fallback[:5]
 
 
-_LOCAL_COMPILER_CN_REPLACEMENTS: tuple[tuple[str, str], ...] = (
-    ("vertical medium relationship shot", "竖屏中景双人关系镜头"),
-    ("stable medium relationship shot", "中景双人关系镜头，固定机位"),
-    ("medium close relationship shot", "中近景双人关系镜头"),
-    ("medium relationship shot", "中景双人关系镜头"),
-    ("stable medium shot", "中景固定机位"),
-    ("stable camera", "固定机位"),
-    ("clear blocking", "人物调度清楚"),
-    ("same screen direction", "保持同侧轴线"),
-    ("after the first readable action lands", "第一个可读动作落点后"),
-    ("after the reaction or information beat is visible", "反应或信息落点清楚后"),
-    ("after the visible action lands", "可见动作落点后"),
-    ("cut after the visible action lands", "可见动作落点后切镜"),
-    ("cut after the action is readable", "动作清楚可读后切镜"),
-    ("after the order lands", "台词落点后"),
-    ("after the door opens", "开门动作落点后"),
-    ("keep the same eyeline", "保持同一视线方向"),
-    ("keep screen direction", "保持画面轴线方向"),
-    (
-        "preserve established positions, props and eye-lines from the approved upstream plan",
-        "保持上游已确认的人物位置、道具状态和视线方向",
-    ),
-    ("preserve the approved upstream blocking", "保持上游已确认的人物调度"),
-    ("end on a readable tail frame for the next segment handoff", "以可读尾帧结束，便于下一段承接"),
-    ("current characters", "当前人物"),
-    ("current subject", "当前主体"),
-    ("continue the approved story beat", "承接已确认剧情事件"),
-    ("continue the approved action beat", "承接已确认动作落点"),
-    (
-        "No visual bridge is available; compile the next segment from its own scene and shot assets.",
-        "没有可用视觉衔接；本段按当前场景和镜头资产重新开镜。",
-    ),
-    ("No previous tail frame was provided", "未提供上一段尾帧"),
-    ("direct_cut", "直接切入"),
-)
-
-
-def _local_compiler_cn(text: Any) -> str:
-    result = str(text or "").strip()
-    if result in {"~", "无", "none", "None", "null", "NULL"}:
-        return ""
-    for source, target in _LOCAL_COMPILER_CN_REPLACEMENTS:
-        result = result.replace(source, target)
-    result = re.sub(r"\bcontinuity\s*:", "连续性：", result)
-    result = re.sub(r"\breason\s*:", "原因：", result)
-    result = re.sub(r"\bbridge_strategy\s*:", "衔接策略：", result)
-    result = re.sub(r"\s+", " ", result).strip()
-    return result
-
-
-def _local_compiler_bridge_text(tail_frame_memory: str) -> str:
-    raw = (tail_frame_memory or "").strip()
-    if not raw:
-        return "无上一段尾帧输入；按当前拆片与镜头规划重新开段。"
-    translated = _local_compiler_cn(raw)
-    if "没有可用视觉衔接" in translated or re.search(r"bridge_available\s*:\s*false", raw, re.IGNORECASE):
-        return "无可用上一段尾帧；本段按当前拆片与镜头规划重新开段，不新增剧情。"
-    return translated[:260]
-
-
 def _normalise_reference_label(label: Any, index: int) -> str:
     text = str(label or "").strip()
     match = re.match(r"^@(图片|image|Image)\s*(\d+)$", text)
@@ -1112,232 +1067,6 @@ def _seedance_reference_prompt_block(
     return "\n".join(lines)
 
 
-def _local_compiler_duration(duration: str) -> str:
-    text = _local_compiler_cn(duration) or "0-3秒"
-    text = text.replace("seconds", "秒").replace("second", "秒").replace("secs", "秒").replace("sec", "秒")
-    text = re.sub(r"(?<=\d)s\b", "秒", text)
-    if re.fullmatch(r"\d+(?:\.\d+)?", text):
-        text = f"{text}秒"
-    return text
-
-_LOCAL_COMPILER_DURATION_RE = re.compile(
-    r"(\d+(?:\.\d+)?)\s*(?:[-—–~～至到]\s*(\d+(?:\.\d+)?))?\s*(?:秒|s)\b",
-    re.IGNORECASE,
-)
-
-def _local_compiler_duration_values(duration: str) -> list[float]:
-    values: list[float] = []
-    for match in _LOCAL_COMPILER_DURATION_RE.finditer(duration or ""):
-        values.append(float(match.group(1)))
-        if match.group(2) is not None:
-            values.append(float(match.group(2)))
-    return values
-
-def _local_compiler_duration_label(rows: list[dict[str, str]], planner_segment: str) -> str:
-    target = _local_compiler_cn(
-        _yaml_line_field(planner_segment, "目标时长")
-        or _yaml_line_field(planner_segment, "duration_target")
-    )
-    if target and _local_compiler_duration_values(target):
-        return _local_compiler_duration(target)
-
-    total = 0.0
-    for row in rows:
-        values = _local_compiler_duration_values(_local_compiler_duration(row.get("duration", "")))
-        if values:
-            total += max(values)
-    if total > 0:
-        rounded = round(total, 1)
-        if rounded.is_integer():
-            return f"约{int(rounded)}秒"
-        return f"约{rounded:g}秒"
-    return f"约{max(6, len(rows) * 3)}秒"
-
-
-def _local_compiler_subjects(rows: list[dict[str, str]], script_context: str) -> str:
-    names = _primary_script_character_names(script_context)
-    if names:
-        return "、".join(names[:4])
-    subjects: list[str] = []
-    for row in rows:
-        subject = _local_compiler_cn(row.get("subject", ""))
-        if not subject or subject in {"当前人物", "当前主体"}:
-            continue
-        for part in re.split(r"[、,，/／\s]+", subject):
-            part = part.strip()
-            if part and part not in subjects:
-                subjects.append(part)
-    if not subjects:
-        subjects = ["本片段已建立人物"]
-    return "\n".join(f"- {subject}：状态、服装和可见关系继承上游镜头资产。" for subject in subjects[:4])
-
-
-def _local_compiler_extra_clause(prefix: str, value: str, action: str, existing: str = "") -> str:
-    text = _local_compiler_cn(value)
-    if not text:
-        return ""
-    compact = re.sub(r"\s+", "", text)
-    action_compact = re.sub(r"\s+", "", action)
-    existing_compact = re.sub(r"\s+", "", existing)
-    if compact and (compact in action_compact or compact in existing_compact):
-        return ""
-    return f"；{prefix}{text}"
-
-
-def _local_compiler_dialogue_clause(dialogue: str) -> str:
-    text = _local_compiler_cn(dialogue)
-    if not text:
-        return ""
-    text = text.strip().strip("\"'")
-    return f"；台词直接嵌入动作：\"{text}\""
-
-
-def _local_compiler_shot_line(index: int, row: dict[str, str], total_rows: int) -> str:
-    duration = _local_compiler_duration(row.get("duration", ""))
-    subject = _local_compiler_cn(row.get("subject", ""))
-    shot = _local_compiler_cn(row.get("shot", ""))
-    task = _local_compiler_cn(row.get("task", ""))
-    action = _local_compiler_cn(row.get("action", ""))
-    must_carry = _local_compiler_cn(row.get("must_carry", ""))
-    cut_point = _local_compiler_cn(row.get("cut_point", ""))
-    continuity = _local_compiler_cn(row.get("continuity", ""))
-    coverage_role = _local_compiler_cn(row.get("coverage_role", ""))
-    cut_reason = _local_compiler_cn(row.get("cut_reason", ""))
-    companion_visibility = _local_compiler_cn(row.get("companion_visibility", ""))
-    state_delta = _local_compiler_cn(row.get("state_delta", ""))
-    tailframe_role = _local_compiler_cn(row.get("tailframe_role", ""))
-
-    basis_parts = [part for part in (subject, shot) if part]
-    basis = "，".join(basis_parts) if basis_parts else f"镜头{index}"
-    action_sentence = action or task or must_carry or "承接已确认剧情事件"
-    task_clause = _local_compiler_extra_clause("镜头任务：", task, action_sentence)
-    carry_clause = _local_compiler_extra_clause("画面必须看清：", must_carry, action_sentence, task)
-    coverage_clause = _local_compiler_extra_clause("本镜负责：", coverage_role, action_sentence, must_carry)
-    companion_clause = _local_compiler_extra_clause("同场关系保持：", companion_visibility, action_sentence, continuity)
-    state_clause = _local_compiler_extra_clause("本镜新增变化：", state_delta, action_sentence, must_carry)
-    tailframe_clause = _local_compiler_extra_clause("尾帧交给：", tailframe_role, action_sentence, continuity)
-    dialogue_clause = _local_compiler_dialogue_clause(row.get("dialogue", ""))
-    cut_trigger = "，".join(part for part in (cut_point, cut_reason) if part)
-    if index < total_rows:
-        cut_clause = f"；{cut_trigger or '当前动作落点清楚'}时切至镜头{index + 1}"
-    else:
-        cut_clause = f"；{cut_trigger or '尾帧状态清楚'}时收住尾帧"
-    continuity_clause = _local_compiler_extra_clause("连续性保持：", continuity, action_sentence, must_carry)
-
-    return (
-        f"镜头{index}【{duration}】【{subject or '当前主体'}】{basis}，"
-        f"{action_sentence}{task_clause}{dialogue_clause}{carry_clause}{coverage_clause}"
-        f"{companion_clause}{state_clause}{cut_clause}{continuity_clause}{tailframe_clause}。"
-    )
-
-
-def _local_compiler_fragment_value(director_segment: str, field: str) -> str:
-    return _local_compiler_cn(_yaml_line_field(director_segment, field))
-
-
-def _local_compiler_space_control(director_segment: str, rows: list[dict[str, str]], bridge_text: str) -> str:
-    continuity_context = _local_compiler_fragment_value(director_segment, "continuity_context")
-    fragment_task = _local_compiler_fragment_value(director_segment, "fragment_task")
-    subjects = "、".join(
-        subject
-        for subject in dict.fromkeys(
-            _local_compiler_cn(row.get("subject", ""))
-            for row in rows
-            if _local_compiler_cn(row.get("subject", ""))
-        )
-    )
-    if continuity_context:
-        base = continuity_context
-    elif fragment_task and subjects:
-        base = f"这是一段{fragment_task}，{subjects}始终继承上游已确认空间；单人镜只改变拍摄主体，不代表同场人物离开。"
-    else:
-        base = "这是一段承接当前镜头导演输出的连续戏；单人镜只改变拍摄主体，不代表同场人物离开。"
-    if bridge_text and "无上一段尾帧输入" not in bridge_text:
-        return f"{base} {bridge_text}"
-    return base
-
-
-def _build_local_compiled_prompt(
-    *,
-    segment_index: int,
-    total_segments: int,
-    aspect_label: str,
-    planner_segment: str,
-    director_segment: str,
-    script_context: str,
-    tail_frame_memory: str,
-    reference_context: str,
-    failure: Exception,
-    reference_prompt_block: str = "",
-) -> str:
-    rows = _director_shot_rows(director_segment)
-    if not rows:
-        events = _source_event_lines(planner_segment, script_context)
-        event = events[0] if events else "承接已确认剧情事件"
-        rows = [
-            {
-                "shot_id": f"F{segment_index:02d}-S01",
-                "duration": "0-3s",
-                "task": "承接已确认剧情事件",
-                "subject": "当前人物",
-                "shot": "中景双人关系镜头，固定机位",
-                "action": event,
-                "dialogue": "",
-                "must_carry": event,
-                "cut_point": "动作清楚可读后切镜",
-                "continuity": "保持上游已确认的人物调度",
-            }
-        ]
-
-    events = _source_event_lines(planner_segment, script_context)
-    character_text = _local_compiler_subjects(rows, script_context)
-    shot_lines: list[str] = []
-    for index, row in enumerate(rows, start=1):
-        shot_lines.append(_local_compiler_shot_line(index, row, len(rows)))
-
-    bridge_text = _local_compiler_bridge_text(tail_frame_memory)
-    space_text = _local_compiler_space_control(director_segment, rows, bridge_text)
-    fragment_task = _local_compiler_fragment_value(director_segment, "fragment_task")
-    rhythm = _local_compiler_fragment_value(director_segment, "rhythm")
-    style_anchor = "，".join(part for part in (fragment_task, rhythm) if part)
-    if not style_anchor:
-        style_anchor = "都市短剧镜头语言，冷静克制，动作和视线落点清楚。"
-    duration_label = _local_compiler_duration_label(rows, planner_segment)
-    reference_clause = (
-        "参考图只作为隐性约束落入人物、空间和道具连续性，最终画面不得出现参考图编号或文件名。"
-        if reference_context.strip()
-        else "未提供参考图时不得编造参考图编号或占位。"
-    )
-    event_clause = _local_compiler_cn("；".join(events)) if events else "严格承接已确认拆片规划。"
-    return "\n\n".join(
-        [
-            f"片段{segment_index}｜本地兜底编译｜已确认事件｜{duration_label}",
-            "【风格锚点】",
-            style_anchor,
-            "【画幅锚点】",
-            f"{aspect_label}。",
-            "【空间与首帧总控】",
-            space_text,
-            "【人物】",
-            character_text,
-            "【镜头序列】",
-            "\n".join(shot_lines),
-            "【约束】",
-            (
-                f"只覆盖当前片段原文事件：{event_clause} 禁止新增剧本外台词、角色、道具或空间。"
-                "保持人物左右关系、道具状态、视线方向和尾帧可衔接。"
-                f"{reference_clause}严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌。"
-            ),
-            f"片段{segment_index} prompt 已输出。",
-            "请生成视频后，上传：",
-            f"片段{segment_index}的尾帧截图",
-            "当前人物位置关系（若有变化）",
-            "",
-            f"我将基于实际尾帧继续输出片段{min(segment_index + 1, total_segments)}。",
-        ]
-    ).strip()
-
-
 def prompt_compiler_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
     segment_index = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
@@ -1467,6 +1196,11 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
 
     current_planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index, current_fragment_id)
     current_director_segment_raw = _segment_block(outputs.get("shot_director", ""), segment_index, current_fragment_id)
+    if _contains_local_fallback_input(current_director_segment_raw or outputs.get("shot_director", "")):
+        raise RuntimeError(
+            f"片段 {segment_index} Prompt 编译失败：上游三段式镜头导演输出来自本地兜底，"
+            "已拒绝继续编译。请先重跑三段式镜头导演并确保大模型调用成功。"
+        )
     current_director_segment = _compress_director_for_compiler(current_director_segment_raw)
     scene_memory = _scene_memory_card(outputs.get("scene_analyst", ""), 1400)
     current_source_events = _current_segment_event_card(current_planner_segment, 1600)
@@ -1668,31 +1402,14 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "31. 【无文字字幕】约束段是否明确禁止任何文字、字幕、水印、logo、屏幕文字和可读标牌？\n"
         "全部通过后再输出。"
     )
-    patched_compiler_output = ""
-    if call_llm is not _ORIGINAL_CALL_LLM:
-        try:
-            patched_compiler_output = str(call_llm(
-                system_prompt,
-                user_prompt,
-                images_base64=None,
-                agent_name="prompt_compiler",
-            ) or "")
-        except Exception:
-            pass
-    _ = reference_prompt_block
-    retrieval_meta["compiler_mode"] = "deterministic_shot_director_handoff"
-    output = patched_compiler_output or _build_local_compiled_prompt(
-        segment_index=segment_index,
-        total_segments=total_segments,
-        aspect_label=aspect_label,
-        planner_segment=current_planner_segment,
-        director_segment=current_director_segment_raw,
-        script_context=current_script_context,
-        tail_frame_memory=tail_frame_memory,
-        reference_context=reference_context,
-        failure=RuntimeError("deterministic prompt compiler"),
-        reference_prompt_block=reference_prompt_block,
+    output = call_llm(
+        system_prompt,
+        user_prompt,
+        images_base64=None,
+        agent_name="prompt_compiler",
     )
+    _ = reference_prompt_block
+    retrieval_meta["compiler_mode"] = "llm_required"
     output = _normalise_compiled_prompt(output, segment_index, current_script_context)
     knowledge_metadata = _record_knowledge_metadata(state, "prompt_compiler", compiler_hint, retrieval_meta)
     try:

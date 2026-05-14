@@ -141,34 +141,6 @@ def _format_shot_for_storyboard(shot: dict[str, str], index: int) -> str:
     )
 
 
-def _build_local_storyboard_prompt(
-    *,
-    segment_index: int,
-    segment_name: str,
-    fragment_task: str,
-    rhythm: str,
-    shots: list[dict[str, str]],
-    aspect_ratio: str,
-    failure: Exception,
-) -> str:
-    shot_lines = [
-        _format_shot_for_storyboard(shot, index)
-        for index, shot in enumerate(shots)
-    ]
-    failure_note = str(failure).splitlines()[0][:160]
-    return "\n\n".join(
-        [
-            f"Segment {segment_index} storyboard sheet, aspect ratio {aspect_ratio}, source segment: {segment_name}.",
-            f"Fragment task: {fragment_task or 'follow the approved shot director plan'}.",
-            f"Rhythm: {rhythm or 'follow upstream rhythm'}; local fallback reason: {failure_note}.",
-            "Create one storyboard row per shot. Each row has three columns: first-frame image, camera/action parameter card, and overhead camera map.",
-            "Do not add new story events, characters, props, dialogue text, motion arrows, subtitles, or explanatory captions inside the image panels.",
-            "\n\n".join(shot_lines),
-            "Use a clean director storyboard style, aligned rows, clear shot numbering, and a simple right-column camera map with CAM marker, subjects, axis line and FOV wedge.",
-        ]
-    ).strip()
-
-
 def _reference_usage_for_item(item: dict[str, Any]) -> str:
     """Describe how one image reference may influence the storyboard prompt."""
     role_text = " ".join(
@@ -709,7 +681,6 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
         continuity_notes=continuity_notes,
     )
 
-    storyboard_fallback_reason = ""
     try:
         storyboard_prompt = call_llm(
             system_prompt=_STORYBOARD_SYSTEM_PROMPT,
@@ -719,16 +690,7 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
             agent_name="storyboard_prompt_designer",
         )
     except Exception as exc:
-        storyboard_fallback_reason = str(exc)
-        storyboard_prompt = _build_local_storyboard_prompt(
-            segment_index=segment_index,
-            segment_name=segment_name,
-            fragment_task=fragment_task,
-            rhythm=rhythm,
-            shots=shots,
-            aspect_ratio=aspect_ratio,
-            failure=exc,
-        )
+        raise RuntimeError(f"故事板提示词大模型连接不成功：{exc}") from exc
 
     # Clean up the prompt — strip fences if the LLM ignored instructions.
     storyboard_prompt = re.sub(r"^```(?:\w+)?\n?|\n?```$", "", storyboard_prompt.strip()).strip()
@@ -737,8 +699,6 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
 
     updated_outputs = dict(outputs)
     updated_outputs[prompt_key] = storyboard_prompt
-    if storyboard_fallback_reason:
-        updated_outputs[f"storyboard_prompt_fallback_seg{segment_index:02d}"] = storyboard_fallback_reason
 
     return _persist_update(
         state,

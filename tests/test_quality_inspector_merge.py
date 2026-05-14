@@ -87,7 +87,7 @@ shots:
     assert "PROMPT-VISIBLE-BODY-LANGUAGE-001" in report
 
 
-def test_quality_inspector_accepts_local_fallback_v1_shot_contract(monkeypatch):
+def test_quality_inspector_rejects_local_fallback_v1_shot_contract(monkeypatch):
     monkeypatch.setattr(qi, "_persist_update", lambda state, update: update)
 
     state = {
@@ -118,7 +118,7 @@ shots:
     update = quality_inspector_node(state)
     report = update["agent_outputs"]["quality_inspector"]
 
-    assert "残留 v2 字段 schema_version" not in report
+    assert "输出来自旧本地兜底" in report
     assert "缺少 v1 字段 duration" not in report
     assert "缺少 v1 字段 camera" not in report
     assert "缺少 v1 字段 size" not in report

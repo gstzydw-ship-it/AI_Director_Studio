@@ -1840,6 +1840,28 @@
                 .sort((a, b) => a.index - b.index);
         }
 
+        function promptFailureText(text = '', state = {}) {
+            const base = String(text || '').trim();
+            const details = [
+                state.review_output,
+                state.message,
+                state.error,
+                (state.agent_outputs || {}).prompt_compiler,
+            ]
+                .map(value => String(value || '').trim())
+                .filter(Boolean);
+            const merged = [base, ...details].find(value => /LLM|RuntimeError|Traceback|网络连接|原始错误|HTTP|SSL|timeout|超时|失败[:：]/i.test(value)) || base;
+            if (!merged) return '';
+            if (base && merged !== base && !base.includes(merged)) {
+                return `${base}\n\n${merged}`;
+            }
+            return merged;
+        }
+
+        function isPromptFailureText(text = '') {
+            return /Prompt\s*重新编译失败|编译失败|LLM.*失败|网络连接失败|RuntimeError|Traceback|HTTP\s*\d+|SSL|timeout|超时/i.test(String(text || ''));
+        }
+
         function renderCompiledSegments(outputs, state = {}) {
             const entries = compiledSegmentEntries(outputs);
             const entryMap = new Map(entries.map(item => [item.index, item]));
@@ -1884,10 +1906,13 @@
                     badgeClass = 'pending';
                 }
 
+                const displayText = hasContent && isPromptFailureText(entry.text)
+                    ? promptFailureText(entry.text, state)
+                    : (hasContent ? entry.text : '');
                 const bodyHtml = hasContent
                     ? `<div class="segment-prompt-card">
-                           <div class="segment-prompt-label">可直接用于 Seedance 的 Prompt</div>
-                           <pre class="result-text segment-prompt">${escapeHtml(entry.text)}</pre>
+                           <div class="segment-prompt-label">${isPromptFailureText(displayText) ? '重新编译失败详情' : '可直接用于 Seedance 的 Prompt'}</div>
+                           <pre class="result-text segment-prompt">${escapeHtml(displayText)}</pre>
                        </div>`
                     : `<div class="segment-empty">该段尚未生成 Prompt。</div>`;
 
@@ -1897,8 +1922,8 @@
                                onclick="event.stopPropagation(); copySegmentPrompt(${i}, this); return false;">复制本段</button>`
                     : '';
                 const rerunBtn = hasContent
-                    ? `<button class="btn-small segment-rerun-btn" type="button" data-rerun-segment="${i}"
-                               onclick="event.stopPropagation(); rerunSegment(${i}, this); return false;">重跑此段</button>`
+                    ? `<button class="btn-small segment-rerun-btn" type="button" data-recompile-segment="${i}"
+                               onclick="event.stopPropagation(); recompilePrompt(${i}, this); return false;">重新编译</button>`
                     : '';
 
                 cards.push(`
@@ -2143,8 +2168,10 @@
             if (agent === 'prompt_compiler' || agent === 'quality_inspector') {
                 return {
                     enabled: Boolean(segIdx && (compiledSegmentEntries(outputs).length || currentPublicState.total_segments)),
-                    label: '重跑当前片段',
-                    title: '清除当前片段及后续 Prompt，然后回到片段生成入口。',
+                    label: agent === 'prompt_compiler' ? '重新编译' : '重跑当前片段',
+                    title: agent === 'prompt_compiler'
+                        ? '继承已完成的三段式镜头导演输出，只重新运行 Seedance Prompt 编译。'
+                        : '清除当前片段及后续 Prompt，然后回到片段生成入口。',
                 };
             }
             return {
@@ -2249,7 +2276,11 @@
                 await generateStoryboard(currentSegmentIndex());
                 return;
             }
-            if (agent === 'prompt_compiler' || agent === 'quality_inspector') {
+            if (agent === 'prompt_compiler') {
+                await recompilePrompt(currentSegmentIndex());
+                return;
+            }
+            if (agent === 'quality_inspector') {
                 await rerunSegment(currentSegmentIndex());
                 return;
             }
@@ -2807,7 +2838,13 @@
             if (agent === 'shot_director') return latestShotDirectorOutput(outputs);
             if (agent === 'prompt_compiler') {
                 const segIdx = Number(state.active_segment_index || state.current_segment_index || 1);
-                return outputs[`compiled_segment_${segIdx}`] || outputs.prompt_compiler || state.result || '';
+                const text = outputs[`compiled_segment_${segIdx}`]
+                    || outputs.prompt_compiler
+                    || state.result
+                    || state.message
+                    || state.error
+                    || '';
+                return isPromptFailureText(text) ? promptFailureText(text, state) : text;
             }
             if (agent === 'quality_inspector') {
                 const segIdx = Number(state.active_segment_index || state.current_segment_index || 1);
@@ -3131,6 +3168,47 @@
             }
         }
 
+        async function recompilePrompt(segmentIndex, triggerButton = null) {
+            const originalHtml = triggerButton ? triggerButton.innerHTML : '';
+            if (triggerButton) {
+                triggerButton.disabled = true;
+                triggerButton.innerHTML = '重新编译中...';
+            }
+            const targetSegment = segmentIndex || currentSegmentIndex();
+            document.getElementById('pipelineMsg').textContent = `正在继承三段式镜头导演输出，重新编译片段 ${targetSegment} 的 Prompt...`;
+            document.getElementById('interactiveBox').innerHTML = '';
+            updateAgentStatus('running', 'Prompt 重新编译中');
+            try {
+                const formData = new FormData();
+                formData.append('session_id', getSessionId());
+                formData.append('segment_index', String(targetSegment));
+                const resp = await fetch('/api/recompile_prompt', { method: 'POST', body: formData });
+                const data = await resp.json();
+                if (!data.success) {
+                    if (data.state) {
+                        agentOutputs = data.state.agent_outputs || {};
+                        currentPublicState = data.state || {};
+                        setResultOutput('prompt_compiler', renderCompiledSegments(agentOutputs, currentPublicState));
+                        renderWaitingInputBox(currentPublicState);
+                    }
+                    showError(data.error || `片段 ${targetSegment} Prompt 重新编译失败`);
+                    updateAgentStatus('error', 'Prompt 重新编译失败');
+                    return;
+                }
+                setResultNotice(data.message || `片段 ${targetSegment} Prompt 已开始重新编译。`, 'info');
+                startPolling();
+            } catch (e) {
+                showError('Prompt 重新编译失败: ' + e.message);
+                updateAgentStatus('error', 'Prompt 重新编译失败');
+            } finally {
+                if (triggerButton) {
+                    triggerButton.disabled = false;
+                    triggerButton.innerHTML = originalHtml;
+                }
+            }
+        }
+        window.recompilePrompt = recompilePrompt;
+
         async function rerunSegment(segmentIndex, triggerButton = null) {
             const originalHtml = triggerButton ? triggerButton.innerHTML : '';
             if (triggerButton) {
@@ -3168,6 +3246,13 @@
         window.rerunSegment = rerunSegment;
 
         document.addEventListener('click', (event) => {
+            const recompileButton = event.target.closest('[data-recompile-segment]');
+            if (recompileButton) {
+                event.preventDefault();
+                const segmentIndex = Number(recompileButton.dataset.recompileSegment || 0);
+                if (segmentIndex) recompilePrompt(segmentIndex, recompileButton);
+                return;
+            }
             const rerunButton = event.target.closest('[data-rerun-segment]');
             if (!rerunButton) return;
             event.preventDefault();
@@ -4343,7 +4428,7 @@
                 ['story_planner', agentOutputs.story_planner],
                 ['shot_director', latestShotDirectorOutput(agentOutputs)],
                 ['storyboard_designer', hasStoryboardOutput(agentOutputs)],
-                ['prompt_compiler', compiledSegmentEntries(agentOutputs).length > 0 || agentOutputs.prompt_compiler || state.result],
+                ['prompt_compiler', compiledSegmentEntries(agentOutputs).length > 0 || agentOutputs.prompt_compiler || state.result || (state.review_agent === 'prompt_compiler' && (state.review_output || state.message || state.error))],
                 ['quality_inspector', agentOutputs.quality_inspector || Object.keys(agentOutputs).some(key => /^quality_inspector_segment_\d+$/.test(key))],
             ];
             const availableEntry = fallbackCandidates.find(([, text]) => Boolean(text));

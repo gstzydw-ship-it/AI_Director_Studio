@@ -107,7 +107,7 @@ _SHOT_DIRECTOR_WORKFLOW_STAGES: tuple[str, ...] = (
 )
 _SHOT_DURATION_RE = re.compile(r"^\s*[\"']?(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*秒[\"']?\s*$")
 _SHOT_CUT_TRIGGER_RE = re.compile(
-    r"(动作顶点|台词(?:断点|落下|结束)?|反应(?:出现|落点)?|信息(?:看清|揭示)|看清|停住|完成|命中|落桌|撞上|尾帧|切出|切至|切到|→)"
+    r"(动作顶点|台词(?:断点|落下|结束)?|反应(?:出现|落点)?|信息(?:看清|揭示)|看清|停住|完成|命中|落桌|撞上|尾帧|切出|切至|切到|状态(?:稳定|完成)|片段结束|→)"
 )
 
 def _shot_director_workflow_contract() -> str:
@@ -1045,7 +1045,12 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
 
             subject = _yaml_line_field(shot_block, "subject")
             task = _yaml_line_field(shot_block, "task")
-            if _is_local_insert_subject(subject) and not re.search(r"唯一主体|文件内容|信息揭示|关键物|证据|屏幕|照片", task):
+            has_parent_shot = bool(re.search(r"^\s*(?:parent_shot_id|父镜头编号)\s*:", shot_block, re.MULTILINE))
+            if (
+                _is_local_insert_subject(subject)
+                and not has_parent_shot
+                and not re.search(r"唯一主体|文件内容|信息揭示|关键物|证据|屏幕|照片", task)
+            ):
                 issues.append(
                     f"{shot_id} 把局部动作/局部道具（{subject}）升级成了主镜头主体。"
                     "手部、门缝、按钮、文件、手机等默认应作为 insert/reaction 子镜头。"
@@ -1135,10 +1140,27 @@ def _yaml_scalar_field(block: str, field: str) -> str:
     return match.group(1).strip() if match else ""
 
 def _yaml_line_field(block: str, field: str) -> str:
-    match = re.search(rf"(?m)^\s*-?\s*(?:{_shot_yaml_field_pattern(field)})\s*:\s*(.+?)\s*$", block or "")
+    match = re.search(rf"(?m)^(\s*)-?\s*(?:{_shot_yaml_field_pattern(field)})\s*:\s*(.+?)\s*$", block or "")
     if not match:
         return ""
-    return match.group(1).strip().strip("\"'")
+    value = match.group(2).strip().strip("\"'")
+    if value not in {">", "|", ">-", "|-", ">+", "|+"}:
+        return value
+
+    base_indent = len(match.group(1).replace("\t", "    "))
+    lines = (block or "")[match.end():].splitlines()
+    folded: list[str] = []
+    for line in lines:
+        if not line.strip():
+            continue
+        indent = len(line[: len(line) - len(line.lstrip())].replace("\t", "    "))
+        if indent <= base_indent and re.match(r"^\s*-?\s*[^:\n]{1,40}\s*:", line):
+            break
+        if indent > base_indent:
+            folded.append(line.strip())
+            continue
+        break
+    return " ".join(folded).strip()
 
 def _dialogue_listener_for_subject(subject: str, script: str) -> str:
     names = _primary_script_character_names(script)
@@ -3271,162 +3293,6 @@ def _yaml_quote(value: Any) -> str:
     return f'"{text}"'
 
 
-def _clean_local_fallback_event(event: str) -> str:
-    text = str(event or "").strip().strip("\"'")
-    text = re.sub(r"^[▲△◆◇•\-\s]+", "", text).strip()
-    bracket_match = re.fullmatch(r"【(.+?)】", text)
-    if bracket_match:
-        text = bracket_match.group(1).strip()
-    return text
-
-
-def _is_local_fallback_metadata_event(event: str) -> bool:
-    text = _clean_local_fallback_event(event)
-    if not text:
-        return True
-    if re.match(r"^\d+\s*-\s*\d+\s+", text):
-        return True
-    if re.match(r"^(?:人物|角色|出场人物|场景|地点|时间)\s*[:：]", text):
-        return True
-    if re.match(r"^(?:音效|音乐|BGM)\s*[:：]", text):
-        return True
-    if re.match(r"^(?:特写|近景|插入|道具|音效)\s*[-:：]", text):
-        return True
-    return False
-
-
-def _local_fallback_visual_cues(source_events: list[str]) -> list[str]:
-    cues: list[str] = []
-    for event in source_events:
-        text = _clean_local_fallback_event(event)
-        if not text:
-            continue
-        if re.match(r"^(?:特写|近景|插入|道具|音效)\s*[-:：]", text) and text not in cues:
-            cues.append(text)
-    return cues
-
-
-def _local_fallback_action_events(source_events: list[str], script: str) -> list[str]:
-    events = [
-        _clean_local_fallback_event(event)
-        for event in source_events
-        if not _is_local_fallback_metadata_event(event)
-    ]
-    events = [event for event in events if event]
-    if events:
-        return events[:4]
-
-    fallback_events = [
-        _clean_local_fallback_event(line)
-        for line in re.split(r"[\n。.!?]+", script or "")
-        if _clean_local_fallback_event(line)
-    ]
-    return fallback_events[:4] or ["承接已确认的拆片事件，不新增剧情事实。"]
-
-
-def _local_fallback_event_action_and_dialogue(event: str) -> tuple[str, str]:
-    text = _clean_local_fallback_event(event)
-    dialogue_match = re.match(r"^([^：:\n]{1,16})[：:]\s*(.+)$", text)
-    if not dialogue_match:
-        return text, "~"
-
-    speaker = dialogue_match.group(1).strip()
-    line = dialogue_match.group(2).strip()
-    if not line:
-        return text, "~"
-    return f"{speaker}说出原文台词，身体动作和视线承接上一镜状态。", line
-
-
-def _local_fallback_subject(script: str, action_events: list[str]) -> str:
-    characters = _primary_script_character_names(script)
-    if characters:
-        return "、".join(characters[:2])
-
-    names: list[str] = []
-    for event in action_events:
-        for name in re.findall(r"[\u4e00-\u9fff]{2,4}(?=[:：]|[一把从在对拿拉伸缩停弯说])", event):
-            if name and name not in names:
-                names.append(name)
-        if len(names) >= 2:
-            break
-    return "、".join(names[:2]) if names else "当前人物"
-
-
-def _build_local_shot_director_fallback(
-    *,
-    fragment_id: str,
-    fragment_planner_output: str,
-    script: str,
-    aspect_ratio: str,
-    failure: Exception,
-) -> str:
-    sections = _extract_yaml_sections(fragment_planner_output or "")
-    section = _filter_yaml_sections_by_fragment_ids(fragment_planner_output, [fragment_id])
-    if not section and sections:
-        section = sections[0]
-    if not section:
-        section = fragment_planner_output or script or ""
-
-    source_events = _source_script_events(section)
-    source_events = [event.strip() for event in source_events if event and event.strip()]
-    if not source_events:
-        source_events = [line.strip() for line in re.split(r"[\n。.!?]+", script or "") if line.strip()][:3]
-    if not source_events:
-        source_events = ["承接已确认的拆片事件，不新增剧情事实。"]
-
-    action_events = _local_fallback_action_events(source_events, script)
-    visual_cues = _local_fallback_visual_cues(source_events)
-    subject = _local_fallback_subject(script, action_events)
-    event_a = action_events[0]
-    relation_size = "竖屏中景双人关系镜头" if "9:16" in (aspect_ratio or "") else "中景双人关系镜头"
-    _ = failure
-    failure_note = "大模型调用失败，已启用本地兜底。"
-
-    lines = [
-        f"- 片段编号: {fragment_id}",
-        f"  片段任务: {_yaml_quote('本地兜底承接已确认拆片事件：' + event_a[:120])}",
-        "  节奏: \"承接上游节奏；每个镜头只保留一个可读动作。\"",
-        f"  空间连续性总控: {_yaml_quote(_infer_fragment_continuity_context(section, script))}",
-        "  兜底模式: \"镜头导演本地兜底\"",
-        f"  兜底原因: {_yaml_quote(failure_note)}",
-        "  镜头列表:",
-    ]
-
-    total_shots = max(1, min(4, len(action_events)))
-    for index, event in enumerate(action_events[:total_shots], start=1):
-        action, dialogue = _local_fallback_event_action_and_dialogue(event)
-        start = (index - 1) * 3
-        end = start + 3
-        shot = f"{relation_size}，同侧固定机位" if index == 1 else "中近景关系镜头，同侧固定机位"
-        if index == total_shots and total_shots > 1:
-            shot = "中近景关系镜头，同侧固定机位，保留可继承尾帧"
-        carry_parts = [action]
-        if index == 1 and visual_cues:
-            carry_parts.insert(0, "；".join(visual_cues[:2]))
-        must_carry = "；".join(part for part in carry_parts if part)
-        cut_point = "第一个可读动作落点后" if index == 1 else "反应或信息落点清楚后"
-        continuity = (
-            "以可读尾帧结束，便于下一段承接"
-            if index == total_shots
-            else "保持上游已确认的人物位置、道具状态和视线方向"
-        )
-        lines.extend(
-            [
-                f"    - 镜头编号: {fragment_id}-S{index:02d}",
-                f"      时长: \"{start}-{end}秒\"",
-                f"      镜头任务: {_yaml_quote(('建立当前事件落点和人物空间关系：' if index == 1 else '承接下一个动作或反应落点：') + action[:120])}",
-                f"      拍摄主体: {_yaml_quote(subject)}",
-                f"      镜头: {_yaml_quote(shot)}",
-                f"      画面动作: {_yaml_quote(action)}",
-                f"      台词: {_yaml_quote(dialogue)}",
-                f"      必须承载: {_yaml_quote(must_carry)}",
-                f"      切镜点: {_yaml_quote(cut_point)}",
-                f"      连续性: {_yaml_quote(continuity)}",
-            ]
-        )
-    return "\n".join(lines)
-
-
 def run_shot_director_for_segment(
     state: DirectorState,
     segment_index: int | None = None,
@@ -3517,6 +3383,7 @@ def run_shot_director_for_segment(
         partial_outputs = dict(outputs)
         partial_outputs[f"shot_director_{stage_name}_fragment_{fragment_id}"] = stage_output
         if stage_name == "final":
+            partial_outputs[f"shot_director_guard_fragment_{fragment_id}"] = stage_output
             partial_outputs[f"shot_director_segment_{fragment_id}"] = stage_output
             partial_outputs[f"shot_director_fragment_{fragment_id}"] = stage_output
             partial_outputs["shot_director"] = _merge_repaired_yaml_sections(
@@ -3572,71 +3439,138 @@ def run_shot_director_for_segment(
             resume_stage_meta={},
         )
     except Exception as exc:
-        error_message = f"镜头导演大模型调用失败，已启用本地 v1 镜头资产兜底：{exc}"
+        error_message = f"镜头导演大模型连接不成功：{exc}"
         print(f"  [shot_director] {error_message}")
-        output = _build_local_shot_director_fallback(
-            fragment_id=fragment_id,
-            fragment_planner_output=fragment_planner_output,
-            script=state.get("script", ""),
-            aspect_ratio=state.get("aspect_ratio", "16:9"),
-            failure=exc,
-        )
-        output = _repair_shot_director_output_contracts(output, state.get("script", ""))
-        merged_output = _merge_repaired_yaml_sections(outputs.get("shot_director", ""), output, [fragment_id])
+
+        failed_outputs = dict(outputs)
+        for key in list(failed_outputs):
+            if key.startswith("shot_director_") and key.endswith(f"_{fragment_id}"):
+                failed_outputs.pop(key, None)
+        for aggregate_key in ("shot_director", "shot_director_final"):
+            aggregate_output = str(failed_outputs.get(aggregate_key) or "")
+            if _filter_yaml_sections_by_fragment_ids(aggregate_output, [fragment_id]):
+                remaining_sections = [
+                    section.strip()
+                    for section in _extract_yaml_sections(aggregate_output)
+                    if _extract_fragment_id(section) != fragment_id
+                ]
+                if remaining_sections:
+                    failed_outputs[aggregate_key] = "\n\n".join(remaining_sections)
+                else:
+                    failed_outputs.pop(aggregate_key, None)
+        failed_outputs["shot_director_error"] = error_message
+        failed_outputs[f"shot_director_error_fragment_{fragment_id}"] = error_message
+
         shot_runtime = {
             **stage_runtimes,
             "mode": "per_segment",
             "active_fragment_id": fragment_id,
-            "path": "local_fallback_after_llm_error",
-            "status": "local_fallback",
+            "path": "llm_connection_failed",
+            "status": "connection_failed",
             "error_type": type(exc).__name__,
             "error": str(exc),
             "total_elapsed_seconds": round(time.perf_counter() - shot_runtime_started, 3),
-            "local_fallback": True,
+            "local_fallback": False,
+            "final": {"status": "connection_failed"},
         }
-        stage_meta = {"final": {"status": "local_fallback", "error": str(exc), "local_fallback": True}}
-        stage_outputs = {"final": output}
-        director_issues = _collect_shot_director_issues(
-            output,
-            expected_segments=[fragment_id],
-            script=state.get("script", ""),
-            planner_output=fragment_planner_output,
-            aspect_ratio=state.get("aspect_ratio", ""),
-        )
-        hard_director_issues = _hard_shot_director_issues(director_issues)
-        shot_runtime["validation_issues"] = director_issues
-        shot_runtime["hard_validation_issues"] = hard_director_issues
-        shot_runtime["final"] = {"status": "local_fallback"}
+        stage_meta = {
+            "final": {
+                "status": "connection_failed",
+                "error": str(exc),
+                "error_type": type(exc).__name__,
+                "local_fallback": False,
+            }
+        }
         knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta["final"])
         knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
         knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
-        outputs.pop("shot_director_error", None)
-        outputs.pop(f"shot_director_error_fragment_{fragment_id}", None)
-        outputs[f"shot_director_segment_{fragment_id}"] = output
-        outputs[f"shot_director_fragment_{fragment_id}"] = output
-        outputs[f"shot_director_final_fragment_{fragment_id}"] = output
-        outputs["shot_director"] = merged_output
-        outputs["shot_director_final"] = merged_output
-        original_by_segment = dict(state.get("shot_director_original_by_segment") or {})
-        original_by_segment[str(selected_index)] = output
-        original_by_segment[fragment_id] = output
-        return _persist_update(
+        _persist_update(
             state,
             {
-                "status": "running_phase_2",
-                "step": "step_4_compile",
-                "message": f"第 {selected_index} 段镜头导演已启用本地兜底，正在进入 Prompt 编译。",
-                "agent_outputs": outputs,
+                "status": "error",
+                "step": "error",
+                "message": error_message,
+                "error": error_message,
+                "agent_outputs": failed_outputs,
                 "knowledge_metadata": knowledge_metadata,
                 "total_segments": total_segments,
                 "segment_names": segment_names,
                 "active_segment_index": selected_index,
                 "current_segment_index": selected_index,
-                "shot_director_original_by_segment": original_by_segment,
                 "shot_director_approved_by_segment": dict(state.get("shot_director_approved_by_segment") or {}),
             },
         )
-    output = _repair_shot_director_output_contracts(output, state.get("script", ""))
+        raise RuntimeError(error_message) from exc
+    primary_output = _repair_shot_director_output_contracts(output, state.get("script", ""))
+    primary_issues = _collect_shot_director_issues(
+        primary_output,
+        expected_segments=[fragment_id],
+        script=state.get("script", ""),
+        planner_output=fragment_planner_output,
+        aspect_ratio=state.get("aspect_ratio", ""),
+    )
+    primary_hard_issues = _hard_shot_director_issues(primary_issues)
+    try:
+        output, review_runtime, review_report = _run_shot_director_review_board(
+            script=state.get("script", ""),
+            planner_output=fragment_planner_output,
+            director_brief=director_brief_text,
+            primary_output=primary_output,
+            images_base64=None,
+        )
+    except Exception as exc:
+        error_message = str(exc)
+        print(f"  [shot_director_logic_reviewer] {error_message}")
+        failed_outputs = dict(outputs)
+        failed_outputs["shot_director_error"] = error_message
+        failed_outputs[f"shot_director_error_fragment_{fragment_id}"] = error_message
+        shot_runtime["total_elapsed_seconds"] = round(time.perf_counter() - shot_runtime_started, 3)
+        shot_runtime["mode"] = "per_segment"
+        shot_runtime["active_fragment_id"] = fragment_id
+        shot_runtime["path"] = "logic_reviewer_connection_failed"
+        shot_runtime["status"] = "connection_failed"
+        shot_runtime["review_board"] = {
+            "agent_name": "shot_director_logic_reviewer",
+            "status": "connection_failed",
+            "error_type": type(exc).__name__,
+            "error": error_message,
+        }
+        knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta.get("final", {}))
+        knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
+        knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
+        _persist_update(
+            state,
+            {
+                "status": "error",
+                "step": "error",
+                "message": error_message,
+                "error": error_message,
+                "agent_outputs": failed_outputs,
+                "knowledge_metadata": knowledge_metadata,
+                "total_segments": total_segments,
+                "segment_names": segment_names,
+                "active_segment_index": selected_index,
+                "current_segment_index": selected_index,
+                "shot_director_approved_by_segment": dict(state.get("shot_director_approved_by_segment") or {}),
+            },
+        )
+        raise RuntimeError(error_message) from exc
+
+    director_issues = _collect_shot_director_issues(
+        output,
+        expected_segments=[fragment_id],
+        script=state.get("script", ""),
+        planner_output=fragment_planner_output,
+        aspect_ratio=state.get("aspect_ratio", ""),
+    )
+    hard_director_issues = _hard_shot_director_issues(director_issues)
+    if hard_director_issues:
+        output = primary_output
+        director_issues = primary_issues
+        review_runtime["final_validation_status"] = "fallback_to_primary"
+        review_runtime["final_validation_issues"] = hard_director_issues
+        hard_director_issues = primary_hard_issues
+
     merged_output = _merge_repaired_yaml_sections(outputs.get("shot_director", ""), output, [fragment_id])
     outputs.pop("shot_director_error", None)
     outputs.pop(f"shot_director_error_fragment_{fragment_id}", None)
@@ -3647,25 +3581,30 @@ def run_shot_director_for_segment(
     for stage_name in ("layout", "blocking", "final"):
         if stage_outputs.get(stage_name):
             outputs[f"shot_director_{stage_name}_fragment_{fragment_id}"] = stage_outputs[stage_name]
+            if stage_name == "final":
+                outputs[f"shot_director_guard_fragment_{fragment_id}"] = stage_outputs[stage_name]
+    if review_report:
+        outputs["shot_director_review"] = review_report
+        outputs[f"shot_director_review_fragment_{fragment_id}"] = review_report
 
-    director_issues = _collect_shot_director_issues(
-        output,
-        expected_segments=[fragment_id],
-        script=state.get("script", ""),
-        planner_output=fragment_planner_output,
-        aspect_ratio=state.get("aspect_ratio", ""),
-    )
-    hard_director_issues = _hard_shot_director_issues(director_issues)
     shot_runtime["total_elapsed_seconds"] = round(time.perf_counter() - shot_runtime_started, 3)
     shot_runtime["mode"] = "per_segment"
     shot_runtime["active_fragment_id"] = fragment_id
     shot_runtime["path"] = "direct_llm_only"
+    shot_runtime["review_board"] = review_runtime
+    shot_runtime["primary_validation_issues"] = primary_issues
+    shot_runtime["primary_hard_validation_issues"] = primary_hard_issues
     shot_runtime["validation_issues"] = director_issues
     shot_runtime["hard_validation_issues"] = hard_director_issues
 
     knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta.get("final", {}))
     knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
     knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
+    if review_report:
+        knowledge_metadata["shot_director"]["review_report_chars"] = len(review_report)
+    review_retrieval_meta = review_runtime.get("retrieval_meta") if isinstance(review_runtime, dict) else None
+    if isinstance(review_retrieval_meta, dict):
+        knowledge_metadata["shot_director"]["review_retrieval"] = review_retrieval_meta
 
     original_by_segment = dict(state.get("shot_director_original_by_segment") or {})
     original_by_segment[str(selected_index)] = output
@@ -3827,6 +3766,19 @@ _SHOT_LOGIC_ACTION_DETAIL_RE = re.compile(
     r"微颤|停顿|慢慢|短暂|仍|没有|开始|随后|同时|结束"
 )
 _SHOT_LOGIC_COMPANION_RE = re.compile(r"画外|边缘|近处|近侧|同场|同车|同室|同一空间|仍在|还在|没有离开|未离开|肩线|前景")
+_SHOT_LOGIC_BUSY_HAND_RE = re.compile(
+    r"(手机|电话|衣服|外套|包|文件|照片|项链|钥匙|门|车门).{0,16}"
+    r"(牵|抓|拉|扶|抱|托|按|递|拿|套|扣|推|拽|贴|压|靠近|俯身).{0,16}"
+    r"(同时|一边|仍|还|继续|又|并|顺着)"
+    r"|"
+    r"(同时|一边|仍|还|继续|又|并|顺着).{0,16}"
+    r"(牵|抓|拉|扶|抱|托|按|递|拿|套|扣|推|拽|贴|压|靠近|俯身).{0,16}"
+    r"(手机|电话|衣服|外套|包|文件|照片|项链|钥匙|门|车门)"
+)
+_SHOT_LOGIC_RESIST_COMPLY_RE = re.compile(r"(抗拒|挣扎|躲|后缩|避开|抽回|缩脚).{0,36}(配合|顺从|穿好|完成|戴上|扣上|靠近)")
+_SHOT_LOGIC_ACTION_VERB_RE = re.compile(
+    r"牵|抓|拉|扶|抱|托|按|递|拿|套|扣|推|拽|贴|压|靠近|俯身|转身|后退|后缩|躲|避开|看向|低头|抬眼|说|喊|停住"
+)
 
 
 def _shot_logic_camera_field_has_action_leak(shot_text: str) -> bool:
@@ -3880,6 +3832,20 @@ def _shot_logic_local_issues(output: str, script: str = "") -> list[str]:
                     "需要写清起始状态、动作变化、视线/表情/身体反应和镜尾状态。"
                 )
 
+            action_verb_count = len(_SHOT_LOGIC_ACTION_VERB_RE.findall(clean_action))
+            action_clause_count = len([part for part in re.split(r"[；;，,。]", clean_action) if part.strip()])
+            if action_verb_count >= 7 or action_clause_count >= 5 or _SHOT_LOGIC_BUSY_HAND_RE.search(clean_action):
+                issues.append(
+                    f"P1｜{fragment_id}/{shot_id}｜画面动作过载或肢体占用不清；"
+                    "请压缩为 prompt 编译可用的 1-2 句自然短动作，并明确哪只手/身体重心/道具状态。"
+                )
+
+            if _SHOT_LOGIC_RESIST_COMPLY_RE.search(clean_action):
+                issues.append(
+                    f"P1｜{fragment_id}/{shot_id}｜人物从抗拒到配合缺少过渡；"
+                    "需要保留未完成状态，或补一个清楚的动作转折，避免同一镜内状态自相矛盾。"
+                )
+
             if _SHOT_LOGIC_PROP_RE.search(block) and not _SHOT_LOGIC_PROP_STATE_RE.search(combined_action_state):
                 issues.append(
                     f"P1｜{fragment_id}/{shot_id}｜道具状态不够明确；"
@@ -3908,7 +3874,7 @@ def _shot_logic_reviewer_system_prompt() -> str:
     return """你是镜头逻辑裁判，工作在三段式镜头导演之后。
 你不是第四个镜头创意导演，不能重新发明剧情、节奏、人物、道具或台词。
 
-你的唯一任务：审查单片段内部的镜头语言、人物动作、道具状态和镜间连续性是否合逻辑。
+你的唯一任务：审查单片段内部的镜头语言、人物动作、道具状态和镜间连续性是否合逻辑，并把最终动作修成 prompt 编译可直接使用的简短自然语句。
 
 必须重点检查：
 1. 镜头字段是否只写摄影信息：景别、机位、视角、运镜、前景关系；不得混入人物动作、表情、台词或戏剧判断。
@@ -3917,9 +3883,13 @@ def _shot_logic_reviewer_system_prompt() -> str:
 4. 道具接触戏是否锁定归属、动作阶段和镜尾状态。
 5. 镜头与镜头之间是否继承上一镜尾帧的人物位置、道具状态、视线方向和同侧轴线。
 6. 切镜点是否有因果：信息落下、反应成立、动作阶段完成或尾帧交接完成之后再切。
+7. 肢体占用是否可执行：同一只手不能同时拿手机、牵人、扶人、套衣服或抓道具；如果必须并行，必须明确左右手和身体重心。
+8. 接触关系是否可成立：抓住、抱住、躲避、抗拒、压近、后缩、穿衣等动作不能在同一镜内互相抵消。
+9. 画面动作是否适合下游 prompt 编译：每个“画面动作”优先改成 1-2 句自然短动作，每句只承载一个主要动作变化，避免流水账和复杂嵌套。
 
 如果没有硬问题，只输出通过结论。
-如果有问题，给出最小修复。修复只能整理镜头字段、补足画面动作/连续性/切镜点，不得新增剧本外事件。
+如果有问题，给出最小修复。修复只能整理镜头字段、压缩并理顺画面动作、补足连续性/切镜点，不得新增剧本外事件。
+修复后的“画面动作”必须短、自然、可生成：保留角色起始状态、一个主要动作变化和镜尾状态即可；多余心理解释放到“必须承载”或删掉。
 
 输出必须是中文，原剧本英文台词可原样保留。严格按这个格式：
 审查结论: 通过
@@ -3959,7 +3929,8 @@ def _shot_logic_reviewer_user_prompt(
 【待审查镜头方案】
 {primary_output or "（空）"}
 
-请判断是否通过。若需要修复，把完整修复后的镜头方案放在“修复后镜头方案:”后面，且作为最后一个字段。"""
+请判断是否通过。若需要修复，把完整修复后的镜头方案放在“修复后镜头方案:”后面，且作为最后一个字段。
+修复时请特别处理“画面动作”：不要写成长串动作流水账；改成大模型容易生成的 1-2 句自然短动作，并确保手机、衣服、孩子、身体接触等状态能被下一镜继承。"""
 
 
 def _parse_shot_logic_review_verdict(report: str) -> str:
@@ -3994,20 +3965,6 @@ def _extract_shot_logic_repaired_yaml(report: str) -> str:
     return _clean_shot_director_output(body)
 
 
-def _shot_logic_local_fallback_report(local_issues: list[str], error: Exception | None = None) -> str:
-    verdict = "需要返修" if local_issues else "通过"
-    issue_lines = "\n".join(f"  - {issue}" for issue in local_issues) if local_issues else "  - 无"
-    error_text = f"；裁判模型调用失败：{error}" if error else ""
-    return (
-        f"审查结论: {verdict}\n"
-        f"裁判摘要: 已完成本地镜头逻辑检查{error_text}。\n"
-        "单片段审查:\n"
-        f"{issue_lines}\n"
-        "硬错误: []\n"
-        "修复后镜头方案:\n"
-    )
-
-
 def _run_shot_director_review_board(
     *,
     script: str,
@@ -4020,13 +3977,90 @@ def _run_shot_director_review_board(
     _ = images_base64
     started = time.perf_counter()
     local_issues = _shot_logic_local_issues(primary_output, script)
+    reviewer_context_hint = (
+        "shot_director_logic_reviewer 三段式镜头导演 逻辑审查 "
+        "shot_director_layout shot_director_blocking shot_director_guard "
+        "镜头摆位主分镜骨架 动作调度 规则守门 最小修复 "
+        "镜头合理性 同镜头同机位 多机位变化 动作连续性 "
+        "LAYOUT-COVERAGE-BLUEPRINT BLOCKING-ACTION-FLOW GUARD-COVERAGE-CONTRACT "
+        f"{(planner_output or '')[:500]} {(primary_output or '')[:800]}"
+    )
+    reviewer_profile = _build_shot_director_signal_retrieval_profile(
+        planner_output=planner_output,
+        atmosphere_strategy="",
+        director_brief=director_brief,
+        aspect_ratio="",
+    )
+    reviewer_profile["served_agents"] = [
+        "shot_director_layout",
+        "shot_director_blocking",
+        "shot_director_guard",
+        "shot_director",
+    ]
+    reviewer_profile["signals"] = _unique_preserve_order(
+        [
+            *(reviewer_profile.get("signals") or []),
+            "layout_blueprint",
+            "shot_language_selection",
+            "reaction_coverage",
+            "action_state_chain",
+            "minimal_repair",
+            "shot_variety",
+            "continuity_contract",
+        ]
+    )
+    reviewer_profile["tags"] = _unique_preserve_order(
+        [
+            *(reviewer_profile.get("tags") or []),
+            "镜头摆位主分镜骨架",
+            "动作调度与受击覆盖",
+            "规则守门与最小修复",
+            "多机位分镜",
+            "镜头多样性",
+        ]
+    )
+    reviewer_profile["final_top_k"] = 12
+    system_prompt, retrieval_meta = build_system_prompt(
+        _shot_logic_reviewer_system_prompt(),
+        "shot_director_logic_reviewer",
+        context_hint=reviewer_context_hint,
+        retrieval_profile=reviewer_profile,
+        include_critical_knowledge=True,
+    )
+    forced_stage_sources = [
+        "25_镜头摆位主分镜骨架规则.md",
+        "26_动作调度与受击覆盖规则.md",
+        "27_规则守门与最小修复规则.md",
+        "22_多机位分镜与镜头多样性规则.md",
+        "rules/shot_director_layout/LAYOUT-COVERAGE-BLUEPRINT-005.md",
+        "rules/shot_director_blocking/BLOCKING-ACTION-FLOW-006.md",
+        "rules/shot_director_guard/GUARD-COVERAGE-CONTRACT-005.md",
+    ]
+    forced_stage_rule_block = "\n\n".join(
+        [
+            "===== 三段式镜头导演审查必须执行的专项规则 =====",
+            "来源: " + " | ".join(forced_stage_sources),
+            _shot_director_layout_rule_block(""),
+            _shot_director_blocking_rule_block(""),
+            _shot_director_guard_stage_rule_block(""),
+            _shot_director_coverage_contract_prompt(),
+            "审查时必须按 layout 骨架、blocking 动作调度、guard 最小修复三层分别判断；"
+            "如果连续镜头无动机地重复同一主体、同一景别、同一机位或同一运动方式，必须标为需要返修。",
+            "===== 三段式专项规则结束 =====",
+        ]
+    )
+    system_prompt = f"{system_prompt}\n\n{forced_stage_rule_block}"
+    retrieval_meta["forced_stage_sources"] = forced_stage_sources
+    retrieval_meta["matched_sources"] = _unique_preserve_order(
+        [*(retrieval_meta.get("matched_sources") or []), *forced_stage_sources]
+    )
     reviewer_report = ""
     verdict = "accepted" if not local_issues else "repair_required"
     status = "accepted_primary" if not local_issues else "accepted_primary_with_local_warnings"
 
     try:
         reviewer_report = call_llm(
-            _shot_logic_reviewer_system_prompt(),
+            system_prompt,
             _shot_logic_reviewer_user_prompt(
                 script=script,
                 planner_output=planner_output,
@@ -4038,23 +4072,14 @@ def _run_shot_director_review_board(
             temperature=0.2,
             max_retries=1,
         ).strip()
+        if not reviewer_report:
+            raise RuntimeError("镜头逻辑审查大模型返回空内容")
         verdict = _parse_shot_logic_review_verdict(reviewer_report)
     except Exception as exc:
-        report = _shot_logic_local_fallback_report(local_issues, exc)
-        runtime = {
-            "agent_name": "shot_director_logic_reviewer",
-            "mode": "single_fragment_logic_judge",
-            "status": "local_fallback",
-            "verdict": verdict,
-            "local_issue_count": len(local_issues),
-            "elapsed_seconds": round(time.perf_counter() - started, 3),
-            "output_chars": len(primary_output or ""),
-            "report_chars": len(report),
-        }
-        return primary_output, runtime, report
+        raise RuntimeError(f"镜头逻辑审查大模型连接不成功：{exc}") from exc
 
     output = primary_output
-    report = reviewer_report or _shot_logic_local_fallback_report(local_issues)
+    report = reviewer_report
     if verdict in {"repair_required", "blocked"}:
         repaired_yaml = _extract_shot_logic_repaired_yaml(reviewer_report)
         if repaired_yaml:
@@ -4097,6 +4122,7 @@ def _run_shot_director_review_board(
         "elapsed_seconds": round(time.perf_counter() - started, 3),
         "output_chars": len(output or ""),
         "report_chars": len(report or ""),
+        "retrieval_meta": retrieval_meta,
     }
     return output, runtime, report
 

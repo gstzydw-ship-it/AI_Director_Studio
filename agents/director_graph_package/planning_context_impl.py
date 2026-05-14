@@ -358,135 +358,7 @@ def _run_director_showrunner_logic_review(
         }
         return reviewed_output, runtime, f"strict review panel finished with verdict={final_verdict}"
     except Exception as exc:
-        blocked_script = (source_script or primary_script or "").strip()
-        if blocked_script:
-            blocked_script_block = "\n".join(f"  {line}" if line.strip() else "" for line in blocked_script.splitlines())
-        else:
-            blocked_script_block = "  保留原始剧本继续，等待裁判 agent 重跑。"
-        safe_error = str(exc).replace("\r", " ").replace("\n", " ")[:300]
-        reviewed_output = (
-            "审查结论: PASS\n"
-            "增强版剧本: |\n"
-            f"{blocked_script_block}\n"
-            "多维审查:\n"
-            "  - 角色: 本地兜底审查\n"
-            "    通过: true\n"
-            "    发现: 外部裁判模型调用失败，已保留原剧本继续，不采纳未经审查的增强稿\n"
-            "    处理: 允许下游基于原剧本继续生成，避免人工审核卡死\n"
-            "硬错误: 无\n"
-            "评分:\n"
-            "  施事逻辑: 4\n"
-            "  道具连续性: 4\n"
-            "  人物动机: 4\n"
-            "  空间调度: 4\n"
-            "  主线保护: 5\n"
-            "  可拍性: 4\n"
-            "  冲突强度: 4\n"
-            "  画面冲击: 4\n"
-            "逻辑审查:\n"
-            "  - 问题: 外部裁判模型调用失败\n"
-            "    判断: 本地兜底保留原剧本，不引入新剧情风险\n"
-            "    修正方式: 使用原剧本继续下游规划\n"
-            "最终处理:\n"
-            "  是否返修: false\n"
-            "  返修轮次: 0\n"
-            "  采纳意见:\n"
-            "    - 保留原剧本\n"
-            "  剩余风险: 外部裁判未完成，仅跳过增强稿\n"
-            "增强依据: []\n"
-            "主线保护:\n"
-            "  - 原剧本逐字保留\n"
-            "节奏总控交接:\n"
-            "  - 下游按原剧本拆片和镜头规划\n"
-            "需用户确认:\n"
-            f"  - 外部裁判模型失败，已本地兜底继续：{safe_error}\n"
-        )
-        runtime = {
-            "agent_name": "director_showrunner_logic_reviewer",
-            "mode": "strict_review_panel",
-            "status": "reviewed_local_fallback",
-            "verdict": "PASS",
-            "local_fallback": True,
-            "elapsed_seconds": round(time.perf_counter() - started, 3),
-            "input_chars": len(primary_output),
-            "output_chars": len(reviewed_output),
-            "enhanced_script_chars": len(blocked_script),
-            "error_type": type(exc).__name__,
-            "error": str(exc)[:500],
-        }
-        return reviewed_output, runtime, f"logic reviewer failed; kept original script with local fallback: {type(exc).__name__}"
-        reviewed_output = (
-            "审查结论: BLOCKED\n"
-            "增强版剧本: |\n"
-            f"{blocked_script_block}\n"
-            "多维审查:\n"
-            "  - 角色: 物理逻辑审查员\n"
-            "    通过: false\n"
-            "    发现: 裁判 agent 调用失败，未完成审查\n"
-            "    处理: 阻断未审查增强稿\n"
-            "  - 角色: 剧情因果审查员\n"
-            "    通过: false\n"
-            "    发现: 裁判 agent 调用失败，未完成审查\n"
-            "    处理: 阻断未审查增强稿\n"
-            "  - 角色: 场景调度审查员\n"
-            "    通过: false\n"
-            "    发现: 裁判 agent 调用失败，未完成审查\n"
-            "    处理: 阻断未审查增强稿\n"
-            "  - 角色: 制片可拍性审查员\n"
-            "    通过: false\n"
-            "    发现: 裁判 agent 调用失败，未完成审查\n"
-            "    处理: 阻断未审查增强稿\n"
-            "  - 角色: 冲突强度与画面冲击审查员\n"
-            "    通过: false\n"
-            "    发现: 裁判 agent 调用失败，未完成审查\n"
-            "    处理: 阻断未审查增强稿\n"
-            "硬错误:\n"
-            "  - 类型: 裁判未完成\n"
-            "    原句: 无\n"
-            "    问题: 剧情增强裁判 agent 未成功返回严格审查结果\n"
-            "    严重级别: P0\n"
-            "    必须修复: true\n"
-            "    修复结果: 已保留原剧本，等待重跑裁判\n"
-            "评分:\n"
-            "  施事逻辑: 0\n"
-            "  道具连续性: 0\n"
-            "  人物动机: 0\n"
-            "  空间调度: 0\n"
-            "  主线保护: 0\n"
-            "  可拍性: 0\n"
-            "  冲突强度: 0\n"
-            "  画面冲击: 0\n"
-            "逻辑审查:\n"
-            "  - 问题: 裁判 agent 调用失败\n"
-            "    判断: 未审查输出不得进入下游\n"
-            "    修正方式: 保留原剧本，提示用户稍后重跑剧情增强或更换裁判模型\n"
-            "最终处理:\n"
-            "  是否返修: true\n"
-            "  返修轮次: 0\n"
-            "  采纳意见:\n"
-            "    - 裁判失败时 fail closed，不采纳未审查增强稿\n"
-            "  剩余风险: 裁判未完成，需重跑\n"
-            "增强依据: []\n"
-            "主线保护:\n"
-            "  - 裁判未完成时保留原剧本，避免未审查增强改动进入下游\n"
-            "节奏总控交接:\n"
-            "  - 暂停使用增强稿；等待剧情增强裁判重跑\n"
-            "需用户确认:\n"
-            f"  - 裁判 agent 调用失败：{safe_error}\n"
-        )
-        runtime = {
-            "agent_name": "director_showrunner_logic_reviewer",
-            "mode": "strict_review_panel",
-            "status": "blocked",
-            "verdict": "BLOCKED",
-            "elapsed_seconds": round(time.perf_counter() - started, 3),
-            "input_chars": len(primary_output),
-            "output_chars": len(reviewed_output),
-            "enhanced_script_chars": len(blocked_script),
-            "error_type": type(exc).__name__,
-            "error": str(exc)[:500],
-        }
-        return reviewed_output, runtime, f"logic reviewer failed; blocked primary output: {type(exc).__name__}"
+        raise RuntimeError(f"剧情增强逻辑审查大模型连接不成功：{exc}") from exc
 
 
 def _record_knowledge_metadata(
@@ -1106,13 +978,12 @@ def _director_brief_prompt_block(director_brief: str) -> str:
     )
 
 
-def _fallback_director_brief(state: DirectorState | dict[str, object], reason: str = "") -> str:
+def _speed_mode_director_brief(state: DirectorState | dict[str, object]) -> str:
     source_script = str(state.get("script") or state.get("original_script") or "").strip()
     if source_script:
         script_lines = "\n".join(f"  {line}" if line.strip() else "" for line in source_script.splitlines())
     else:
         script_lines = "  保留当前剧本继续施工。"
-    reason_line = f"兜底原因: {reason[:180]}\n" if reason else ""
     return (
         "增强版剧本: |\n"
         f"{script_lines}\n"
@@ -1124,7 +995,6 @@ def _fallback_director_brief(state: DirectorState | dict[str, object], reason: s
         "  - 新人物、新台词、新关键道具、新误会或新反转必须先进入需用户确认\n"
         "节奏总控交接:\n"
         "  - 基于增强后的当前剧本重新判断快慢、停顿、卡断、反应归属和尾帧承接\n"
-        f"{reason_line}"
     ).strip()
 
 
@@ -1144,26 +1014,6 @@ def _is_retryable_showrunner_llm_error(exc: Exception) -> bool:
         "TimeoutException",
     )
     return any(marker in text for marker in retryable_markers)
-
-
-def _safe_showrunner_fallback_reason(exc: Exception) -> str:
-    text = str(exc)
-    if "LLM 服务临时不可用" in text:
-        return "LLM 服务临时不可用，已保留原剧本继续；可稍后重跑剧情增强。"
-    auth_markers = (
-        "HTTP 401",
-        "HTTP 403",
-        "invalid token",
-        "invalid_request",
-        "无效的令牌",
-        "unauthorized",
-        "forbidden",
-    )
-    if any(marker.lower() in text.lower() for marker in auth_markers):
-        return "大模型鉴权失败，已保留原剧本；请检查剧情增强模型的 API Key、Base URL 或模型权限后重跑。"
-    if _is_retryable_showrunner_llm_error(exc):
-        return "LLM 服务临时不可用，已保留原剧本继续；可稍后重跑剧情增强。"
-    return "剧情增强未完成，已保留原剧本继续；可稍后重跑剧情增强。"
 
 
 def _director_showrunner_compact_prompts(
@@ -1338,7 +1188,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
     showrunner_scene_context = _compact_scene_context_for_showrunner(scene_context_brief)
 
     if bool(state.get("speed_mode", False)):
-        output = _localize_director_showrunner_output(_fallback_director_brief(state, "快速模式"))
+        output = _localize_director_showrunner_output(_speed_mode_director_brief(state))
         outputs["director_showrunner"] = output
         knowledge_metadata = _record_knowledge_metadata(
             state,
@@ -1359,7 +1209,7 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
             host = base_url
         knowledge_metadata.setdefault("director_showrunner", {})["runtime"] = {
             "agent_name": "director_showrunner",
-            "status": "local_fallback",
+            "status": "speed_mode_skipped",
             "reason": "speed_mode",
             "output_chars": len(output),
             "model": model,
@@ -1467,8 +1317,10 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
                 degraded_prompt_retry["status"] = "failed"
                 degraded_prompt_retry["compact_error_type"] = type(compact_exc).__name__
                 degraded_prompt_retry["compact_error"] = str(compact_exc)[:500]
-                raise RuntimeError(_safe_showrunner_fallback_reason(primary_exc)) from compact_exc
-        primary_output = (primary_output or "").strip() or _fallback_director_brief(state, "empty_showrunner_output")
+                raise RuntimeError(f"剧情增强导演大模型连接不成功：{primary_exc}") from compact_exc
+        primary_output = (primary_output or "").strip()
+        if not primary_output:
+            raise RuntimeError("剧情增强导演大模型返回空内容")
         primary_output = _localize_director_showrunner_output(primary_output)
         output, review_runtime, review_report = _run_director_showrunner_logic_review(
             source_script=source_script,
@@ -1495,23 +1347,9 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         if degraded_prompt_retry:
             runtime["degraded_prompt_retry"] = degraded_prompt_retry
     except Exception as exc:
-        output = _fallback_director_brief(state, _safe_showrunner_fallback_reason(exc))
-        output = _localize_director_showrunner_output(output)
-        enhanced_script = source_script
-        director_brief = output
-        runtime = {
-            "agent_name": "director_showrunner",
-            "mode": "direct",
-            "status": "fallback",
-            "output_chars": len(output),
-            "enhanced_script_chars": len(enhanced_script),
-            "error_type": type(exc).__name__,
-            "error": str(exc)[:500],
-            "system_prompt_chars": len(system_prompt),
-            "system_prompt_original_chars": original_system_prompt_chars,
-        }
-        if degraded_prompt_retry:
-            runtime["degraded_prompt_retry"] = degraded_prompt_retry
+        if "连接不成功" in str(exc):
+            raise
+        raise RuntimeError(f"剧情增强导演大模型连接不成功：{exc}") from exc
 
     outputs["director_showrunner"] = output
     knowledge_metadata = _record_knowledge_metadata(state, "director_showrunner", showrunner_hint, retrieval_meta)

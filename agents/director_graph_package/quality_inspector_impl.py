@@ -88,10 +88,9 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
             qc_issues.append("- shot_director 缺少 fragment_task 字段（v1 片段任务描述）。")
         if not re.search(r"rhythm\s*:", director_segment):
             qc_issues.append("- shot_director 缺少 rhythm 字段（v1 节奏指令）。")
-        if re.search(r"schema_version\s*:", director_segment) and not re.search(
-            r"(?m)^\s*schema_version\s*:\s*shot_director_local_fallback_v1\s*$",
-            director_segment,
-        ):
+        if re.search(r"(?m)^\s*schema_version\s*:\s*shot_director_local_fallback_v1\s*$", director_segment):
+            qc_issues.append("- shot_director 输出来自旧本地兜底，必须重跑镜头导演并确保大模型连接成功。")
+        elif re.search(r"schema_version\s*:", director_segment):
             qc_issues.append("- shot_director 残留 v2 字段 schema_version，必须使用 v1 字段。")
         if re.search(r"fragment_intent\s*:", director_segment):
             qc_issues.append("- shot_director 残留 v2 字段 fragment_intent，必须使用 v1 字段。")

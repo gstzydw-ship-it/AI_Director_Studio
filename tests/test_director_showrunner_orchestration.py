@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 
+import pytest
+
 
 ROOT = str(Path(__file__).resolve().parents[1])
 if ROOT not in sys.path:
@@ -242,7 +244,7 @@ def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch
     assert result["knowledge_metadata"]["director_showrunner"]["runtime"]["logic_review"]["status"] == "reviewed"
 
 
-def test_director_showrunner_keeps_original_script_when_logic_reviewer_fails(monkeypatch):
+def test_director_showrunner_reports_connection_failure_when_logic_reviewer_fails(monkeypatch):
     monkeypatch.setattr(
         pci,
         "build_system_prompt",
@@ -272,28 +274,18 @@ def test_director_showrunner_keeps_original_script_when_logic_reviewer_fails(mon
 
     monkeypatch.setattr(pci, "call_llm", fake_call_llm)
 
-    result = pci.director_showrunner_node(
-        {
-            "script": "原始剧本。",
-            "original_script": "原始剧本。",
-            "scene_context_brief": "",
-            "aspect_ratio": "9:16",
-            "agent_outputs": {},
-            "knowledge_metadata": {},
-            "speed_mode": False,
-        }
-    )
-
-    output = result["agent_outputs"]["director_showrunner"]
-    runtime = result["knowledge_metadata"]["director_showrunner"]["runtime"]
-    assert result["enhanced_script"] == "原始剧本。"
-    assert "未审查增强稿" not in result["enhanced_script"]
-    assert "审查结论: PASS" in output
-    assert "本地兜底审查" in output
-    assert runtime["status"] == "success"
-    assert runtime["logic_review"]["status"] == "reviewed_local_fallback"
-    assert runtime["logic_review"]["verdict"] == "PASS"
-    assert runtime["logic_review"]["local_fallback"] is True
+    with pytest.raises(RuntimeError, match="剧情增强逻辑审查大模型连接不成功"):
+        pci.director_showrunner_node(
+            {
+                "script": "原始剧本。",
+                "original_script": "原始剧本。",
+                "scene_context_brief": "",
+                "aspect_ratio": "9:16",
+                "agent_outputs": {},
+                "knowledge_metadata": {},
+                "speed_mode": False,
+            }
+        )
 
 
 def test_director_showrunner_retries_with_compact_prompt_after_504(monkeypatch):
@@ -388,7 +380,7 @@ def test_director_showrunner_retries_with_compact_prompt_after_504(monkeypatch):
     assert "grips the folder" in result["enhanced_script"]
 
 
-def test_director_showrunner_sanitizes_visible_504_fallback(monkeypatch):
+def test_director_showrunner_reports_504_connection_failure(monkeypatch):
     monkeypatch.setattr(
         pci,
         "build_system_prompt",
@@ -409,28 +401,18 @@ def test_director_showrunner_sanitizes_visible_504_fallback(monkeypatch):
 
     monkeypatch.setattr(pci, "call_llm", fake_call_llm)
 
-    result = pci.director_showrunner_node(
-        {
-            "script": "A enters.",
-            "original_script": "A enters.",
-            "scene_context_brief": "",
-            "aspect_ratio": "9:16",
-            "agent_outputs": {},
-            "knowledge_metadata": {},
-            "speed_mode": False,
-        }
-    )
-
-    output = result["agent_outputs"]["director_showrunner"]
-    assert "增强版剧本" in output
-    assert "A enters." in output
-    assert "LLM 服务临时不可用" in output
-    assert "HTTP 504" not in output
-    assert "claude-opus-4-6" not in output
-    assert result["enhanced_script"] == "A enters."
-    runtime = result["knowledge_metadata"]["director_showrunner"]["runtime"]
-    assert runtime["status"] == "fallback"
-    assert runtime["degraded_prompt_retry"]["status"] == "failed"
+    with pytest.raises(RuntimeError, match="剧情增强导演大模型连接不成功"):
+        pci.director_showrunner_node(
+            {
+                "script": "A enters.",
+                "original_script": "A enters.",
+                "scene_context_brief": "",
+                "aspect_ratio": "9:16",
+                "agent_outputs": {},
+                "knowledge_metadata": {},
+                "speed_mode": False,
+            }
+        )
 
 
 def test_sanitize_legacy_showrunner_504_fallback_output():
@@ -449,7 +431,7 @@ def test_sanitize_legacy_showrunner_504_fallback_output():
     assert "claude-opus-4-6" not in sanitized
 
 
-def test_director_showrunner_401_fallback_tells_user_to_check_model_config(monkeypatch):
+def test_director_showrunner_reports_401_connection_failure(monkeypatch):
     monkeypatch.setattr(
         pci,
         "build_system_prompt",
@@ -470,24 +452,18 @@ def test_director_showrunner_401_fallback_tells_user_to_check_model_config(monke
 
     monkeypatch.setattr(pci, "call_llm", fake_call_llm)
 
-    result = pci.director_showrunner_node(
-        {
-            "script": "A enters.",
-            "original_script": "A enters.",
-            "scene_context_brief": "",
-            "aspect_ratio": "9:16",
-            "agent_outputs": {},
-            "knowledge_metadata": {},
-            "speed_mode": False,
-        }
-    )
-
-    output = result["agent_outputs"]["director_showrunner"]
-    assert "大模型鉴权失败" in output
-    assert "API Key" in output
-    assert "invalid token" not in output
-    assert result["enhanced_script"] == "A enters."
-    assert result["knowledge_metadata"]["director_showrunner"]["runtime"]["status"] == "fallback"
+    with pytest.raises(RuntimeError, match="剧情增强导演大模型连接不成功"):
+        pci.director_showrunner_node(
+            {
+                "script": "A enters.",
+                "original_script": "A enters.",
+                "scene_context_brief": "",
+                "aspect_ratio": "9:16",
+                "agent_outputs": {},
+                "knowledge_metadata": {},
+                "speed_mode": False,
+            }
+        )
 
 
 def test_director_showrunner_system_prompt_is_capped():
@@ -755,54 +731,10 @@ def test_review_board_accepts_primary_output(monkeypatch):
     assert "accepted" in report
 
 
-def test_shot_director_node_runs_three_stage_and_stores_output(monkeypatch):
-    """shot_director_node stores the three-stage final output.
+def test_shot_director_node_waits_for_per_segment_generation(monkeypatch):
+    """shot_director_node now pauses until the UI triggers the current segment."""
 
-    Guard-repair validation and logic review are bypassed via monkeypatch so
-    this test is independent of those contract implementations.
-    """
-    captured: dict[str, object] = {}
-
-    director_output = """- 片段编号: F01
-  片段任务: 建立进入动作
-  节奏: 进入后停住
-  空间连续性总控: 本片段是一段室内进入；人物始终在同一室内空间内。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-2秒
-      镜头任务: 建立动作
-      拍摄主体: A
-      镜头: 竖屏中景，室内同侧固定机位
-      画面动作: A从门边进入后停在室内，视线向前，身体动作在镜尾稳定。
-      台词: ~
-      必须承载: A进入室内的动作和镜尾停顿
-      切镜点: A停稳后切出
-      连续性: A仍在同一室内空间内，位置没有跳变。
-"""
-
-    def fake_three_stage(**kwargs):
-        captured["planner_output"] = kwargs["planner_output"]
-        captured["director_brief"] = kwargs["director_brief"]
-        return (
-            director_output,
-            {"elapsed_seconds": 0.1},
-            {"final": {"retrieval_mode": "stub"}},
-            {"final": director_output},
-        )
-
-    monkeypatch.setattr(sdi, "_run_shot_director_three_stage", fake_three_stage)
     monkeypatch.setattr(sdi, "_persist_update", lambda state, update: {**state, **update})
-    monkeypatch.setattr(sdi, "_collect_shot_director_issues", lambda *args, **kwargs: [])
-    monkeypatch.setattr(sdi, "_hard_shot_director_issues", lambda issues: [])
-    monkeypatch.setattr(
-        sdi,
-        "_run_shot_director_review_board",
-        lambda **kwargs: (
-            kwargs["primary_output"],
-            {"agent_name": "shot_director_logic_reviewer", "status": "accepted_primary"},
-            "审查结论: 通过",
-        ),
-    )
 
     result = sdi.shot_director_node(
         {
@@ -816,11 +748,11 @@ def test_shot_director_node_runs_three_stage_and_stores_output(monkeypatch):
         }
     )
 
-    assert captured["planner_output"] == "- fragment_id: F01\n"
-    assert captured["director_brief"] == "film_tone: restrained"
-    assert "shot_director" in result["agent_outputs"]
-    assert result["agent_outputs"]["shot_director"].startswith("- 片段编号: F01")
-    assert "镜头列表:" in result["agent_outputs"]["shot_director"]
+    assert result["status"] == "waiting_for_user_input"
+    assert result["step"] == "step_3_direct"
+    assert result["director_review_required"] is False
+    assert result["current_segment_index"] == 1
+    assert "shot_director" not in result["agent_outputs"]
 
 
 def test_human_review_pauses_after_story_enhancement(monkeypatch):

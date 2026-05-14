@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import sys
 
+import pytest
+
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT not in sys.path:
@@ -300,7 +302,7 @@ def test_story_planner_repairs_short_non_yaml_output(monkeypatch):
     assert "fragment_id" in output
 
 
-def test_story_planner_falls_back_to_verbatim_yaml_after_upstream_504(monkeypatch):
+def test_story_planner_reports_connection_failure_after_upstream_504(monkeypatch):
     script = "\n".join(f"Script event {index}." for index in range(1, 10))
 
     def fake_call_llm(system_prompt, user_prompt, **kwargs):
@@ -308,21 +310,13 @@ def test_story_planner_falls_back_to_verbatim_yaml_after_upstream_504(monkeypatc
 
     monkeypatch.setattr(spi, "call_llm", fake_call_llm)
 
-    output, attempts = _run_story_planner_with_schema_repair(
-        system_prompt="system",
-        user_prompt="initial",
-        original_script=script,
-        scene_output="current_main_action: scripted events continue.",
-    )
-
-    assert attempts[0]["status"] == "error"
-    assert attempts[1]["mode"] == "local_fallback"
-    assert attempts[1]["status"] == "success"
-    assert _validate_story_planner_output(output, script) == []
-    assert 'fragment_id: "F01"' in output
-    assert 'fragment_id: "F02"' in output
-    assert '    - "Script event 1."' in output
-    assert '    - "Script event 9."' in output
+    with pytest.raises(RuntimeError, match="节奏拆片导演大模型连接不成功"):
+        _run_story_planner_with_schema_repair(
+            system_prompt="system",
+            user_prompt="initial",
+            original_script=script,
+            scene_output="current_main_action: scripted events continue.",
+        )
 
 
 def test_story_planner_retry_budget_has_stability_floor():

@@ -506,15 +506,76 @@ def test_agent_connection_test_can_scope_agents_and_include_embedding(monkeypatc
     data = _json_body(response)
     assert response.status_code == 200, response.body.decode("utf-8")
     assert data["success"] is True
-    assert data["summary"] == {"total": 3, "ok": 3, "failed": 0}
-    assert [call["agent_name"] for call in agent_calls] == ["director_showrunner", "story_planner"]
+    assert data["summary"] == {"total": 4, "ok": 4, "failed": 0}
+    assert [call["agent_name"] for call in agent_calls] == [
+        "director_showrunner",
+        "story_planner",
+        "shot_director_layout",
+    ]
     assert agent_calls[0]["model"] == "gpt-5.5"
     assert agent_calls[1]["model"] == "gpt-5.4"
+    assert agent_calls[2]["model"] == "saved-layout-model"
     assert embedding_calls == [{
         "base_url": "https://embedding.example/v1",
         "api_key": "embedding-key",
         "model": "text-embedding-3-large",
     }]
+
+
+def test_agent_connection_test_expands_shot_director_runtime_agents(monkeypatch):
+    import ui.app as web_app
+
+    agent_calls: list[dict] = []
+
+    async def fake_probe(**kwargs):
+        agent_calls.append(kwargs)
+        return {
+            "agent": kwargs["agent_name"],
+            "label": kwargs["label"],
+            "category": kwargs["category"],
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+            "latency_ms": 7,
+            "message": "ok",
+        }
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "saved-text-key", "base_url": "https://saved-text.example/v1"},
+        "agent_models": {
+            "shot_director": {"model": "saved-shot-model"},
+        },
+    })
+    monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
+
+    response = asyncio.run(
+        web_app.api_test_agent_connections(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "agent_models": {
+                    "shot_director": "claude-opus-4-6",
+                },
+                "agent_names": ["shot_director"],
+                "include_embedding": False,
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert data["summary"] == {"total": 5, "ok": 5, "failed": 0}
+    assert [call["agent_name"] for call in agent_calls] == [
+        "shot_director",
+        "shot_director_layout",
+        "shot_director_blocking",
+        "shot_director_guard",
+        "shot_director_logic_reviewer",
+    ]
+    assert {call["model"] for call in agent_calls} == {"claude-opus-4-6"}
+    assert {call["base_url"] for call in agent_calls} == {"https://text.example/v1"}
+    assert {call["api_key"] for call in agent_calls} == {"text-key"}
 
 
 def test_public_model_config_removes_quality_review_agents_only(monkeypatch, tmp_path):

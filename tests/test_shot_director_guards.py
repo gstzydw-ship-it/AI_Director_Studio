@@ -1,6 +1,8 @@
 from pathlib import Path
 import sys
 
+import pytest
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -54,16 +56,18 @@ main_shots:
     assert "main_shots:" in cleaned
 
 
-def test_segment_shot_director_uses_local_fallback_after_llm_failure(monkeypatch):
+def test_segment_shot_director_reports_connection_failure_after_llm_failure(monkeypatch):
     def fail_three_stage(**_kwargs):
         raise RuntimeError("LLM network connection failed")
 
     monkeypatch.setattr(shot_director_impl, "_run_shot_director_three_stage", fail_three_stage)
-    monkeypatch.setattr(
-        shot_director_impl,
-        "_persist_update",
-        lambda state, update: {**dict(state), **dict(update)},
-    )
+    captured_update = {}
+
+    def fake_persist(state, update):
+        captured_update.update(update)
+        return {**dict(state), **dict(update)}
+
+    monkeypatch.setattr(shot_director_impl, "_persist_update", fake_persist)
 
     state = {
         "script": "Alex opens the door. Blair reacts and steps back.",
@@ -80,28 +84,69 @@ def test_segment_shot_director_uses_local_fallback_after_llm_failure(monkeypatch
         },
     }
 
-    result = shot_director_impl.run_shot_director_for_segment(state, 1)
-    output = result["agent_outputs"]["shot_director_segment_F01"]
-    runtime = result["knowledge_metadata"]["shot_director"]["runtime"]
+    with pytest.raises(RuntimeError, match="镜头导演大模型连接不成功"):
+        shot_director_impl.run_shot_director_for_segment(state, 1)
 
-    assert result["status"] == "running_phase_2"
-    assert result["step"] == "step_4_compile"
-    assert "shot_director_segment_F01" in result["agent_outputs"]
-    assert "shot_director_error_fragment_F01" not in result["agent_outputs"]
+    outputs = captured_update["agent_outputs"]
+    runtime = captured_update["knowledge_metadata"]["shot_director"]["runtime"]
 
-    assert "兜底模式: \"镜头导演本地兜底\"" in output
-    assert "镜头编号: F01-S01" in output
-    assert "同侧固定机位" in output
-    assert "位于画面中段" not in output
-    assert "schema_version:" not in output
-    assert "fallback_mode:" not in output
-    assert "shot_id:" not in output
-    assert "must_carry:" not in output
-    assert "Alex opens the door." in output
-    assert "relationship shot" not in output
-    assert "stable camera" not in output
-    assert runtime["local_fallback"] is True
-    assert runtime["final"]["status"] == "local_fallback"
+    assert captured_update["status"] == "error"
+    assert captured_update["step"] == "error"
+    assert "shot_director_segment_F01" not in outputs
+    assert outputs["shot_director_error_fragment_F01"].startswith("镜头导演大模型连接不成功")
+    assert "本地兜底" not in outputs["shot_director_error_fragment_F01"]
+    assert runtime["local_fallback"] is False
+    assert runtime["status"] == "connection_failed"
+    assert runtime["final"]["status"] == "connection_failed"
+
+
+def test_segment_shot_director_reports_connection_failure_after_logic_reviewer_failure(monkeypatch):
+    def fake_three_stage(**_kwargs):
+        output = (
+            "- fragment_id: F01\n"
+            "  fragment_intent: Door reaction\n"
+            "  main_shots:\n"
+            "    - shot_id: F01-S01\n"
+            "      subject: Alex\n"
+            "      shot_size: medium\n"
+        )
+        return output, {"final": {"status": "ok"}}, {"final": {"retrieval_mode": "stub"}}, {"final": output}
+
+    def fail_review(**_kwargs):
+        raise RuntimeError("镜头逻辑审查大模型连接不成功：offline")
+
+    monkeypatch.setattr(shot_director_impl, "_run_shot_director_three_stage", fake_three_stage)
+    monkeypatch.setattr(shot_director_impl, "_run_shot_director_review_board", fail_review)
+    monkeypatch.setattr(shot_director_impl, "_collect_shot_director_issues", lambda *args, **kwargs: [])
+    monkeypatch.setattr(shot_director_impl, "_hard_shot_director_issues", lambda issues: [])
+    captured_update = {}
+
+    def fake_persist(state, update):
+        captured_update.update(update)
+        return {**dict(state), **dict(update)}
+
+    monkeypatch.setattr(shot_director_impl, "_persist_update", fake_persist)
+
+    state = {
+        "script": "Alex opens the door. Blair reacts.",
+        "aspect_ratio": "9:16",
+        "total_segments": 1,
+        "segment_names": ["segment01"],
+        "agent_outputs": {"story_planner": "- fragment_id: F01\n  source_script_events:\n    - Alex opens the door.\n"},
+    }
+
+    with pytest.raises(RuntimeError, match="镜头逻辑审查大模型连接不成功"):
+        shot_director_impl.run_shot_director_for_segment(state, 1)
+
+    outputs = captured_update["agent_outputs"]
+    runtime = captured_update["knowledge_metadata"]["shot_director"]["runtime"]
+
+    assert captured_update["status"] == "error"
+    assert captured_update["step"] == "error"
+    assert outputs["shot_director_error_fragment_F01"].startswith("镜头逻辑审查大模型连接不成功")
+    assert runtime["status"] == "connection_failed"
+    assert runtime["path"] == "logic_reviewer_connection_failed"
+    assert runtime["review_board"]["status"] == "connection_failed"
 
 
 def test_shot_director_fidelity_rejects_wake_up_reinterpretation():

@@ -438,7 +438,7 @@ class TestStoryboardDesignerNode:
         assert "没有可识别的镜头列表" in result.get("message", "")
 
 
-    def test_uses_local_prompt_fallback_after_llm_failure(self, monkeypatch):
+    def test_reports_prompt_model_connection_failure(self, monkeypatch):
         def fail_call_llm(*_args, **_kwargs):
             raise RuntimeError("LLM network connection failed")
 
@@ -461,13 +461,8 @@ class TestStoryboardDesignerNode:
             "aspect_ratio": "9:16",
         }
 
-        result = storyboard_designer_node(state)
-        outputs = result["agent_outputs"]
-
-        assert "storyboard_prompt_seg01" in outputs
-        assert "local fallback reason" in outputs["storyboard_prompt_seg01"]
-        assert "storyboard_prompt_fallback_seg01" in outputs
-        assert "LLM network connection failed" in outputs["storyboard_prompt_fallback_seg01"]
+        with pytest.raises(RuntimeError, match="故事板提示词大模型连接不成功"):
+            storyboard_designer_node(state)
 
 
 class TestGraphIntegration:

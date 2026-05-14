@@ -1,6 +1,8 @@
 from pathlib import Path
 import sys
 
+import pytest
+
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -153,6 +155,31 @@ def test_shot_logic_reviewer_local_issues_flag_camera_action_leak():
     assert any("单人镜缺少同场人物保留" in issue for issue in issues)
 
 
+def test_shot_logic_reviewer_local_issues_flag_action_overload_for_prompt_compiler():
+    director_output = """- 片段编号: F01
+  片段任务: 沙发边安抚孩子
+  节奏: 先压迫再安抚
+  空间连续性总控: 乔熙和小豆丁始终在沙发边，手机仍在乔熙耳边。
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-4秒
+      镜头任务: 承载乔熙靠近并试图控制局面
+      拍摄主体: 乔熙与小豆丁
+      镜头: 中近景，沙发边同侧机位
+      画面动作: 乔熙仍用右手拿着手机贴在耳边说话，同时顺着沙发边伸手牵住小豆丁，身体压近沙发边想把外套套到孩子身上；小豆丁先缩脚躲开，又配合穿衣完成。
+      台词: ~
+      必须承载: 手机仍在乔熙手里，小豆丁还在抗拒。
+      切镜点: 小豆丁缩脚后切出
+      连续性: 两人仍在沙发边，衣服尚未穿好。
+"""
+
+    issues = sdi._shot_logic_local_issues(director_output, "乔熙：Kiki, cover for me.\n小豆丁：不要。")
+
+    assert any("画面动作过载或肢体占用不清" in issue for issue in issues)
+    assert any("人物从抗拒到配合缺少过渡" in issue for issue in issues)
+    assert any("1-2 句自然短动作" in issue for issue in issues)
+
+
 def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
     primary_output = """- 片段编号: F01
   片段任务: 车内命令戴项链
@@ -219,7 +246,7 @@ def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
     assert "裁判修复采纳: 是" in report
 
 
-def test_shot_logic_reviewer_falls_back_to_local_report(monkeypatch):
+def test_shot_logic_reviewer_reports_connection_failure(monkeypatch):
     primary_output = """- 片段编号: F01
   片段任务: 车内命令戴项链
   节奏: 项链靠近后乔熙识别
@@ -242,17 +269,13 @@ def test_shot_logic_reviewer_falls_back_to_local_report(monkeypatch):
 
     monkeypatch.setattr(sdi, "call_llm", fake_call_llm)
 
-    output, runtime, report = sdi._run_shot_director_review_board(
-        script="9-1 夜/内/劳斯莱斯车内\n人物：乔熙、商北琛",
-        planner_output="",
-        director_brief="",
-        primary_output=primary_output,
-    )
-
-    assert output == primary_output
-    assert runtime["status"] == "local_fallback"
-    assert runtime["local_issue_count"] >= 1
-    assert "本地镜头逻辑检查" in report
+    with pytest.raises(RuntimeError, match="镜头逻辑审查大模型连接不成功"):
+        sdi._run_shot_director_review_board(
+            script="9-1 夜/内/劳斯莱斯车内\n人物：乔熙、商北琛",
+            planner_output="",
+            director_brief="",
+            primary_output=primary_output,
+        )
 
 
 def test_shot_director_workflow_trace_summarises_planner_fragments():
@@ -687,6 +710,15 @@ def test_segment_shot_director_uses_text_scene_references_without_uploading_imag
     monkeypatch.setattr(sdi, "_persist_update", lambda state, update: {**state, **update})
     monkeypatch.setattr(sdi, "_collect_shot_director_issues", lambda *args, **kwargs: [])
     monkeypatch.setattr(sdi, "_hard_shot_director_issues", lambda issues: [])
+    monkeypatch.setattr(
+        sdi,
+        "_run_shot_director_review_board",
+        lambda **kwargs: (
+            kwargs["primary_output"],
+            {"agent_name": "shot_director_logic_reviewer", "status": "accepted_primary"},
+            "review-ok",
+        ),
+    )
 
     result = sdi.run_shot_director_for_segment(
         {
@@ -710,6 +742,8 @@ def test_segment_shot_director_uses_text_scene_references_without_uploading_imag
         force=True,
     )
 
+    assert "shot_director_review_fragment_F01" in result["agent_outputs"]
+    assert "shot_director_guard_fragment_F01" in result["agent_outputs"]
     assert captured["images_base64"] is None
     assert "场景分析师给镜头导演的空间约束" in str(captured["scene_reference_context"])
     assert "走廊不能新增前台" in str(captured["scene_reference_context"])

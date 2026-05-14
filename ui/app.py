@@ -20,7 +20,7 @@ import time
 from io import BytesIO
 from datetime import datetime
 from time import perf_counter
-from typing import Any
+from typing import Any, Iterable
 from urllib.parse import urlparse
 
 import httpx
@@ -610,6 +610,33 @@ PREVIOUS_SEGMENT_TAIL_FRAME_PURPOSE = (
     "Carry only the visible ending state of the previous segment into the next segment; "
     "do not use this as a character, scene, or style master."
 )
+LOCAL_FALLBACK_OUTPUT_MARKERS = (
+    "本地兜底编译",
+    "本地兜底",
+    "镜头导演本地兜底",
+    "shot_director_local_fallback_v1",
+    "local fallback",
+    "deterministic fallback",
+)
+
+
+def _contains_local_fallback_output(value: Any) -> bool:
+    text = str(value or "")
+    lowered = text.lower()
+    return any(marker in text or marker in lowered for marker in LOCAL_FALLBACK_OUTPUT_MARKERS)
+
+
+def _clear_prompt_compile_outputs(task_state: dict, segment_index: int) -> dict:
+    outputs = task_state.setdefault("agent_outputs", {})
+    compiled_key = f"compiled_segment_{segment_index}"
+    quality_key = f"quality_inspector_segment_{segment_index}"
+    outputs.pop(compiled_key, None)
+    outputs.pop(quality_key, None)
+    outputs.pop("prompt_compiler", None)
+    outputs.pop("quality_inspector", None)
+    for key in ("review_mode", "review_agent", "review_title", "review_output"):
+        task_state.pop(key, None)
+    return outputs
 
 def _load_latest_results_on_startup():
     """在服务器启动时，只恢复本机会话的 LangGraph 状态快照。"""
@@ -626,6 +653,7 @@ def _load_latest_results_on_startup():
 from agents.director_graph import (
     clear_state,
     load_state,
+    prompt_compiler_node,
     recover_repairable_pipeline_state,
     rerun_phase_1_agent,
     resume_after_human_review,
@@ -1985,6 +2013,105 @@ def _resume_shot_director_in_thread(
         _unregister_task_thread(session_id)
 
 
+def _recompile_prompt_in_thread(
+    segment_index: int,
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Run only prompt_compiler for one segment, reusing saved shot_director output."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+
+    def _stream_callback(agent_name: str, chunk: str):
+        if agent_name:
+            out_key = _AGENT_KEY_MAP.get(agent_name, agent_name)
+            outputs = task_state.setdefault("agent_outputs", {})
+            if out_key not in outputs:
+                outputs[out_key] = ""
+            outputs[out_key] += chunk
+            _touch_task_progress(task_state)
+
+    try:
+        with request_scope(
+            session_id=session_id,
+            stream_callback=_stream_callback,
+            event_callback=_runtime_event_logger(session_id),
+        ):
+            if task_generation != _active_task_generation(session_id):
+                return
+            _merge_latest_disk_state_for_session(session_id, task_state)
+            outputs = task_state.setdefault("agent_outputs", {})
+            segment_index = max(1, int(segment_index or task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1))
+            total_segments = int(task_state.get("total_segments") or segment_index or 1)
+            segment_index = min(segment_index, total_segments)
+            compiled_key = f"compiled_segment_{segment_index}"
+            outputs = _clear_prompt_compile_outputs(task_state, segment_index)
+
+            shot_director_output = outputs.get("shot_director") or outputs.get("shot_director_final") or ""
+            if _contains_local_fallback_output(shot_director_output):
+                raise RuntimeError(
+                    "当前三段式镜头导演输出来自本地兜底，已拒绝重新编译。"
+                    "请先重跑三段式镜头导演并确保大模型调用成功。"
+                )
+
+            task_state["status"] = "running_phase_2"
+            task_state["step"] = "step_5_compile"
+            task_state["message"] = f"Prompt compiler is recompiling segment {segment_index} from saved shot director output..."
+            task_state["error"] = ""
+            task_state["current_segment_index"] = segment_index
+            task_state["active_segment_index"] = segment_index
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+
+            compile_update = prompt_compiler_node(dict(task_state))
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state.update(compile_update)
+
+            final_outputs = task_state.setdefault("agent_outputs", {})
+            raw_prompt = final_outputs.get(compiled_key, "")
+            if raw_prompt:
+                clean_prompt = _normalise_compiled_prompt(raw_prompt, segment_index)
+                final_outputs[compiled_key] = clean_prompt
+                final_outputs["prompt_compiler"] = clean_prompt
+
+                output_dir = _session_subdir(session_id, "audit", "prompt_compiler")
+                os.makedirs(output_dir, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                with open(os.path.join(output_dir, f"{timestamp}_prompt_compiler_seg{segment_index}_recompile.md"), "w", encoding="utf-8") as f:
+                    f.write(clean_prompt)
+
+            task_state["status"] = "waiting_for_user_input"
+            task_state["step"] = "step_5_compile"
+            task_state["review_mode"] = "agent_output"
+            task_state["review_agent"] = "prompt_compiler"
+            task_state["review_title"] = _AGENT_DISPLAY_NAMES.get("prompt_compiler", "prompt_compiler")
+            task_state["review_output"] = final_outputs.get(compiled_key) or final_outputs.get("prompt_compiler") or ""
+            task_state["message"] = f"Prompt compiler recompiled segment {segment_index}. Please review or continue."
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        outputs = task_state.setdefault("agent_outputs", {})
+        segment_index = max(1, int(segment_index or task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1))
+        failure_text = f"片段 {segment_index} Prompt 重新编译失败：{str(e)}"
+        outputs["prompt_compiler"] = failure_text
+        outputs[f"compiled_segment_{segment_index}"] = failure_text
+        task_state["status"] = "error"
+        task_state["step"] = "error"
+        task_state["message"] = failure_text
+        task_state["error"] = traceback.format_exc()
+        task_state["review_mode"] = "agent_output"
+        task_state["review_agent"] = "prompt_compiler"
+        task_state["review_title"] = _AGENT_DISPLAY_NAMES.get("prompt_compiler", "prompt_compiler")
+        task_state["review_output"] = failure_text
+        _save_task_state_for_session(session_id, task_state)
+    finally:
+        _unregister_task_thread(session_id)
+
+
 def _resume_after_human_review_in_thread(
     edited_output: str,
     review_agent: str,
@@ -2762,6 +2889,74 @@ async def api_rerun_phase1_agent(
     return JSONResponse({"success": True, "message": f"已开始重跑 {label}。"})
 
 
+@app.post("/api/recompile_prompt")
+async def api_recompile_prompt(
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    segment_index: int = Form(0),
+):
+    """Re-run only prompt_compiler for one segment from saved shot_director output."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    outputs = task_state.get("agent_outputs") or {}
+    if not outputs.get("story_planner"):
+        return JSONResponse({"success": False, "error": "缺少节奏拆片输出，无法重新编译 Prompt。"})
+    if not (outputs.get("shot_director") or outputs.get("shot_director_final")):
+        return JSONResponse({"success": False, "error": "缺少三段式镜头导演输出，无法单独重新编译。"})
+
+    total_segments = int(task_state.get("total_segments") or 0)
+    if not segment_index:
+        segment_index = int(task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1)
+    if segment_index < 1 or (total_segments and segment_index > total_segments):
+        return JSONResponse({"success": False, "error": f"片段 {segment_index} 超出有效范围。"})
+
+    outputs = _clear_prompt_compile_outputs(task_state, segment_index)
+    shot_director_output = outputs.get("shot_director") or outputs.get("shot_director_final") or ""
+    if _contains_local_fallback_output(shot_director_output):
+        failure_text = (
+            f"片段 {segment_index} Prompt 重新编译失败："
+            "当前三段式镜头导演输出来自本地兜底，已拒绝重新编译。"
+            "请先重跑三段式镜头导演并确保大模型调用成功。"
+        )
+        outputs["prompt_compiler"] = failure_text
+        outputs[f"compiled_segment_{segment_index}"] = failure_text
+        task_state["status"] = "error"
+        task_state["step"] = "error"
+        task_state["message"] = failure_text
+        task_state["error"] = failure_text
+        task_state["current_segment_index"] = segment_index
+        task_state["active_segment_index"] = segment_index
+        task_state["review_mode"] = "agent_output"
+        task_state["review_agent"] = "prompt_compiler"
+        task_state["review_title"] = _AGENT_DISPLAY_NAMES.get("prompt_compiler", "prompt_compiler")
+        task_state["review_output"] = failure_text
+        _touch_task_progress(task_state)
+        _save_task_state_for_session(session_id, task_state)
+        return JSONResponse({"success": False, "error": failure_text, "state": _public_task_state(session_id)})
+
+    task_generation = _bump_task_generation(session_id)
+    task_state["status"] = "running_phase_2"
+    task_state["step"] = "step_5_compile"
+    task_state["message"] = f"Prompt compiler is recompiling segment {segment_index} from saved shot director output..."
+    task_state["error"] = ""
+    task_state["current_segment_index"] = segment_index
+    task_state["active_segment_index"] = segment_index
+    _touch_task_progress(task_state)
+    _save_task_state_for_session(session_id, task_state)
+
+    thread = threading.Thread(
+        target=_recompile_prompt_in_thread,
+        args=(segment_index, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": f"已开始重新编译片段 {segment_index} 的 Seedance Prompt。"})
+
+
 @app.post("/api/retry_shot_director")
 async def api_retry_shot_director(
     session_id: str = Form(DEFAULT_SESSION_ID),
@@ -2807,6 +3002,7 @@ async def api_retry_shot_director(
         outputs.pop("shot_director_blocking", None)
         outputs.pop("shot_director_guard", None)
         outputs.pop("shot_director_final", None)
+        outputs.pop("shot_director_review", None)
         outputs.pop("shot_director", None)
         task_state["agent_outputs"] = outputs
         task_state["total_segments"] = 0
@@ -2866,6 +3062,7 @@ async def api_retry_shot_director(
             "shot_director_blocking",
             "shot_director_guard",
             "shot_director_final",
+            "shot_director_review",
             "shot_director",
             "shot_director_error",
             "storyboard_designer",
@@ -2875,7 +3072,7 @@ async def api_retry_shot_director(
             outputs.pop(key, None)
         for key in list(outputs):
             if re.match(
-                r"^(shot_director_(?:layout|blocking|guard|final|segment|fragment|error)(?:_fragment)?_|compiled_segment_|quality_inspector_segment_|storyboard_prompt_seg|storyboard_image_seg)",
+                r"^(shot_director_(?:layout|blocking|guard|final|review|segment|fragment|error)(?:_fragment)?_|compiled_segment_|quality_inspector_segment_|storyboard_prompt_seg|storyboard_image_seg)",
                 key,
             ):
                 outputs.pop(key, None)
@@ -2945,14 +3142,15 @@ async def api_retry_shot_director(
         for key in (
             "shot_director_layout",
             "shot_director_blocking",
-            "shot_director_guard",
-            "shot_director_final",
-            "shot_director",
-        ):
-            outputs.pop(key, None)
+                "shot_director_guard",
+                "shot_director_final",
+                "shot_director_review",
+                "shot_director",
+            ):
+                outputs.pop(key, None)
         for key in list(outputs):
             if re.match(
-                r"^shot_director_(?:layout|blocking|guard|final|segment|fragment|error)",
+                r"^shot_director_(?:layout|blocking|guard|final|review|segment|fragment|error)",
                 key,
             ):
                 outputs.pop(key, None)
@@ -3514,6 +3712,11 @@ AGENT_LABELS: dict[str, str] = {
     "storyboard_designer": "分镜图片生成",
     "video_analyst": "视频/尾帧分析",
     "script_event_validator": "剧本事件校验",
+    "shot_director_layout": "镜头摆位骨架",
+    "shot_director_blocking": "动作调度导演",
+    "shot_director_guard": "规则守门导演",
+    "shot_director_logic_reviewer": "镜头逻辑审查",
+    "director_showrunner_logic_reviewer": "剧情增强逻辑审查",
 }
 
 AGENT_CATEGORIES: dict[str, str] = {
@@ -3559,6 +3762,41 @@ DERIVED_AGENT_MODEL_SOURCES: dict[str, str] = {
     "shot_director_guard": "shot_director",
 }
 
+CONNECTION_TEST_AGENT_PARENTS: dict[str, str] = {
+    **DERIVED_AGENT_MODEL_SOURCES,
+    "shot_director_logic_reviewer": "shot_director",
+    "director_showrunner_logic_reviewer": "director_showrunner",
+}
+
+CONNECTION_TEST_AGENT_EXPANSIONS: dict[str, tuple[str, ...]] = {
+    "shot_director": (
+        "shot_director_layout",
+        "shot_director_blocking",
+        "shot_director_guard",
+        "shot_director_logic_reviewer",
+    ),
+}
+
+CONNECTION_TEST_AGENT_ORDER: tuple[str, ...] = (
+    "director_showrunner",
+    "director_showrunner_logic_reviewer",
+    "scene_analyst",
+    "scene_vision_analyst",
+    "video_analyst",
+    "story_planner",
+    "script_event_validator",
+    "shot_director",
+    "shot_director_layout",
+    "shot_director_blocking",
+    "shot_director_guard",
+    "shot_director_logic_reviewer",
+    "prompt_compiler",
+    "storyboard_prompt_designer",
+    "quality_inspector",
+    "storyboard_designer",
+    "scene_card_designer",
+)
+
 
 def _is_removed_agent_model(agent_name: str) -> bool:
     return str(agent_name) in REMOVED_AGENT_MODEL_NAMES
@@ -3567,6 +3805,31 @@ def _is_removed_agent_model(agent_name: str) -> bool:
 def _is_configurable_agent_model(agent_name: str) -> bool:
     name = str(agent_name)
     return name in AGENT_MODEL_UI_NAMES and not _is_removed_agent_model(name)
+
+
+def _is_connection_test_agent_model(agent_name: str) -> bool:
+    name = str(agent_name)
+    if _is_configurable_agent_model(name):
+        return True
+    parent = CONNECTION_TEST_AGENT_PARENTS.get(name)
+    return bool(parent and _is_configurable_agent_model(parent) and not _is_removed_agent_model(name))
+
+
+def _expand_connection_test_agent_names(agent_names: Iterable[str]) -> list[str]:
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str) -> None:
+        if not _is_connection_test_agent_model(name) or name in seen:
+            return
+        seen.add(name)
+        expanded.append(name)
+        for child_name in CONNECTION_TEST_AGENT_EXPANSIONS.get(name, ()):
+            add(child_name)
+
+    for agent_name in agent_names:
+        add(str(agent_name))
+    return expanded
 
 
 def _configured_agent_model_names(raw_config: dict) -> list[str]:
@@ -4418,12 +4681,13 @@ async def api_test_agent_connections(request: Request):
     all_agent_names = {
         str(name)
         for name in set(raw_agent_models.keys()) | set(agent_models_payload.keys())
-        if _is_configurable_agent_model(str(name))
+        if _is_connection_test_agent_model(str(name))
     }
     agent_source_names = selected_agent_names if selected_agent_names is not None else all_agent_names
-    agent_order = {name: index for index, name in enumerate(AGENT_MODEL_UI_NAMES)}
+    agent_source_names = _expand_connection_test_agent_names(agent_source_names)
+    agent_order = {name: index for index, name in enumerate(CONNECTION_TEST_AGENT_ORDER)}
     agent_names = sorted(
-        (name for name in agent_source_names if _is_configurable_agent_model(name)),
+        (name for name in agent_source_names if _is_connection_test_agent_model(name)),
         key=lambda name: agent_order.get(name, len(agent_order)),
     )
 
@@ -4431,9 +4695,14 @@ async def api_test_agent_connections(request: Request):
 
     async def _run_probe(agent_name: str) -> dict:
         category = _agent_category(agent_name)
+        parent_agent = CONNECTION_TEST_AGENT_PARENTS.get(agent_name)
         stored_agent = raw_agent_models.get(agent_name) if isinstance(raw_agent_models.get(agent_name), dict) else {}
-        has_submitted_payload = agent_name in agent_models_payload
+        if not stored_agent and parent_agent and isinstance(raw_agent_models.get(parent_agent), dict):
+            stored_agent = raw_agent_models.get(parent_agent) or {}
+        has_submitted_payload = agent_name in agent_models_payload or bool(parent_agent and parent_agent in agent_models_payload)
         submitted_payload = agent_models_payload.get(agent_name)
+        if submitted_payload is None and parent_agent:
+            submitted_payload = agent_models_payload.get(parent_agent)
         model = _agent_payload_model(submitted_payload or stored_agent.get("model"))
         route_payload = _agent_payload_route(submitted_payload)
         profile_base_url = image_base_url if category == "image" else text_base_url
