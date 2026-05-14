@@ -29,7 +29,6 @@ from ..knowledge_base import (
     load_knowledge_documents,
 )
 from ..utils import COMFLY_BASE_URL, get_base_dir, get_output_dir, get_config_path, load_yaml_config
-from ..mcp_llm import call_llm_with_mcp
 from ..request_context import emit_runtime_event, request_session_id
 
 ROOT_DIR = get_base_dir()
@@ -2172,7 +2171,6 @@ def _run_story_planner_with_schema_repair(
                     error=exc,
                     attempt=attempt_index,
                     path="direct_llm_only",
-                    mcp_enabled=False,
                 )
             )
             if attempt_index == 1:
@@ -2207,7 +2205,6 @@ def _run_story_planner_with_schema_repair(
                 soft_validation_issues=soft_issues[:40],
                 agent_validation=agent_validation,
                 path="direct_llm_only",
-                mcp_enabled=False,
             )
         )
 
@@ -5301,7 +5298,6 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             **stage_runtimes,
             "final_source": stage_name if stage_name == "final" else "in_progress",
             "path": "direct_llm_only",
-            "mcp_enabled": False,
             "total_elapsed_seconds": round(time.perf_counter() - shot_runtime_started, 3),
         }
         knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta_snapshot
@@ -5340,7 +5336,6 @@ def shot_director_node(state: DirectorState) -> DirectorState:
     knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta.get("final", {}))
     shot_runtime["total_elapsed_seconds"] = round(time.perf_counter() - shot_runtime_started, 3)
     shot_runtime["path"] = "direct_llm_only"
-    shot_runtime["mcp_enabled"] = False
     knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
     knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
     print(f"  [shot_director] total elapsed {shot_runtime['total_elapsed_seconds']:.1f}s")
@@ -5766,7 +5761,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "27. 【内部字段泄漏】是否出现 fragment_task、must_carry、cut_point、continuity、shot_id、fragment_id 等字段名？如有必须改写成自然中文镜头语言。\n"
         "全部通过后再输出。"
     )
-    output = call_llm_with_mcp(system_prompt, user_prompt, server_type="filesystem", images_base64=None, agent_name="prompt_compiler")
+    output = call_llm(system_prompt, user_prompt, images_base64=None, agent_name="prompt_compiler")
     output = _normalise_compiled_prompt(output, segment_index, state.get("script", ""))
     knowledge_metadata = _record_knowledge_metadata(state, "prompt_compiler", compiler_hint, retrieval_meta)
     try:

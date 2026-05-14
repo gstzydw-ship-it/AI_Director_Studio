@@ -1683,9 +1683,8 @@ def _agent_runtime_trace(
 
 
 def _shot_director_stage_images(stage_key: str, images_base64: list[str] | None) -> list[str] | None:
-    """Only the layout stage needs scene reference images for spatial grounding."""
-    if stage_key == "shot_director_layout":
-        return images_base64
+    """Shot director stages consume text grounding; scene vision/card agents own image reading."""
+    _ = stage_key, images_base64
     return None
 
 
@@ -3538,7 +3537,6 @@ def run_shot_director_for_segment(
             "mode": "per_segment",
             "active_fragment_id": fragment_id,
             "path": "direct_llm_only",
-            "mcp_enabled": False,
             "total_elapsed_seconds": round(time.perf_counter() - shot_runtime_started, 3),
         }
         knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta_snapshot
@@ -3557,7 +3555,6 @@ def run_shot_director_for_segment(
             },
         )
 
-    reference_images = _reference_images(state) or None
     try:
         output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_three_stage(
             script=state.get("script", ""),
@@ -3565,7 +3562,7 @@ def run_shot_director_for_segment(
             atmosphere_strategy=state.get("atmosphere_strategy", ""),
             aspect_ratio=state.get("aspect_ratio", "16:9"),
             expected_segments=[fragment_id],
-            images_base64=reference_images,
+            images_base64=None,
             director_hint=director_hint,
             scene_reference_context=scene_reference_context,
             director_brief=director_brief_text,
@@ -3575,38 +3572,68 @@ def run_shot_director_for_segment(
             resume_stage_meta={},
         )
     except Exception as exc:
-        error_message = f"镜头导演大模型调用失败，未启用本地兜底：{exc}"
+        error_message = f"镜头导演大模型调用失败，已启用本地 v1 镜头资产兜底：{exc}"
         print(f"  [shot_director] {error_message}")
+        output = _build_local_shot_director_fallback(
+            fragment_id=fragment_id,
+            fragment_planner_output=fragment_planner_output,
+            script=state.get("script", ""),
+            aspect_ratio=state.get("aspect_ratio", "16:9"),
+            failure=exc,
+        )
+        output = _repair_shot_director_output_contracts(output, state.get("script", ""))
+        merged_output = _merge_repaired_yaml_sections(outputs.get("shot_director", ""), output, [fragment_id])
         shot_runtime = {
             **stage_runtimes,
             "mode": "per_segment",
             "active_fragment_id": fragment_id,
-            "path": "direct_llm_only",
-            "mcp_enabled": False,
-            "status": "error",
+            "path": "local_fallback_after_llm_error",
+            "status": "local_fallback",
             "error_type": type(exc).__name__,
             "error": str(exc),
             "total_elapsed_seconds": round(time.perf_counter() - shot_runtime_started, 3),
-            "local_fallback": False,
+            "local_fallback": True,
         }
-        stage_meta = {"final": {"status": "error", "error": str(exc), "local_fallback": False}}
+        stage_meta = {"final": {"status": "local_fallback", "error": str(exc), "local_fallback": True}}
+        stage_outputs = {"final": output}
+        director_issues = _collect_shot_director_issues(
+            output,
+            expected_segments=[fragment_id],
+            script=state.get("script", ""),
+            planner_output=fragment_planner_output,
+            aspect_ratio=state.get("aspect_ratio", ""),
+        )
+        hard_director_issues = _hard_shot_director_issues(director_issues)
+        shot_runtime["validation_issues"] = director_issues
+        shot_runtime["hard_validation_issues"] = hard_director_issues
+        shot_runtime["final"] = {"status": "local_fallback"}
         knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta["final"])
         knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
         knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
-        outputs["shot_director_error"] = error_message
-        outputs[f"shot_director_error_fragment_{fragment_id}"] = error_message
+        outputs.pop("shot_director_error", None)
+        outputs.pop(f"shot_director_error_fragment_{fragment_id}", None)
+        outputs[f"shot_director_segment_{fragment_id}"] = output
+        outputs[f"shot_director_fragment_{fragment_id}"] = output
+        outputs[f"shot_director_final_fragment_{fragment_id}"] = output
+        outputs["shot_director"] = merged_output
+        outputs["shot_director_final"] = merged_output
+        original_by_segment = dict(state.get("shot_director_original_by_segment") or {})
+        original_by_segment[str(selected_index)] = output
+        original_by_segment[fragment_id] = output
         return _persist_update(
             state,
             {
-                "status": "error",
-                "step": "step_3_direct",
-                "message": error_message,
+                "status": "running_phase_2",
+                "step": "step_4_compile",
+                "message": f"第 {selected_index} 段镜头导演已启用本地兜底，正在进入 Prompt 编译。",
                 "agent_outputs": outputs,
                 "knowledge_metadata": knowledge_metadata,
                 "total_segments": total_segments,
                 "segment_names": segment_names,
                 "active_segment_index": selected_index,
                 "current_segment_index": selected_index,
+                "shot_director_original_by_segment": original_by_segment,
+                "shot_director_approved_by_segment": dict(state.get("shot_director_approved_by_segment") or {}),
             },
         )
     output = _repair_shot_director_output_contracts(output, state.get("script", ""))
@@ -3633,7 +3660,6 @@ def run_shot_director_for_segment(
     shot_runtime["mode"] = "per_segment"
     shot_runtime["active_fragment_id"] = fragment_id
     shot_runtime["path"] = "direct_llm_only"
-    shot_runtime["mcp_enabled"] = False
     shot_runtime["validation_issues"] = director_issues
     shot_runtime["hard_validation_issues"] = hard_director_issues
 
@@ -4149,7 +4175,6 @@ def shot_director_node(state: DirectorState) -> DirectorState:
     if director_brief_text:
         director_hint = f"{director_hint} director_showrunner {director_brief_text[:300]}"
     shot_runtime_started = time.perf_counter()
-    reference_images = _reference_images(state) or None
     scene_context_block = _scene_context_prompt_block(_scene_context_brief(state))
     scene_reference_manifest = _reference_image_manifest_prompt(state)
     scene_reference_context = "\n\n".join(
@@ -4176,7 +4201,6 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             **stage_runtimes,
             "final_source": stage_name if stage_name == "final" else "in_progress",
             "path": "direct_llm_only",
-            "mcp_enabled": False,
             "total_elapsed_seconds": round(time.perf_counter() - shot_runtime_started, 3),
         }
         knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta_snapshot
@@ -4220,7 +4244,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         atmosphere_strategy=state.get("atmosphere_strategy", ""),
         aspect_ratio=state.get("aspect_ratio", "16:9"),
         expected_segments=segment_names,
-        images_base64=reference_images,
+        images_base64=None,
         director_hint=director_hint,
         scene_reference_context=scene_reference_context,
         director_brief=director_brief_text,
@@ -4232,7 +4256,6 @@ def shot_director_node(state: DirectorState) -> DirectorState:
     knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta.get("final", {}))
     shot_runtime["total_elapsed_seconds"] = round(time.perf_counter() - shot_runtime_started, 3)
     shot_runtime["path"] = "direct_llm_only"
-    shot_runtime["mcp_enabled"] = False
     knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
     knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
     print(f"  [shot_director] total elapsed {shot_runtime['total_elapsed_seconds']:.1f}s")
@@ -4343,7 +4366,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         planner_output=planner_output,
         director_brief=director_brief_text,
         primary_output=primary_output,
-        images_base64=reference_images,
+        images_base64=None,
     )
     shot_runtime["review_board"] = review_runtime
     if review_report:

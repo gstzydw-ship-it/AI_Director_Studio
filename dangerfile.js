@@ -19,7 +19,6 @@ const highRiskFiles = [
   "agents/director_graph_package/shot_director_impl.py",
   "agents/director_graph_package/prompt_compiler_impl.py",
   "agents/director_graph_package/helpers.py",
-  "mcp_director_enhanced.py",
 ];
 
 const touchedHighRiskFiles = highRiskFiles.filter((file) => files.includes(file));

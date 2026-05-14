@@ -42,7 +42,7 @@ def test_scene_memory_card_keeps_spatial_facts_and_drops_appearance_noise():
 def test_prompt_compiler_uses_current_fragment_compressed_context(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_call_llm_with_mcp(system_prompt, user_prompt, **kwargs):
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
         captured["system_prompt"] = system_prompt
         captured["user_prompt"] = user_prompt
         captured["images_base64"] = kwargs.get("images_base64")
@@ -67,7 +67,7 @@ def test_prompt_compiler_uses_current_fragment_compressed_context(monkeypatch):
         merged.update(update)
         return merged
 
-    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fake_call_llm_with_mcp)
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm", fake_call_llm)
     monkeypatch.setattr(prompt_compiler_impl, "_persist_update", fake_persist_update)
     _patch_fast_prompt_builder(monkeypatch)
 

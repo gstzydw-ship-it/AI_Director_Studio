@@ -12,10 +12,128 @@ agent_models:
     custom_route:
       base_url: https://ai.comfly.chat/v1
       api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-6
+    available_models:
+    - claude-opus-4-6
+    - claude-opus-4-7
+    - claude-sonnet-4-6
+    - deepseek-v3.2
+    - doubao-seed-2.0-code
+    - doubao-seed-2.0-lite
+    - doubao-seed-2.0-pro
+    - doubao-seed-code
+    - gemini-2.5-flash
+    - gemini-2.5-flash-agent
+    - gemini-2.5-flash-image
+    - gemini-2.5-flash-lite
+    - gemini-2.5-flash-lite-agent
+    - gemini-2.5-pro
+    - gemini-2.5-pro-agent
+    - gemini-3-flash
+    - gemini-3-flash-thinking
+    - gemini-3-pro-image-preview
+    - gemini-3.1-flash-image-preview
+    - gemini-3.1-flash-lite
+    - gemini-3.1-flash-lite-agent
+    - gemini-3.1-pro-preview
+    - gemini-3.1-pro-preview-agent
+    - gemma-4-31b-it
+    - glm-4.7
+    - glm-5.1
+    - google/gemma-4-26b-a4b-it-maas
+    - gpt-5.2
+    - gpt-5.3
+    - gpt-5.3-codex
+    - gpt-5.3-codex-spark
+    - gpt-5.4
+    - gpt-5.4-mini
+    - gpt-5.5
+    - gpt-5.5-instant
+    - gpt-5.5-thinking
+    - gpt-image-1
+    - gpt-image-1.5
+    - gpt-image-2
+    - imagen-3.0-fast-generate-001
+    - imagen-3.0-generate-002
+    - imagen-4.0-generate-001
+    - imagen-4.0-ultra-generate-001
+    - kimi-k2.5
+    - kimi-k2.6
+    - mimo-v2-omni
+    - mimo-v2-pro
+    - mimo-v2.5
+    - mimo-v2.5-pro
+    - MiniMax-M2.5
+    - MiniMax-M2.5-highspeed
+    - MiniMax-M2.7
+    - nvidia/nemotron-3-nano-30b-a3b:free
+    - nvidia/nemotron-3-super-120b-a12b:free
+    - nvidia/nemotron-nano-12b-v2-vl:free
+    - nvidia/nemotron-nano-9b-v2:free
+    - openai/gpt-oss-120b:free
+    - openrouter/free
+    - Qwen3-0.6B-Q8_0.gguf
+    route_model_pools:
+      fallback:
+      - claude-opus-4-6
+      - claude-opus-4-7
+      - claude-sonnet-4-6
+      - deepseek-v3.2
+      - doubao-seed-2.0-code
+      - doubao-seed-2.0-lite
+      - doubao-seed-2.0-pro
+      - doubao-seed-code
+      - gemini-2.5-flash
+      - gemini-2.5-flash-agent
+      - gemini-2.5-flash-image
+      - gemini-2.5-flash-lite
+      - gemini-2.5-flash-lite-agent
+      - gemini-2.5-pro
+      - gemini-2.5-pro-agent
+      - gemini-3-flash
+      - gemini-3-flash-thinking
+      - gemini-3-pro-image-preview
+      - gemini-3.1-flash-image-preview
+      - gemini-3.1-flash-lite
+      - gemini-3.1-flash-lite-agent
+      - gemini-3.1-pro-preview
+      - gemini-3.1-pro-preview-agent
+      - gemma-4-31b-it
+      - glm-4.7
+      - glm-5.1
+      - google/gemma-4-26b-a4b-it-maas
+      - gpt-5.2
+      - gpt-5.3
+      - gpt-5.3-codex
+      - gpt-5.3-codex-spark
+      - gpt-5.4
+      - gpt-5.4-mini
+      - gpt-5.5
+      - gpt-5.5-instant
+      - gpt-5.5-thinking
+      - gpt-image-1
+      - gpt-image-1.5
+      - gpt-image-2
+      - imagen-3.0-fast-generate-001
+      - imagen-3.0-generate-002
+      - imagen-4.0-generate-001
+      - imagen-4.0-ultra-generate-001
+      - kimi-k2.5
+      - kimi-k2.6
+      - mimo-v2-omni
+      - mimo-v2-pro
+      - mimo-v2.5
+      - mimo-v2.5-pro
+      - MiniMax-M2.5
+      - MiniMax-M2.5-highspeed
+      - MiniMax-M2.7
+      - nvidia/nemotron-3-nano-30b-a3b:free
+      - nvidia/nemotron-3-super-120b-a12b:free
+      - nvidia/nemotron-nano-12b-v2-vl:free
+      - nvidia/nemotron-nano-9b-v2:free
+      - openai/gpt-oss-120b:free
+      - openrouter/free
+      - Qwen3-0.6B-Q8_0.gguf
+    model: mimo-v2.5-pro
   rhythm_rewrite_director:
     base_url: https://ai.comfly.chat/v1
     temperature: 0.2
@@ -34,7 +152,7 @@ agent_models:
     custom_route:
       base_url: https://ai.comfly.chat/v1
       api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
-    model: claude-opus-4-7
+    model: mimo-v2.5-pro
   scene_analyst:
     base_url: https://ai.comfly.chat/v1
     temperature: 0.1
@@ -49,7 +167,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: gemini-3.1-pro-preview
   scene_vision_analyst:
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
@@ -60,7 +178,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: gemini-3.1-pro-preview
   story_planner:
     base_url: https://ai.comfly.chat/v1
     temperature: 0.2
@@ -78,7 +196,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: gpt-5.5
   shot_director:
     base_url: https://ai.comfly.chat/v1
     temperature: 0.3
@@ -94,7 +212,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: gpt-5.5
+    model: claude-opus-4-6
   prompt_compiler:
     base_url: https://ai.comfly.chat/v1
     temperature: 0.3
@@ -108,7 +226,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: deepseek-v4-flash
+    model: gpt-5.5
   quality_inspector:
     base_url: https://ai.comfly.chat/v1
     temperature: 0.1
@@ -139,7 +257,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: gemini-3.1-pro-preview
   scene_card_designer:
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
@@ -155,7 +273,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: deepseek-v4-flash
+    model: gpt-5.5
   script_event_validator:
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
@@ -166,7 +284,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: claude-opus-4-7
+    model: gpt-5.5
   shot_director_layout:
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
@@ -177,7 +295,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: gpt-5.5
+    model: claude-opus-4-6
   shot_director_blocking:
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
@@ -188,7 +306,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: gpt-5.5
+    model: claude-opus-4-6
   shot_director_guard:
     api_key: sk-V5T4I1UqJsEyFbdplQwjCDJBgzXKkeXzsQG6O8IKVxtD71Or
     base_url: https://ai.comfly.chat/v1
@@ -199,7 +317,7 @@ agent_models:
     fallback_routes:
     - base_url: https://www.xkwuai.cn/v1
       api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: gpt-5.5
+    model: claude-opus-4-6
 knowledge:
   bm25_top_k: 10
   directory: ./knowledge
@@ -221,24 +339,6 @@ llm:
   fallback_routes:
   - base_url: https://www.xkwuai.cn/v1
     api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-mcp:
-  enabled: true
-  fallback_enabled: true
-  timeout_seconds: 180
-  log_tool_details: false
-  agents:
-    story_planner:
-      enabled: true
-      server_type: sequential
-    shot_director:
-      enabled: true
-      server_type: memory
-    prompt_compiler:
-      enabled: false
-      server_type: filesystem
-  filesystem_roots:
-  - ./knowledge
-  - ./output/sessions
 output:
   directory: ./output
 ui:

@@ -343,13 +343,50 @@ def _normalise_model_list(value: Any) -> list[str]:
     return models
 
 
+def _normalise_route_preset(value: Any) -> str:
+    preset = str(value or "").strip().lower()
+    return preset if preset in {"primary", "fallback", "custom"} else ""
+
+
+def _selected_route_preset(full_config: dict[str, Any], profile: dict[str, Any], agent_name: str = "") -> str:
+    """Return the highest-priority explicit route preset for this agent."""
+    selected = _normalise_route_preset(_as_mapping(full_config.get("llm")).get("route_preset"))
+
+    for _layer_name, layer in _agent_config_layers(full_config, agent_name):
+        preset = _normalise_route_preset(layer.get("route_preset"))
+        if preset:
+            selected = preset
+
+    preset = _normalise_route_preset(_as_mapping(profile).get("route_preset"))
+    if preset:
+        selected = preset
+
+    for _layer_name, layer in _profile_agent_layers(profile, agent_name):
+        preset = _normalise_route_preset(layer.get("route_preset"))
+        if preset:
+            selected = preset
+
+    return selected
+
+
+def _strict_configured_route_selected(
+    full_config: dict[str, Any],
+    profile: dict[str, Any],
+    agent_name: str = "",
+) -> bool:
+    return _selected_route_preset(full_config, profile, agent_name) in {"primary", "custom"}
+
+
 def _get_llm_fallback_models(agent_name: str = "") -> list[str]:
     full_config = load_config()
+    profile = _load_session_model_profile()
+    if _strict_configured_route_selected(full_config, profile, agent_name):
+        return []
+
     value = _as_mapping(full_config.get("llm")).get("fallback_models", [])
     for _layer_name, layer in _agent_config_layers(full_config, agent_name):
         if "fallback_models" in layer:
             value = layer["fallback_models"]
-    profile = _load_session_model_profile()
     profile_global = _profile_global_layer(profile)
     if "fallback_models" in profile_global:
         value = profile_global["fallback_models"]
@@ -387,6 +424,10 @@ def _normalise_fallback_routes(value: Any) -> list[dict[str, Any]]:
 
 def _get_llm_fallback_routes(agent_name: str = "") -> list[dict[str, Any]]:
     full_config = load_config()
+    profile = _load_session_model_profile()
+    if _strict_configured_route_selected(full_config, profile, agent_name):
+        return []
+
     routes: list[dict[str, Any]] = []
 
     global_routes = _normalise_fallback_routes(_as_mapping(full_config.get("llm")).get("fallback_routes"))
@@ -396,7 +437,6 @@ def _get_llm_fallback_routes(agent_name: str = "") -> list[dict[str, Any]]:
         if "fallback_routes" in layer:
             routes.extend(_normalise_fallback_routes(layer.get("fallback_routes")))
 
-    profile = _load_session_model_profile()
     profile_global = _profile_global_layer(profile)
     if "fallback_routes" in profile_global:
         routes.extend(_normalise_fallback_routes(profile_global.get("fallback_routes")))
@@ -519,6 +559,38 @@ def _llm_failure_context(
     return f"agent={agent_name or '?'}, model={model}，已重试 {max_retries} 次{attempted_note}{image_note}{timeout_note}{proxy_note}"
 
 
+def _http_status_error_details(exc: httpx.HTTPStatusError) -> tuple[int | str, str]:
+    status_code: int | str = "unknown"
+    detail = ""
+    if exc.response is not None:
+        status_code = exc.response.status_code
+        try:
+            detail = (exc.response.text or "")[:500]
+        except Exception:
+            detail = ""
+    return status_code, detail
+
+
+def _format_llm_failure_history(failure_history: list[dict[str, Any]] | None) -> str:
+    if not failure_history:
+        return ""
+    entries: list[str] = []
+    for item in failure_history[-8:]:
+        route = item.get("route_host") or "unknown-route"
+        model = item.get("model") or "unknown-model"
+        attempt = item.get("attempt") or "?"
+        proxy_mode = item.get("proxy_mode") or "direct"
+        error_type = item.get("error_type") or "UnknownError"
+        summary = f"{route}/{model} attempt={attempt} proxy={proxy_mode} error={error_type}"
+        if item.get("status_code"):
+            summary += f" HTTP {item.get('status_code')}"
+        preview = str(item.get("response_preview") or item.get("error_preview") or "").strip()
+        if preview:
+            summary += f" preview={preview[:220]}"
+        entries.append(summary)
+    return " | failure_history: " + " ; ".join(entries)
+
+
 def _raise_llm_failure(
     last_exc: Exception | None,
     *,
@@ -532,6 +604,7 @@ def _raise_llm_failure(
     read_timeout_seconds: float | None = None,
     write_timeout_seconds: float | None = None,
     bypass_proxy: bool = True,
+    failure_history: list[dict[str, Any]] | None = None,
 ) -> None:
     context = _llm_failure_context(
         agent_name=agent_name,
@@ -551,6 +624,11 @@ def _raise_llm_failure(
         if image_count
         else "本次请求未发送参考图；不要按“参考图过大”排查，优先检查上游模型网关、模型排队、提示词过长或网络读超时。"
     )
+    history_hint = _format_llm_failure_history(failure_history)
+    if history_hint and isinstance(last_exc, httpx.ConnectError):
+        raise RuntimeError(
+            f"LLM 网络连接失败（{context}）。通常是上游网关不可达、TLS 抖动、本机网络中断或代理配置问题。原始错误: {last_exc}{history_hint}"
+        ) from last_exc
     if isinstance(last_exc, httpx.RemoteProtocolError):
         raise RuntimeError(
             f"LLM 服务在返回前断开连接（{context}）。{image_hint} 原始错误: {last_exc}"
@@ -763,6 +841,7 @@ def call_llm(
 
     last_exc: Exception | None = None
     last_retryable = False
+    failure_history: list[dict[str, Any]] = []
     primary_models = _normalise_model_list([model, *_get_llm_fallback_models(agent_name)])
     routes_to_try: list[dict[str, Any]] = [
         {
@@ -946,16 +1025,39 @@ def call_llm(
                         last_exc = exc
                         last_retryable = False
 
+                    elapsed_seconds = round(_time.perf_counter() - attempt_started, 3)
+                    failure_record: dict[str, Any] = {
+                        "agent_name": agent_name,
+                        "model": active_model,
+                        "route_host": route_host,
+                        "attempt": attempt,
+                        "elapsed_seconds": elapsed_seconds,
+                        "error_type": type(last_exc).__name__ if last_exc else "UnknownError",
+                        "retryable": last_retryable,
+                        "proxy_mode": "system" if trust_env else "direct",
+                    }
+                    if isinstance(last_exc, httpx.HTTPStatusError):
+                        status_code, detail = _http_status_error_details(last_exc)
+                        failure_record["status_code"] = status_code
+                        if detail:
+                            failure_record["response_preview"] = detail
+                    elif last_exc is not None:
+                        failure_record["error_preview"] = str(last_exc)[:500]
+                    failure_history.append(failure_record)
+
                     emit_runtime_event(
                         "llm_attempt_failed",
                         agent_name=agent_name,
                         model=active_model,
                         route_host=route_host,
                         attempt=attempt,
-                        elapsed_seconds=round(_time.perf_counter() - attempt_started, 3),
+                        elapsed_seconds=elapsed_seconds,
                         error_type=type(last_exc).__name__ if last_exc else "UnknownError",
                         retryable=last_retryable,
                         proxy_mode="system" if trust_env else "direct",
+                        status_code=failure_record.get("status_code"),
+                        response_preview=failure_record.get("response_preview"),
+                        error_preview=failure_record.get("error_preview"),
                     )
 
                     if not last_retryable or attempt == max_retries:
@@ -1010,6 +1112,7 @@ def call_llm(
         agent_name=agent_name,
         attempted_models=attempted_models,
         error_type=type(last_exc).__name__ if last_exc else "UnknownError",
+        failure_history=failure_history[-8:],
     )
     _raise_llm_failure(
         last_exc,
@@ -1023,4 +1126,5 @@ def call_llm(
         read_timeout_seconds=read_timeout if "read_timeout" in locals() else None,
         write_timeout_seconds=write_timeout if "write_timeout" in locals() else None,
         bypass_proxy=active_bypass_proxy if "active_bypass_proxy" in locals() else bypass_proxy,
+        failure_history=failure_history,
     )

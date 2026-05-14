@@ -279,6 +279,72 @@ def test_call_llm_tries_configured_fallback_route_after_network_failure(monkeypa
     ]
 
 
+def test_call_llm_primary_route_preset_disables_fallback_model_and_route(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        director_graph,
+        "load_config",
+        lambda: {
+            "llm": {
+                "api_key": "primary-key",
+                "base_url": "https://primary.example/v1",
+                "model": "global-model",
+                "fallback_models": ["global-fallback-model"],
+                "fallback_routes": [
+                    {
+                        "api_key": "global-backup-key",
+                        "base_url": "https://global-backup.example/v1",
+                        "model": "global-backup-model",
+                    }
+                ],
+                "max_retries": 1,
+            },
+            "agent_models": {
+                "prompt_compiler": {
+                    "route_preset": "primary",
+                    "model": "primary-model",
+                    "fallback_models": ["fallback-model"],
+                    "fallback_routes": [
+                        {
+                            "api_key": "backup-key",
+                            "base_url": "https://backup.example/v1",
+                            "model": "backup-model",
+                        }
+                    ],
+                }
+            },
+        },
+    )
+    attempts = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, **kwargs):
+            attempts.append((url, kwargs["headers"]["Authorization"], kwargs["json"]["model"]))
+            raise httpx.ConnectError("[SSL: UNEXPECTED_EOF_WHILE_READING]")
+
+    monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
+
+    try:
+        director_graph.call_llm("system", "user", agent_name="prompt_compiler", bypass_proxy=False)
+    except RuntimeError:
+        pass
+    else:
+        raise AssertionError("expected connection failure to raise RuntimeError")
+
+    assert attempts == [
+        ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
+    ]
+
+
 def test_call_llm_uses_same_host_configured_key_for_fallback_route(monkeypatch):
     monkeypatch.setattr(time, "sleep", lambda seconds: None)
     monkeypatch.setattr(
@@ -333,6 +399,64 @@ def test_call_llm_uses_same_host_configured_key_for_fallback_route(monkeypatch):
         ("https://primary.example/v1/chat/completions", "Bearer primary-key", "primary-model"),
         ("https://backup.example/v1/chat/completions", "Bearer backup-host-key", "backup-model"),
     ]
+
+
+def test_call_llm_preserves_primary_http_error_when_fallback_connection_fails(monkeypatch):
+    monkeypatch.setattr(time, "sleep", lambda seconds: None)
+    monkeypatch.setattr(
+        director_graph,
+        "load_config",
+        lambda: {
+            "llm": {
+                "api_key": "primary-key",
+                "base_url": "https://primary.example/v1",
+                "model": "primary-model",
+                "max_retries": 1,
+            },
+            "agent_models": {
+                "director_showrunner": {
+                    "fallback_routes": [
+                        {
+                            "api_key": "backup-key",
+                            "base_url": "https://backup.example/v1",
+                            "model": "backup-model",
+                        }
+                    ]
+                }
+            },
+        },
+    )
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, **kwargs):
+            if "primary.example" in url:
+                request = httpx.Request("POST", url)
+                response = httpx.Response(502, text="upstream model unavailable", request=request)
+                raise httpx.HTTPStatusError("bad gateway", request=request, response=response)
+            raise httpx.ConnectError("[SSL: UNEXPECTED_EOF_WHILE_READING]")
+
+    monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
+
+    try:
+        director_graph.call_llm("system", "user", agent_name="director_showrunner", bypass_proxy=False)
+    except RuntimeError as exc:
+        message = str(exc)
+    else:
+        raise AssertionError("expected fallback connection failure to raise RuntimeError")
+
+    assert "failure_history" in message
+    assert "HTTP 502" in message
+    assert "upstream model unavailable" in message
+    assert "UNEXPECTED_EOF" in message
 
 
 def test_call_llm_skips_cross_host_fallback_route_without_api_key(monkeypatch):
@@ -580,7 +704,7 @@ def test_call_llm_uses_longer_default_timeout_for_thinking_models(monkeypatch):
     monkeypatch.setattr(director_graph.httpx, "Client", FakeClient)
 
     assert director_graph.call_llm("system", "user", agent_name="shot_director_layout") == "ok"
-    assert captured == {"timeout": 240.0, "connect": 30.0, "read": 240.0, "write": 60.0}
+    assert captured == {"timeout": 600.0, "connect": 20.0, "read": 600.0, "write": 90.0}
 
 
 def test_call_llm_timeout_error_reports_no_reference_images_when_none_sent(monkeypatch):
@@ -630,7 +754,7 @@ def test_call_llm_timeout_error_reports_no_reference_images_when_none_sent(monke
     assert "参考图: 未发送" in message
     assert "本次请求未发送参考图" in message
     assert "不要按“参考图过大”排查" in message
-    assert "timeout: total=45s, connect=6s, read=50s, write=11s" in message
+    assert "timeout: total=600s, connect=6s, read=600s, write=90s" in message
     assert "环境代理: 已绕开" in message
     assert "read timed out" in message
 

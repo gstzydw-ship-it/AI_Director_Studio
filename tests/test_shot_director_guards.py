@@ -54,7 +54,7 @@ main_shots:
     assert "main_shots:" in cleaned
 
 
-def test_segment_shot_director_errors_without_local_fallback_after_llm_failure(monkeypatch):
+def test_segment_shot_director_uses_local_fallback_after_llm_failure(monkeypatch):
     def fail_three_stage(**_kwargs):
         raise RuntimeError("LLM network connection failed")
 
@@ -81,16 +81,13 @@ def test_segment_shot_director_errors_without_local_fallback_after_llm_failure(m
     }
 
     result = shot_director_impl.run_shot_director_for_segment(state, 1)
-    output = ""
+    output = result["agent_outputs"]["shot_director_segment_F01"]
     runtime = result["knowledge_metadata"]["shot_director"]["runtime"]
 
-    assert result["status"] == "error"
-    assert result["step"] == "step_3_direct"
-    assert "shot_director_segment_F01" not in result["agent_outputs"]
-    assert "shot_director_error_fragment_F01" in result["agent_outputs"]
-    assert runtime["local_fallback"] is False
-    assert runtime["status"] == "error"
-    return
+    assert result["status"] == "running_phase_2"
+    assert result["step"] == "step_4_compile"
+    assert "shot_director_segment_F01" in result["agent_outputs"]
+    assert "shot_director_error_fragment_F01" not in result["agent_outputs"]
 
     assert "兜底模式: \"镜头导演本地兜底\"" in output
     assert "镜头编号: F01-S01" in output
@@ -103,7 +100,6 @@ def test_segment_shot_director_errors_without_local_fallback_after_llm_failure(m
     assert "Alex opens the door." in output
     assert "relationship shot" not in output
     assert "stable camera" not in output
-    assert result["step"] == "step_4_compile"
     assert runtime["local_fallback"] is True
     assert runtime["final"]["status"] == "local_fallback"
 

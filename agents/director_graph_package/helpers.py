@@ -825,7 +825,7 @@ def _is_closeup_shot_size(value: str) -> bool:
 
 
 def _fragment_line_pattern() -> str:
-    return r"^-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?F[\w-]+[\"']?"
+    return r"^-?\s*(?:fragment_id|片段编号)\s*[:：]\s*[\"']?F[\w-]+[\"']?"
 
 
 _YAML_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
@@ -864,7 +864,7 @@ def _yaml_field_pattern(field: str) -> str:
 
 
 def _has_yaml_field(block: str, field: str) -> bool:
-    return bool(re.search(rf"(?m)^\s*-?\s*(?:{_yaml_field_pattern(field)})\s*:", block or ""))
+    return bool(re.search(rf"(?m)^\s*-?\s*(?:{_yaml_field_pattern(field)})\s*[:：]", block or ""))
 
 
 def _extract_yaml_sections(yaml_text: str) -> list[str]:
@@ -887,18 +887,18 @@ def _extract_yaml_sections(yaml_text: str) -> list[str]:
 
 
 def _extract_fragment_id(section: str) -> str:
-    match = re.search(r"(?m)^\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
+    match = re.search(r"(?m)^\s*-?\s*(?:fragment_id|片段编号)\s*[:：]\s*[\"']?([^\"'\s#]+)[\"']?", section)
     return match.group(1).strip() if match else ""
 
 
 def _field_value(section: str, field: str) -> str:
-    match = re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:\s*[\"']?(.+?)[\"']?\s*$", section)
+    match = re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*[:：]\s*[\"']?(.+?)[\"']?\s*$", section)
     return match.group(1).strip() if match else ""
 
 
 def _source_script_events(section: str) -> list[str]:
     block_match = re.search(
-        r"(?m)^\s*source_script_events\s*:\s*([\s\S]*?)(?=\n\s*[a-z_]+\s*:|\n\s*-?\s*fragment_id\s*:|\Z)",
+        r"(?m)^\s*source_script_events\s*[:：]\s*([\s\S]*?)(?=\n\s*[a-z_]+\s*[:：]|\n\s*-?\s*fragment_id\s*[:：]|\Z)",
         section,
     )
     block = block_match.group(1) if block_match else ""
@@ -962,8 +962,8 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
 
 
 _MAIN_SHOT_BLOCK_RE = re.compile(
-    r"(?ms)^\s*-\s*(?:shot_id|镜头编号)\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$"
-    r"([\s\S]*?)(?=^\s*-\s*(?:shot_id|镜头编号)\s*:|^\s*(?:sub_shots|子镜头|子镜头列表)\s*:|^\s*-\s*(?:fragment_id|片段编号)\s*:|\Z)"
+    r"(?ms)^\s*-\s*(?:shot_id|镜头编号)\s*[:：]\s*[\"']?([^\"'\n#]+?)[\"']?\s*$"
+    r"([\s\S]*?)(?=^\s*-\s*(?:shot_id|镜头编号)\s*[:：]|^\s*(?:sub_shots|子镜头|子镜头列表)\s*[:：]|^\s*-\s*(?:fragment_id|片段编号)\s*[:：]|\Z)"
 )
 
 
@@ -986,20 +986,20 @@ def _segment_block_by_fragment_id(text: str, fragment_id: str) -> str:
     if not fragment_id:
         return ""
     match = re.search(
-        rf"(?m)(^\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-        rf"(?=\n\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?F[\w-]+[\"']?|\Z)",
+        rf"(?m)(^\s*-?\s*(?:fragment_id|片段编号)\s*[:：]\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+        rf"(?=\n\s*-?\s*(?:fragment_id|片段编号)\s*[:：]\s*[\"']?F[\w-]+[\"']?|\Z)",
         text or "",
     )
     return match.group(1).strip() if match else ""
 
 
 def _yaml_scalar_field(block: str, field: str) -> str:
-    match = re.search(rf"(?m)^\s*-?\s*(?:{_yaml_field_pattern(field)})\s*:\s*[\"']?([^\"'\n#]+)", block or "")
+    match = re.search(rf"(?m)^\s*-?\s*(?:{_yaml_field_pattern(field)})\s*[:：]\s*[\"']?([^\"'\n#]+)", block or "")
     return match.group(1).strip() if match else ""
 
 
 def _yaml_line_field(block: str, field: str) -> str:
-    match = re.search(rf"(?m)^\s*-?\s*(?:{_yaml_field_pattern(field)})\s*:\s*(.+?)\s*$", block or "")
+    match = re.search(rf"(?m)^\s*-?\s*(?:{_yaml_field_pattern(field)})\s*[:：]\s*(.+?)\s*$", block or "")
     if not match:
         return ""
     return match.group(1).strip().strip("\"'")

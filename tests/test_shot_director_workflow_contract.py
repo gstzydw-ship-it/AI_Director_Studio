@@ -639,7 +639,7 @@ def test_shot_director_merges_completed_background_scene_cards(monkeypatch):
     assert merged["scene_card_status"] == "done"
 
 
-def test_split_fragment_mode_passes_scene_reference_images(monkeypatch):
+def test_split_fragment_mode_can_pass_scene_reference_images_when_explicit(monkeypatch):
     captured_images: list[list[str] | None] = []
 
     def fake_call_llm(**kwargs):
@@ -664,7 +664,13 @@ def test_split_fragment_mode_passes_scene_reference_images(monkeypatch):
     assert captured_images == [["layout-a"]]
 
 
-def test_shot_director_node_forwards_filtered_scene_references(monkeypatch):
+def test_shot_director_stages_do_not_upload_scene_reference_images():
+    assert sdi._shot_director_stage_images("shot_director_layout", ["layout-a"]) is None
+    assert sdi._shot_director_stage_images("shot_director_blocking", ["layout-a"]) is None
+    assert sdi._shot_director_stage_images("shot_director_guard", ["layout-a"]) is None
+
+
+def test_segment_shot_director_uses_text_scene_references_without_uploading_images(monkeypatch):
     captured: dict[str, object] = {}
 
     def fake_three_stage(**kwargs):
@@ -677,17 +683,12 @@ def test_shot_director_node_forwards_filtered_scene_references(monkeypatch):
             {"final": "- 片段编号: F01\n  片段任务: 建立空间\n  镜头列表: []\n"},
         )
 
-    def fake_review_board(**kwargs):
-        captured["review_images_base64"] = kwargs.get("images_base64")
-        return kwargs["primary_output"], {"status": "accepted_primary"}, "accepted"
-
     monkeypatch.setattr(sdi, "_run_shot_director_three_stage", fake_three_stage)
-    monkeypatch.setattr(sdi, "_run_shot_director_review_board", fake_review_board)
     monkeypatch.setattr(sdi, "_persist_update", lambda state, update: {**state, **update})
     monkeypatch.setattr(sdi, "_collect_shot_director_issues", lambda *args, **kwargs: [])
     monkeypatch.setattr(sdi, "_hard_shot_director_issues", lambda issues: [])
 
-    result = sdi.shot_director_node(
+    result = sdi.run_shot_director_for_segment(
         {
             "script": "乔熙走到电梯门口。",
             "aspect_ratio": "9:16",
@@ -704,11 +705,12 @@ def test_shot_director_node_forwards_filtered_scene_references(monkeypatch):
             "knowledge_metadata": {},
             "segment_names": ["F01"],
             "total_segments": 1,
-        }
+        },
+        1,
+        force=True,
     )
 
-    assert captured["images_base64"] == ["layout-a", "annotated-a"]
-    assert captured["review_images_base64"] == ["layout-a", "annotated-a"]
+    assert captured["images_base64"] is None
     assert "场景分析师给镜头导演的空间约束" in str(captured["scene_reference_context"])
     assert "走廊不能新增前台" in str(captured["scene_reference_context"])
     assert "用户标注后的俯视图" in str(captured["scene_reference_context"])

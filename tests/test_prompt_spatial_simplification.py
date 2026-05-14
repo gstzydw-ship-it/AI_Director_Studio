@@ -104,7 +104,7 @@ def test_prompt_compiler_prompt_teaches_successful_shot_chain(monkeypatch):
         captured["role_description"] = role_description
         return role_description, {}
 
-    def fake_call_llm_with_mcp(system_prompt, user_prompt, **_kwargs):
+    def fake_call_llm(system_prompt, user_prompt, **_kwargs):
         captured["system_prompt"] = system_prompt
         captured["user_prompt"] = user_prompt
         return """片段1｜天御集团大堂｜权威入场｜~14秒
@@ -135,7 +135,7 @@ def test_prompt_compiler_prompt_teaches_successful_shot_chain(monkeypatch):
 """
 
     monkeypatch.setattr(prompt_compiler_impl, "build_system_prompt", fake_build_system_prompt)
-    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fake_call_llm_with_mcp)
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm", fake_call_llm)
     monkeypatch.setattr(prompt_compiler_impl, "_record_knowledge_metadata", lambda state, *_args, **_kwargs: state.get("knowledge_metadata", {}))
     monkeypatch.setattr(prompt_compiler_impl, "_persist_update", lambda state, update: {**state, **update})
 

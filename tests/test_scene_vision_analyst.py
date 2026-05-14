@@ -159,7 +159,7 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
         "script": "商北琛走进大堂。",
         "aspect_ratio": "9:16",
         "reference_image_b64s": ["image-a"],
-        "reference_image_manifest": [],
+        "reference_image_manifest": [{"label": "@图片1", "purpose": "场景空间"}],
         "reference_images": "",
         "agent_outputs": {},
         "knowledge_metadata": {},
@@ -356,7 +356,7 @@ def test_scene_analyst_sends_all_scene_reference_images(monkeypatch):
     assert all("禁止出现俯视图、说明卡、十格布局、海报拼贴" in str(call["card_prompt"]) for call in scene_card_calls)
 
 
-def test_scene_analyst_uses_text_agent_without_reference_images(monkeypatch):
+def test_scene_analyst_skips_visual_analysis_without_scene_reference_images(monkeypatch):
     captured: dict[str, object] = {}
 
     monkeypatch.setattr(
@@ -387,10 +387,12 @@ def test_scene_analyst_uses_text_agent_without_reference_images(monkeypatch):
         "speed_mode": False,
     }
 
-    pci.scene_analyst_node(state)
+    result = pci.scene_analyst_node(state)
 
-    assert captured["agent_name"] == "scene_analyst"
-    assert captured["images_base64"] is None
+    assert captured == {}
+    assert result["scene_card_status"] == "skipped"
+    assert "未上传明确场景参考图" in result["agent_outputs"]["scene_analyst"]
+    assert "不做场景视觉分析" in result["agent_outputs"]["scene_analyst"]
 
 
 def test_scene_analyst_falls_back_to_text_agent_when_vision_fails(monkeypatch):
@@ -756,7 +758,7 @@ def test_run_phase_1_accepts_single_scene_reference_image(monkeypatch):
     assert state["reference_image_b64s"] == ["scene-a"]
 
 
-def test_scene_analyst_uses_local_card_when_text_model_fails(monkeypatch):
+def test_scene_analyst_skips_llm_when_text_only_scene_has_no_reference(monkeypatch):
     calls: list[str] = []
 
     monkeypatch.setattr(
@@ -787,9 +789,9 @@ def test_scene_analyst_uses_local_card_when_text_model_fails(monkeypatch):
     )
 
     output = result["agent_outputs"]["scene_analyst"]
-    assert calls == ["scene_analyst"]
-    assert "degraded_local_scene_card" in output
-    assert "original_script_only" in output
+    assert calls == []
+    assert "未上传明确场景参考图" in output
+    assert "不做场景视觉分析" in output
     assert result["step"] == "step_0_enhance"
 
 
@@ -830,3 +832,17 @@ def test_scene_reference_items_prefer_scene_filenames_over_stale_scene_metadata(
     items = pci._scene_reference_items(state)
 
     assert [item["image"] for item in items] == ["living-room", "gate"]
+
+
+def test_scene_reference_items_do_not_fallback_to_first_uploaded_image():
+    state = {
+        "reference_image_b64s": ["hero", "villain"],
+        "reference_image_manifest": [
+            {"filename": "乔熙.png", "purpose": "主角人物"},
+            {"filename": "商北琛.png", "purpose": "对手人物"},
+        ],
+    }
+
+    items = pci._scene_reference_items(state)
+
+    assert items == []

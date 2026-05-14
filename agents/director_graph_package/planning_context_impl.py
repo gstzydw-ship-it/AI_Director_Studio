@@ -594,10 +594,7 @@ def _scene_reference_items(state: DirectorState) -> list[dict[str, Any]]:
     if metadata_scene_items:
         return metadata_scene_items
 
-    fallback_manifest = dict(manifest[0]) if manifest else {}
-    if _is_generated_scene_card_item(fallback_manifest):
-        return []
-    return [{"source_index": 0, "image": images[0], "manifest": fallback_manifest}]
+    return []
 
 
 def _scene_reference_images(state: DirectorState) -> list[str]:
@@ -1578,6 +1575,14 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
             },
         )
 
+    scene_ref_items = _scene_reference_items(state)
+    scene_reference_context = "\n".join(
+        f"场景{scene_number}: {_scene_reference_title(item, scene_number)}"
+        for scene_number, item in enumerate(scene_ref_items, start=1)
+    )
+    if not scene_reference_context:
+        scene_reference_context = "未上传明确场景参考图；本轮不做场景视觉分析。"
+
     scene_hint = (
         "场景预分析 场景母版图 参考图分析 俯视布局 九宫格机位 空间锚点 固定家具 门窗通道 可见道具 "
         f"aspect_ratio {state.get('aspect_ratio', '16:9')}"
@@ -1586,45 +1591,74 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         "你是一位短剧场景预分析师，运行在剧情增强导演之前。\n"
         "你的任务不是拆片、不是增强剧情、不是写镜头方案，而是把参考图和原剧本中的场景信息转成文字场景卡，"
         "并配合生成一张可被后续分镜流程图和 Seedance 2.0 继承的场景母版图。\n\n"
-        "【绝对禁令】你只能提取剧本原文中明确存在的信息。\n"
-        "禁止推测、补充或扩展剧本中没有出现的内容。\n"
+        "【绝对禁令】你只能提取剧本原文或已上传场景参考图中明确存在的信息。\n"
+        "禁止推测、补充或扩展剧本和场景参考图中都没有出现的内容。\n"
         "禁止新增剧本中没有的员工反应、旁白、低声议论、表情反应或任何解释性信息。\n"
         "如果原剧本没有写员工说话，分析卡中不得出现员工对白或低语。\n"
         "如果原剧本没有写某个动作，分析卡中不得出现该动作。\n"
+        "只分析随请求发送的、已识别为场景参考图的场景；没有上传场景参考图的剧本场景不得做视觉空间分析。\n"
         "输出必须简短，只分析：场景空间、固定家具、门窗入口、通道、可见道具、光线方向、与剧本冲突点。"
+        "所有家具、道具、门窗、通道和固定物体都必须写清画面左侧、右侧、中央、前景、背景、入口侧或窗侧等相对位置。"
         "不要输出逐段运动标点或完整运动路线；这里只做新场景开局空间定盘：场景开局的初始站位参考、固定物和基础轴线。"
         "后续片段不要求逐段标点，运动过程由片段出入场状态和视频尾帧承接。"
         "不要把参考图里的真人位置、姿态、距离或视线当作固定站位。"
-        "凡参考图中可见的固定家具和空间锚点，都要作为不可移动的场景母版规则。",
+        "凡参考图中可见的固定家具和空间锚点，都要作为不可移动的场景母版规则。"
+        "严禁添加场景参考图中没有出现、剧本也没有明确写出的家具、道具、房间、门窗、车辆、绿化、水景或装饰。",
         "scene_analyst",
         context_hint=scene_hint,
     )
+
+    knowledge_metadata = _record_knowledge_metadata(state, "scene_analyst", scene_hint, retrieval_meta)
+    if not scene_ref_items:
+        output = (
+            "场景信息: 未上传明确场景参考图，本轮不做场景视觉分析；下游只能使用剧本文字中明确写出的地点，不得扩写未上传场景。\n"
+            "道具锚点: 未上传场景参考图，未确认画面左侧、右侧、中央、前景或背景中的可见道具；只允许使用剧本明确道具。\n"
+            "固定物体锁定: 未上传场景参考图，未确认家具、门窗、通道或固定物位置；不得新增参考图中不存在的固定物。\n"
+            "光线与材质: 未确认。\n"
+            "增强约束: 不分析未上传参考图的场景；不得编造空间结构、家具、道具、光线、公司门口、室内陈设或环境细节。\n"
+            "调度边界: 只锁开局空间、固定物和基础轴线；不推导逐段标点或完整运动路线。\n"
+        )
+        outputs["scene_analyst"] = output
+        return _persist_update(
+            state,
+            {
+                "status": "running_phase_1",
+                "step": "step_0_enhance",
+                "message": "未检测到明确场景参考图：已跳过场景视觉预分析，剧情增强导演正在运行...",
+                "agent_outputs": outputs,
+                "scene_context_brief": output,
+                "knowledge_metadata": knowledge_metadata,
+                "scene_card_status": "skipped",
+            },
+        )
+
     user_prompt = (
         f"{director_brief_block}\n"
         f"请生成简短场景预分析卡：只给剧情增强导演物理空间边界，并给后续场景生图锁定空间锚点。\n\n"
         f"【剧本】\n{state['script']}\n\n"
         f"【画幅】{state.get('aspect_ratio', '16:9')}\n\n"
-        f"【参考图清单】\n{_reference_context(state)}\n\n"
+        f"【已上传且识别为场景参考图的清单】\n{scene_reference_context}\n\n"
         "【参考图使用边界】\n"
-        "1. 参考图只用于提取空间、环境、固定家具、门窗入口、通道、光线方向和关键场景锚点。\n"
-        "2. 不从参考图固定人物姿势、人物朝向、人物间距离或视线轴线；参考图里的真人只当作可忽略干扰。\n"
-        "3. 场景参考资产只服务新场景开局空间定盘：锁场景开局初始站位参考、固定物、基础轴线和入口通道；后续片段不要求逐段标点，运动过程由片段出入场状态和视频尾帧承接。\n"
-        "4. 场景分析必须把可见空间翻译成可继承的文字锚点：入口/电梯/门/走廊/前台/窗/桌椅等物体的相对方位。\n"
-        "5. 固定家具和空间锚点必须作为场景母版锁定：茶几、沙发、窗户、门、地毯、床、柜子、台面等一旦在参考图中可见，后续不得移动、替换或重排。\n"
-        "6. 如果参考图与剧本文字冲突，不得新增剧情，只能把参考图作为空间和环境基底说明。\n\n"
+        "1. 只分析上方清单中的场景参考图；剧本里出现但没有上传场景参考图的地点不得做视觉空间分析。\n"
+        "2. 参考图只用于提取空间、环境、固定家具、门窗入口、通道、光线方向和关键场景锚点。\n"
+        "3. 每个可见道具、家具、门窗、入口、通道和固定物都必须写清相对位置：画面左侧、右侧、中央、前景、背景、入口侧、窗侧等。\n"
+        "4. 严禁添加场景参考图中没有出现、剧本也没有明确写出的家具、道具、房间、门窗、车辆、绿化、水景或装饰。\n"
+        "5. 不从参考图固定人物姿势、人物朝向、人物间距离或视线轴线；参考图里的真人只当作可忽略干扰。\n"
+        "6. 场景参考资产只服务新场景开局空间定盘：锁场景开局初始站位参考、固定物、基础轴线和入口通道；后续片段不要求逐段标点，运动过程由片段出入场状态和视频尾帧承接。\n"
+        "7. 场景分析必须把可见空间翻译成可继承的文字锚点：入口/电梯/门/走廊/前台/窗/桌椅等物体的相对方位。\n"
+        "8. 固定家具和空间锚点必须作为场景母版锁定：茶几、沙发、窗户、门、地毯、床、柜子、台面等一旦在参考图中可见，后续不得移动、替换或重排。\n"
+        "9. 如果参考图与剧本文字冲突，不得新增剧情，只能把参考图作为空间和环境基底说明。\n\n"
         f"{_script_fidelity_rules()}\n"
         "【输出 YAML，最多 6 行】\n"
-        "场景信息: 一句话列空间类型、入口、主要家具/门/走廊/公司门口等锚点。\n"
-        "道具锚点: 一句话列原剧本或参考图可见的关键道具及位置；无确认道具写“无确认道具”。\n"
-        "固定物体锁定: 一句话列不可移动的固定家具和空间锚点；只能换机位或裁切，不能移动物体。\n"
-        "光线与材质: 一句话列参考图里的主光方向、材质气质和空间尺度；无法确认写“未确认”。\n"
-        "增强约束: 一句话给剧情增强导演物理空间边界，只提醒场景开局空间、固定家具、门窗通道、基础轴线和道具不能改乱。\n"
+        "场景信息: 一句话列已上传场景参考图对应的空间类型、入口、主要家具/门/走廊/公司门口等锚点，并写清画面左/右/中央/前景/背景位置。\n"
+        "道具锚点: 一句话列原剧本或参考图可见的关键道具及画面左/右/中央/前景/背景位置；无确认道具写“无确认道具”。\n"
+        "固定物体锁定: 一句话列不可移动的固定家具和空间锚点及其相对位置；只能换机位或裁切，不能移动物体。\n"
+        "光线与材质: 一句话列参考图里的主光方向、材质气质和空间尺度；无法确认写“未确认”；不得编造参考图没有的材质或装饰。\n"
+        "增强约束: 一句话给剧情增强导演物理空间边界，只提醒已上传场景参考图的开局空间、固定家具、门窗通道、基础轴线和道具不能改乱；未上传参考图的场景不分析。\n"
         "调度边界: 固定写“只锁开局空间、固定物和基础轴线；不推导逐段标点或完整运动路线”。\n"
     )
-    scene_ref_items = _scene_reference_items(state)
     ref_images = [item["image"] for item in scene_ref_items] or None
     agent_for_call = "scene_vision_analyst" if ref_images else "scene_analyst"
-    knowledge_metadata = _record_knowledge_metadata(state, "scene_analyst", scene_hint, retrieval_meta)
     try:
         output = call_llm(system_prompt, user_prompt, images_base64=ref_images, agent_name=agent_for_call)
     except Exception as exc:
@@ -1644,13 +1678,13 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
                     f"aspect_ratio: {state.get('aspect_ratio', '16:9')}\n"
                     "source: original_script_and_reference_manifest_only\n"
                     "scene_info: |\n"
-                    "  LLM vision gateway failed, so only script text and reference-image manifest were used.\n"
+                    "  LLM vision gateway failed, so only script text and the explicit scene-reference manifest were used.\n"
                     "调度边界: 只锁开局空间、固定物和基础轴线；不推导逐段标点或完整运动路线。\n"
                     "reference_manifest: |\n"
-                    f"{_reference_context(state) or '  none'}\n"
+                    f"{scene_reference_context or '  none'}\n"
                     "notes:\n"
                     "  - Do not invent visual details from unavailable images.\n"
-                    "  - Downstream agents must keep to the original script and explicit reference-image labels only.\n"
+                    "  - Downstream agents must keep to the original script and explicit scene-reference labels only.\n"
                 )
         else:
             print(f"  [scene_analyst] primary text model failed, using local scene card: {exc}")
