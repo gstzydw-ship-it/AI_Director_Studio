@@ -167,6 +167,10 @@ def _build_shot_director_workflow_trace(
                     _field_value_any(section, "承接要求", "reaction_plan"),
                     240,
                 ),
+                "intra_fragment_rhythm": _truncate_for_prompt(
+                    _field_value_any(section, "片段内节奏分配", "段内节奏分配", "内部节拍预算", "intra_fragment_rhythm", "internal_beat_budget"),
+                    300,
+                ),
                 "shot_director_handoff": _truncate_for_prompt(
                     _field_value_any(section, "镜头导演交接", "shot_director_handoff", "导演交接"),
                     300,
@@ -184,6 +188,7 @@ def _build_shot_director_workflow_trace(
                 "source_event_count": 0,
                 "source_event_preview": [],
                 "reaction_plan": "",
+                "intra_fragment_rhythm": "",
                 "shot_director_handoff": "",
                 "director_brief": "",
             }
@@ -1922,6 +1927,14 @@ def _shot_director_layout_context(planner_output: str, aspect_ratio: str) -> str
         fragment_task = _field_value_any(section, "片段任务", "dramatic_unit", "戏剧单元")
         duration_target = _field_value_any(section, "目标时长", "duration_target")
         reaction_plan = _field_value_any(section, "承接要求", "reaction_plan")
+        intra_fragment_rhythm = _field_value_any(
+            section,
+            "片段内节奏分配",
+            "段内节奏分配",
+            "内部节拍预算",
+            "intra_fragment_rhythm",
+            "internal_beat_budget",
+        )
         shot_handoff = _field_value_any(section, "镜头导演交接", "shot_director_handoff", "导演交接")
         director_brief = _field_value_any(section, "director_brief", "导演交接")
         dramatic_unit = fragment_task or reaction_plan
@@ -1944,6 +1957,7 @@ def _shot_director_layout_context(planner_output: str, aspect_ratio: str) -> str
                 f"- 片段编号: {fragment_id}",
                 f"  戏剧单元: {_trim_layout_text(dramatic_unit, 120) or '无'}",
                 f"  目标时长: {_trim_layout_text(duration_target, 80) or '无'}",
+                f"  片段内节奏分配: {_trim_layout_text(intra_fragment_rhythm, 220) or '无'}",
                 f"  承接要求: {_trim_layout_text(reaction_plan, 160) or '无'}",
                 f"  镜头导演交接: {_trim_layout_text(shot_handoff or director_brief, 220) or '无'}",
                 f"  出场人物: {', '.join(active_cast) if active_cast else '无'}",

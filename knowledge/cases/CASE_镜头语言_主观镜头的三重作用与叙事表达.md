@@ -33,7 +33,7 @@ risks:
 - blood_avoidance
 reusable_pattern: CASE_镜头语言_主观镜头的三重作用与叙事表达
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头语言_主观镜头的三重作用与叙事表达
 title: 视频拆片案例：镜头语言_主观镜头的三重作用与叙事表达

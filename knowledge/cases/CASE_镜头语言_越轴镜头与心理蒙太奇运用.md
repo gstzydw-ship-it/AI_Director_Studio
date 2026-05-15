@@ -29,7 +29,7 @@ risks:
 - blood_avoidance
 reusable_pattern: CASE_镜头语言_越轴镜头与心理蒙太奇运用
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头语言_越轴镜头与心理蒙太奇运用
 title: 视频拆片案例：镜头语言_越轴镜头与心理蒙太奇运用

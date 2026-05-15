@@ -30,7 +30,7 @@ risks:
 - power_angle_mismatch
 reusable_pattern: CASE_拍摄设计_动作片段的景别角度与拍法拆解
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-拍摄设计_动作片段的景别角度与拍法拆解
 title: 视频拆片案例：拍摄设计_动作片段的景别角度与拍法拆解

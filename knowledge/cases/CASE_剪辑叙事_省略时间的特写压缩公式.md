@@ -22,7 +22,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_剪辑叙事_省略时间的特写压缩公式
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-剪辑叙事_省略时间的特写压缩公式
 title: 视频拆片案例：剪辑叙事_省略时间的特写压缩公式

@@ -34,7 +34,7 @@ risks:
 - romanticize_collision
 reusable_pattern: CASE_douyin_video_pending_2026-04-02_26
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-DOUYIN_VIDEO_PENDING_2026-04-0
 title: 视频拆片案例：douyin_video_pending_2026-04-02_26

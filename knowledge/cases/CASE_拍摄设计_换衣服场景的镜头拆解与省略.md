@@ -22,7 +22,7 @@ risks:
 - privacy_body
 reusable_pattern: CASE_拍摄设计_换衣服场景的镜头拆解与省略
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-拍摄设计_换衣服场景的镜头拆解与省略
 title: 视频拆片案例：拍摄设计_换衣服场景的镜头拆解与省略

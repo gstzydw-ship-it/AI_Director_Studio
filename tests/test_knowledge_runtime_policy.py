@@ -16,6 +16,7 @@ from agents.knowledge_base import (  # noqa: E402
     load_knowledge_documents,
     preferred_sources_from_registry_results,
     query_rule_registry,
+    source_basenames_from_registry_results,
 )
 from agents import knowledge_base as kb  # noqa: E402
 from agents import utils as agent_utils  # noqa: E402
@@ -60,7 +61,7 @@ def test_runtime_disabled_source_docs_are_skipped():
         assert load_knowledge_documents("shot_director", [filename]) == []
 
 
-def test_common_policy_files_are_first_for_runtime_agents():
+def test_common_policy_files_are_profiled_not_direct_runtime_context():
     priority_doc = _knowledge_name("00_*.md")
     agents = [
         "scene_analyst",
@@ -75,8 +76,8 @@ def test_common_policy_files_are_first_for_runtime_agents():
     ]
 
     for agent_name in agents:
-        assert get_agent_knowledge_files(agent_name)[0] == priority_doc
-        assert get_agent_knowledge_files(agent_name, critical_only=True)[0] == priority_doc
+        assert priority_doc not in get_agent_knowledge_files(agent_name)
+        assert priority_doc not in get_agent_knowledge_files(agent_name, critical_only=True)
         assert "rule_registry.yaml" not in get_agent_knowledge_files(agent_name)
         assert "rule_registry.yaml" not in get_agent_knowledge_files(agent_name, critical_only=True)
 
@@ -111,16 +112,22 @@ def test_agent_wiki_context_files_are_agent_scoped():
     assert "wiki/playbooks/nine_panel_storyboard.md" in storyboard_files
 
 
-def test_dramatic_signal_doc_is_loaded_for_rhythm_agents():
+def test_dramatic_signal_doc_is_profiled_and_rule_cards_cover_runtime():
     signal_doc = _knowledge_name("24_*.md")
 
-    assert signal_doc in get_agent_knowledge_files("rhythm_rewrite_director")
-    assert signal_doc in get_agent_knowledge_files("story_planner")
-    assert signal_doc in get_agent_knowledge_files("quality_inspector")
+    assert signal_doc not in get_agent_knowledge_files("rhythm_rewrite_director")
+    assert signal_doc not in get_agent_knowledge_files("story_planner")
+    assert signal_doc not in get_agent_knowledge_files("quality_inspector")
 
-    assert signal_doc in get_agent_knowledge_files("rhythm_rewrite_director", critical_only=True)
-    assert signal_doc in get_agent_knowledge_files("story_planner", critical_only=True)
-    assert signal_doc in get_agent_knowledge_files("quality_inspector", critical_only=True)
+    assert signal_doc not in get_agent_knowledge_files("rhythm_rewrite_director", critical_only=True)
+    assert signal_doc not in get_agent_knowledge_files("story_planner", critical_only=True)
+    assert signal_doc not in get_agent_knowledge_files("quality_inspector", critical_only=True)
+    assert "rules/rhythm_rewrite_director/RHYTHM-CUTTING-TEMPO-HANDOFF-002.md" in get_agent_knowledge_files(
+        "rhythm_rewrite_director", critical_only=True
+    )
+    assert "rules/story_planner/RHYTHM-SIGNAL-TAXONOMY-001.md" in get_agent_knowledge_files(
+        "story_planner", critical_only=True
+    )
 
 
 def test_story_planner_does_not_load_rhythm_rewrite_doc():
@@ -132,7 +139,7 @@ def test_story_planner_does_not_load_rhythm_rewrite_doc():
 
 def test_vector_retrieval_respects_current_agent_file_scope(monkeypatch):
     rewrite_doc = _knowledge_name("09_*.md")
-    planner_doc = _knowledge_name("05_*.md")
+    planner_doc = "rules/shared/CONT-STATE-CONTRACT-001.md"
 
     monkeypatch.setattr(
         kb,
@@ -178,13 +185,17 @@ def test_shot_director_layout_loads_layout_scope_docs_and_rules():
     files = get_agent_knowledge_files("shot_director_layout")
     critical_files = get_agent_knowledge_files("shot_director_layout", critical_only=True)
 
-    assert layout_doc in files
-    assert lens_doc in files
+    assert layout_doc not in files
+    assert layout_doc not in critical_files
+    assert lens_doc not in files
+    assert lens_doc not in critical_files
     assert acting_doc not in files
+    assert acting_doc not in critical_files
     assert "rules/shot_director_layout/LAYOUT-MAINSHOT-ONLY-001.md" in critical_files
     assert "rules/shot_director_layout/LAYOUT-SHOTID-STABILITY-001.md" in critical_files
     assert "rules/shot_director_layout/LAYOUT-VERTICAL-RELATION-FIRST-001.md" in critical_files
     assert "rules/shot_director_layout/LAYOUT-COVERAGE-BLUEPRINT-005.md" in critical_files
+    assert "rules/shot_director_layout/LAYOUT-FIRST-FRAME-SPATIAL-ANCHOR-006.md" in critical_files
 
 
 def test_full_fallback_keeps_raw_source_and_full_registry_out():
@@ -192,7 +203,8 @@ def test_full_fallback_keeps_raw_source_and_full_registry_out():
     raw_name = _knowledge_name("23_*.md")
     text = get_full_knowledge_for_agent("shot_director", critical_only=True)
 
-    assert f"--- {priority_doc} ---" in text
+    assert f"--- {priority_doc} ---" not in text
+    assert "--- rules/shot_director/SHOT-DIRECTOR-STEPWISE-PIPELINE-001.md ---" in text
     assert "--- rule_registry.yaml ---" not in text
     assert f"--- {raw_name} ---" not in text
 
@@ -312,22 +324,29 @@ def test_smart_knowledge_prepends_registry_context(monkeypatch):
 def test_registry_results_expose_preferred_source_files():
     results = query_rule_registry("AI 多机位 单段 一个机位 连续拍摄", "shot_director", n_results=3)
     preferred_sources = preferred_sources_from_registry_results(results)
+    registry_sources = source_basenames_from_registry_results(results)
 
-    assert _knowledge_name("22_*.md") in preferred_sources
+    assert _knowledge_name("22_*.md") in registry_sources
+    assert _knowledge_name("22_*.md") not in preferred_sources
+    assert _knowledge_name("00_*.md") in registry_sources
+    assert _knowledge_name("00_*.md") not in preferred_sources
     assert all((KNOWLEDGE_DIR / source).exists() for source in preferred_sources)
 
 
 def test_registry_preferred_sources_exclude_runtime_disabled_docs():
     results = query_rule_registry("动作匹配剪辑 手触碰门把 动作锚点", "shot_director", n_results=8)
     preferred_sources = preferred_sources_from_registry_results(results)
+    registry_sources = source_basenames_from_registry_results(results)
 
-    assert _knowledge_name("21_*.md") in preferred_sources
+    assert _knowledge_name("21_*.md") in registry_sources
+    assert _knowledge_name("21_*.md") not in preferred_sources
     assert _knowledge_name("23_*.md") not in preferred_sources
 
 
 def test_smart_knowledge_passes_preferred_sources_to_hybrid(monkeypatch):
     captured = {}
-    source_21 = _knowledge_name("21_*.md")
+    profiled_source = _knowledge_name("22_*.md")
+    result_source = "rules/shot_director/SHOT-MULTICAM-SYSTEM-029.md"
 
     def fake_load_config():
         return {
@@ -349,7 +368,7 @@ def test_smart_knowledge_passes_preferred_sources_to_hybrid(monkeypatch):
         captured["preferred_sources"] = set(preferred_sources or [])
         return [{
             "text": "match-on-action source body",
-            "source": source_21,
+            "source": result_source,
             "title": "fake",
             "relevance": 1.0,
         }]
@@ -357,11 +376,12 @@ def test_smart_knowledge_passes_preferred_sources_to_hybrid(monkeypatch):
     monkeypatch.setattr(kb, "load_config", fake_load_config)
     monkeypatch.setattr(kb, "query_knowledge_hybrid", fake_hybrid)
 
-    _text, meta = kb.get_smart_knowledge("shot_director", "动作匹配剪辑 手触碰门把 动作锚点")
+    _text, meta = kb.get_smart_knowledge("shot_director", "AI 多机位 单段 一个机位 连续拍摄")
 
-    assert source_21 in captured["preferred_sources"]
-    assert source_21 in meta["registry_preferred_sources"]
-    assert source_21 in meta["matched_sources"]
+    assert profiled_source not in captured["preferred_sources"]
+    assert profiled_source not in meta["registry_preferred_sources"]
+    assert profiled_source in meta["registry_source_files"]
+    assert result_source in meta["matched_sources"]
 
 
 def test_smart_knowledge_prepends_agent_wiki_context(monkeypatch):
@@ -412,6 +432,90 @@ def test_agent_retrieval_contracts_are_bootstrap_profile_only():
     assert "shot_language" in profile["tags"]
     assert "agent_retrieval_contracts.yaml" not in get_agent_knowledge_files("shot_director")
     assert load_knowledge_documents("shot_director", ["agent_retrieval_contracts.yaml"]) == []
+
+
+def test_default_config_uses_profiled_retrieval(monkeypatch):
+    captured = {}
+
+    def fake_load_config():
+        return {
+            "knowledge": {
+                "retrieval_mode": "profiled",
+                "final_top_k": 2,
+                "min_chunks_fallback": 0,
+                "registry_top_k": 0,
+                "bm25_top_k": 12,
+                "vector_top_k": 12,
+            },
+            "vectordb": {
+                "chunk_size": 800,
+                "chunk_overlap": 100,
+            },
+        }
+
+    def fake_profiled(**kwargs):
+        captured.update(kwargs)
+        return [{
+            "text": "profiled default match",
+            "source": "rules/shot_director/SHOT-DIALOGUE-COVERAGE-001.md",
+            "title": "dialogue coverage",
+            "relevance": 1.0,
+            "metadata": {"status": "active"},
+        }]
+
+    monkeypatch.setattr(kb, "load_config", fake_load_config)
+    monkeypatch.setattr(kb, "query_knowledge_profiled", fake_profiled)
+
+    text, meta = kb.get_smart_knowledge("shot_director", "dialogue coverage")
+
+    assert "profiled default match" in text
+    assert captured["n_results"] == 2
+    assert captured["bm25_k"] == 12
+    assert captured["vector_k"] == 12
+    assert meta["retrieval_mode"] == "profiled"
+    assert meta["used_full_fallback"] is False
+
+
+def test_profiled_retrieval_expands_registry_budget_to_final_top_k(monkeypatch):
+    captured = {}
+
+    def fake_load_config():
+        return {
+            "knowledge": {
+                "retrieval_mode": "profiled",
+                "final_top_k": 6,
+                "min_chunks_fallback": 0,
+                "registry_top_k": 4,
+                "bm25_top_k": 12,
+                "vector_top_k": 12,
+            },
+            "vectordb": {
+                "chunk_size": 800,
+                "chunk_overlap": 100,
+            },
+        }
+
+    def fake_registry(query, agent_name, n_results):
+        captured["registry_top_k"] = n_results
+        return "", []
+
+    def fake_profiled(**kwargs):
+        return [{
+            "text": "profiled match",
+            "source": "rules/story_planner/SEG-LAYER-001.md",
+            "title": "segment layer",
+            "relevance": 1.0,
+            "metadata": {"status": "active"},
+        }]
+
+    monkeypatch.setattr(kb, "load_config", fake_load_config)
+    monkeypatch.setattr(kb, "get_rule_registry_context", fake_registry)
+    monkeypatch.setattr(kb, "query_knowledge_profiled", fake_profiled)
+
+    _text, meta = kb.get_smart_knowledge("story_planner", "segment boundary")
+
+    assert captured["registry_top_k"] == 6
+    assert "registry_top_k" not in meta["retrieval_profile"]
 
 
 def test_smart_knowledge_applies_contract_profile_filters(monkeypatch):
@@ -742,11 +846,12 @@ def test_shot_director_blocking_loads_blocking_scope_docs_and_rules():
     files = get_agent_knowledge_files("shot_director_blocking")
     critical_files = get_agent_knowledge_files("shot_director_blocking", critical_only=True)
 
-    # 二号必须加载自己的职责文档
-    assert blocking_doc in files
-    assert blocking_doc in critical_files
-    # 二号必须加载对白规则
-    assert acting_doc in files
+    # 二号职责由规则卡覆盖，长文档不再直接注入运行时
+    assert blocking_doc not in files
+    assert blocking_doc not in critical_files
+    # 二号的对白约束由规则卡覆盖，长文档不再直接注入
+    assert acting_doc not in files
+    assert acting_doc not in critical_files
     # 二号不应加载一号的骨架文档
     assert layout_doc not in files
     assert layout_doc not in critical_files
@@ -756,6 +861,7 @@ def test_shot_director_blocking_loads_blocking_scope_docs_and_rules():
     assert "rules/shot_director_blocking/BLOCKING-DIALOGUE-FIDELITY-003.md" in critical_files
     assert "rules/shot_director_blocking/BLOCKING-STATE-DELTA-005.md" in critical_files
     assert "rules/shot_director_blocking/BLOCKING-ACTION-FLOW-006.md" in critical_files
+    assert "rules/shot_director_blocking/BLOCKING-FAST-CUT-LEGIBILITY-008.md" in critical_files
 
 
 def test_shot_director_guard_loads_guard_scope_docs_and_rules():
@@ -765,9 +871,9 @@ def test_shot_director_guard_loads_guard_scope_docs_and_rules():
     files = get_agent_knowledge_files("shot_director_guard")
     critical_files = get_agent_knowledge_files("shot_director_guard", critical_only=True)
 
-    # 三号必须加载自己的职责文档
-    assert guard_doc in files
-    assert guard_doc in critical_files
+    # 三号职责由规则卡覆盖，长文档不再直接注入
+    assert guard_doc not in files
+    assert guard_doc not in critical_files
     # 三号不应加载一号/二号的专属文档
     assert layout_doc not in files
     assert blocking_doc not in files
@@ -776,6 +882,7 @@ def test_shot_director_guard_loads_guard_scope_docs_and_rules():
     assert "rules/shot_director_guard/GUARD-STRUCTURE-PRESERVE-002.md" in critical_files
     assert "rules/shot_director_guard/GUARD-FIDELITY-VERTICAL-003.md" in critical_files
     assert "rules/shot_director_guard/GUARD-COVERAGE-CONTRACT-005.md" in critical_files
+    assert "rules/shot_director_guard/GUARD-FIRST-FRAME-PROP-CUT-BUDGET-006.md" in critical_files
 
 
 def test_rule_registry_routes_blocking_and_guard_rules():

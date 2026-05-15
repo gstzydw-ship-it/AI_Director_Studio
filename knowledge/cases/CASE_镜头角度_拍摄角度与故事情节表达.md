@@ -26,7 +26,7 @@ risks:
 - power_angle_mismatch
 reusable_pattern: CASE_镜头角度_拍摄角度与故事情节表达
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头角度_拍摄角度与故事情节表达
 title: 视频拆片案例：镜头角度_拍摄角度与故事情节表达

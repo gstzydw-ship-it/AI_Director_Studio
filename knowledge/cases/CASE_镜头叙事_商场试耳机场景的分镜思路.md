@@ -21,7 +21,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_镜头叙事_商场试耳机场景的分镜思路
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头叙事_商场试耳机场景的分镜思路
 title: 视频拆片案例：镜头叙事_商场试耳机场景的分镜思路

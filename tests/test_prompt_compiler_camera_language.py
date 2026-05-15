@@ -92,6 +92,27 @@ def test_compiler_guard_flags_broader_director_jargon_in_execution_text():
     assert "尾帧悬停" in report
 
 
+def test_compiler_guard_flags_abstract_action_chain_terms():
+    prompt = """片段1｜乔熙公寓客厅｜清晨赶时间｜~6秒
+
+【镜头序列】
+镜头1【3秒】【乔熙、小豆丁】双人半身关系景，动作叠压、双人关系主链持续推进；手机和衣袖状态单向推进，小豆丁停在抗拒位置，供尾帧承接。
+镜头2【2秒】【乔熙、小豆丁】关系复位，保留同场关系；穿衣动作链到达情绪落点后尾帧锁定。
+镜头3【1秒】【乔熙、小豆丁】轴线锁定，覆盖职责明确，关系升级后保持继承位置。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "不可生成的抽象情绪判断" in report
+    assert "动作叠压" in report
+    assert "状态单向推进" in report
+    assert "抗拒位置" in report
+    assert "关系复位" in report
+    assert "情绪落点" in report
+    assert "轴线锁定" in report
+    assert "覆盖职责" in report
+
+
 def test_compiler_guard_flags_complex_camera_fields_from_old_shot_director():
     prompt = """片段1｜日/内/天御集团大堂｜入场｜~12秒
 

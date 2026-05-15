@@ -23,7 +23,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_镜头语言_半主观视角与日常Vlog拍法
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头语言_半主观视角与日常VLOG拍法
 title: 视频拆片案例：镜头语言_半主观视角与日常Vlog拍法

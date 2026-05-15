@@ -30,7 +30,7 @@ risks:
 - privacy_body
 reusable_pattern: CASE_剪辑转场_动作转场与相似动作匹配
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-剪辑转场_动作转场与相似动作匹配
 title: 视频拆片案例：剪辑转场_动作转场与相似动作匹配

@@ -24,7 +24,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_镜头叙事_进门场景的空间调度与故事感
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头叙事_进门场景的空间调度与故事感
 title: 视频拆片案例：镜头叙事_进门场景的空间调度与故事感

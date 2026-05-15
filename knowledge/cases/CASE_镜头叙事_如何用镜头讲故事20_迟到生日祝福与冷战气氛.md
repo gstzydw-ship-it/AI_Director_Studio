@@ -28,7 +28,7 @@ risks:
 - blood_avoidance
 reusable_pattern: CASE_镜头叙事_如何用镜头讲故事20_迟到生日祝福与冷战气氛
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头叙事_如何用镜头讲故事20_迟到生日祝福与冷战气氛
 title: 视频拆片案例：镜头叙事_如何用镜头讲故事20_迟到生日祝福与冷战气氛

@@ -1088,6 +1088,8 @@ def _script_fidelity_rules() -> str:
 _SHOWRUNNER_SCENE_KEEP_FIELDS = (
     "场景信息",
     "道具锚点",
+    "关键道具缺口",
+    "可补道具约束",
     "固定物体锁定",
     "增强约束",
     "与剧本冲突点",
@@ -1278,11 +1280,12 @@ def director_showrunner_node(state: DirectorState) -> DirectorState:
         "5. 手机/电话规则：只有原文台词、动作或上下文明示通话时才可使用手机；如果写手机夹在肩上、握在手里或放在一旁，后续动作必须符合单手/双手可执行逻辑。\n"
         "6. 增强版剧本只写场景标题、人物、动作、原台词和必要转场；不要写“状态合同/入场状态/出场状态/道具状态变化/禁止连续性/特写/音效”等合同式或镜头式小标题，除非原文已有。\n"
         "7. 只遵守上方简表里的物理空间硬约束：入口、通道、固定物体和可见道具不能改乱；不要推导或锁定人物站位、行动路径、运动轨迹。\n"
-        "8. 没有明确空间信息时，使用“靠近、停下、退开、挡住、绕开、转身看向”等笼统关系词，不写“左侧/右侧/北侧/几米/从A点到B点”等精确调度。\n"
-        "9. 不得改变主线剧情：人物关系、公司易主、新老板到达、前夫揭示等核心事实不能变。\n"
-        "10. 不得新增台词；原台词必须原样保留。\n"
-        "11. 除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
-        "12. 输出前做一次硬逻辑自检：施事是否真实可动，人物是否有合理动机，群体是否从合理位置进入/聚拢，道具是否占手冲突，空间前置状态是否成立。\n"
+        "8. 如果场景预分析包含“关键道具缺口”或“可补道具约束”，代表该道具来自原剧本/台词但参考图里缺失或不可确认；可以在合理可见空间内补足它的起始位置和去向，但不能新增剧本外关键道具。\n"
+        "9. 没有明确空间信息时，使用“靠近、停下、退开、挡住、绕开、转身看向”等笼统关系词，不写“左侧/右侧/北侧/几米/从A点到B点”等精确调度。\n"
+        "10. 不得改变主线剧情：人物关系、公司易主、新老板到达、前夫揭示等核心事实不能变。\n"
+        "11. 不得新增台词；原台词必须原样保留。\n"
+        "12. 除原剧本台词或专有名词外，不要输出英文标签、英文小标题或英文字段名。\n"
+        "13. 输出前做一次硬逻辑自检：施事是否真实可动，人物是否有合理动机，群体是否从合理位置进入/聚拢，道具是否占手冲突，空间前置状态是否成立。\n"
     )
 
     started = time.perf_counter()
@@ -1486,10 +1489,13 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
         "7. 场景分析必须把可见空间翻译成可继承的文字锚点：入口/电梯/门/走廊/前台/窗/桌椅等物体的相对方位。\n"
         "8. 固定家具和空间锚点必须作为场景母版锁定：茶几、沙发、窗户、门、地毯、床、柜子、台面等一旦在参考图中可见，后续不得移动、替换或重排。\n"
         "9. 如果参考图与剧本文字冲突，不得新增剧情，只能把参考图作为空间和环境基底说明。\n\n"
+        "10. 必须核对剧本动作/台词中的关键道具是否在场景参考图中可见或可确认；如果剧本需要该道具但参考图缺失或不可确认，必须写入“关键道具缺口”和“可补道具约束”，交给剧情增强导演在合理可见空间内补足。\n\n"
         f"{_script_fidelity_rules()}\n"
-        "【输出 YAML，最多 6 行】\n"
+        "【输出 YAML，最多 8 行】\n"
         "场景信息: 一句话列已上传场景参考图对应的空间类型、入口、主要家具/门/走廊/公司门口等锚点，并写清画面左/右/中央/前景/背景位置。\n"
         "道具锚点: 一句话列原剧本或参考图可见的关键道具及画面左/右/中央/前景/背景位置；无确认道具写“无确认道具”。\n"
+        "关键道具缺口: 一句话列剧本动作/台词需要但场景参考图缺失或不可确认的关键道具；没有缺口也必须写“无”。\n"
+        "可补道具约束: 如果存在关键道具缺口，一句话说明只能补原剧本已有关键道具，并放在角色可自然触达、符合场景功能的可见空间；没有缺口写“无”。\n"
         "固定物体锁定: 一句话列不可移动的固定家具和空间锚点及其相对位置；只能换机位或裁切，不能移动物体。\n"
         "光线与材质: 一句话列参考图里的主光方向、材质气质和空间尺度；无法确认写“未确认”；不得编造参考图没有的材质或装饰。\n"
         "增强约束: 一句话给剧情增强导演物理空间边界，只提醒已上传场景参考图的开局空间、固定家具、门窗通道、基础轴线和道具不能改乱；未上传参考图的场景不分析。\n"
@@ -1517,6 +1523,10 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
                     "source: original_script_and_reference_manifest_only\n"
                     "scene_info: |\n"
                     "  LLM vision gateway failed, so only script text and the explicit scene-reference manifest were used.\n"
+                    "关键道具缺口: |\n"
+                    "  未能视觉确认参考图；下游只能把剧本动作/台词明确需要且参考图清单不可确认的道具视为候选缺口。\n"
+                    "可补道具约束: |\n"
+                    "  只能补原剧本已有关键道具，并放在角色可自然触达、符合场景功能的可见空间；不得新增剧本外道具。\n"
                     "调度边界: 只锁开局空间、固定物和基础轴线；不推导逐段标点或完整运动路线。\n"
                     "reference_manifest: |\n"
                     f"{scene_reference_context or '  none'}\n"
@@ -1535,6 +1545,10 @@ def scene_analyst_node(state: DirectorState) -> DirectorState:
                 "  Keep the opening location, visible entrances, fixed objects and basic axis from the script.\n"
                 "道具锚点: |\n"
                 "  Use only props explicitly named in the script.\n"
+                "关键道具缺口: |\n"
+                "  No scene reference image was available; downstream must treat script-required props as unverified by image rather than visible scene evidence.\n"
+                "可补道具约束: |\n"
+                "  Only props explicitly named in the script may be placed in reachable, scene-plausible visible space.\n"
                 "固定物体锁定: |\n"
                 "  Do not invent furniture, windows, staff areas, hallways or extra rooms.\n"
                 "光线与材质: |\n"

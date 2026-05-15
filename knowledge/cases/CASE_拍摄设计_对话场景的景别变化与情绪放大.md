@@ -22,7 +22,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_拍摄设计_对话场景的景别变化与情绪放大
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-拍摄设计_对话场景的景别变化与情绪放大
 title: 视频拆片案例：拍摄设计_对话场景的景别变化与情绪放大

@@ -178,9 +178,12 @@ def test_scene_analyst_uses_scene_vision_agent_for_reference_images(monkeypatch)
     assert "场景开局初始站位参考、固定物、基础轴线和入口通道" in str(captured["user_prompt"])
     assert "后续片段不要求逐段标点" in str(captured["user_prompt"])
     assert "视频尾帧承接" in str(captured["user_prompt"])
-    assert "输出 YAML，最多 6 行" in str(captured["user_prompt"])
+    assert "输出 YAML，最多 8 行" in str(captured["user_prompt"])
     assert "调度边界" in str(captured["user_prompt"])
     assert "不推导逐段标点或完整运动路线" in str(captured["user_prompt"])
+    assert "关键道具缺口" in str(captured["user_prompt"])
+    assert "可补道具约束" in str(captured["user_prompt"])
+    assert "剧本动作/台词需要但场景参考图缺失或不可确认" in str(captured["user_prompt"])
     assert "每个片段" not in str(captured["user_prompt"])
     assert "全过程运动路线" not in str(captured["user_prompt"])
     assert "场景信息" in str(captured["user_prompt"])
@@ -586,6 +589,8 @@ def test_compact_scene_context_for_showrunner_keeps_only_short_hard_constraints(
   - 乔熙从入口走向沙发旁。
   - 小豆丁停在茶几附近。
 道具锚点: 茶几在沙发前方。
+关键道具缺口: 闹钟来自原剧本但参考图不可见，可补在沙发旁台面。
+可补道具约束: 只能补原剧本已有关键道具，不得新增剧情证据。
 光线与材质: 午后自然光，大量软装细节。
 场景参考图需求: 输出俯视布局图和 3x3 九宫格机位图。
 固定物体锁定: 沙发、茶几、电视墙不可移动。
@@ -596,12 +601,64 @@ def test_compact_scene_context_for_showrunner_keeps_only_short_hard_constraints(
     assert "乔熙从入口走向沙发旁" not in compact
     assert "人物站位" not in compact
     assert "道具锚点: 茶几在沙发前方" in compact
+    assert "关键道具缺口: 闹钟来自原剧本但参考图不可见" in compact
+    assert "可补道具约束: 只能补原剧本已有关键道具" in compact
     assert "固定物体锁定: 沙发、茶几、电视墙不可移动" in compact
     assert "增强约束: 剧情增强不得改入口和沙发相对位置" in compact
     assert "光线与材质" not in compact
     assert "场景参考图需求" not in compact
     assert "3x3 九宫格" not in compact
     assert len(compact) < 700
+
+
+def test_director_showrunner_keeps_required_prop_gap_and_explains_boundary(monkeypatch):
+    captured: dict[str, object] = {}
+
+    monkeypatch.setattr(
+        pci,
+        "build_system_prompt",
+        lambda base_system, agent_name, context_hint="": (base_system, {"retrieval_mode": "stub"}),
+    )
+    monkeypatch.setattr(
+        pci,
+        "_record_knowledge_metadata",
+        lambda state, agent_name, context_hint, retrieval_meta: dict(state.get("knowledge_metadata") or {}),
+    )
+    monkeypatch.setattr(pci, "_persist_update", lambda state, update: {**state, **update})
+
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
+        if "user_prompt" not in captured:
+            captured["user_prompt"] = user_prompt
+        return (
+            "增强版剧本: |\n"
+            "  乔熙拍停闹钟。\n"
+            "增强依据: []\n"
+            "主线保护: []\n"
+            "节奏总控交接: 无\n"
+            "需用户确认: 无\n"
+        )
+
+    monkeypatch.setattr(pci, "call_llm", fake_call_llm)
+
+    pci.director_showrunner_node(
+        {
+            "script": "乔熙拍停闹钟。",
+            "aspect_ratio": "9:16",
+            "scene_context_brief": (
+                "场景信息: 公寓客厅，沙发在窗边。\n"
+                "关键道具缺口: 闹钟来自原剧本但参考图不可见，可补在沙发旁台面。\n"
+                "可补道具约束: 只能补原剧本已有关键道具，不得新增剧情证据。\n"
+            ),
+            "agent_outputs": {},
+            "knowledge_metadata": {},
+            "speed_mode": False,
+        }
+    )
+
+    prompt = str(captured["user_prompt"])
+    assert "关键道具缺口: 闹钟来自原剧本但参考图不可见" in prompt
+    assert "可补道具约束: 只能补原剧本已有关键道具" in prompt
+    assert "代表该道具来自原剧本/台词但参考图里缺失或不可确认" in prompt
 
 
 def test_scene_card_spatial_summary_strips_position_marker_sections():

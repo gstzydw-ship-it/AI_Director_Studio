@@ -566,7 +566,6 @@ def test_shot_director_runtime_rules_and_rule_card_are_present():
     assert "镜头数量由节奏任务决定" in rhythm_rules
     assert "9:16 竖屏下，半身/中景/双人关系镜头是主力" in rhythm_rules
     assert "rules/shot_director/SHOT-SOURCE-EVENT-FIDELITY-001.md" in critical_files
-    assert "07_Seedance输出词典与模型适配.md" in critical_files
     assert "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md" not in critical_files
 
 

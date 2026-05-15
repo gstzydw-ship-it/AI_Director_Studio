@@ -3962,7 +3962,11 @@ def _normalise_config_base_url(value: str) -> str:
         raise ValueError("中转站地址不能为空。")
     if not base_url.startswith(("http://", "https://")):
         base_url = "https://" + base_url
-    return base_url.rstrip("/")
+    base_url = base_url.rstrip("/")
+    parsed = urlparse(base_url)
+    if parsed.scheme and parsed.netloc and not parsed.path:
+        return base_url + "/v1"
+    return base_url
 
 
 def _model_list_candidate_urls(base_url: str) -> list[str]:
@@ -4125,6 +4129,26 @@ def _saved_api_key_for_base_url(raw_config: dict, base_url: str, fallback_key: s
     return str(fallback_key or "").strip()
 
 
+def _api_key_for_current_base_url(current_routes: list[dict], base_url: str, fallback_key: str = "") -> str:
+    try:
+        target = _normalise_config_base_url(base_url)
+    except ValueError:
+        return str(fallback_key or "").strip()
+    for route in current_routes:
+        if not isinstance(route, dict):
+            continue
+        api_key = str(route.get("api_key") or "").strip()
+        if not _is_real_api_key(api_key):
+            continue
+        try:
+            route_url = _normalise_config_base_url(str(route.get("base_url") or ""))
+        except ValueError:
+            continue
+        if route_url == target:
+            return api_key
+    return str(fallback_key or "").strip() if _is_real_api_key(fallback_key) else ""
+
+
 @app.post("/api/model_list")
 async def api_model_list(request: Request):
     if not _is_local_request(request):
@@ -4152,6 +4176,8 @@ async def api_model_list(request: Request):
         saved_route = fallback_route
     elif route_preset == "custom":
         saved_route = custom_route
+    requested_base_url = ""
+    explicit_unmatched_custom_route = False
     try:
         requested_base_url = str(payload.get("base_url") or "").strip()
         base_url = _normalise_config_base_url(
@@ -4163,14 +4189,22 @@ async def api_model_list(request: Request):
         matching_route = _agent_route_by_base_url(agent_config, base_url)
         if matching_route:
             saved_route = matching_route
+        elif route_preset == "custom":
+            saved_route = {}
+            explicit_unmatched_custom_route = True
     api_key = str(payload.get("api_key") or "").strip()
     if not api_key or _is_masked_api_key(api_key):
         api_key = str(saved_route.get("api_key") or "").strip()
     if not api_key or _is_masked_api_key(api_key):
+        fallback_profile_key = (
+            ""
+            if explicit_unmatched_custom_route
+            else str(_profile_source(raw_config, profile).get("api_key") or "").strip()
+        )
         api_key = _saved_api_key_for_base_url(
             raw_config,
             base_url,
-            fallback_key=str(_profile_source(raw_config, profile).get("api_key") or "").strip(),
+            fallback_key=fallback_profile_key,
         )
     if _looks_like_env_placeholder(api_key):
         api_key = ""
@@ -4294,6 +4328,33 @@ def _agent_connection_preview(response: httpx.Response) -> str:
     return body or response.reason_phrase or "empty response"
 
 
+def _coerce_probe_timeout(value: object, default: float, minimum: float | None = None) -> float:
+    try:
+        resolved = float(value)
+    except (TypeError, ValueError):
+        resolved = default
+    if minimum is not None:
+        resolved = max(minimum, resolved)
+    return resolved
+
+
+def _agent_connection_timeout(timeout_config: dict | None = None) -> httpx.Timeout:
+    config = timeout_config if isinstance(timeout_config, dict) else {}
+    request_timeout = _coerce_probe_timeout(config.get("timeout_seconds"), 20.0, minimum=20.0)
+    connect_timeout = _coerce_probe_timeout(
+        config.get("connect_timeout_seconds"),
+        min(8.0, request_timeout),
+        minimum=5.0,
+    )
+    read_timeout = _coerce_probe_timeout(config.get("read_timeout_seconds"), request_timeout, minimum=20.0)
+    write_timeout = _coerce_probe_timeout(
+        config.get("write_timeout_seconds"),
+        min(10.0, request_timeout),
+        minimum=10.0,
+    )
+    return httpx.Timeout(request_timeout, connect=connect_timeout, read=read_timeout, write=write_timeout)
+
+
 async def _probe_agent_connection(
     *,
     agent_name: str,
@@ -4302,6 +4363,7 @@ async def _probe_agent_connection(
     base_url: str,
     api_key: str,
     model: str,
+    timeout_config: dict | None = None,
 ) -> dict:
     started = perf_counter()
     result = {
@@ -4337,7 +4399,7 @@ async def _probe_agent_connection(
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
-    timeout = httpx.Timeout(20.0, connect=8.0, read=20.0, write=10.0)
+    timeout = _agent_connection_timeout(timeout_config)
     try:
         async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             response = await client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=payload)
@@ -4468,6 +4530,11 @@ async def api_save_config(request: Request):
     text_key = _resolve_saved_api_key(raw_config, "text", text_api_key)
     image_key = _resolve_saved_api_key(raw_config, "image", image_api_key, fallback_key=text_key)
     embedding_key = _resolve_saved_api_key(raw_config, "embedding", embedding_api_key, fallback_key=text_key)
+    current_profile_routes = [
+        {"base_url": text_base_url, "api_key": text_key},
+        {"base_url": image_base_url, "api_key": image_key},
+        {"base_url": embedding_base_url, "api_key": embedding_key},
+    ]
     missing_profiles = [
         MODEL_PROFILE_LABELS[profile]
         for profile, key in (("text", text_key), ("image", image_key), ("embedding", embedding_key))
@@ -4522,13 +4589,13 @@ async def api_save_config(request: Request):
             route_preset = "primary"
         custom_base_url = str(
             route_payload.get("custom_base_url")
-            or previous_custom_route.get("base_url")
             or payload_custom_route.get("base_url")
+            or previous_custom_route.get("base_url")
             or ""
         ).strip()
         custom_api_key = _route_api_key_from_submission(
             submitted_key=route_payload.get("custom_api_key"),
-            previous_route={},
+            previous_route=payload_custom_route,
             profile_key="",
         )
         fallback_base_url = str(previous_fallback.get("base_url") or default_base_url).strip()
@@ -4546,7 +4613,11 @@ async def api_save_config(request: Request):
             }
         elif route_preset == "custom":
             selected_base_url = _normalise_config_base_url(custom_base_url)
-            custom_api_key = custom_api_key or _saved_api_key_for_base_url(raw_config, selected_base_url, fallback_key=default_api_key)
+            custom_api_key = (
+                custom_api_key
+                or _api_key_for_current_base_url(current_profile_routes, selected_base_url)
+                or _saved_api_key_for_base_url(raw_config, selected_base_url, fallback_key=default_api_key)
+            )
             selected_api_key = custom_api_key
             next_fallback = {"base_url": fallback_base_url, "api_key": fallback_api_key}
         else:
@@ -4583,7 +4654,11 @@ async def api_save_config(request: Request):
         else:
             agent_config["fallback_routes"] = [next_fallback]
         if custom_base_url:
-            custom_route_api_key = custom_api_key or _saved_api_key_for_base_url(raw_config, custom_base_url, fallback_key="")
+            custom_route_api_key = (
+                custom_api_key
+                or _api_key_for_current_base_url(current_profile_routes, custom_base_url)
+                or _saved_api_key_for_base_url(raw_config, custom_base_url, fallback_key="")
+            )
             try:
                 same_previous_custom_route = (
                     _normalise_config_base_url(custom_base_url)
@@ -4656,6 +4731,11 @@ async def api_test_agent_connections(request: Request):
             str(payload.get("embedding_api_key") or "").strip(),
             fallback_key=text_key,
         )
+        current_profile_routes = [
+            {"base_url": text_base_url, "api_key": text_key},
+            {"base_url": image_base_url, "api_key": image_key},
+            {"base_url": embedding_base_url, "api_key": embedding_key},
+        ]
         embedding_model = _normalise_optional_model(
             payload.get("embedding_model") or _profile_source(raw_config, "embedding").get("embedding_model")
         )
@@ -4718,7 +4798,11 @@ async def api_test_agent_connections(request: Request):
                 previous_route={},
                 profile_key="",
             )
-            api_key = api_key or _saved_api_key_for_base_url(raw_config, base_url, fallback_key=profile_api_key)
+            api_key = (
+                api_key
+                or _api_key_for_current_base_url(current_profile_routes, base_url)
+                or _saved_api_key_for_base_url(raw_config, base_url, fallback_key=profile_api_key)
+            )
         elif route_preset == "fallback":
             fallback_routes = stored_agent.get("fallback_routes") if isinstance(stored_agent.get("fallback_routes"), list) else []
             fallback_route = fallback_routes[0] if fallback_routes and isinstance(fallback_routes[0], dict) else {}
@@ -4732,6 +4816,7 @@ async def api_test_agent_connections(request: Request):
                 base_url=base_url,
                 api_key=api_key,
                 model=model,
+                timeout_config=stored_agent,
             )
 
     tasks = [_run_probe(agent_name) for agent_name in agent_names]

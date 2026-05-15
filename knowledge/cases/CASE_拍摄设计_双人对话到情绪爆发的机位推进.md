@@ -26,7 +26,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_拍摄设计_双人对话到情绪爆发的机位推进
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-拍摄设计_双人对话到情绪爆发的机位推进
 title: 视频拆片案例：拍摄设计_双人对话到情绪爆发的机位推进

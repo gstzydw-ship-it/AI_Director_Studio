@@ -24,7 +24,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_镜头构图_画框与构图的视觉语言
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头构图_画框与构图的视觉语言
 title: 视频拆片案例：镜头构图_画框与构图的视觉语言

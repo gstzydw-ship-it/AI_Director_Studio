@@ -25,7 +25,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_剪辑叙事_时间压缩让故事更紧凑
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-剪辑叙事_时间压缩让故事更紧凑
 title: 视频拆片案例：剪辑叙事_时间压缩让故事更紧凑

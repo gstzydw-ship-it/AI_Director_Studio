@@ -24,7 +24,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_拍摄剪辑_动作匹配与连续动作衔接
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-拍摄剪辑_动作匹配与连续动作衔接
 title: 视频拆片案例：拍摄剪辑_动作匹配与连续动作衔接

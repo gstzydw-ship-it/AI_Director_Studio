@@ -20,7 +20,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_分镜拍摄_动作衔接与剪辑点设计
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-分镜拍摄_动作衔接与剪辑点设计
 title: 视频拆片案例：分镜拍摄_动作衔接与剪辑点设计

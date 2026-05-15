@@ -22,7 +22,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_镜头叙事_如何用镜头讲故事22_出行装箱与后备箱动作
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头叙事_如何用镜头讲故事22_出行装箱与后备箱动作
 title: 视频拆片案例：镜头叙事_如何用镜头讲故事22_出行装箱与后备箱动作

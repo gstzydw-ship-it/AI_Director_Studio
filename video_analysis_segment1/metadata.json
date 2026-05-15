@@ -1,0 +1,21 @@
+{
+  "path": "G:\\jimeng-2026-05-14-1228-为乔熙的形象参考 为小豆丁的形象参考 客厅场景参考 片段1｜乔熙公寓客厅｜赶时间....mp4",
+  "frame_count": 361,
+  "fps": 24.1,
+  "duration": 14.979253112033193,
+  "width": 720,
+  "height": 1280,
+  "meta": {
+    "plugin": "ffmpeg",
+    "nframes": "inf",
+    "ffmpeg_version": "7.1-essentials_build-www.gyan.dev built with gcc 14.2.0 (Rev1, Built by MSYS2 project)",
+    "codec": "h264",
+    "pix_fmt": "yuv420p(progressive)",
+    "audio_codec": "aac",
+    "fps": "24.1",
+    "source_size": "(720, 1280)",
+    "size": "(720, 1280)",
+    "rotate": "0",
+    "duration": "6.06"
+  }
+}

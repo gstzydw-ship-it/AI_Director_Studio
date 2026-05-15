@@ -23,7 +23,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_剪辑叙事_省略中间过程的镜头设计
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-剪辑叙事_省略中间过程的镜头设计
 title: 视频拆片案例：剪辑叙事_省略中间过程的镜头设计

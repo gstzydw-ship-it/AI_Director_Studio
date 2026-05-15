@@ -26,7 +26,7 @@ risks:
 - romanticize_collision
 reusable_pattern: CASE_镜头语言_内反拍与对话互动镜头
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头语言_内反拍与对话互动镜头
 title: 视频拆片案例：镜头语言_内反拍与对话互动镜头

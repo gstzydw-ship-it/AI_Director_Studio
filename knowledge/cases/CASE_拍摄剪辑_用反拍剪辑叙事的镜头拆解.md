@@ -25,7 +25,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_拍摄剪辑_用反拍剪辑叙事的镜头拆解
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-拍摄剪辑_用反拍剪辑叙事的镜头拆解
 title: 视频拆片案例：拍摄剪辑_用反拍剪辑叙事的镜头拆解

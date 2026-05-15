@@ -64,9 +64,9 @@ rules:
   - id: "ACT-MATCH-001"
     title: "Match-on-Action 动作匹配剪辑"
     owner_agent: "shot_director"
-    priority: "P4"
-    applies_when: "同一连续动作跨机位、跨景别或跨空间衔接。"
-    instruction: "上一镜在动作完成 50%-70% 处切出，下一镜从动作完成 30%-50% 处接续，保持手、脚、身体重心和道具运动方向连续。"
+    priority: "P3"
+    applies_when: "同一连续动作跨机位、跨景别或跨空间衔接；开门、转身、手触碰门把、道具离手等动作锚点需要匹配剪辑。"
+    instruction: "围绕动作锚点做 Match-on-Action：上一镜在动作完成 50%-70% 处切出，下一镜从动作完成 30%-50% 处接续，保持手、脚、身体重心、门把和道具运动方向连续。"
     avoid_when: "需要刻意制造跳切、精神错乱或时空断裂感。"
     source_files:
       - "knowledge/21_镜头调用规则与多机位模板.md"
@@ -201,9 +201,9 @@ rules:
   - id: "TIME-JUMP-002"
     title: "Jump-Cut 物理时间压缩"
     owner_agent: "story_planner"
-    priority: "P2"
-    applies_when: "动作过程冗长但起点和结果有叙事价值。"
-    instruction: "仅保留动作起点帧和终点帧，压缩重复物理过程。"
+    priority: "P1"
+    applies_when: "动作过程冗长但起点和结果有叙事价值；需要 jump cut、时间压缩、跳切、出入画、A 点到 B 点或重复物理过程省略。"
+    instruction: "仅保留动作起点帧和终点帧，压缩重复物理过程；用清晰的起点/终点画面交代位移或结果，不把无信息量过程完整拍完。"
     avoid_when: "动作过程本身承载危险、悬念、技巧或情绪递进。"
     source_files:
       - "knowledge/05_剧本拆分与15秒片段规划规则.md"
@@ -235,6 +235,23 @@ rules:
       - "knowledge/09_节奏总控与剧本改写规则.md"
     source_rules:
       - "09:R-015"
+
+  - id: "RHYTHM-CONFLICT-SPEED-CURVE-001"
+    title: "冲突诊断与速度曲线调度"
+    owner_agent: "rhythm_rewrite_director"
+    agent_scope:
+      - "story_planner"
+      - "shot_director"
+    priority: "P0"
+    applies_when: "剧本冲突偏弱、只有概括动作、用户要求节奏更紧或画面调度更明确时；需要先诊断主角目标、阻力、失败代价、时间压力、弱冲突、秘密、误会、隐藏信息、爆点、钩子落点，再给起速点、加速动作、刹车点、再启动点和速度曲线。"
+    instruction: "rhythm_rewrite_director 必须先输出 conflict_diagnosis，再输出 speed_curve；允许做 L1 动作层和 L2 调度层增强，但不得把补强写成原文事实；L3 剧情层增强只能标注为需用户确认。"
+    avoid_when: "用户明确要求不做节奏增强，或增强会改变剧情事实、人物关系、身份信息、关键台词、关键道具或事件结果。"
+    source_files:
+      - "knowledge/rules/rhythm_rewrite_director/RHYTHM-CONFLICT-SPEED-CURVE-001.md"
+      - "knowledge/09_节奏总控与剧本改写规则.md"
+      - "knowledge/15_故事节奏控制规则.md"
+    source_rules:
+      - "RHYTHM-CONFLICT-SPEED-CURVE-001"
 
   - id: "SCALE-EMOTION-001"
     title: "景别递进式情绪催化"
@@ -277,9 +294,9 @@ rules:
     title: "权力高度法则"
     owner_agent: "shot_director"
     priority: "P4"
-    applies_when: "单方压制、审判、训斥、威胁或身份碾压。"
-    instruction: "优先用强势方轻微仰拍、弱势方轻微俯拍表达权力差。若低机位限制触发，改用画面占比、中心/边缘、遮挡和站位高度表达。"
-    avoid_when: "儿童、脆弱姿态、地面倒伏或 15 秒片段内仰拍配额已用尽。"
+    applies_when: "单方压制、权力压制、审判、训斥、威胁或身份碾压；想用仰拍、低机位表现强势方。"
+    instruction: "优先用强势方轻微仰拍、弱势方轻微俯拍表达权力差，但默认机位高度仍应先考虑平视；一个 15 秒片段最多一次仰拍。若低机位限制触发，改用画面占比、中心/边缘、遮挡和站位高度表达。"
+    avoid_when: "儿童、脆弱姿态、地面倒伏、默认平视更清晰或 15 秒片段内仰拍配额已用尽。"
     conflicts_with:
       - "CONTINUITY-LOWANGLE-001"
     source_files:
@@ -340,8 +357,9 @@ rules:
   - id: "CONT-CAST-ACTIVE-001"
     title: "当前戏份角色过滤"
     owner_agent: "prompt_compiler"
+    agent_scope: ["story_planner", "shot_director", "prompt_compiler", "quality_inspector"]
     priority: "P1"
-    applies_when: "上一段尾帧或视频分析中有当前片段 source_script_events 未包含的人物。"
+    applies_when: "上一段尾帧、prev_tailframe、视频分析、参考图或 reference 中有当前片段 source_script_events 未包含的人物；质检发现无戏份角色被继续保留或错误绑定参考图。"
     instruction: "尾帧可见人物不等于当前戏份人物；无当前动作/台词的人不得调用参考图，不得保留为门外、侧后方、前景、背景或画外声，应退出画面或不出现。"
     avoid_when: "该人物在当前 source_script_events 或 main_shots 中有明确动作、台词、受击或关系功能。"
     source_files:
@@ -390,8 +408,9 @@ rules:
   - id: "REF-TAILFRAME-PRIORITY-001"
     title: "尾帧图优先继承"
     owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
     priority: "P1"
-    applies_when: "逐段生成时存在上一段尾帧图、自动抽取尾帧或用户补充尾帧截图。"
+    applies_when: "逐段生成时存在上一段尾帧图、prev_tailframe、自动抽取尾帧或用户补充尾帧截图；质检发现全局风格图、场景图或角色参考图覆盖了尾帧首帧锚点。"
     instruction: "最终 prompt 应直接调用 @图片N（上一段尾帧图）作为首帧、场景、构图、光线和空间锚点；不要长篇复述尾帧内容。若尾帧图已覆盖主要场景，不再重复调用单独场景参考图。"
     avoid_when: "下一段进入尾帧图外的新空间，或用户明确要求重新使用独立场景参考图。"
     source_files:
@@ -681,9 +700,9 @@ rules:
   - id: "SEG-LAYER-001"
     title: "15 秒是片段层不是单分镜层"
     owner_agent: "story_planner"
-    priority: "P2"
-    applies_when: "需要规划 15 秒片段、主分镜和子分镜关系。"
-    instruction: "15 秒片段是生成与叙事片段层，可以包含多个主分镜或子分镜，不得把每个镜头都强拆成独立 15 秒。"
+    priority: "P0"
+    applies_when: "需要规划 15 秒片段、主分镜和子分镜关系；15 秒片段不是单分镜层，不能按时间均分，完整发言不能在句中被片段边界截断。"
+    instruction: "15 秒片段是生成与叙事片段层，可以包含多个主分镜或子分镜；不要按秒数机械均分，不得把每个镜头都强拆成独立 15 秒，完整发言不能被边界切断。"
     avoid_when: "单个动作或发言本身已经无法在一个生成片段内稳定完成。"
     source_files:
       - "knowledge/05_剧本拆分与15秒片段规划规则.md"
@@ -720,9 +739,9 @@ rules:
   - id: "SEG-ACTION-004"
     title: "片段内镜头数量由内容决定"
     owner_agent: "story_planner"
-    priority: "P2"
-    applies_when: "需要判断片段内部应该有多少镜头或子分镜。"
-    instruction: "片段内镜头数量服从动作段、信息落点和情绪节拍，不得以固定镜头数模板替代内容判断。"
+    priority: "P0"
+    applies_when: "需要判断片段内部应该有多少镜头、主分镜、子分镜或反应镜头；15 秒导演片段、单层时间轴、0-3 秒、3-5 秒、5-8 秒、外层动作单元、内层子时间轴容易被嵌套拆分。"
+    instruction: "片段内镜头数量服从动作段、信息落点和情绪节拍，不得以固定镜头数模板替代内容判断；保持单层时间轴，不在主分镜下再嵌套子时间轴。"
     avoid_when: "生成模型稳定性要求片段必须降复杂度时，优先减少子分镜而不是破坏片段边界。"
     source_files:
       - "knowledge/05_剧本拆分与15秒片段规划规则.md"
@@ -956,9 +975,9 @@ rules:
   - id: "PROMPT-ACTION-006"
     title: "一镜一主动作"
     owner_agent: "prompt_compiler"
-    priority: "P5"
-    applies_when: "编译一个镜头或一个连续生成片段。"
-    instruction: "同一镜头只写一个主动作，多人同句时避免歧义代词，并在关键动作后补表情锚点。"
+    priority: "P0"
+    applies_when: "编译一个镜头句、Seedance prompt 或连续生成片段；同一句堆叠起身、转身、走到门口、回头说话、连续动作、关键动作、表情锚点或视线锚点。"
+    instruction: "同一镜头只写一个主动作；不要把起身、转身、走到门口、回头说话全部塞进同一镜，多人同句时避免歧义代词，并在关键动作后补表情/视线锚点。"
     avoid_when: "群戏需要同时呈现背景群体动作时，主动作仍需单独突出。"
     source_files:
       - "knowledge/07_Seedance输出词典与模型适配.md"
@@ -1156,8 +1175,9 @@ rules:
   - id: "PROMPT-NOSUBTITLE-001"
     title: "对白禁止字幕文字"
     owner_agent: "prompt_compiler"
-    priority: "P1"
-    applies_when: "最终 Seedance prompt 中包含对白、口播或台词引号。"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "最终 Seedance prompt、质检或交付结果中包含对白、口播、台词引号、字幕、屏幕文字、英文字幕、文字浮层或 timeline pollution 风险。"
     instruction: "约束段必须明确禁止字幕、屏幕文字、英文字幕和文字浮层；台词只作为声音或口型存在。"
     avoid_when: "无例外；如需屏幕内道具文字，必须由用户显式要求且与对白字幕区分。"
     source_files:
@@ -1184,9 +1204,9 @@ rules:
   - id: "WORKFLOW-SEGMENT-001"
     title: "默认逐段交互工作流"
     owner_agent: "story_planner"
-    priority: "P2"
-    applies_when: "项目采用逐段生成、上一段尾帧续接下一段的工作流。"
-    instruction: "默认按逐段交互执行：先完成当前片段，再基于尾帧或视频分析续接下一片段。"
+    priority: "P0"
+    applies_when: "项目采用逐段生成、上一段尾帧、视频末帧、prev_tailframe 续接下一段的工作流；下一段首帧继承连续性，不能反向重算已锁定拆片骨架、主分镜边界或完整发言单元。"
+    instruction: "默认按逐段交互执行：先完成当前片段，再基于尾帧或视频分析续接下一片段；尾帧只服务下一段首帧继承和连续性续接，不回头重拆已锁定片段。"
     avoid_when: "用户明确要求一次性全片规划，或没有逐段生成能力。"
     source_files:
       - "knowledge/18_情绪锚点与逐段交互与仰拍限制补丁.md"
@@ -1400,8 +1420,8 @@ rules:
   - id: "SHOT-DIALOGUE-PAUSE-001"
     title: "长对白必须切出气口"
     owner_agent: "shot_director"
-    priority: "P2"
-    applies_when: "单句对白超过 15 个中文字符、预计发音超过 4 秒，或高压对白连续密集出现。"
+    priority: "P0"
+    applies_when: "单句对白超过 15 个中文字符、预计发音超过 4 秒、高压对白连续密集出现、长对白需要停顿气口、听者反应、reaction、道具插入或关系镜头。"
     instruction: "只在原文标点或完整短语边界拆分对白，并插入 1.0-2.5 秒听者反应、道具插入或停顿气口；拼回后必须与原对白一致。"
     avoid_when: "短促低权重对白不应被过度切碎。"
     source_files:
@@ -1413,9 +1433,9 @@ rules:
   - id: "PROMPT-CONSTRAINT-POLARITY-001"
     title: "约束集中写入且时间轴正向表达"
     owner_agent: "prompt_compiler"
-    priority: "P1"
-    applies_when: "最终 prompt 同时包含硬约束、时间轴和对白/人物/场景连续性要求。"
-    instruction: "硬约束集中写入【核心禁忌】或【约束】；时间轴内部改用正向可见状态表达，不在每段末尾重复禁忌串。"
+    priority: "P0"
+    applies_when: "最终 prompt 同时包含硬约束、时间轴、对白、人物、场景连续性、零亲密接触、物理距离、扶腰、贴身、怀里、极近脸距、角色名、站位、朝向、可见距离、规则解释、心理分析、禁止字幕、保持轴线不变或禁忌复读要求。"
+    instruction: "硬约束集中写入【核心禁忌】或【约束】；时间轴内部只写画面内可见动作、运镜、调度、表情变化和对白声音，用正向可见状态表达角色名、站位、朝向和可见距离，不在每段末尾重复禁忌串。"
     avoid_when: "含对白时仍必须保留禁止字幕与屏幕文字的最终硬约束句。"
     source_files:
       - "knowledge/rules/prompt_compiler/PROMPT-CONSTRAINT-POLARITY-001.md"
@@ -1425,8 +1445,9 @@ rules:
   - id: "PROMPT-AXIS-LOCK-PER-SEGMENT-001"
     title: "单片段内摄影机必须始终在 180° 轴线同侧"
     owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
     priority: "P0"
-    applies_when: "编译最终 Seedance prompt，单段内同时出现多个机位描述、双人关系镜头或反打需求。"
+    applies_when: "编译或质检最终 Seedance prompt，单段内同时出现多个机位描述、双人关系镜头、反打需求、轴线、180°、尾帧延续、摄影机同侧或跨轴风险。"
     instruction: "每个 segment 必须在开头明确轴线方向并选定摄影机一侧（左/中/右），整段 prompt 内不得跨到另一侧；真要反打必须由 story_planner 拆段，并通过人物自然转身、越轴中性镜头或 scene_fixed 机位作为过渡。"
     avoid_when: "单段出现人物相对的“左前方/右前方/左后方/右后方”、单段出现“反打至/反打镜头/翻拍至”、用“同一机位继续”承接反向机位描述。"
     source_files:
@@ -1577,7 +1598,7 @@ rules:
   - id: "BLOCKING-PARENT-SUBSHOT-001"
     title: "子分镜必须挂靠 parent_shot_id"
     owner_agent: "shot_director_blocking"
-    priority: "P2"
+    priority: "P1"
     applies_when: "动作调度导演在已有主分镜骨架上补充子分镜时。"
     instruction: "每个 sub_shot 必须包含 parent_shot_id 字段，且必须指向当前片段内已存在的 shot_id；不允许出现漂浮子分镜。"
     avoid_when: "无例外；漂浮子分镜在下游编译和质检中会被视为结构错误。"
@@ -1642,9 +1663,9 @@ rules:
   - id: "BLOCKING-ACTION-FLOW-006"
     title: "动作导演必须交付动作流程表与事件覆盖表"
     owner_agent: "shot_director_blocking"
-    priority: "P1"
-    applies_when: "动作调度导演需要把一号主分镜骨架翻译成可执行动作流程，尤其是对峙、压迫、受击、多人散开、门口/电梯阈值段、闭环收束等片段。"
-    instruction: "每个 fragment 至少补齐 blocking_plan、state_chain、event_coverage；state_chain 要把手、门、道具、站位、距离、群体状态写成单向变化链；event_coverage 要逐条把 source_script_events 挂到具体镜头。若存在 sub_shots，还必须补 duration_hint 与 action_phase，避免把短重音写成新的主镜头。"
+    priority: "P0"
+    applies_when: "动作调度导演需要把一号主分镜骨架翻译成可执行动作流程；对峙、压迫、受击、reaction_coverage、shot_id、子分镜、parent_shot_id、对白落点、多人散开、门口/电梯阈值段、闭环收束等片段。"
+    instruction: "每个 fragment 至少补齐 blocking_plan、state_chain、event_coverage；state_chain 要把手、门、道具、站位、距离、群体状态写成单向变化链；event_coverage 要逐条把 source_script_events、受击反应、对白落点挂到具体 shot_id 或 parent_shot_id。若存在 sub_shots，还必须补 duration_hint 与 action_phase，避免把短重音写成新的主镜头。"
     avoid_when: "不得为了补这几张表重做 layout，不得改 shot_id 编号，不得新造剧本外事件。"
     source_files:
       - "knowledge/26_动作调度与受击覆盖规则.md"
@@ -1659,9 +1680,9 @@ rules:
   - id: "GUARD-MINIMAL-REPAIR-001"
     title: "只修硬伤，不重写方案"
     owner_agent: "shot_director_guard"
-    priority: "P2"
-    applies_when: "规则守门导演审查前两位导演的产出，决定是否修改时。"
-    instruction: "只修复会导致下游报错或质检 fail 的硬伤；不重写镜头创意、不另起炉灶。"
+    priority: "P0"
+    applies_when: "规则守门导演审查前两位导演的产出，决定是否修改时；repair only hard injuries, break downstream, fail QC, do not rewrite camera idea, add new shots, reorder creativity, looks better。"
+    instruction: "只修复会导致下游报错或质检 fail 的硬伤；不重写镜头创意、不另起炉灶、不新增镜头、不重排创意，不因为看起来更好就改方案。"
     avoid_when: "无例外；如果前两位导演的方案没有硬伤，守门导演的输出应当与输入几乎一致。"
     source_files:
       - "knowledge/27_规则守门与最小修复规则.md"
@@ -1719,6 +1740,514 @@ rules:
       - "knowledge/rules/prompt_compiler/TAILFRAME-RELATIONSHOT-001.md"
     source_rules:
       - "27:十、全库检索后补入的覆盖合同守门"
+
+  - id: "TIME-SEGMENT-MULTISHOT-001"
+    title: "15秒片段是导演片段不是单分镜"
+    owner_agent: "story_planner"
+    agent_scope: ["story_planner", "shot_director", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "15秒片段、主分镜、子分镜、多镜头、多机位、多景别变化、单层时间轴、0-3秒、3-5秒、5-8秒。"
+    instruction: "story_planner 必须把 15 秒视为导演编译单位而非单一长镜头；输出单层时间轴，显式区分主分镜、子分镜和独立时段，避免外层动作单元再嵌套子时间轴。"
+    avoid_when: "用户明确锁定单镜，或片段短到不支持多镜头。"
+    source_files:
+      - "knowledge/rules/story_planner/TIME-SEGMENT-MULTISHOT-001.md"
+      - "knowledge/05_剧本拆分与15秒片段规划规则.md"
+    source_rules:
+      - "TIME-SEGMENT-MULTISHOT-001"
+
+  - id: "TIME-ACTION-DENSITY-COVERAGE-004"
+    title: "拆片必须按动作密度决定拍摄覆盖而不是逐动作列清单"
+    owner_agent: "story_planner"
+    agent_scope: ["story_planner", "rhythm_rewrite_director", "shot_director", "quality_inspector"]
+    priority: "P0"
+    applies_when: "拆片、动作密集、动作很多、事件覆盖、省略动作、必拍动作、可压缩动作、可省略动作、动作密度、每五秒镜头数。"
+    instruction: "story_planner 必须把动作分成必拍、可压缩、可省略，并给动作密度、推荐节奏档位和每5秒镜头数建议；若必拍动作超出片段承载密度，必须拆成多个片段。"
+    avoid_when: "用户明确要求逐动作记录，且不是给视频生成模型使用。"
+    source_files:
+      - "knowledge/rules/story_planner/TIME-ACTION-DENSITY-COVERAGE-004.md"
+      - "knowledge/rules/rhythm_rewrite_director/RHYTHM-SHOT-DENSITY-MATRIX-003.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-CUT-BUDGET-001.md"
+    source_rules:
+      - "TIME-ACTION-DENSITY-COVERAGE-004"
+
+  - id: "RHYTHM-SHOT-DENSITY-MATRIX-003"
+    title: "每五秒镜头密度与镜头时长矩阵"
+    owner_agent: "rhythm_rewrite_director"
+    agent_scope: ["rhythm_rewrite_director", "story_planner", "shot_director", "shot_director_layout", "shot_director_blocking", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "节奏判断、每5秒镜头数、镜头时长、目标ASL、单镜时长范围、极短插入、动作密度、紧凑生活动作、高压动作峰值、切镜预算。"
+    instruction: "rhythm_rewrite_director 必须把快、慢、紧凑、压迫、留白翻译成每5秒镜头密度档位、目标ASL、单镜时长范围和例外条件；默认不得超过高压/动作峰值档。"
+    avoid_when: "用户明确指定单镜到底或固定镜头实验风格。"
+    source_files:
+      - "knowledge/rules/rhythm_rewrite_director/RHYTHM-SHOT-DENSITY-MATRIX-003.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-CUT-BUDGET-001.md"
+      - "knowledge/rules/shot_director_blocking/BLOCKING-FAST-CUT-LEGIBILITY-008.md"
+    source_rules:
+      - "RHYTHM-SHOT-DENSITY-MATRIX-003"
+
+  - id: "SCENE-REQUIRED-PROP-GAP-002"
+    title: "剧本关键道具缺口必须交接给剧情增强"
+    owner_agent: "scene_analyst"
+    agent_scope: ["scene_analyst", "director_showrunner", "story_planner", "shot_director_layout", "quality_inspector"]
+    priority: "P0"
+    applies_when: "剧本出现关键道具、参考图缺少关键道具、闹钟、书包、照片、钥匙、药瓶、首帧空间锚定、道具可见位置、关键道具缺口。"
+    instruction: "scene_analyst 必须对照原剧本和参考图识别关键道具缺口，输出剧本锚点、参考图状态、可补空间和可补道具约束，交给 director_showrunner、story_planner 与 shot_director_layout；自身不做剧情增强。"
+    avoid_when: "关键道具已在参考图或场景卡中清楚可见；或该物件不是剧本动作、台词、因果或尾帧继承所需。"
+    source_files:
+      - "knowledge/rules/scene_analyst/SCENE-REQUIRED-PROP-GAP-002.md"
+      - "knowledge/11_场景分析输入卡与导演意图提取.md"
+      - "knowledge/06_连续性与安全规则.md"
+    source_rules:
+      - "SCENE-REQUIRED-PROP-GAP-002"
+
+  - id: "REFERENCE-ROLE-STRICT-001"
+    title: "参考图职责边界必须严格"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "参考图、人物身份、场景空间、尾帧图、人物图、场景图、职责边界、参考图误用。"
+    instruction: "每张参考图进入 prompt 前必须绑定职责；人物图只管身份外观，场景图只管空间光线，尾帧图只管首帧继承；当前无戏份人物不得被保留。"
+    avoid_when: "没有任何参考图进入 prompt。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/REFERENCE-ROLE-STRICT-001.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-REFERENCE-BINDING-001.md"
+      - "knowledge/rules/prompt_compiler/REF-TAILFRAME-PRIORITY-001.md"
+    source_rules:
+      - "REFERENCE-ROLE-STRICT-001"
+
+  - id: "PROMPT-REFERENCE-BINDING-001"
+    title: "参考图先绑定职责再进入时间轴"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "参考图、人物身份、场景参考、image_id、role、target_id、first_appearance_segment、scope、时间轴前绑定职责。"
+    instruction: "先写清每张参考图职责，再进入时间轴；人物图只管身份外观，场景图只管空间光线，尾帧图只管首帧继承；同一时间段不要反复调用图片。"
+    avoid_when: "没有使用任何人物、场景或尾帧参考图。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/PROMPT-REFERENCE-BINDING-001.md"
+      - "knowledge/rules/prompt_compiler/REFERENCE-ROLE-STRICT-001.md"
+    source_rules:
+      - "PROMPT-REFERENCE-BINDING-001"
+
+  - id: "PROMPT-CINEMATIC-DOWNTRANSLATION-002"
+    title: "复杂分镜必须降维成视频模型可执行动作"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "Seedance prompt、prompt_compiler、main_shots、复杂分镜、复杂运镜、抽象镜头词、模型可执行动作、降维翻译。"
+    instruction: "只把已定导演决策翻译为主体、机位、路径、动作、视线、切入点与尾帧状态；复杂导演术语必须降维为视频模型可执行的自然画面语。"
+    avoid_when: "输入不是最终模型 prompt 编译任务。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/PROMPT-CINEMATIC-DOWNTRANSLATION-002.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md"
+    source_rules:
+      - "PROMPT-CINEMATIC-DOWNTRANSLATION-002"
+
+  - id: "PROMPT-DIRECTOR-JARGON-TRANSLATION-001"
+    title: "导演调度口语必须翻译成可见画面语言"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "导演调度、Seedance Prompt、运镜、戏剧张力、压迫感、电影感、镜头序列句、自然画面语。"
+    instruction: "将上游已定意图翻译为镜头序列句：主体、景别、简洁机位、动作、视线和切镜触发；不得原样输出导演口语、抽象情绪或幕后调度词。"
+    avoid_when: "文本不是模型 prompt 或可执行时间轴。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-NATURAL-SENTENCE-001.md"
+      - "knowledge/rules/shot_director/MOTION-MODALITY-001.md"
+    source_rules:
+      - "PROMPT-DIRECTOR-JARGON-TRANSLATION-001"
+
+  - id: "PROMPT-HARD-CONSTRAINT-DEDUP-001"
+    title: "硬约束去重与集中收束"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "硬约束、时间轴、prompt清洗、字幕约束、角色约束、轴线约束、门状态、距离契约、尾帧约束、重复约束。"
+    instruction: "将字幕、角色、轴线、门状态、距离、尾帧等硬约束集中去重；时间轴只保留正向画面动作，不在每个时间段重复规则。"
+    avoid_when: "当前 prompt 没有重复硬约束。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/PROMPT-HARD-CONSTRAINT-DEDUP-001.md"
+      - "knowledge/rules/prompt_compiler/TIMELINE-EXECUTION-ONLY-001.md"
+    source_rules:
+      - "PROMPT-HARD-CONSTRAINT-DEDUP-001"
+
+  - id: "PROMPT-RHYTHM-DENSITY-INHERIT-002"
+    title: "Prompt 编译必须继承节奏密度矩阵而不是临时加切镜"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "最终 prompt、节奏密度、镜头时长、切镜预算、节奏档位、镜头数、切点、不要临时加切镜。"
+    instruction: "Prompt 只翻译已批准的节奏档位、镜头数、时长和切点；缺失时请求上游补齐，不自行发明镜头、特写或改变镜头时长。"
+    avoid_when: "上游没有节奏密度信息且片段是单镜连续动作。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/PROMPT-RHYTHM-DENSITY-INHERIT-002.md"
+      - "knowledge/rules/rhythm_rewrite_director/RHYTHM-SHOT-DENSITY-MATRIX-003.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-CUT-BUDGET-001.md"
+      - "knowledge/rules/shot_director/SHOT-MOTIVATED-CUT-ACTION-DENSITY-002.md"
+    source_rules:
+      - "PROMPT-RHYTHM-DENSITY-INHERIT-002"
+
+  - id: "PROMPT-SHOT-EXPRESSION-CORE-001"
+    title: "镜头表达核心格式"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["shot_director", "shot_director_blocking", "shot_director_guard", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "镜头序列、镜头表达、最终提示词、主体、景别、简洁机位、人物动作、台词、反应、切镜触发；私密对峙、零亲密接触、半步距离、角色名、站位、朝向、可见距离、身体关系表达。"
+    instruction: "每个镜头句按【主体】景别，简洁机位，人物动作/台词/反应（切镜触发）输出；用角色名、站位、朝向和可见距离表达关系，禁止写成空间说明书、坐标说明、术语堆叠或抽象导演口号。"
+    avoid_when: "内部结构化校验字段，不直接输出给用户或视频模型。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md"
+      - "knowledge/07_Seedance输出词典与模型适配.md"
+    source_rules:
+      - "PROMPT-SHOT-EXPRESSION-CORE-001"
+
+  - id: "PROMPT-TIMELINE-SHOT-BASE-001"
+    title: "时间段必须先立分镜基底"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "时间轴、分镜基底、景别显式化、主体、景别、角度、运动方式、一镜一主动作。"
+    instruction: "每个时间段必须先建立分镜基底：主体、景别或身体部位、简洁机位、动作/台词/反应与切镜触发；不得先写动作后补镜头。"
+    avoid_when: "当前时间段已经先建立分镜基底。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/PROMPT-TIMELINE-SHOT-BASE-001.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md"
+    source_rules:
+      - "PROMPT-TIMELINE-SHOT-BASE-001"
+
+  - id: "PROMPT-VISIBLE-BODY-LANGUAGE-001"
+    title: "抽象情绪必须翻译成可观察身体语言"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P1"
+    applies_when: "抽象情绪、身体语言、反应节拍、微表情、停顿、视线、身体状态、可见动作；零亲密接触、半步距离、扶腰、贴身、怀里、极近脸距、站位、朝向或可见距离需要转成可拍画面。"
+    instruction: "把抽象情绪和安全边界翻译为可见动作、微表情、停顿、视线、站位、朝向与身体状态；不得保留无法执行的心理判断或导演口号。"
+    avoid_when: "上游已完全给出可见身体动作且无抽象情绪词。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/PROMPT-VISIBLE-BODY-LANGUAGE-001.md"
+    source_rules:
+      - "PROMPT-VISIBLE-BODY-LANGUAGE-001"
+
+  - id: "TIMELINE-EXECUTION-ONLY-001"
+    title: "时间轴纯净执行规则"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "Prompt 时间轴、纯净执行、画面内可见动作、运镜、调度、表情变化、对白声音、禁止幕后解释。"
+    instruction: "时间轴只写画面内可见动作、运镜、调度、表情变化和对白声音；严禁混入任何幕后解释、禁忌强调、规则复读或质检说明。"
+    avoid_when: "编写约束区、说明区或非时间轴元信息时。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/TIMELINE-EXECUTION-ONLY-001.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-HARD-CONSTRAINT-DEDUP-001.md"
+    source_rules:
+      - "TIMELINE-EXECUTION-ONLY-001"
+
+  - id: "PHYSICAL-DISTANCE-CONTRACT-001"
+    title: "物理距离与亲密接触冲突消解规则"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "零亲密接触、物理距离、保持距离、扶腰、贴身、怀里、极近脸距、亲密接触冲突、身体距离契约。"
+    instruction: "如果约束要求零亲密接触或保持距离，编译器必须过滤或替换时间轴内可能产生歧义的亲密接触词汇，只写可见距离、空隙与对峙状态。"
+    avoid_when: "片段没有零亲密接触、保持距离或类似物理距离契约。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/PHYSICAL-DISTANCE-CONTRACT-001.md"
+    source_rules:
+      - "PHYSICAL-DISTANCE-CONTRACT-001"
+
+  - id: "TAILFRAME-RELATIONSHOT-001"
+    title: "尾帧连续性与空间关系收束规则"
+    owner_agent: "prompt_compiler"
+    agent_scope: ["prompt_compiler", "shot_director", "quality_inspector"]
+    priority: "P0"
+    applies_when: "尾帧、最后一个镜头、片段收束、双人关系景、多人关系景、空间关系、下一段首帧继承、尾帧连续性。"
+    instruction: "片段最终尾帧默认回到双人/多人关系景或建立镜头，保留位置、朝向、距离与道具状态；局部特写不能默认作为尾帧。"
+    avoid_when: "下一段剧本明确要求从特定局部特写或道具特写开始接续。"
+    source_files:
+      - "knowledge/rules/prompt_compiler/TAILFRAME-RELATIONSHOT-001.md"
+      - "knowledge/rules/prompt_compiler/REF-TAILFRAME-PRIORITY-001.md"
+    source_rules:
+      - "TAILFRAME-RELATIONSHOT-001"
+
+  - id: "QC-DIRECTOR-TASTE-SCORE-002"
+    title: "质检必须评估镜头是否有导演选择"
+    owner_agent: "quality_inspector"
+    agent_scope: ["quality_inspector"]
+    priority: "P0"
+    applies_when: "quality_review、shot_director、layout、导演选择、镜头是否平庸、director_taste_score、schema valid but flat、注意力清晰、情绪推进、镜头不可替代性、更强视角机会、低于 7 分。"
+    instruction: "输出 director_taste_score 四项评分：注意力清晰、情绪推进、镜头不可替代性、更强视角机会；低于 7 分必须给出 shot_id 和可执行修正，不只检查格式。"
+    avoid_when: "review_scope_excludes_shot_design_quality；input_is_only_raw_story_without_shot_plan；safety_or_hard_fail_already_blocks_delivery。"
+    source_files:
+      - "knowledge/rules/quality_inspector/QC-DIRECTOR-TASTE-SCORE-002.md"
+      - "knowledge/17_结果质检与回溯修正规则.md"
+    source_rules:
+      - "QC-DIRECTOR-TASTE-SCORE-002"
+
+  - id: "QC-HARD-FAIL-001"
+    title: "Hard规则违反必须阻断"
+    owner_agent: "quality_inspector"
+    agent_scope: ["quality_inspector"]
+    priority: "P0"
+    applies_when: "质检、fail阻断、hard规则、failed_rule_id、evidence、required_repair、违反必须阻断、不可交付。"
+    instruction: "命中任一 hard 条件必须 status: fail，并给 failed_rule_id、evidence、required_repair；不得把阻断规则违规标记为 complete。"
+    avoid_when: "issue_is_style_preference_not_hard_rule；upstream_input_missing_enough_context_to_verify；already_returned_to_upstream_for_schema_repair。"
+    source_files:
+      - "knowledge/rules/quality_inspector/QC-HARD-FAIL-001.md"
+      - "knowledge/00_知识库优先级与冲突裁决规则.md"
+      - "knowledge/17_结果质检与回溯修正规则.md"
+    source_rules:
+      - "QC-HARD-FAIL-001"
+
+  - id: "QC-RHYTHM-EMOTION-LEGIBILITY-003"
+    title: "质检必须检查节奏密度、情绪可读性和动作覆盖价值"
+    owner_agent: "quality_inspector"
+    agent_scope: ["quality_inspector", "director_showrunner", "rhythm_rewrite_director", "story_planner", "shot_director", "prompt_compiler"]
+    priority: "P0"
+    applies_when: "质检、节奏密度、情绪表达、情绪可读性、动作覆盖、镜头服务故事、节奏矩阵、返修判断。"
+    instruction: "质检必须按节奏矩阵、戏剧任务、动作覆盖和情绪可读性给通过/返修判断；不能只看格式和连续性。"
+    avoid_when: "当前只检查非叙事素材或静态参考图。"
+    source_files:
+      - "knowledge/rules/quality_inspector/QC-RHYTHM-EMOTION-LEGIBILITY-003.md"
+      - "knowledge/rules/rhythm_rewrite_director/RHYTHM-SHOT-DENSITY-MATRIX-003.md"
+      - "knowledge/rules/shot_director_guard/GUARD-EMOTION-STORY-RHYTHM-PRIORITY-007.md"
+    source_rules:
+      - "QC-RHYTHM-EMOTION-LEGIBILITY-003"
+
+  - id: "FRAME-SUBJECT-SCALE-001"
+    title: "切镜必须写清主体景别与看点"
+    owner_agent: "shot_director"
+    agent_scope: ["shot_director", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "景别显式化、切镜、时间轴、主体、景别、身体部位、可见看点、镜头看什么。"
+    instruction: "每次切镜必须写清切到谁、对应景别或局部、切后具体看点；不得只写切到近景、切到特写或换角度。"
+    avoid_when: "no_cut_or_time_axis；subject_scale_focus_already_explicit。"
+    source_files:
+      - "knowledge/rules/shot_director/FRAME-SUBJECT-SCALE-001.md"
+      - "knowledge/07_Seedance输出词典与模型适配.md"
+    source_rules:
+      - "FRAME-SUBJECT-SCALE-001"
+
+  - id: "SHOT-ACTION-APEX-PRECUT-001"
+    title: "动作顶点前切入"
+    owner_agent: "shot_director"
+    agent_scope: ["story_planner", "shot_director", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "动作顶点、动作顶点前、切镜时机、主分镜、未完成状态、动作承接、action apex。"
+    instruction: "把子分镜切点放在动作顶点前半拍，用可见的未完成状态承接动作；不要等动作完全结束后再切。"
+    avoid_when: "no_action_transition；action_must_be_seen_complete_for_story。"
+    source_files:
+      - "knowledge/rules/shot_director/SHOT-ACTION-APEX-PRECUT-001.md"
+      - "knowledge/22_多机位分镜与镜头多样性规则.md"
+    source_rules:
+      - "SHOT-ACTION-APEX-PRECUT-001"
+
+  - id: "SHOT-ACTION-COVERAGE-001"
+    title: "动作戏先保全貌再拆冲击"
+    owner_agent: "shot_director"
+    agent_scope: ["shot_director", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "动作戏、爆发戏、竖屏动作、动作覆盖、保全貌、冲击点、动作空间、人物关系。"
+    instruction: "先建立动作形态，冲击点切近，再回到人物关系或尾帧状态；动作戏不能只有冲击特写而没有动作地理。"
+    avoid_when: "non_action_dialogue_scene；action_already_clear_in_single_main_shot。"
+    source_files:
+      - "knowledge/rules/shot_director/SHOT-ACTION-COVERAGE-001.md"
+      - "knowledge/20_镜头库与机位库.md"
+    source_rules:
+      - "SHOT-ACTION-COVERAGE-001"
+
+  - id: "SHOT-DIALOGUE-COVERAGE-001"
+    title: "对话戏基础覆盖"
+    owner_agent: "shot_director"
+    agent_scope: ["shot_director", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "双人对话、长对白、停顿气口、暂停、听者反应、reaction、OTS、正反切、关系镜头、信息落点、对话覆盖。"
+    instruction: "使用关系镜头、OTS、正反覆盖或听者反应承接对白信息落点；长对白必须拆出停顿气口，避免静态说话头像。"
+    avoid_when: "no_two_person_dialogue；high_impact_conflict_requires_conflict_rule。"
+    source_files:
+      - "knowledge/rules/shot_director/SHOT-DIALOGUE-COVERAGE-001.md"
+      - "knowledge/20_镜头库与机位库.md"
+    source_rules:
+      - "SHOT-DIALOGUE-COVERAGE-001"
+
+  - id: "SHOT-MOTIVATED-CUT-ACTION-DENSITY-002"
+    title: "镜头导演按动作密度和信息增量决定切不切"
+    owner_agent: "shot_director"
+    agent_scope: ["shot_director", "shot_director_layout", "shot_director_blocking", "shot_director_guard", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "镜头设计、动作密度、切镜理由、信息增量、动作阶段变化、台词落点、情绪转折、切不切。"
+    instruction: "每个切镜必须有信息增量、动作阶段变化、台词落点或情绪转折；否则并回父镜头。"
+    avoid_when: "实验性碎片蒙太奇由用户明确指定，且允许破坏连续性。"
+    source_files:
+      - "knowledge/rules/shot_director/SHOT-MOTIVATED-CUT-ACTION-DENSITY-002.md"
+      - "knowledge/rules/rhythm_rewrite_director/RHYTHM-SHOT-DENSITY-MATRIX-003.md"
+      - "knowledge/rules/story_planner/TIME-ACTION-DENSITY-COVERAGE-004.md"
+      - "knowledge/rules/shot_director_blocking/BLOCKING-FAST-CUT-LEGIBILITY-008.md"
+    source_rules:
+      - "SHOT-MOTIVATED-CUT-ACTION-DENSITY-002"
+
+  - id: "SHOT-SOURCE-EVENT-FIDELITY-001"
+    title: "shot_director 只能继承 source_script_events"
+    owner_agent: "shot_director"
+    agent_scope: ["shot_director", "quality_inspector", "prompt_compiler"]
+    priority: "P0"
+    applies_when: "镜头设计、剧本忠实度、道具连续性、source_script_events、只继承剧本事件、不补剧情。"
+    instruction: "只把 source_script_events 翻译成镜头，保留人物名、空间、道具和可见状态，不新增事件、人物关系、台词或关键道具。"
+    avoid_when: "no_source_script_events_available；explicit_user_authorized_adaptation。"
+    source_files:
+      - "knowledge/rules/shot_director/SHOT-SOURCE-EVENT-FIDELITY-001.md"
+      - "knowledge/00_知识库优先级与冲突裁决规则.md"
+      - "knowledge/06_连续性与安全规则.md"
+    source_rules:
+      - "SHOT-SOURCE-EVENT-FIDELITY-001"
+
+  - id: "SHOT-ASPECT-VERTICAL-TYPES-030"
+    title: "画幅映射与竖屏专用镜头类型"
+    owner_agent: "shot_director"
+    agent_scope: ["shot_director", "shot_director_layout", "shot_director_blocking", "shot_director_guard", "prompt_compiler", "quality_inspector"]
+    priority: "P1"
+    applies_when: "9:16竖屏、16:9横屏、1:1方画幅、2.39:1宽画幅、竖屏正反切、纵深前后、分层过肩、双层关系景、分区群像。"
+    instruction: "按画幅选择主力镜头，并把竖屏专用镜头类型写成自然画面语；抽象镜头词必须转换为主体、空间层次和可见动作。"
+    avoid_when: "未识别到画幅且用户不要求画幅推断；剧本明确要求非写实实验影像。"
+    source_files:
+      - "knowledge/rules/shot_director/SHOT-ASPECT-VERTICAL-TYPES-030.md"
+      - "knowledge/30_画幅镜头映射与竖屏专用镜头规则.md"
+    source_rules:
+      - "SHOT-ASPECT-VERTICAL-TYPES-030"
+
+  - id: "SHOT-ACTION-GROUP-BUDGET-031"
+    title: "动作群戏预算与跨片段节奏"
+    owner_agent: "shot_director"
+    agent_scope: ["shot_director", "shot_director_layout", "shot_director_blocking", "shot_director_guard", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "动作戏、四人以上群戏、四人同场、群体动作、群戏冲突、动作群戏、同一场景连续多个片段、模型可生成性、切镜预算、镜头预算、切镜预算超载、跨片段景别节奏、预算降级。"
+    instruction: "动作戏、群戏和跨片段节奏必须按覆盖、镜头预算、预算降级和景别节奏共同决策，避免同景别重复与模型不可生成。"
+    avoid_when: "纯静态单人镜头；不存在动作、群戏或跨片段节奏问题。"
+    source_files:
+      - "knowledge/rules/shot_director/SHOT-ACTION-GROUP-BUDGET-031.md"
+      - "knowledge/31_程序化镜头表结构与跨片段节奏规则.md"
+    source_rules:
+      - "SHOT-ACTION-GROUP-BUDGET-031"
+
+  - id: "LAYOUT-FIRST-FRAME-SPATIAL-ANCHOR-006"
+    title: "首帧必须先建立人物和关键道具关系"
+    owner_agent: "shot_director_layout"
+    agent_scope: ["shot_director_layout", "shot_director_guard", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "首帧、双人同场、关键道具动作、人物关系锚点、关键道具、固定物体、尾帧继承、首帧缺锚。"
+    instruction: "main_shots 必须先给首帧关系锚点：在场人物、关键道具、固定物体、可继承尾帧；避免人物和道具突然出现。"
+    avoid_when: "片段只有单人、无同场关系、无关键道具，且上一段尾帧已经清楚继承。"
+    source_files:
+      - "knowledge/rules/shot_director_layout/LAYOUT-FIRST-FRAME-SPATIAL-ANCHOR-006.md"
+      - "knowledge/rules/scene_analyst/SCENE-REQUIRED-PROP-GAP-002.md"
+      - "knowledge/rules/shot_director_layout/LAYOUT-COVERAGE-BLUEPRINT-005.md"
+    source_rules:
+      - "LAYOUT-FIRST-FRAME-SPATIAL-ANCHOR-006"
+
+  - id: "LAYOUT-MAINSHOT-ONLY-001"
+    title: "主分镜骨架阶段只输出主镜头合同"
+    owner_agent: "shot_director_layout"
+    agent_scope: ["shot_director_layout", "quality_inspector"]
+    priority: "P0"
+    applies_when: "主分镜骨架、main_shots、输出合同、fragment_id、fragment_intent、continuity_anchor、不写reaction_coverage、不写sub_shots。"
+    instruction: "layout 阶段只输出 fragment_id、fragment_intent、continuity_anchor、main_shots，不抢写 reaction_coverage、sub_shots 或解释散文。"
+    avoid_when: "当前阶段是 shot_director_blocking，需要补 reaction_coverage 或 sub_shots；当前阶段是 shot_director_guard，只允许最小修复既有方案。"
+    source_files:
+      - "knowledge/rules/shot_director_layout/LAYOUT-MAINSHOT-ONLY-001.md"
+      - "knowledge/25_镜头摆位主分镜骨架规则.md"
+      - "knowledge/22_多机位分镜与镜头多样性规则.md"
+    source_rules:
+      - "LAYOUT-MAINSHOT-ONLY-001"
+
+  - id: "LAYOUT-SHOTID-STABILITY-001"
+    title: "主分镜骨架必须先锁定稳定 shot_id"
+    owner_agent: "shot_director_layout"
+    agent_scope: ["shot_director_layout", "quality_inspector"]
+    priority: "P0"
+    applies_when: "shot_id、main_shots、下游交接、parent_shot_id、稳定编号、顺序递增、不能跳号。"
+    instruction: "每个 main_shot 必须有稳定 shot_id；同一 fragment 内顺序递增，供下游 parent_shot_id 挂接。"
+    avoid_when: "当前只是读取或审查既有 shot_id，不生成新的 main_shots；guard 阶段正在最小范围修复真实重复编号。"
+    source_files:
+      - "knowledge/rules/shot_director_layout/LAYOUT-SHOTID-STABILITY-001.md"
+      - "knowledge/25_镜头摆位主分镜骨架规则.md"
+      - "knowledge/21_镜头调用规则与多机位模板.md"
+    source_rules:
+      - "LAYOUT-SHOTID-STABILITY-001"
+
+  - id: "LAYOUT-VERTICAL-RELATION-FIRST-001"
+    title: "竖屏摆位优先关系镜头而不是特写堆叠"
+    owner_agent: "shot_director_layout"
+    agent_scope: ["shot_director_layout", "quality_inspector"]
+    priority: "P0"
+    applies_when: "9:16竖屏、主镜头摆位、景别主力、半身、中景、双人关系镜头、特写堆叠、微细节不得升主镜头。"
+    instruction: "9:16 主镜头优先半身、中景、双人关系镜头；微细节不得升成主镜头，避免竖屏画面被脸部特写堆满。"
+    avoid_when: "画幅不是 9:16；单个特写是唯一能交代剧情信息或心理顶点的主镜头。"
+    source_files:
+      - "knowledge/rules/shot_director_layout/LAYOUT-VERTICAL-RELATION-FIRST-001.md"
+      - "knowledge/25_镜头摆位主分镜骨架规则.md"
+      - "knowledge/02_焦段景深与景别画幅策略.md"
+      - "knowledge/22_多机位分镜与镜头多样性规则.md"
+    source_rules:
+      - "LAYOUT-VERTICAL-RELATION-FIRST-001"
+
+  - id: "BLOCKING-SUBSHOT-TRIGGER-007"
+    title: "子镜头必须由信息增量触发"
+    owner_agent: "shot_director_blocking"
+    agent_scope: ["shot_director_blocking", "shot_director_guard", "quality_inspector"]
+    priority: "P0"
+    applies_when: "sub_shots、reaction_coverage、action_insert_slot、信息增量、动作桥接、受击反应、声音落点、parent_shot_id、trigger、cut_point。"
+    instruction: "sub_shots 只能由明确信息增量、动作桥接、受击反应或声音落点触发，并必须包含 parent_shot_id、trigger、cut_point、action_phase、duration_hint、state_delta。"
+    avoid_when: "当前没有信息增量、动作桥接、受击反应或声音落点；主镜头已经完整覆盖信息、动作和反应，额外插入会破坏节奏。"
+    source_files:
+      - "knowledge/rules/shot_director_blocking/BLOCKING-SUBSHOT-TRIGGER-007.md"
+      - "knowledge/22_多机位分镜与镜头多样性规则.md"
+    source_rules:
+      - "BLOCKING-SUBSHOT-TRIGGER-007"
+
+  - id: "BLOCKING-FAST-CUT-LEGIBILITY-008"
+    title: "快切必须服从可读性和镜头时长预算"
+    owner_agent: "shot_director_blocking"
+    agent_scope: ["shot_director_blocking", "shot_director_guard", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "快切、6秒片段、动作密集、台词覆盖、镜头时长预算、1-3秒/镜、低于1秒、3-4个可读镜头、过碎快切。"
+    instruction: "快切默认 1-3 秒/镜，低于 1 秒只允许用于明确信息增量；6 秒叙事段优先 3-4 个可读镜头，先保证动作、台词、同场关系和道具状态可读。"
+    avoid_when: "单一连续长镜已能清楚覆盖动作、台词和状态变化。"
+    source_files:
+      - "knowledge/rules/shot_director_blocking/BLOCKING-FAST-CUT-LEGIBILITY-008.md"
+      - "knowledge/rules/prompt_compiler/PROMPT-CUT-BUDGET-001.md"
+      - "knowledge/rules/shot_director_blocking/BLOCKING-SUBSHOT-TRIGGER-007.md"
+    source_rules:
+      - "BLOCKING-FAST-CUT-LEGIBILITY-008"
+
+  - id: "GUARD-FIRST-FRAME-PROP-CUT-BUDGET-006"
+    title: "守门必须拦截首帧缺锚和过碎快切"
+    owner_agent: "shot_director_guard"
+    agent_scope: ["shot_director_guard", "quality_inspector", "prompt_compiler"]
+    priority: "P0"
+    applies_when: "首帧缺锚、关键道具缺失、快切过碎、切镜预算、人物突然出现、道具凭空出现、6秒片段不可读碎镜。"
+    instruction: "guard 必须最小修复首帧关系锚点、关键道具可见性和切镜预算；补足同场人物、关键道具、固定物体，删除或并回无信息短切。"
+    avoid_when: "首帧、道具、人物关系和切镜预算均已清楚满足。"
+    source_files:
+      - "knowledge/rules/shot_director_guard/GUARD-FIRST-FRAME-PROP-CUT-BUDGET-006.md"
+      - "knowledge/rules/shot_director_layout/LAYOUT-FIRST-FRAME-SPATIAL-ANCHOR-006.md"
+      - "knowledge/rules/shot_director_blocking/BLOCKING-FAST-CUT-LEGIBILITY-008.md"
+    source_rules:
+      - "GUARD-FIRST-FRAME-PROP-CUT-BUDGET-006"
+
+  - id: "GUARD-EMOTION-STORY-RHYTHM-PRIORITY-007"
+    title: "守门按情绪故事节奏优先级裁剪镜头"
+    owner_agent: "shot_director_guard"
+    agent_scope: ["shot_director_guard", "shot_director_blocking", "prompt_compiler", "quality_inspector"]
+    priority: "P0"
+    applies_when: "最终守门、情绪表达、故事信息、节奏优先级、切镜裁剪、台词覆盖、反应落点、机械切镜、无信息短切。"
+    instruction: "守门裁剪切镜时按情绪、故事、节奏、视线、画面方向、三维空间排序；优先保护情绪冲击、剧情信息和台词/反应落点，再保留空间与轴线层面的切镜。"
+    avoid_when: "当前镜头表没有切镜、情绪或台词问题。"
+    source_files:
+      - "knowledge/rules/shot_director_guard/GUARD-EMOTION-STORY-RHYTHM-PRIORITY-007.md"
+      - "knowledge/rules/shot_director/SHOT-MOTIVATED-CUT-ACTION-DENSITY-002.md"
+      - "knowledge/rules/shot_director_blocking/BLOCKING-FAST-CUT-LEGIBILITY-008.md"
+    source_rules:
+      - "GUARD-EMOTION-STORY-RHYTHM-PRIORITY-007"
 
   - id: "SHOT-MULTICAM-SYSTEM-029"
     title: "多机位体系必须先于具体镜头选择"

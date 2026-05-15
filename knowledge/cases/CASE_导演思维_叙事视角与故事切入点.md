@@ -27,7 +27,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_导演思维_叙事视角与故事切入点
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-导演思维_叙事视角与故事切入点
 title: 视频拆片案例：导演思维_叙事视角与故事切入点

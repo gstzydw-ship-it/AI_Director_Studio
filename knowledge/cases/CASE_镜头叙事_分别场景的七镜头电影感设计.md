@@ -26,7 +26,7 @@ risks:
 - romanticize_collision
 reusable_pattern: CASE_镜头叙事_分别场景的七镜头电影感设计
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头叙事_分别场景的七镜头电影感设计
 title: 视频拆片案例：镜头叙事_分别场景的七镜头电影感设计

@@ -30,7 +30,7 @@ risks:
 - romanticize_collision
 reusable_pattern: CASE_拍摄剪辑_切出镜头_访谈对话与情感片段技巧
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-拍摄剪辑_切出镜头_访谈对话与情感片段技巧
 title: 视频拆片案例：拍摄剪辑_切出镜头_访谈对话与情感片段技巧

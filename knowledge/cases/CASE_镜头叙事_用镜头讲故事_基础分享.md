@@ -26,7 +26,7 @@ risks:
 - blood_avoidance
 reusable_pattern: CASE_镜头叙事_用镜头讲故事_基础分享
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头叙事_用镜头讲故事_基础分享
 title: 视频拆片案例：镜头叙事_用镜头讲故事_基础分享

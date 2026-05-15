@@ -158,7 +158,19 @@ def _embed_texts(texts: list[str], model: str = None, batch_size: int = 20) -> l
     all_embeddings = []
     for i in range(0, len(texts), batch_size):
         batch = texts[i:i + batch_size]
-        resp = client.embeddings.create(input=batch, model=model)
+        try:
+            resp = client.embeddings.create(input=batch, model=model, encoding_format="float")
+        except AttributeError as exc:
+            raw_embeddings = getattr(client.embeddings, "with_raw_response", None)
+            if raw_embeddings is None:
+                raise
+            try:
+                raw_resp = raw_embeddings.create(input=batch, model=model, encoding_format="float")
+            except Exception:
+                raise exc
+            resp = getattr(raw_resp, "text", None) or getattr(raw_resp, "content", None)
+            if callable(resp):
+                resp = resp()
         all_embeddings.extend(_embedding_vectors_from_response(resp))
     return all_embeddings
 
@@ -492,7 +504,6 @@ def build_agent_bootstrap_retrieval_profile(agent_name: str) -> dict[str, Any]:
 
 
 COMMON_KNOWLEDGE_FILES = [
-    "00_知识库优先级与冲突裁决规则.md",
     # rule_registry.yaml 不再全量注入（29K chars / ~7400 tokens），
     # 改由 get_smart_knowledge() → query_rule_registry() 按需检索。
 ]
@@ -564,85 +575,22 @@ AGENT_WIKI_CONTEXT_MAP = {
 
 AGENT_KNOWLEDGE_MAP = {
     "rhythm_rewrite_director": [
-        "09_节奏总控与剧本改写规则.md",
-        "15_故事节奏控制规则.md",
-        "24_戏剧微粒识别与节奏触发规则.md",
-        "06_连续性与安全规则.md",
     ],
     "scene_analyst": [
-        "11_场景分析输入卡与导演意图提取.md",
-        "15_故事节奏控制规则.md",
-        "06_连续性与安全规则.md",
     ],
     "story_planner": [
-        "05_剧本拆分与15秒片段规划规则.md",
-        "11_场景分析输入卡与导演意图提取.md",
-        "15_故事节奏控制规则.md",
-        "24_戏剧微粒识别与节奏触发规则.md",
-        "06_连续性与安全规则.md",
     ],
     "shot_director": [
-        "01_导演分镜总手册.md",
-        "02_焦段景深与景别画幅策略.md",
-        "03_镜头切换与推进规则.md",
-        "04_对白与表演镜头规则.md",
-        "06_连续性与安全规则.md",
-        "07_Seedance输出词典与模型适配.md",
-        "14_动作描述精细化控制规则.md",
-        "15_故事节奏控制规则.md",
-        "18_情绪锚点与逐段交互与仰拍限制补丁.md",
-        "20_镜头库与机位库.md",
-        "21_镜头调用规则与多机位模板.md",
-        "22_多机位分镜与镜头多样性规则.md",
-        "28_全场景分镜与转场案例库.md",
-        "29_多机位体系与预算降级规则.md",
-        "30_画幅镜头映射与竖屏专用镜头规则.md",
-        "31_程序化镜头表结构与跨片段节奏规则.md",
     ],
     "shot_director_layout": [
-        "25_镜头摆位主分镜骨架规则.md",
-        "02_焦段景深与景别画幅策略.md",
-        "06_连续性与安全规则.md",
-        "07_Seedance输出词典与模型适配.md",
-        "21_镜头调用规则与多机位模板.md",
-        "22_多机位分镜与镜头多样性规则.md",
-        "28_全场景分镜与转场案例库.md",
-        "29_多机位体系与预算降级规则.md",
-        "30_画幅镜头映射与竖屏专用镜头规则.md",
-        "31_程序化镜头表结构与跨片段节奏规则.md",
     ],
     "shot_director_blocking": [
-        "26_动作调度与受击覆盖规则.md",
-        "04_对白与表演镜头规则.md",
-        "06_连续性与安全规则.md",
-        "07_Seedance输出词典与模型适配.md",
-        "14_动作描述精细化控制规则.md",
-        "18_情绪锚点与逐段交互与仰拍限制补丁.md",
-        "21_镜头调用规则与多机位模板.md",
-        "22_多机位分镜与镜头多样性规则.md",
-        "28_全场景分镜与转场案例库.md",
-        "29_多机位体系与预算降级规则.md",
-        "30_画幅镜头映射与竖屏专用镜头规则.md",
-        "31_程序化镜头表结构与跨片段节奏规则.md",
         "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",
     ],
     "shot_director_guard": [
-        "27_规则守门与最小修复规则.md",
-        "04_对白与表演镜头规则.md",
-        "02_焦段景深与景别画幅策略.md",
-        "06_连续性与安全规则.md",
-        "08_错误纠偏与判例库.md",
-        "17_结果质检与回溯修正规则.md",
-        "22_多机位分镜与镜头多样性规则.md",
-        "29_多机位体系与预算降级规则.md",
-        "30_画幅镜头映射与竖屏专用镜头规则.md",
-        "31_程序化镜头表结构与跨片段节奏规则.md",
         "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",
     ],
     "prompt_compiler": [
-        "06_连续性与安全规则.md",
-        "07_Seedance输出词典与模型适配.md",
-        "30_画幅镜头映射与竖屏专用镜头规则.md",
         "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",
         "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",
         "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",
@@ -651,20 +599,6 @@ AGENT_KNOWLEDGE_MAP = {
         "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",
     ],
     "quality_inspector": [
-        "03_镜头切换与推进规则.md",
-        "04_对白与表演镜头规则.md",
-        "05_剧本拆分与15秒片段规划规则.md",
-        "06_连续性与安全规则.md",
-        "08_错误纠偏与判例库.md",
-        "15_故事节奏控制规则.md",
-        "17_结果质检与回溯修正规则.md",
-        "24_戏剧微粒识别与节奏触发规则.md",
-        "20_镜头库与机位库.md",
-        "21_镜头调用规则与多机位模板.md",
-        "22_多机位分镜与镜头多样性规则.md",
-        "29_多机位体系与预算降级规则.md",
-        "30_画幅镜头映射与竖屏专用镜头规则.md",
-        "31_程序化镜头表结构与跨片段节奏规则.md",
         "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",
         "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",
         "rules/prompt_compiler/PROMPT-NO-SAME-CAMERA-ABUSE-001.md",
@@ -676,53 +610,23 @@ AGENT_KNOWLEDGE_MAP = {
 
 CRITICAL_KNOWLEDGE_MAP = {
     "scene_analyst": [
-        # 场景分析师不需要全文注入，靠 hybrid 检索即可
+        # 场景分析师不需要全文注入，靠 profiled 检索即可
     ],
     "rhythm_rewrite_director": [
-        "09_节奏总控与剧本改写规则.md",   # 核心职责文件，必须全文
-        "24_戏剧微粒识别与节奏触发规则.md",  # 节奏触发中枢
     ],
     "story_planner": [
-        "05_剧本拆分与15秒片段规划规则.md",  # 拆片核心依赖
-        "24_戏剧微粒识别与节奏触发规则.md",  # 戏剧微粒与 Hook 判断
-        "06_连续性与安全规则.md",          # 连续状态合同
     ],
     "shot_director": [
-        "02_焦段景深与景别画幅策略.md",   # 镜头设计核心查表
-        "04_对白与表演镜头规则.md",       # 对白覆盖与反应切镜
-        "06_连续性与安全规则.md",          # 安全约束必须全文
-        "07_Seedance输出词典与模型适配.md",  # 输出语言必须自然中文、可执行
-        "21_镜头调用规则与多机位模板.md",  # 机位调用与执行模板
     ],
     "shot_director_layout": [
-        "25_镜头摆位主分镜骨架规则.md",   # 一号机位摆位导演的职责合同
-        "04_对白与表演镜头规则.md",       # 对白覆盖与表演落点
-        "02_焦段景深与景别画幅策略.md",   # 景别/焦段/画幅主规则
-        "06_连续性与安全规则.md",          # 接缝与状态安全
-        "07_Seedance输出词典与模型适配.md",  # 输出语言必须自然中文、可执行
-        "21_镜头调用规则与多机位模板.md",  # 主镜头骨架模板
     ],
     "shot_director_blocking": [
-        "26_动作调度与受击覆盖规则.md",   # 二号动作调度导演的职责合同
-        "06_连续性与安全规则.md",          # 受击接续需要连续性保障
-        "07_Seedance输出词典与模型适配.md",  # 输出语言必须自然中文、可执行
-        "14_动作描述精细化控制规则.md",   # 动作描述精度
-        "04_对白与表演镜头规则.md",       # 对白落点规则
-        "21_镜头调用规则与多机位模板.md",  # 镜头语言菜单与机位调用
-        "22_多机位分镜与镜头多样性规则.md",  # 多机位变化与机位切换减法
         "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",  # 自然镜头表达交付
     ],
     "shot_director_guard": [
-        "27_规则守门与最小修复规则.md",   # 三号守门导演的职责合同
-        "04_对白与表演镜头规则.md",       # 对白覆盖守门
-        "06_连续性与安全规则.md",          # 连续性违规检查
-        "17_结果质检与回溯修正规则.md",   # 质检标准参考
-        "08_错误纠偏与判例库.md",         # 常见错误案例
         "rules/prompt_compiler/PROMPT-SHOT-EXPRESSION-CORE-001.md",  # 最终自然镜头表达
     ],
     "prompt_compiler": [
-        "06_连续性与安全规则.md",          # 状态合同翻译与禁止项
-        "07_Seedance输出词典与模型适配.md",  # 输出模板，必须全文
         "rules/prompt_compiler/PROMPT-HARD-CONSTRAINT-DEDUP-001.md",  # 约束集中，禁止污染时间轴
         "rules/prompt_compiler/PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md",  # 导演口语转可见画面语言
         "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",  # 时间切片继承上游，不得重切
@@ -734,10 +638,6 @@ CRITICAL_KNOWLEDGE_MAP = {
         "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md",  # 编译阶段复杂运镜降级
     ],
     "quality_inspector": [
-        "17_结果质检与回溯修正规则.md",    # 质检核心文件
-        "05_剧本拆分与15秒片段规划规则.md",  # 片段边界校验
-        "06_连续性与安全规则.md",          # 连续性与禁忌校验
-        "24_戏剧微粒识别与节奏触发规则.md",  # 戏剧微粒与 Hook 回查
         "rules/quality_inspector/QC-PACING-SAFETY-CHECKLIST-001.md",  # 节奏质检清单
         "rules/prompt_compiler/PROMPT-TIME-INHERIT-UPSTREAM-001.md",  # 校验时间继承
         "rules/prompt_compiler/PROMPT-SHOT-TRANSITION-VERB-001.md",  # 校验衔接词准确性
@@ -1515,6 +1415,14 @@ def preferred_sources_from_registry_results(registry_results: list[dict]) -> set
     return sources
 
 
+def source_basenames_from_registry_results(registry_results: list[dict]) -> set[str]:
+    sources: set[str] = set()
+    for result in registry_results:
+        for source in result.get("source_files", []) or []:
+            sources.add(os.path.basename(str(source)))
+    return sources
+
+
 def _rule_visible_to_agent(
     rule: dict,
     agent_name: str | None,
@@ -2058,13 +1966,19 @@ def get_smart_knowledge(
         kb_config.get("min_chunks_fallback", 3),
         minimum=0,
     )
+    profiled_mode = mode == "profiled"
     registry_top_k = _profile_int(
         profile_options.get("registry_top_k"),
         kb_config.get("registry_top_k", 4),
         minimum=0,
     )
+    if (
+        profiled_mode
+        and "registry_top_k" not in profile_options
+        and _profile_int(kb_config.get("registry_top_k", 4), 4, minimum=0) > 0
+    ):
+        registry_top_k = max(registry_top_k, final_top_k)
     max_chunks_per_source = _profile_int(profile_options.get("max_chunks_per_source"), 0, minimum=0)
-    profiled_mode = mode == "profiled"
     query_hint = build_retrieval_profile_query(context_hint, profile_options)
     wiki_text, wiki_sources = get_agent_wiki_context(agent_name)
 
@@ -2081,6 +1995,7 @@ def get_smart_knowledge(
             "registry_result_count": 0,
             "registry_rule_ids": [],
             "registry_preferred_sources": [],
+            "registry_source_files": [],
             "context_hint": context_hint,
             "retrieval_profile": profile_options,
         }
@@ -2095,6 +2010,7 @@ def get_smart_knowledge(
         registry_text, registry_results = "", []
     registry_rule_ids = [item.get("rule_id", "") for item in registry_results if item.get("rule_id")]
     registry_preferred_sources = sorted(preferred_sources_from_registry_results(registry_results))
+    registry_source_files = sorted(source_basenames_from_registry_results(registry_results))
 
     # 检索
     results = []
@@ -2141,6 +2057,7 @@ def get_smart_knowledge(
                 "registry_result_count": len(registry_results),
                 "registry_rule_ids": registry_rule_ids,
                 "registry_preferred_sources": registry_preferred_sources,
+                "registry_source_files": registry_source_files,
                 "context_hint": context_hint,
                 "query_hint": query_hint,
                 "retrieval_profile": profile_options,
@@ -2167,6 +2084,7 @@ def get_smart_knowledge(
             "registry_result_count": len(registry_results),
             "registry_rule_ids": registry_rule_ids,
             "registry_preferred_sources": registry_preferred_sources,
+            "registry_source_files": registry_source_files,
             "context_hint": context_hint,
             "query_hint": query_hint,
             "retrieval_profile": profile_options,
@@ -2204,6 +2122,7 @@ def get_smart_knowledge(
             "registry_result_count": len(registry_results),
             "registry_rule_ids": registry_rule_ids,
             "registry_preferred_sources": registry_preferred_sources,
+            "registry_source_files": registry_source_files,
             "context_hint": context_hint,
             "query_hint": query_hint,
             "retrieval_profile": profile_options,
@@ -2243,6 +2162,7 @@ def get_smart_knowledge(
         "registry_result_count": len(registry_results),
         "registry_rule_ids": registry_rule_ids,
         "registry_preferred_sources": registry_preferred_sources,
+        "registry_source_files": registry_source_files,
         "context_hint": context_hint,
         "query_hint": query_hint,
         "retrieval_profile": profile_options,

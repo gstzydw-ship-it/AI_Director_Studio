@@ -22,7 +22,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_剪辑转场_时空转换与时间流逝表现
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-剪辑转场_时空转换与时间流逝表现
 title: 视频拆片案例：剪辑转场_时空转换与时间流逝表现

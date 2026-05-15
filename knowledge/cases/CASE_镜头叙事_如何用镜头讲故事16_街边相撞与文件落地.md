@@ -25,7 +25,7 @@ risks:
 - privacy_body
 reusable_pattern: CASE_镜头叙事_如何用镜头讲故事16_街边相撞与文件落地
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头叙事_如何用镜头讲故事16_街边相撞与文件落地
 title: 视频拆片案例：镜头叙事_如何用镜头讲故事16_街边相撞与文件落地

@@ -27,7 +27,7 @@ risks:
 - blood_avoidance
 reusable_pattern: CASE_镜头叙事_情绪升级时的景别递进与压迫感
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头叙事_情绪升级时的景别递进与压迫感
 title: 视频拆片案例：镜头叙事_情绪升级时的景别递进与压迫感

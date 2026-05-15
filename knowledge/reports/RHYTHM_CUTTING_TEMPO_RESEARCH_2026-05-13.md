@@ -4,6 +4,7 @@ date: 2026-05-13
 doc_type: research_report
 related_rule_card: knowledge/rules/rhythm_rewrite_director/RHYTHM-CUTTING-TEMPO-HANDOFF-002.md
 status: active
+runtime_retrieval: false
 ---
 
 # 节奏总控快切、慢叙述与弹性片段时长研究报告

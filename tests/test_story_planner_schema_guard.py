@@ -19,11 +19,11 @@ from agents.director_graph_package.story_planner_impl import (  # noqa: E402
     _normalise_story_planner_output,
     _parse_story_planner_agent_validation,
     _run_story_planner_with_schema_repair,
+    _story_planner_fragment_count_instruction,
     _story_planner_fragment_granularity_issues,
     _story_planner_granularity_rules,
     _story_planner_soft_validation_issues,
     _story_planner_rhythm_boundary_rules,
-    _story_planner_target_fragment_range,
     _validate_story_planner_output,
 )
 
@@ -105,6 +105,93 @@ def test_story_planner_rejects_overlong_urgent_short_action():
 
     assert any("急促短动作" in issue for issue in issues)
     assert any("2-5秒" in issue for issue in issues)
+
+
+def test_rhythm_story_planner_allows_long_merged_unit_with_bounded_internal_fast_beat(monkeypatch):
+    monkeypatch.setattr(spi, "_llm_validate_source_events", lambda *args, **kwargs: [])
+    script = "\n".join(
+        [
+            "玻璃茶几上的闹钟响起，旁边的手机正开着免提通话。",
+            "乔熙一手按住小豆丁乱蹬的腿，一手把衣服往她身上套，几次被小豆丁扭开。",
+            "乔熙：Kiki, cover for me. I'll be right there!",
+            "乔熙按断通话，把手机留在茶几上，立刻腾出双手去扣小豆丁的衣服。",
+            "小豆丁缩起胳膊，往沙发边躲，衣服只穿上一半。",
+            "小豆丁：I don't want to go to school!",
+            "乔熙停住追她的动作，蹲下挡住她继续躲开的方向，压低语速哄她。",
+            "乔熙：Sweetie. I'll get you some strawberry cake later, okay?",
+        ]
+    )
+    planner_output = """
+- 片段编号: F01
+  片段任务: "合并完成公寓内赶时间、孩子抗拒、照片触发旧情情绪，并把四年前银杏树下的承诺与亲吻回忆一次性落到。"
+  目标时长: "13-15秒"
+  节奏类型: "快节奏"
+  事件密度判断: "前半段是高密度短动作与问答，后半段转入低密度情绪回忆；属于同一戏剧单元内的节奏转折，不拆成平级片段。"
+  片段内节奏分配: "0-6秒：闹钟、免提通话、按住孩子乱蹬腿、孩子打开、乔熙Kiki台词和按断通话一次性紧凑落到；6-15秒：孩子拒绝台词、乔熙安抚和情绪反应落点放慢完成。"
+  动作节奏指导: "前半急急忙忙、动作叠压；后半压住语速处理孩子拒绝和乔熙哄劝。"
+  施工剧本原文事件:
+    - "玻璃茶几上的闹钟响起，旁边的手机正开着免提通话。"
+    - "乔熙一手按住小豆丁乱蹬的腿，一手把衣服往她身上套，几次被小豆丁扭开。"
+    - "乔熙：Kiki, cover for me. I'll be right there!"
+    - "乔熙按断通话，把手机留在茶几上，立刻腾出双手去扣小豆丁的衣服。"
+    - "小豆丁缩起胳膊，往沙发边躲，衣服只穿上一半。"
+    - "小豆丁：I don't want to go to school!"
+    - "乔熙停住追她的动作，蹲下挡住她继续躲开的方向，压低语速哄她。"
+    - "乔熙：Sweetie. I'll get you some strawberry cake later, okay?"
+  出现人物: ["乔熙", "小豆丁"]
+  入场状态: "公寓清晨；闹钟响起，手机开着免提通话，小豆丁正在抗拒穿衣。"
+  出场状态: "小豆丁被安抚，乔熙完成从急促动作到哄劝的节奏转折。"
+  承接要求: "同一生活戏剧任务内完成快慢变化，不因单个动作另起片段。"
+  镜头导演交接: "前6秒压缩急促动作链，后段保留孩子拒绝和乔熙哄劝的情绪落点。"
+"""
+
+    issues = spi._validate_story_planner_output(
+        planner_output,
+        script,
+        require_rhythm_fields=True,
+    )
+
+    assert issues == []
+
+
+def test_rhythm_story_planner_rejects_long_fast_unit_without_internal_fast_budget(monkeypatch):
+    monkeypatch.setattr(spi, "_llm_validate_source_events", lambda *args, **kwargs: [])
+    script = "\n".join(
+        [
+            "乔熙急忙按掉闹钟。",
+            "乔熙把手机夹在肩与耳之间。",
+            "小豆丁缩起胳膊拒绝穿衣。",
+            "乔熙停住动作后蹲下哄她。",
+        ]
+    )
+    planner_output = """
+- 片段编号: F01
+  片段任务: "乔熙急忙处理闹钟、通话和孩子穿衣抗拒。"
+  目标时长: "13-15秒"
+  节奏类型: "快节奏"
+  事件密度判断: "短动作密集，但没有拆分。"
+  片段内节奏分配: "全段按13-15秒处理乔熙的忙乱和孩子抗拒。"
+  动作节奏指导: "乔熙急急忙忙，动作叠压。"
+  施工剧本原文事件:
+    - "乔熙急忙按掉闹钟。"
+    - "乔熙把手机夹在肩与耳之间。"
+    - "小豆丁缩起胳膊拒绝穿衣。"
+    - "乔熙停住动作后蹲下哄她。"
+  出现人物: ["乔熙", "小豆丁"]
+  入场状态: "闹钟响起。"
+  出场状态: "乔熙仍在处理孩子抗拒。"
+  承接要求: "下一段承接孩子让步。"
+  镜头导演交接: "保留忙乱和抗拒。"
+"""
+
+    issues = spi._validate_story_planner_output(
+        planner_output,
+        script,
+        require_rhythm_fields=True,
+    )
+
+    assert any("片段内节奏分配" in issue for issue in issues)
+    assert any("急促动作小节拍压到 5-6秒以内" in issue for issue in issues)
 
 
 def test_story_planner_requires_only_planning_handoff_fields():
@@ -433,24 +520,79 @@ def test_story_planner_dense_source_events_are_soft_not_blocking():
     assert any("source_script_events" in issue for issue in soft_issues)
 
 
-def test_story_planner_target_range_prefers_medium_granularity():
-    assert _story_planner_target_fragment_range(12) == (2, 3)
-    assert _story_planner_target_fragment_range(36) == (5, 9)
-    assert _story_planner_target_fragment_range(71) == (9, 18)
+def test_story_planner_fragment_count_instruction_uses_dramatic_units_not_line_count():
+    script = "\n".join(f"Event {index}." for index in range(1, 52))
+
+    instruction = _story_planner_fragment_count_instruction(script)
+
+    assert "51 条非空原文行" in instruction
+    assert "只是 source_script_events 覆盖清单" in instruction
+    assert "不是片段数量公式" in instruction
+    assert "必须先识别戏剧单元" in instruction
+    assert "7-13 段" not in instruction
+    assert "输出超过 13 段会被运行时拒绝" not in instruction
 
 
-def test_story_planner_rejects_overfragmented_medium_script():
-    events = [f"Event {i}." for i in range(1, 76)]
+def test_story_planner_does_not_reject_by_raw_source_event_count_alone():
+    events = [f"Event {i}." for i in range(1, 52)]
     fragments: list[str] = []
-    for index in range(25):
-        fragment_events = events[index * 3 : (index + 1) * 3]
+    cursor = 0
+    for index in range(15):
+        take = 4 if index < 6 else 3
+        fragment_events = events[cursor : cursor + take]
+        cursor += take
         fragments.extend(
             [
                 f"- fragment_id: F{index + 1:02d}",
-                '  duration_target: "8-10s"',
-                f'  dramatic_unit: "Beat {index + 1}"',
+                '  duration_target: "5-8s"',
+                f'  dramatic_unit: "Dramatic task {index + 1}"',
                 "  source_script_events:",
                 *[f'    - "{event}"' for event in fragment_events],
+            ]
+        )
+    planner_output = "\n".join(fragments)
+
+    granularity_issues = _story_planner_fragment_granularity_issues(planner_output)
+
+    assert granularity_issues == []
+
+
+def test_story_planner_normalises_missing_intra_fragment_rhythm():
+    planner_output = """
+- 片段编号: F01
+  片段任务: "乔熙在闹钟和电话催促下给小豆丁穿衣。"
+  目标时长: "5-6秒"
+  节奏类型: "快节奏"
+  事件密度判断: "短时间密集事件。"
+  动作节奏指导: "乔熙急急忙忙，动作叠压。"
+  施工剧本原文事件:
+    - "玻璃茶几上的闹钟响起，旁边的手机正开着免提通话。"
+    - "乔熙一手按住小豆丁乱蹬的腿，一手把衣服往她身上套，几次被小豆丁扭开。"
+    - "乔熙：Kiki, cover for me. I'll be right there!"
+  出现人物: ["乔熙", "小豆丁"]
+  入场状态: "闹钟响起。"
+  出场状态: "小豆丁仍在抗拒。"
+  承接要求: "急促处理留在本段内部完成。"
+  镜头导演交接: "保留通话和穿衣抗拒。"
+"""
+
+    normalised = _normalise_story_planner_output(planner_output)
+
+    assert "片段内节奏分配:" in normalised
+    assert "同一片段内部控制快慢" in normalised
+
+
+def test_story_planner_rejects_line_by_line_overfragmentation():
+    events = [f"Event {i}." for i in range(1, 76)]
+    fragments: list[str] = []
+    for index, event in enumerate(events[:25]):
+        fragments.extend(
+            [
+                f"- fragment_id: F{index + 1:02d}",
+                '  duration_target: "2-3s"',
+                f'  dramatic_unit: "Beat {index + 1}"',
+                "  source_script_events:",
+                f'    - "{event}"',
                 "  cast:",
                 '    active: ["A", "B"]',
                 "    must_not_show: []",
@@ -466,7 +608,7 @@ def test_story_planner_rejects_overfragmented_medium_script():
     hard_issues = _validate_story_planner_output(planner_output, "\n".join(events))
     granularity_issues = _story_planner_fragment_granularity_issues(planner_output)
 
-    assert any("全局拆片过细" in issue for issue in hard_issues)
+    assert any("按动作行切分" in issue for issue in hard_issues)
     assert granularity_issues
 
 
@@ -623,6 +765,7 @@ def test_rhythm_story_planner_node_merges_rhythm_and_planning(monkeypatch):
   目标时长: "5-6秒"
   节奏类型: "快节奏"
   事件密度判断: "多个短动作连续发生，属于短时间密集事件。"
+  片段内节奏分配: "0-3秒：闹钟、电话和够外套动作链急促完成；3-6秒：小豆丁抗拒和乔熙压制落地。"
   动作节奏指导: "乔熙必须急急忙忙、多任务并行，动作短促叠压；禁止慢悠悠完成每个动作。"
   施工剧本原文事件:
     - "闹钟响，乔熙一把按掉。"
@@ -685,11 +828,13 @@ def test_rhythm_story_planner_node_merges_rhythm_and_planning(monkeypatch):
     assert "节奏拆片导演" in str(captured["system_prompt"])
     assert "短时间 + 密集有效事件" in prompt
     assert "5-6秒" in prompt
+    assert "片段内节奏分配" in prompt
     assert "动作节奏指导" in prompt
     assert "禁止输出任何镜头设计字段" in prompt
     assert "story_planner" in result["agent_outputs"]
     assert "rhythm_rewrite_director" in result["agent_outputs"]
     assert "给镜头导演" in result["atmosphere_strategy"]
+    assert "0-3秒" in result["atmosphere_strategy"]
     assert "急急忙忙" in result["atmosphere_strategy"]
     assert result["total_segments"] == 1
 
@@ -744,4 +889,120 @@ def test_rhythm_story_planner_rejects_split_domestic_scramble_cluster(monkeypatc
         require_rhythm_fields=True,
     )
 
-    assert any("同一急促生活动作群" in issue for issue in issues)
+    assert any("同一晨间穿衣/通话/孩子抗拒戏剧单元" in issue for issue in issues)
+
+
+def test_rhythm_story_planner_rejects_split_domestic_scramble_even_when_second_beat_is_normal(monkeypatch):
+    monkeypatch.setattr(spi, "_llm_validate_source_events", lambda *args, **kwargs: [])
+    script = "\n".join(
+        [
+            "玻璃茶几上的闹钟响起，旁边的手机正开着免提通话。",
+            "乔熙一手按住小豆丁乱蹬的腿，一手把衣服往她身上套，几次被小豆丁扭开。",
+            "乔熙：Kiki, cover for me. I'll be right there!",
+            "乔熙按断通话，把手机留在茶几上，立刻腾出双手去扣小豆丁的衣服。",
+            "小豆丁缩起胳膊，往沙发边躲，衣服只穿上一半。",
+            "小豆丁：I don't want to go to school!",
+            "乔熙停住追她的动作，蹲下挡住她继续躲开的方向，压低语速哄她。",
+            "乔熙：Sweetie. I'll get you some strawberry cake later, okay?",
+        ]
+    )
+    planner_output = """
+- 片段编号: F01
+  片段任务: "乔熙一边通话一边给小豆丁穿衣但被持续抗拒。"
+  目标时长: "5-6秒"
+  节奏类型: "快节奏"
+  事件密度判断: "短时间密集事件。"
+  片段内节奏分配: "0-3秒：闹钟/电话/穿衣动作链急促完成；3-6秒：孩子抗拒持续。"
+  动作节奏指导: "乔熙急急忙忙，动作叠压。"
+  施工剧本原文事件:
+    - "玻璃茶几上的闹钟响起，旁边的手机正开着免提通话。"
+    - "乔熙一手按住小豆丁乱蹬的腿，一手把衣服往她身上套，几次被小豆丁扭开。"
+    - "乔熙：Kiki, cover for me. I'll be right there!"
+  出现人物: ["乔熙", "小豆丁"]
+  入场状态: "闹钟响起，手机免提。"
+  出场状态: "乔熙即将按断通话。"
+  承接要求: "下一段承接按断通话。"
+  镜头导演交接: "保留通话和穿衣抗拒。"
+
+- 片段编号: F02
+  片段任务: "乔熙按断通话后双手穿衣失败，小豆丁明确说不想上学，乔熙停下哄劝。"
+  目标时长: "8-10秒"
+  节奏类型: "正常承接"
+  事件密度判断: "完整发言单元。"
+  片段内节奏分配: "0-3秒：按断通话和扣衣失败；3-10秒：孩子拒绝和乔熙哄劝。"
+  动作节奏指导: "前半段急急忙忙，后半段慢处理。"
+  施工剧本原文事件:
+    - "乔熙按断通话，把手机留在茶几上，立刻腾出双手去扣小豆丁的衣服。"
+    - "小豆丁缩起胳膊，往沙发边躲，衣服只穿上一半。"
+    - "小豆丁：I don't want to go to school!"
+    - "乔熙停住追她的动作，蹲下挡住她继续躲开的方向，压低语速哄她。"
+    - "乔熙：Sweetie. I'll get you some strawberry cake later, okay?"
+  出现人物: ["乔熙", "小豆丁"]
+  入场状态: "乔熙刚结束通话。"
+  出场状态: "小豆丁被安抚。"
+  承接要求: "孩子拒绝和乔熙哄劝保留。"
+  镜头导演交接: "保留两句台词。"
+"""
+
+    issues = spi._validate_story_planner_output(
+        planner_output,
+        script,
+        require_rhythm_fields=True,
+    )
+
+    assert any("同一晨间穿衣/通话/孩子抗拒戏剧单元" in issue for issue in issues)
+
+
+def test_rhythm_story_planner_rejects_split_two_person_dialogue_unit(monkeypatch):
+    monkeypatch.setattr(spi, "_llm_validate_source_events", lambda *args, **kwargs: [])
+    script = "\n".join(
+        [
+            "小豆丁站在门口，拽住乔熙的衣角。",
+            "小豆丁：妈妈，你今天会早点回来吗？",
+            "乔熙蹲下，替他整理书包肩带。",
+            "乔熙：会，等你放学我就来接你。",
+            "小豆丁抬头看她，还是不放心。",
+            "小豆丁：那你不要再忘了。",
+        ]
+    )
+    planner_output = """
+- 片段编号: F01
+  片段任务: "小豆丁拉住乔熙并问她是否会早点回来。"
+  目标时长: "6-8秒"
+  节奏类型: "正常承接"
+  事件密度判断: "母子对话的起问与安抚前置动作。"
+  动作节奏指导: "正常承接，动作轻缓。"
+  施工剧本原文事件:
+    - "小豆丁站在门口，拽住乔熙的衣角。"
+    - "小豆丁：妈妈，你今天会早点回来吗？"
+    - "乔熙蹲下，替他整理书包肩带。"
+  出现人物: ["乔熙", "小豆丁"]
+  入场状态: "小豆丁站在门口拉住乔熙。"
+  出场状态: "乔熙蹲下准备回应。"
+  承接要求: "下一段承接乔熙回应。"
+  镜头导演交接: "保持母子关系连续。"
+
+- 片段编号: F02
+  片段任务: "乔熙回应小豆丁，小豆丁继续确认。"
+  目标时长: "6-8秒"
+  节奏类型: "正常承接"
+  事件密度判断: "同一段母子问答继续。"
+  动作节奏指导: "正常承接，保留孩子不放心的反应。"
+  施工剧本原文事件:
+    - "乔熙：会，等你放学我就来接你。"
+    - "小豆丁抬头看她，还是不放心。"
+    - "小豆丁：那你不要再忘了。"
+  出现人物: ["乔熙", "小豆丁"]
+  入场状态: "乔熙蹲在小豆丁面前。"
+  出场状态: "小豆丁仍在确认承诺。"
+  承接要求: "同一问答关系内承接。"
+  镜头导演交接: "完整保留问答和反应。"
+"""
+
+    issues = spi._validate_story_planner_output(
+        planner_output,
+        script,
+        require_rhythm_fields=True,
+    )
+
+    assert any("同一对话戏剧单元" in issue for issue in issues)

@@ -23,7 +23,7 @@ risks:
 - romanticize_collision
 reusable_pattern: CASE_镜头叙事_生活细节动作如何服务剧情
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头叙事_生活细节动作如何服务剧情
 title: 视频拆片案例：镜头叙事_生活细节动作如何服务剧情

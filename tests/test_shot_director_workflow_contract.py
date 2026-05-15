@@ -334,6 +334,7 @@ def test_shot_director_reads_chinese_story_planner_handoff():
   入场状态: "乔熙手边有书包，照片仍在书包内。"
   出场状态: "照片滑落到地面，乔熙看到照片。"
   承接要求: "反应留在本段尾部。"
+  片段内节奏分配: "0-3秒：照片滑落；3-8秒：乔熙看清照片并完成反应。"
   镜头导演交接: "照片滑落必须拍完整，反应留在本段尾部，结尾停在乔熙看到照片。"
 """
 
@@ -349,9 +350,11 @@ def test_shot_director_reads_chinese_story_planner_handoff():
     assert trace["fragments"][0]["fragment_id"] == "F01"
     assert trace["fragments"][0]["duration_target"] == "8-10秒"
     assert "反应留在本段尾部" in trace["fragments"][0]["reaction_plan"]
+    assert "照片滑落" in trace["fragments"][0]["intra_fragment_rhythm"]
     assert "照片滑落必须拍完整" in trace["fragments"][0]["shot_director_handoff"]
     assert trace["fragments"][0]["source_event_count"] == 2
     assert "目标时长: 8-10秒" in context
+    assert "片段内节奏分配: 0-3秒" in context
     assert "承接要求: 反应留在本段尾部" in context
     assert "镜头导演交接: 照片滑落必须拍完整" in context
     assert "乔熙拿起书包" in context

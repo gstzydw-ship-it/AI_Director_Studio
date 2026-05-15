@@ -664,6 +664,10 @@
             return String(source.base_url || '').trim().replace(/\/+$/, '');
         }
 
+        function profileApiKey(profile) {
+            return keyInputValue(document.getElementById(`${profile}ApiKey`));
+        }
+
         function normalizedBaseUrl(value = '') {
             return String(value || '').trim().replace(/\/+$/, '');
         }
@@ -1001,15 +1005,40 @@
             return option?.dataset?.routePreset || row?.querySelector('[data-agent-route]')?.value || 'primary';
         }
 
+        function selectedAgentRouteValue(row) {
+            return row?.querySelector('[data-agent-route]')?.value || 'primary';
+        }
+
+        function isFreeformCustomAgentRoute(row) {
+            return selectedAgentRouteValue(row) === 'custom';
+        }
+
         function selectedAgentRouteBaseUrl(row) {
             const routeSelect = row?.querySelector('[data-agent-route]');
             const routePreset = selectedAgentRoutePreset(row);
-            if (routePreset === 'custom') {
+            if (selectedAgentRouteValue(row) === 'primary') {
+                const agentName = routeSelect?.dataset?.agentRoute || '';
+                return profileBaseUrl(profileForAgentCategory(agentCategory(agentName)));
+            }
+            if (routePreset === 'custom' && isFreeformCustomAgentRoute(row)) {
                 return row?.querySelector('[data-agent-custom-base]')?.value?.trim()
                     || routeSelect?.selectedOptions?.[0]?.dataset?.baseUrl
                     || '';
             }
             return routeSelect?.selectedOptions?.[0]?.dataset?.baseUrl || '';
+        }
+
+        function apiKeyForAgentRoute(agentName, row) {
+            if (isFreeformCustomAgentRoute(row)) {
+                return agentCustomApiKey(agentName, row);
+            }
+            const baseUrl = normalizedBaseUrl(selectedAgentRouteBaseUrl(row));
+            for (const profile of ['text', 'image', 'embedding']) {
+                if (baseUrl && baseUrl === normalizedBaseUrl(profileBaseUrl(profile))) {
+                    return profileApiKey(profile);
+                }
+            }
+            return '';
         }
 
         function applyAgentRouteVisibility(row) {
@@ -1022,7 +1051,7 @@
                     customBaseInput.value = optionBaseUrl;
                 }
             }
-            const showCustomEditor = routeSelect?.value === 'custom';
+            const showCustomEditor = isFreeformCustomAgentRoute(row);
             row.querySelectorAll('[data-custom-route-field]').forEach(item => {
                 item.style.display = showCustomEditor ? '' : 'none';
             });
@@ -1092,7 +1121,7 @@
                     rememberAgentCustomKey(row.querySelector('[data-agent-custom-key]'));
                     agentModels[name].route_preset = selectedAgentRoutePreset(row);
                     agentModels[name].custom_route = {
-                        base_url: selectedAgentRoutePreset(row) === 'custom' ? selectedAgentRouteBaseUrl(row) : '',
+                        base_url: isFreeformCustomAgentRoute(row) ? selectedAgentRouteBaseUrl(row) : '',
                         has_api_key: !!(agentModels[name].custom_route || {}).has_api_key,
                     };
                 }
@@ -1229,7 +1258,7 @@
             const routePreset = selectedAgentRoutePreset(row);
             const profile = 'text';
             const baseUrl = selectedAgentRouteBaseUrl(row);
-            const apiKey = routePreset === 'custom' ? agentCustomApiKey(agentName, row) : '';
+            const apiKey = apiKeyForAgentRoute(agentName, row);
             const agentLabel = agentDisplayName(agentName);
             const originalText = button ? button.textContent : '';
             if (button) {
@@ -1311,7 +1340,7 @@
                     model: normalizeModelValue(input.value),
                     route_preset: routePreset,
                     custom_base_url: routePreset === 'custom' ? selectedAgentRouteBaseUrl(row) : '',
-                    custom_api_key: routePreset === 'custom' ? agentCustomApiKey(name, row) : '',
+                    custom_api_key: isFreeformCustomAgentRoute(row) ? agentCustomApiKey(name, row) : '',
                     available_models: Array.isArray((systemConfig.agent_models || {})[name]?.available_models)
                         ? (systemConfig.agent_models || {})[name].available_models
                         : [],
@@ -1370,7 +1399,7 @@
                     model: normalizeModelValue(input.value),
                     route_preset: routePreset,
                     custom_base_url: routePreset === 'custom' ? selectedAgentRouteBaseUrl(row) : '',
-                    custom_api_key: routePreset === 'custom' ? agentCustomApiKey(name, row) : '',
+                    custom_api_key: isFreeformCustomAgentRoute(row) ? agentCustomApiKey(name, row) : '',
                 };
             });
             return agentModels;

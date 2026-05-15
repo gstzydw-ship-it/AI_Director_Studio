@@ -28,7 +28,7 @@ risks:
 - blood_avoidance
 reusable_pattern: CASE_导演叙事技巧_如何讲故事与镜头信息组织
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-导演叙事技巧_如何讲故事与镜头信息组织
 title: 视频拆片案例：导演叙事技巧_如何讲故事与镜头信息组织

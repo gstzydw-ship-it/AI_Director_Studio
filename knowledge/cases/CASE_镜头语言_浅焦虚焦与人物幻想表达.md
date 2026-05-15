@@ -32,7 +32,7 @@ visual_constraints:
 risks: []
 reusable_pattern: CASE_镜头语言_浅焦虚焦与人物幻想表达
 aspect_ratio: unspecified
-runtime_retrieval: true
+runtime_retrieval: false
 source_files: []
 rule_id: CASE-镜头语言_浅焦虚焦与人物幻想表达
 title: 视频拆片案例：镜头语言_浅焦虚焦与人物幻想表达
