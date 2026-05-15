@@ -76,6 +76,48 @@ def test_segment_block_accepts_chinese_shot_director_fields() -> None:
     assert "片段编号: F02" not in block
 
 
+def test_normalise_compiled_prompt_limits_jimeng_submit_length() -> None:
+    long_shot_lines = "\n".join(
+        f"镜头{i}【3秒】【乔熙】中近景，同侧固定机位，乔熙右手从桌边拿起外套，左手按住手机，视线看向小豆丁，动作落点清楚。"
+        for i in range(1, 35)
+    )
+    prompt = f"""片段1｜客厅｜赶时间+孩子抗拒｜~12秒
+
+【风格锚点】
+都市生活现实风，动作清楚。
+
+【画幅锚点】
+9:16竖屏。
+
+【空间与首帧总控】
+客厅沙发与茶几固定，晨光从窗边进入，乔熙和小豆丁在同一空间里。
+
+【人物】
+- 乔熙：年轻母亲，穿通勤外套，焦急但克制。
+- 小豆丁：孩子，坐在沙发边缘，抗拒上学。
+
+【镜头序列】
+{long_shot_lines}
+
+【约束】
+严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌。人物、空间、道具和尾帧状态必须连续。
+
+片段1 prompt 已输出。
+请生成视频后，上传：
+
+片段1的尾帧截图
+当前人物位置关系（若有变化）
+"""
+
+    cleaned = prompt_compiler_impl._normalise_compiled_prompt(prompt, 1)
+
+    assert len(cleaned) <= prompt_compiler_impl.JIMENG_PROMPT_CHAR_LIMIT
+    assert "请生成视频后" not in cleaned
+    assert "尾帧截图" not in cleaned
+    assert "【镜头序列】" in cleaned
+    assert "严禁出现任何文字" in cleaned
+
+
 
 def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) -> None:
     captured: dict[str, object] = {}

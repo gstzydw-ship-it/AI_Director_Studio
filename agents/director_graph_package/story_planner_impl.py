@@ -367,6 +367,28 @@ def _replace_planner_scalar_field(section: str, fields: tuple[str, ...], value: 
     )
     return updated if count else section
 
+def _ensure_action_coverage_fields(section: str) -> str:
+    if _has_action_coverage_classification(section):
+        return section
+
+    match = re.search(r"(?m)^(\s*)(动作节奏指导|鍔ㄤ綔鑺傚鎸囧)\s*:.*$", section)
+    if not match:
+        return section
+
+    indent = match.group(1)
+    item_indent = indent + "  "
+    coverage_block = "\n".join(
+        [
+            f"{indent}必拍动作:",
+            f'{item_indent}- "保留推动本戏剧单元成立的关键动作、台词和反应落点。"',
+            f"{indent}可压缩动作:",
+            f'{item_indent}- "重复、机械或过渡动作只保留起点与结果。"',
+            f"{indent}可省略动作:",
+            f'{item_indent}- "不改变人物关系和信息增量的弱动作细节不逐条呈现。"',
+        ]
+    )
+    return section[: match.end()] + "\n" + coverage_block + section[match.end() :]
+
 def _coarse_split_chunk_size(event_count: int) -> int:
     if event_count <= 8:
         return event_count
@@ -600,6 +622,7 @@ def _merge_episode_unit_group(sections: list[str], group_index: int) -> str:
         ("动作节奏指导", "鍔ㄤ綔鑺傚鎸囧"),
         "快节奏靠人物动作紧张、停顿变短和少量有动机切镜表达；正常节奏保持自然动作和正常镜头切分。",
     )
+    merged = _ensure_action_coverage_fields(merged)
     merged = _replace_planner_scalar_field(
         merged,
         ("reaction_plan", "承接要求", "鎵挎帴瑕佹眰"),
@@ -824,6 +847,9 @@ def _has_short_fast_internal_beat(text: str) -> bool:
 def _has_later_internal_beat(text: str) -> bool:
     return bool(text and _INTERNAL_LATER_BEAT_RE.search(text))
 
+def _has_action_coverage_classification(section: str) -> bool:
+    return all(label in section for label in ("必拍动作", "可压缩动作", "可省略动作"))
+
 def _story_planner_duration_contract_issues(planner_output: str) -> list[str]:
     sections = _extract_yaml_sections(planner_output)
     issues: list[str] = []
@@ -855,6 +881,42 @@ def _story_planner_duration_contract_issues(planner_output: str) -> list[str]:
             "无完整台词、信息揭示或明确反应落点时必须压到 2-5秒；"
             "多个短动作叠加但仍无情绪转折时最多按 5-8秒紧凑段处理，不能写成慢动作段。"
         )
+    return issues
+
+def _story_planner_cut_budget_density_issues(planner_output: str) -> list[str]:
+    sections = _extract_yaml_sections(planner_output)
+    issues: list[str] = []
+    for section in sections:
+        fragment_id = _extract_fragment_id(section) or "unknown"
+        duration = _field_value(section, "duration_target")
+        upper_seconds = _duration_upper_seconds(duration)
+        if upper_seconds is None or upper_seconds <= 8:
+            continue
+
+        events = _source_script_events(section)
+        density_text = "\n".join(
+            part
+            for part in (
+                _field_value(section, "节奏类型"),
+                _field_value(section, "事件密度判断"),
+                _field_value(section, "动作节奏指导"),
+                _field_value(section, "intra_fragment_rhythm"),
+                "\n".join(events),
+            )
+            if part
+        )
+        has_dense_signal = bool(
+            re.search(r"高密度|密集|短动作|急|忙|叠压|紧凑|赶时间", density_text)
+            or _URGENT_SHORT_ACTION_RE.search(density_text)
+        )
+        if not has_dense_signal or len(events) <= 5:
+            continue
+
+        if not _has_action_coverage_classification(section):
+            issues.append(
+                f"{fragment_id} 是高密度多事件片段（{len(events)} 条原文事件，目标时长 {duration}）；"
+                "必须写清 必拍动作 / 可压缩动作 / 可省略动作，不能把所有小动作都交给镜头导演逐条拍。"
+            )
     return issues
 
 def _rhythm_planning_contract_issues(planner_output: str) -> list[str]:
@@ -1475,6 +1537,7 @@ def _validate_story_planner_output(
     if require_rhythm_fields:
         issues.extend(_story_planner_episode_unit_count_issues(planner_output, source_script))
         issues.extend(_rhythm_planning_contract_issues(planner_output))
+        issues.extend(_story_planner_cut_budget_density_issues(planner_output))
         issues.extend(_story_planner_fast_cluster_merge_issues(planner_output))
         issues.extend(_story_planner_dialogue_unit_split_issues(planner_output, source_script))
         issues.extend(_story_planner_thin_continuation_split_issues(planner_output, source_script))
@@ -1790,6 +1853,7 @@ def _rhythm_story_planner_user_prompt(
         "- 事件密度判断：说明是短时间密集事件、低密度过渡、完整发言单元或反应落点。\n"
         "- 片段内节奏分配：按内部小节拍写时间预算和戏剧功能，例如“0-4秒：闹钟/电话/穿衣动作链急促完成；4-8秒：孩子拒绝；8-12秒：乔熙应对落地”。\n"
         "- 动作节奏指导：明确人物动作应急急忙忙、动作叠压、正常承接、停住观察、慢处理或犹豫拖延；这是给动作调度导演和镜头导演的节奏约束。\n"
+        "- 动作覆盖预算：高密度片段必须写 必拍动作、可压缩动作、可省略动作，并说明每5秒镜头数建议；不要逐动作全拍。\n"
         "- 施工剧本原文事件：数组，逐条照抄当前施工剧本里的动作或台词原文。\n"
         "- 出现人物：只写本片段出现或被明确听见的人物。\n"
         "- 入场状态：本片段开始时，人物、道具、门、电梯、空间等必要状态。\n"
