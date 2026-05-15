@@ -2263,6 +2263,49 @@ body {
     height: clamp(240px, 36vh, 430px);
 }
 
+.script-card .card-header {
+    gap: 12px;
+    flex-wrap: wrap;
+    align-items: flex-start;
+}
+
+.script-template-tools {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: min(100%, 520px);
+}
+
+.script-template-tools select {
+    width: min(260px, 52vw);
+    min-height: 36px;
+    padding: 8px 10px;
+}
+
+.btn-script-template {
+    min-height: 36px;
+    padding: 8px 12px;
+    white-space: nowrap;
+}
+
+.script-template-status {
+    margin-top: 8px;
+    min-height: 18px;
+    color: var(--text-muted);
+    font-size: 12px;
+    line-height: 1.5;
+}
+
+.script-template-status.success {
+    color: var(--accent-success);
+}
+
+.script-template-status.error {
+    color: var(--accent-error);
+}
+
 textarea,
 select,
 input[type="text"],
@@ -2847,6 +2890,16 @@ input:focus {
 @media (max-width: 560px) {
     .main-content {
         padding: 12px;
+    }
+
+    .script-template-tools,
+    .script-template-tools select {
+        width: 100%;
+        max-width: 100%;
+    }
+
+    .btn-script-template {
+        flex: 1 1 calc(50% - 4px);
     }
 
     .workspace-summary {

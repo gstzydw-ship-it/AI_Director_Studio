@@ -841,6 +841,7 @@ def call_llm(
 
     last_exc: Exception | None = None
     last_retryable = False
+    last_route_fallbackable = False
     failure_history: list[dict[str, Any]] = []
     primary_models = _normalise_model_list([model, *_get_llm_fallback_models(agent_name)])
     routes_to_try: list[dict[str, Any]] = [
@@ -960,6 +961,7 @@ def call_llm(
             for proxy_index, (trust_env, active_bypass_proxy, proxy_label) in enumerate(proxy_modes):
                 for attempt in range(1, max_retries + 1):
                     attempt_started = _time.perf_counter()
+                    last_route_fallbackable = False
                     emit_runtime_event(
                         "llm_attempt_started",
                         agent_name=agent_name,
@@ -1021,6 +1023,7 @@ def call_llm(
                         last_exc = exc
                         status_code = exc.response.status_code if exc.response is not None else 0
                         last_retryable = status_code >= 500
+                        last_route_fallbackable = status_code in {401, 403, 404, 408, 409, 429} or status_code >= 500
                     except Exception as exc:
                         last_exc = exc
                         last_retryable = False
@@ -1103,7 +1106,7 @@ def call_llm(
                 continue
             break
 
-        if last_retryable and route_index < len(routes_to_try) - 1:
+        if (last_retryable or last_route_fallbackable) and route_index < len(routes_to_try) - 1:
             continue
         break
 

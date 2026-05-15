@@ -1,14 +1,14 @@
 agent_models:
   director_showrunner:
-    base_url: https://apicn.unifyllm.top/v1
+    base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
     timeout_seconds: 300
     read_timeout_seconds: 300
     write_timeout_seconds: 90
     max_retries: 1
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     fallback_models: []
-    route_preset: custom
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
@@ -133,106 +133,137 @@ agent_models:
       - openai/gpt-oss-120b:free
       - openrouter/free
       - Qwen3-0.6B-Q8_0.gguf
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
-    model: gpt-5.5
+    model: claude-opus-4-6
   scene_analyst:
-    base_url: https://apicn.unifyllm.top/v1
+    base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
     timeout_seconds: 240
     read_timeout_seconds: 240
     max_retries: 3
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     available_models:
-    - anti/claude-opus-4-6
-    - anti/claude-sonnet-4-6
-    - aws/claude-haiku-4-5-20251001
-    - aws/claude-opus-4-5-20251101
-    - aws/claude-opus-4-5-20251101-thinking
-    - aws/claude-opus-4-6
-    - aws/claude-opus-4-6-thinking
-    - aws/claude-opus-4-7
-    - aws/claude-sonnet-4-5-20250929
-    - aws/claude-sonnet-4-5-20250929-thinking
-    - aws/claude-sonnet-4-6
-    - aws/claude-sonnet-4-6-thinking
-    - b/gemini-2.5-flash-image
-    - b/gemini-3-flash-preview
-    - b/gemini-3-flash-preview-nothinking
-    - b/gemini-3-pro-image-preview
-    - b/gemini-3-pro-preview
-    - b/gemini-3-pro-preview-thinking
-    - b/gemini-3.1-flash-image-preview
-    - b/gemini-3.1-flash-lite-preview
-    - b/gemini-3.1-pro-preview
-    - b/gpt-5.1
-    - b/gpt-5.2
-    - b/gpt-5.2-search
-    - b/gpt-5.4
-    - b/gpt-5.4-pro
-    - b/gpt-5.5
-    - BAAI/bge-reranker-v2-m3
-    - cc-only/claude-haiku-4-5-20251001
-    - cc-only/claude-opus-4-5-20251101
-    - cc-only/claude-opus-4-6
-    - cc-only/claude-opus-4-7
-    - cc-only/claude-sonnet-4-5-20250929
-    - cc-only/claude-sonnet-4-6
-    - claude-haiku-4-5-20251001
-    - claude-haiku-4-5-20251001-c
-    - claude-opus-4-5-20251101
-    - claude-opus-4-5-20251101-search
     - claude-opus-4-6
-    - claude-opus-4-6-c
     - claude-opus-4-7
-    - claude-sonnet-4-5-20250929
-    - claude-sonnet-4-5-20250929-c
-    - claude-sonnet-4-5-20250929-search
     - claude-sonnet-4-6
-    - claude-sonnet-4-6-c
-    - claudecode/claude-haiku-4-5-20251001
-    - claudecode/claude-opus-4-6
-    - claudecode/claude-opus-4-6-thinking
-    - claudecode/claude-opus-4-7
-    - claudecode/claude-sonnet-4-6
-    - claudecode/claude-sonnet-4-6-thinking
-    - codex/gpt-5.4
-    - codex/gpt-5.4-high
-    - codex/gpt-5.4-xhigh
-    - codex/gpt-5.5
-    - deepseek-r1
-    - deepseek-v3
-    - deepseek-v3.1
     - deepseek-v3.2
-    - deepseek-v3.2-exp
-    - deepseek-v3.2-exp-thinking
-    - deepseek-v3.2-thinking
-    - deepseek-v3.2-thinking-search
-    - deepseek-v4-flash
-    - deepseek-v4-pro
-    - deepseek-v4-pro-c
-    - deepseek-v4-pro-thinking-c
-    - doubao-seedream-5-0
-    - fgr/gemini-3-pro-preview
-    - fgr/gemini-3-pro-preview-thinking
-    - gemini-2.5-pro-c
-    - gemini-3-flash-preview
-    - gemini-3-flash-preview-c
-    - gemini-3-flash-preview-nothinking
-    - gemini-3-flash-preview-prime
-    - gemini-3-flash-preview-thinking
-    - gemini-3-pro-deepsearch
-    - gemini-3-pro-preview
-    - gemini-3-pro-preview-c
+    - doubao-seed-2.0-code
+    - doubao-seed-2.0-lite
+    - doubao-seed-2.0-pro
+    - doubao-seed-code
+    - gemini-2.5-flash
+    - gemini-2.5-flash-agent
+    - gemini-2.5-flash-image
+    - gemini-2.5-flash-lite
+    - gemini-2.5-flash-lite-agent
+    - gemini-2.5-pro
+    - gemini-2.5-pro-agent
+    - gemini-3-flash
+    - gemini-3-flash-thinking
+    - gemini-3-pro-image-preview
+    - gemini-3.1-flash-image-preview
+    - gemini-3.1-flash-lite
+    - gemini-3.1-flash-lite-agent
+    - gemini-3.1-pro-preview
+    - gemini-3.1-pro-preview-agent
+    - gemma-4-31b-it
+    - glm-4.7
+    - glm-5.1
+    - google/gemma-4-26b-a4b-it-maas
+    - gpt-5.2
+    - gpt-5.3
+    - gpt-5.3-codex
+    - gpt-5.3-codex-spark
+    - gpt-5.4
+    - gpt-5.5
+    - gpt-5.5-instant
+    - gpt-5.5-thinking
+    - gpt-image-1
+    - gpt-image-1.5
+    - gpt-image-2
+    - imagen-3.0-fast-generate-001
+    - imagen-3.0-generate-002
+    - imagen-4.0-generate-001
+    - imagen-4.0-ultra-generate-001
+    - kimi-k2.5
+    - kimi-k2.6
+    - mimo-v2-omni
+    - mimo-v2-pro
+    - mimo-v2.5
+    - mimo-v2.5-pro
+    - MiniMax-M2.5
+    - MiniMax-M2.5-highspeed
+    - MiniMax-M2.7
+    - nvidia/nemotron-3-nano-30b-a3b:free
+    - nvidia/nemotron-3-super-120b-a12b:free
+    - nvidia/nemotron-nano-12b-v2-vl:free
+    - nvidia/nemotron-nano-9b-v2:free
+    - openai/gpt-oss-120b:free
+    - openrouter/free
+    - Qwen3-0.6B-Q8_0.gguf
     route_model_pools:
+      primary:
+      - claude-opus-4-6
+      - claude-opus-4-7
+      - claude-sonnet-4-6
+      - deepseek-v3.2
+      - doubao-seed-2.0-code
+      - doubao-seed-2.0-lite
+      - doubao-seed-2.0-pro
+      - doubao-seed-code
+      - gemini-2.5-flash
+      - gemini-2.5-flash-agent
+      - gemini-2.5-flash-image
+      - gemini-2.5-flash-lite
+      - gemini-2.5-flash-lite-agent
+      - gemini-2.5-pro
+      - gemini-2.5-pro-agent
+      - gemini-3-flash
+      - gemini-3-flash-thinking
+      - gemini-3-pro-image-preview
+      - gemini-3.1-flash-image-preview
+      - gemini-3.1-flash-lite
+      - gemini-3.1-flash-lite-agent
+      - gemini-3.1-pro-preview
+      - gemini-3.1-pro-preview-agent
+      - gemma-4-31b-it
+      - glm-4.7
+      - glm-5.1
+      - google/gemma-4-26b-a4b-it-maas
+      - gpt-5.2
+      - gpt-5.3
+      - gpt-5.3-codex
+      - gpt-5.3-codex-spark
+      - gpt-5.4
+      - gpt-5.5
+      - gpt-5.5-instant
+      - gpt-5.5-thinking
+      - gpt-image-1
+      - gpt-image-1.5
+      - gpt-image-2
+      - imagen-3.0-fast-generate-001
+      - imagen-3.0-generate-002
+      - imagen-4.0-generate-001
+      - imagen-4.0-ultra-generate-001
+      - kimi-k2.5
+      - kimi-k2.6
+      - mimo-v2-omni
+      - mimo-v2-pro
+      - mimo-v2.5
+      - mimo-v2.5-pro
+      - MiniMax-M2.5
+      - MiniMax-M2.5-highspeed
+      - MiniMax-M2.7
+      - nvidia/nemotron-3-nano-30b-a3b:free
+      - nvidia/nemotron-3-super-120b-a12b:free
+      - nvidia/nemotron-nano-12b-v2-vl:free
+      - nvidia/nemotron-nano-9b-v2:free
+      - openai/gpt-oss-120b:free
+      - openrouter/free
+      - Qwen3-0.6B-Q8_0.gguf
       custom:
       - anti/claude-opus-4-6
       - anti/claude-sonnet-4-6
@@ -314,17 +345,14 @@ agent_models:
       - gemini-3-pro-deepsearch
       - gemini-3-pro-preview
       - gemini-3-pro-preview-c
-    model: gemini-3-pro-preview-thinking
+    model: gpt-5.5
   scene_vision_analyst:
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    base_url: https://apicn.unifyllm.top/v1
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    base_url: https://www.xkwuai.cn/v1
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     available_models:
     - anti/claude-opus-4-6
     - anti/claude-sonnet-4-6
@@ -488,40 +516,34 @@ agent_models:
       - gemini-3-pro-deepsearch
       - gemini-3-pro-preview
       - gemini-3-pro-preview-c
-    model: gemini-3.1-pro-preview
+    model: gpt-5.5
   story_planner:
-    base_url: https://apicn.unifyllm.top/v1
+    base_url: https://www.xkwuai.cn/v1
     temperature: 0.2
     timeout_seconds: 240
     read_timeout_seconds: 240
     write_timeout_seconds: 90
     max_retries: 3
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     fallback_models:
     - claude-3-5-sonnet
-    route_preset: custom
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: gpt-5.5
   shot_director:
-    base_url: https://apicn.unifyllm.top/v1
+    base_url: https://www.xkwuai.cn/v1
     temperature: 0.3
     timeout_seconds: 240
     read_timeout_seconds: 240
     write_timeout_seconds: 90
     max_retries: 3
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     available_models:
     - anti/claude-opus-4-6
     - anti/claude-sonnet-4-6
@@ -687,30 +709,24 @@ agent_models:
       - gemini-3-pro-preview-c
     model: gpt-5.5
   prompt_compiler:
-    base_url: https://apicn.unifyllm.top/v1
+    base_url: https://www.xkwuai.cn/v1
     temperature: 0.3
     timeout_seconds: 180
     max_retries: 3
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-6
   quality_inspector:
-    base_url: https://apicn.unifyllm.top/v1
+    base_url: https://www.xkwuai.cn/v1
     temperature: 0.1
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-6
   storyboard_designer:
     api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
@@ -971,97 +987,131 @@ agent_models:
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
     model: gpt-image-2
   video_analyst:
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    base_url: https://apicn.unifyllm.top/v1
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    base_url: https://www.xkwuai.cn/v1
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     available_models:
-    - anti/claude-opus-4-6
-    - anti/claude-sonnet-4-6
-    - aws/claude-haiku-4-5-20251001
-    - aws/claude-opus-4-5-20251101
-    - aws/claude-opus-4-5-20251101-thinking
-    - aws/claude-opus-4-6
-    - aws/claude-opus-4-6-thinking
-    - aws/claude-opus-4-7
-    - aws/claude-sonnet-4-5-20250929
-    - aws/claude-sonnet-4-5-20250929-thinking
-    - aws/claude-sonnet-4-6
-    - aws/claude-sonnet-4-6-thinking
-    - b/gemini-2.5-flash-image
-    - b/gemini-3-flash-preview
-    - b/gemini-3-flash-preview-nothinking
-    - b/gemini-3-pro-image-preview
-    - b/gemini-3-pro-preview
-    - b/gemini-3-pro-preview-thinking
-    - b/gemini-3.1-flash-image-preview
-    - b/gemini-3.1-flash-lite-preview
-    - b/gemini-3.1-pro-preview
-    - b/gpt-5.1
-    - b/gpt-5.2
-    - b/gpt-5.2-search
-    - b/gpt-5.4
-    - b/gpt-5.4-pro
-    - b/gpt-5.5
-    - BAAI/bge-reranker-v2-m3
-    - cc-only/claude-haiku-4-5-20251001
-    - cc-only/claude-opus-4-5-20251101
-    - cc-only/claude-opus-4-6
-    - cc-only/claude-opus-4-7
-    - cc-only/claude-sonnet-4-5-20250929
-    - cc-only/claude-sonnet-4-6
-    - claude-haiku-4-5-20251001
-    - claude-haiku-4-5-20251001-c
-    - claude-opus-4-5-20251101
-    - claude-opus-4-5-20251101-search
     - claude-opus-4-6
-    - claude-opus-4-6-c
     - claude-opus-4-7
-    - claude-sonnet-4-5-20250929
-    - claude-sonnet-4-5-20250929-c
-    - claude-sonnet-4-5-20250929-search
     - claude-sonnet-4-6
-    - claude-sonnet-4-6-c
-    - claudecode/claude-haiku-4-5-20251001
-    - claudecode/claude-opus-4-6
-    - claudecode/claude-opus-4-6-thinking
-    - claudecode/claude-opus-4-7
-    - claudecode/claude-sonnet-4-6
-    - claudecode/claude-sonnet-4-6-thinking
-    - codex/gpt-5.4
-    - codex/gpt-5.4-high
-    - codex/gpt-5.4-xhigh
-    - codex/gpt-5.5
-    - deepseek-r1
-    - deepseek-v3
-    - deepseek-v3.1
     - deepseek-v3.2
-    - deepseek-v3.2-exp
-    - deepseek-v3.2-exp-thinking
-    - deepseek-v3.2-thinking
-    - deepseek-v3.2-thinking-search
-    - deepseek-v4-flash
-    - deepseek-v4-pro
-    - deepseek-v4-pro-c
-    - deepseek-v4-pro-thinking-c
-    - doubao-seedream-5-0
-    - fgr/gemini-3-pro-preview
-    - fgr/gemini-3-pro-preview-thinking
-    - gemini-2.5-pro-c
-    - gemini-3-flash-preview
-    - gemini-3-flash-preview-c
-    - gemini-3-flash-preview-nothinking
-    - gemini-3-flash-preview-prime
-    - gemini-3-flash-preview-thinking
-    - gemini-3-pro-deepsearch
-    - gemini-3-pro-preview
-    - gemini-3-pro-preview-c
+    - doubao-seed-2.0-code
+    - doubao-seed-2.0-lite
+    - doubao-seed-2.0-pro
+    - doubao-seed-code
+    - gemini-2.5-flash
+    - gemini-2.5-flash-agent
+    - gemini-2.5-flash-image
+    - gemini-2.5-flash-lite
+    - gemini-2.5-flash-lite-agent
+    - gemini-2.5-pro
+    - gemini-2.5-pro-agent
+    - gemini-3-flash
+    - gemini-3-flash-thinking
+    - gemini-3-pro-image-preview
+    - gemini-3.1-flash-image-preview
+    - gemini-3.1-flash-lite
+    - gemini-3.1-flash-lite-agent
+    - gemini-3.1-pro-preview
+    - gemini-3.1-pro-preview-agent
+    - gemma-4-31b-it
+    - glm-4.7
+    - glm-5.1
+    - google/gemma-4-26b-a4b-it-maas
+    - gpt-5.2
+    - gpt-5.3
+    - gpt-5.3-codex
+    - gpt-5.3-codex-spark
+    - gpt-5.4
+    - gpt-5.5
+    - gpt-5.5-instant
+    - gpt-5.5-thinking
+    - gpt-image-1
+    - gpt-image-1.5
+    - gpt-image-2
+    - imagen-3.0-fast-generate-001
+    - imagen-3.0-generate-002
+    - imagen-4.0-generate-001
+    - imagen-4.0-ultra-generate-001
+    - kimi-k2.5
+    - kimi-k2.6
+    - mimo-v2-omni
+    - mimo-v2-pro
+    - mimo-v2.5
+    - mimo-v2.5-pro
+    - MiniMax-M2.5
+    - MiniMax-M2.5-highspeed
+    - MiniMax-M2.7
+    - nvidia/nemotron-3-nano-30b-a3b:free
+    - nvidia/nemotron-3-super-120b-a12b:free
+    - nvidia/nemotron-nano-12b-v2-vl:free
+    - nvidia/nemotron-nano-9b-v2:free
+    - openai/gpt-oss-120b:free
+    - openrouter/free
+    - Qwen3-0.6B-Q8_0.gguf
     route_model_pools:
+      primary:
+      - claude-opus-4-6
+      - claude-opus-4-7
+      - claude-sonnet-4-6
+      - deepseek-v3.2
+      - doubao-seed-2.0-code
+      - doubao-seed-2.0-lite
+      - doubao-seed-2.0-pro
+      - doubao-seed-code
+      - gemini-2.5-flash
+      - gemini-2.5-flash-agent
+      - gemini-2.5-flash-image
+      - gemini-2.5-flash-lite
+      - gemini-2.5-flash-lite-agent
+      - gemini-2.5-pro
+      - gemini-2.5-pro-agent
+      - gemini-3-flash
+      - gemini-3-flash-thinking
+      - gemini-3-pro-image-preview
+      - gemini-3.1-flash-image-preview
+      - gemini-3.1-flash-lite
+      - gemini-3.1-flash-lite-agent
+      - gemini-3.1-pro-preview
+      - gemini-3.1-pro-preview-agent
+      - gemma-4-31b-it
+      - glm-4.7
+      - glm-5.1
+      - google/gemma-4-26b-a4b-it-maas
+      - gpt-5.2
+      - gpt-5.3
+      - gpt-5.3-codex
+      - gpt-5.3-codex-spark
+      - gpt-5.4
+      - gpt-5.5
+      - gpt-5.5-instant
+      - gpt-5.5-thinking
+      - gpt-image-1
+      - gpt-image-1.5
+      - gpt-image-2
+      - imagen-3.0-fast-generate-001
+      - imagen-3.0-generate-002
+      - imagen-4.0-generate-001
+      - imagen-4.0-ultra-generate-001
+      - kimi-k2.5
+      - kimi-k2.6
+      - mimo-v2-omni
+      - mimo-v2-pro
+      - mimo-v2.5
+      - mimo-v2.5-pro
+      - MiniMax-M2.5
+      - MiniMax-M2.5-highspeed
+      - MiniMax-M2.7
+      - nvidia/nemotron-3-nano-30b-a3b:free
+      - nvidia/nemotron-3-super-120b-a12b:free
+      - nvidia/nemotron-nano-12b-v2-vl:free
+      - nvidia/nemotron-nano-9b-v2:free
+      - openai/gpt-oss-120b:free
+      - openrouter/free
+      - Qwen3-0.6B-Q8_0.gguf
       custom:
       - anti/claude-opus-4-6
       - anti/claude-sonnet-4-6
@@ -1143,7 +1193,7 @@ agent_models:
       - gemini-3-pro-deepsearch
       - gemini-3-pro-preview
       - gemini-3-pro-preview-c
-    model: gemini-3-pro-preview-thinking
+    model: gpt-5.5
   scene_card_designer:
     api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
     base_url: http://8.nat0.cn:57800/v1
@@ -1400,37 +1450,28 @@ agent_models:
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
     model: gpt-image-2
   storyboard_prompt_designer:
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    base_url: https://apicn.unifyllm.top/v1
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    base_url: https://www.xkwuai.cn/v1
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: claude-opus-4-6
   script_event_validator:
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    base_url: https://apicn.unifyllm.top/v1
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    base_url: https://www.xkwuai.cn/v1
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     model: gpt-5.5
   shot_director_layout:
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    base_url: https://apicn.unifyllm.top/v1
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    base_url: https://www.xkwuai.cn/v1
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     available_models:
     - anti/claude-opus-4-6
     - anti/claude-sonnet-4-6
@@ -1596,15 +1637,12 @@ agent_models:
       - gemini-3-pro-preview-c
     model: gpt-5.5
   shot_director_blocking:
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    base_url: https://apicn.unifyllm.top/v1
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    base_url: https://www.xkwuai.cn/v1
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     available_models:
     - anti/claude-opus-4-6
     - anti/claude-sonnet-4-6
@@ -1770,15 +1808,12 @@ agent_models:
       - gemini-3-pro-preview-c
     model: gpt-5.5
   shot_director_guard:
-    api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    base_url: https://apicn.unifyllm.top/v1
-    route_preset: custom
+    api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
+    base_url: https://www.xkwuai.cn/v1
+    route_preset: primary
     custom_route:
       base_url: https://apicn.unifyllm.top/v1
       api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-    fallback_routes:
-    - base_url: https://www.xkwuai.cn/v1
-      api_key: sk-XBAklT3a22ZEKxcIhuclU6IYwomqz66jVNYDys3HBFQOViSK
     available_models:
     - anti/claude-opus-4-6
     - anti/claude-sonnet-4-6

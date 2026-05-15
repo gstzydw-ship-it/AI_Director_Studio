@@ -73,9 +73,19 @@
                                     <span class="section-kicker">Source</span>
                                     <h3>剧本输入</h3>
                                 </div>
+                                <div class="script-template-tools">
+                                    <select id="scriptTemplateSelect" aria-label="选择内置剧本模板" onchange="previewScriptTemplateSelection()">
+                                        <option value="">选择前20集剧本...</option>
+                                    </select>
+                                    <button class="btn-secondary btn-script-template" type="button" onclick="fillScriptTemplate()">填充</button>
+                                    <button class="btn-secondary btn-script-template" type="button" onclick="appendScriptTemplate()">追加</button>
+                                </div>
                             </div>
                             <div class="card-body">
                                 <textarea id="scriptInput" placeholder="粘贴你的剧本片段..."></textarea>
+                                <div id="scriptTemplateStatus" class="script-template-status">
+                                    可从下拉列表一键填充 01-20 集，或选择“前20集合集”一次填入全部内容。
+                                </div>
                             </div>
                         </section>
                         <div class="btn-row command-row">
@@ -468,6 +478,7 @@
         </main>
     </div>
 
+    <script src="/static/script_templates.js" charset="UTF-8"></script>
     <script>
         // === Tab 切换 ===
         document.querySelectorAll('.nav-item').forEach(btn => {
@@ -491,6 +502,7 @@
         const SAVED_API_KEY_MASK = '********';
         const DEFAULT_MODEL_BASE_URL = 'https://www.xkwuai.cn/v1';
         const DEFAULT_IMAGE_BASE_URL = 'https://ai.comfly.chat/v1';
+        const SCRIPT_TEMPLATE_ALL_ID = 'all20';
         let systemConfig = {};
         let modelPools = {
             text: [],
@@ -501,6 +513,82 @@
         let routeModelPools = {};
         let pendingAgentCustomKeys = {};
         let lastAgentConnectionResults = [];
+
+        function scriptTemplateList() {
+            return Array.isArray(window.SCRIPT_EPISODE_TEMPLATES) ? window.SCRIPT_EPISODE_TEMPLATES : [];
+        }
+
+        function populateScriptTemplateSelect() {
+            const select = document.getElementById('scriptTemplateSelect');
+            if (!select || select.dataset.ready === '1') return;
+            const templates = scriptTemplateList();
+            select.innerHTML = '';
+            select.appendChild(new Option('选择前20集剧本...', ''));
+            if (templates.length) {
+                select.appendChild(new Option('前20集合集（01-20）', SCRIPT_TEMPLATE_ALL_ID));
+                templates.forEach((item) => {
+                    select.appendChild(new Option(item.title, item.id));
+                });
+            } else {
+                select.appendChild(new Option('模板数据未加载', ''));
+            }
+            select.dataset.ready = '1';
+        }
+
+        function selectedScriptTemplate() {
+            const select = document.getElementById('scriptTemplateSelect');
+            const value = select?.value || '';
+            const templates = scriptTemplateList();
+            if (!value) return null;
+            if (value === SCRIPT_TEMPLATE_ALL_ID) {
+                return {
+                    title: '前20集合集（01-20）',
+                    text: templates.map((item) => item.text.trim()).join('\n\n')
+                };
+            }
+            return templates.find((item) => item.id === value) || null;
+        }
+
+        function setScriptTemplateStatus(message, tone = 'info') {
+            const status = document.getElementById('scriptTemplateStatus');
+            if (!status) return;
+            status.textContent = message;
+            status.className = `script-template-status ${tone}`;
+        }
+
+        function previewScriptTemplateSelection() {
+            const item = selectedScriptTemplate();
+            if (!item) {
+                setScriptTemplateStatus('可从下拉列表一键填充 01-20 集，或选择“前20集合集”一次填入全部内容。');
+                return;
+            }
+            setScriptTemplateStatus(`已选择：${item.title}。点击“填充”会替换当前输入，点击“追加”会加到末尾。`);
+        }
+
+        function applyScriptTemplate({ append = false } = {}) {
+            const item = selectedScriptTemplate();
+            const textarea = document.getElementById('scriptInput');
+            if (!item || !textarea) {
+                setScriptTemplateStatus('请先在下拉列表选择一集或“前20集合集”。', 'error');
+                return;
+            }
+            const text = item.text.trim();
+            const current = textarea.value.trim();
+            textarea.value = append && current ? `${current}\n\n${text}` : text;
+            textarea.focus();
+            textarea.scrollTop = 0;
+            setScriptTemplateStatus(`${append ? '已追加' : '已填充'}：${item.title}`, 'success');
+        }
+
+        function fillScriptTemplate() {
+            applyScriptTemplate({ append: false });
+        }
+
+        function appendScriptTemplate() {
+            applyScriptTemplate({ append: true });
+        }
+
+        populateScriptTemplateSelect();
 
         function createSessionId() {
             const randomPart = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)).replace(/[^A-Za-z0-9_-]/g, '');

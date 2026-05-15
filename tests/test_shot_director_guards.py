@@ -8,8 +8,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from agents.knowledge_base import get_agent_knowledge_files  # noqa: E402
 from agents.director_graph_package import legacy_impl, runners  # noqa: E402
+from agents.director_graph_package.story_planner_impl import _script_emotional_attention_units  # noqa: E402
 from agents.director_graph_package.shot_director_impl import (  # noqa: E402
     _clean_shot_director_output,
+    _estimate_shot_director_coverage_plan,
     _hard_shot_director_issues,
     _shot_director_rhythm_match_rules,
     _shot_director_source_event_rules,
@@ -564,6 +566,10 @@ def test_shot_director_runtime_rules_and_rule_card_are_present():
     assert "没必要每个细节动作都给镜头" in rules
     assert "参考《AI 导演系统工程文档规范》" in rhythm_rules
     assert "镜头数量由节奏任务决定" in rhythm_rules
+    assert "镜头数、镜头时长、景别、机位、运镜、反应覆盖和切镜点由 shot_director 决定" in rhythm_rules
+    assert "5-6秒片段一般不超过3个有效镜头" in rhythm_rules
+    assert "一号 layout 阶段先决定主镜头覆盖骨架和粗景别" in rhythm_rules
+    assert "长对白必须根据情绪压力切听者反应" in rhythm_rules
     assert "9:16 竖屏下，半身/中景/双人关系镜头是主力" in rhythm_rules
     assert "rules/shot_director/SHOT-SOURCE-EVENT-FIDELITY-001.md" in critical_files
     assert "rules/shot_director/SHOT-SIMPLE-SEEDANCE-CAMERA-001.md" not in critical_files
@@ -585,5 +591,82 @@ def test_shot_director_rhythm_compliance_rules_present():
     assert "动作道具连续性" in rules, "rules must mention action/prop continuity"
     assert "空间轴线安全" in rules, "rules must mention spatial axis safety"
     assert "后者优先" in rules, "rules must state script facts take priority over rhythm"
-    assert "story_planner 与 rhythm supervisor 给出的片段节奏指令" in rhythm_rules, "rhythm rules must reference upstream instructions"
+    assert "story_planner 给出的片段边界" in rhythm_rules, "rhythm rules must reference upstream instructions"
     assert "不得重新判断整体节奏" in rhythm_rules, "rhythm rules must not allow re-judging rhythm"
+
+
+def test_shot_director_owns_shot_budget_after_story_planner_handoff():
+    reveal_plan = _estimate_shot_director_coverage_plan(
+        [
+            "乔熙拿起书包，照片从夹层里掉出来。",
+            "乔熙捡起照片，看清照片背后的日期。",
+        ],
+        planner_handoff="情绪曲线：忙乱后突然停住；必须保留照片看清和乔熙反应；弱拍可压缩。",
+    )
+    dialogue_plan = _estimate_shot_director_coverage_plan(
+        [
+            "商北琛让她解释昨晚的缺席。",
+            "乔熙停住，低声说自己没有退路。",
+        ],
+        planner_handoff="高压对白后必须给听者受击反应，语义不能切断。",
+    )
+    action_plan = _estimate_shot_director_coverage_plan(
+        [
+            "闹钟响，乔熙一边接电话一边抓起小豆丁的外套。",
+            "小豆丁在沙发上乱蹬腿，不肯把手伸进袖子。",
+            "乔熙停住动作，蹲下哄她。",
+        ],
+        planner_handoff="前段急促动作叠压，后段短暂停住安抚。",
+    )
+
+    assert reveal_plan["effective_shots"] == "2-3"
+    assert "信息可读" in reveal_plan["layout"]
+    assert "不得早于文字/物件被看清" in reveal_plan["cut_timing"]
+    assert dialogue_plan["effective_shots"] == "2-4"
+    assert "听者反应" in dialogue_plan["layout"]
+    assert "OS/J-cut/L-cut" in dialogue_plan["duration_logic"]
+    assert action_plan["effective_shots"] == "2-4"
+    assert "动作顶点" in action_plan["cut_timing"]
+
+
+def test_story_planner_to_shot_director_twenty_episode_rhythm_coverage():
+    cases = [
+        ("晨间亲子", ["闹钟响，乔熙一边接电话一边抓起小豆丁的外套。", "小豆丁乱蹬腿，说不想上学。", "乔熙停住，蹲下哄她。", "照片从书包夹层掉出来。", "乔熙看清照片背后的日期。"]),
+        ("办公室录音", ["乔熙推门进入办公室，所有人看向她。", "商北琛让她解释昨晚的缺席。", "乔熙把合同递到桌上。", "助理打开录音，昨晚的电话播放出来。", "会议室沉默。"]),
+        ("医院诊断", ["母亲催乔熙别再查下去。", "诊断书从文件夹里露出来。", "乔熙看清诊断结果，手停住。", "手机震动打断沉默。", "陌生号码说已经知道真相。"]),
+        ("校园欺负", ["小豆丁站在教室门口，不敢进去。", "同学把画本推到地上。", "乔熙蹲下捡画本，压住火气问老师。", "老师打开监控视频。", "班主任赶到，所有人安静。"]),
+        ("婚礼闯入", ["婚礼交换戒指，宾客鼓掌。", "大门被推开，乔熙冲进来。", "她打开视频，昨晚的真相出现。", "新郎戒指掉在地上。", "女方父亲站起，现场沉默。"]),
+        ("雨夜追逐", ["女主抱着包穿过巷子。", "追车灯光逼近，她躲进便利店后门。", "录音笔从包里滑出。", "嫌疑人推门进来，她把录音笔藏到货架后。", "警笛响起，店里所有人看向门口。"]),
+        ("家宴亲鉴", ["父亲让乔熙给妹妹道歉。", "乔熙把亲子鉴定报告放到桌中央。", "众人看清报告，妹妹脸色变了。", "母亲突然倒下。", "救护车声音从窗外逼近。"]),
+        ("电梯项链", ["商北琛挡在电梯门口，不让乔熙离开。", "乔熙低头避开他的视线。", "项链从她衣领里露出。", "回忆开始：他曾把同一条项链戴到她颈上。", "回到现实：乔熙后退半步。"]),
+        ("餐厅误会", ["乔熙看到商北琛和陌生女人同桌。", "她忍着情绪转身要走。", "手机屏幕亮起，一张照片弹出来。", "她看见照片里的医院缴费单。", "新的短信解释对方只是医生。"]),
+        ("奇幻钥匙", ["女孩在旧书店里找到锁住的门。", "门上的钥匙发光，书页自动翻开。", "回忆开始：她小时候听见母亲的声音。", "母亲把钥匙放进她掌心。", "回到现实：楼梯尽头传来脚步声。"]),
+        ("长对白压迫", ["商北琛站在桌前说：你可以继续沉默，但董事会只看证据。", "乔熙握紧文件，没有立刻回答。", "他说：现在签字，至少还能保住孩子。", "乔熙抬头说：我不会再被你逼着选择。"]),
+        ("母女和解", ["母亲把旧围巾放到乔熙面前。", "乔熙没有接，只问当年为什么离开。", "母亲沉默很久，说自己一直在医院门口。", "乔熙眼眶红了，慢慢坐下。"]),
+        ("车祸目击", ["雨刷快速摆动，车灯照见路边的人影。", "乔熙猛踩刹车。", "手机从副驾滑落，通话还没挂断。", "她下车发现地上的项链。", "远处警笛逼近。"]),
+        ("会议反转", ["董事宣布投票开始。", "乔熙拿出第二份合同。", "屏幕上出现真正签名时间。", "反对她的股东低头翻文件。", "商北琛没有说话。"]),
+        ("直播翻车", ["主播对着镜头夸新品。", "弹幕突然刷出过敏照片。", "助理想关直播，乔熙按住他的手。", "乔熙对镜头承认问题并道歉。", "后台电话响个不停。"]),
+        ("警局审讯", ["警察把录音笔放到桌上。", "嫌疑人笑着说那不是自己的声音。", "录音里传出他喊女主名字的片段。", "嫌疑人的笑僵住。", "门外有人敲门送来新证据。"]),
+        ("产房门口", ["乔熙在产房门口来回走。", "护士冲出来问谁是家属。", "商北琛赶到，却被乔熙挡住。", "护士递出一张病危通知。", "商北琛终于停下。"]),
+        ("楼梯对峙", ["乔熙抱着文件上楼。", "妹妹从楼梯口拦住她。", "两人拉扯时文件散落。", "亲子鉴定页滑到父亲脚边。", "父亲弯腰捡起文件。"]),
+        ("葬礼真相", ["葬礼上所有人低头默哀。", "乔熙把录音放到遗像前。", "录音里死者说出遗嘱被改。", "亲属们纷纷抬头。", "律师从后排站起来。"]),
+        ("海边告别", ["天快亮时，乔熙站在海边。", "商北琛把车钥匙递给她。", "乔熙没有接，只说孩子在等我。", "他收回手，点头。", "乔熙转身沿海堤离开。"]),
+    ]
+
+    rhythm_tasks: set[str] = set()
+    for _title, lines in cases:
+        units = _script_emotional_attention_units("\n".join(lines))
+        assert units
+        for start, end, reason in units:
+            plan = _estimate_shot_director_coverage_plan(lines[start : end + 1], planner_handoff=reason)
+            rhythm_tasks.add(plan["rhythm_task"])
+            assert int(plan["effective_shots"].split("-")[-1]) <= 4
+            assert plan["layout"]
+            assert plan["cut_timing"]
+            assert plan["duration_logic"]
+            assert plan["action_direction"]
+
+    assert "信息揭示/关键物件" in rhythm_tasks
+    assert "高压对白/情绪反应" in rhythm_tasks
+    assert "急促动作/压力上升" in rhythm_tasks
+    assert "回忆/时空切层" in rhythm_tasks

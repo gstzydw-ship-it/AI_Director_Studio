@@ -81,6 +81,109 @@ def test_shot_director_accepts_all_chinese_output_fields():
     assert _validate_shot_director_output(director_output, ["F01"]) == []
 
 
+def test_shot_director_rejects_overfragmented_life_pressure_segment():
+    shot_lines = []
+    durations = ["0-2.2秒", "2.2-2.9秒", "2.9-4.9秒", "4.9-6.7秒", "6.7-9.3秒", "9.3-10.1秒", "10.1-12.1秒"]
+    for index, duration in enumerate(durations, start=1):
+        shot_lines.append(
+            f"""    - 镜头编号: F01-S{index:02d}
+      时长: {duration}
+      镜头任务: 承载清晨赶时间穿衣动作
+      拍摄主体: 乔熙、小豆丁
+      镜头: 双人半身关系景，茶几侧面固定机位
+      画面动作: 乔熙在沙发前帮小豆丁穿衣，小豆丁短暂抗拒后停住。
+      台词: ~
+      必须承载: 乔熙赶时间，小豆丁抗拒穿衣。
+      切镜点: 小豆丁抗拒动作停住后切出
+      连续性: 乔熙和小豆丁仍在沙发与茶几之间，手机仍在茶几上。
+"""
+        )
+    director_output = """- 片段编号: F01
+  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
+  节奏: 紧凑生活动作压力
+  空间连续性总控: 本片段是一段公寓生活压力戏；乔熙和小豆丁始终在沙发与茶几之间。
+  镜头列表:
+""" + "".join(shot_lines)
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert any("镜头切分过碎" in issue for issue in issues)
+    assert any("1秒以下碎镜" in issue for issue in issues)
+
+
+def test_shot_director_rules_lock_subject_ownership_and_task_combos():
+    combined_rules = "\n".join(
+        [
+            _shot_director_workflow_contract(),
+            _shot_director_rule_block("9:16"),
+            sdi._shot_director_layout_rule_block("9:16"),
+            _shot_director_blocking_rule_block("9:16"),
+            _shot_director_guard_stage_rule_block("9:16"),
+        ]
+    )
+
+    assert "拍摄主体不是人物/道具清单" in combined_rules
+    assert "戏剧任务镜头组合" in combined_rules
+    assert "承接上一镜尾帧" in combined_rules
+
+
+def test_shot_director_rejects_overloaded_random_subject_list():
+    director_output = """- 片段编号: F01
+  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
+  节奏: 紧凑生活压力
+  空间连续性总控: 乔熙和小豆丁始终在公寓客厅沙发边，手机仍在乔熙耳边。
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-4秒
+      镜头任务: 建立赶时间生活压力
+      拍摄主体: 乔熙、小豆丁、闹钟、手机、外套、草莓蛋糕、书包
+      镜头: 双人半身关系景，沙发侧面固定机位
+      画面动作: 乔熙坐在沙发边给小豆丁套衣服，小豆丁缩脚抗拒，镜尾两人仍在沙发边。
+      台词: "Kiki, cover for me. I'll be right there!"
+      必须承载: 乔熙赶时间，小豆丁抗拒穿衣。
+      切镜点: 小豆丁缩脚动作停住后切出
+      连续性: 手机仍在乔熙耳边，小豆丁仍在沙发边。
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert any("拍摄主体过载" in issue for issue in issues)
+    assert any("随机道具集合" in issue or "道具混进主拍摄主体" in issue for issue in issues)
+
+
+def test_shot_director_rejects_teleport_without_tailframe_carry():
+    director_output = """- 片段编号: F01
+  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
+  节奏: 紧凑生活压力
+  空间连续性总控: 乔熙和小豆丁始终在公寓客厅沙发边，手机仍在乔熙耳边。
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-4秒
+      镜头任务: 建立母女穿衣阻力
+      拍摄主体: 乔熙和小豆丁
+      镜头: 双人半身关系景，沙发侧面固定机位
+      画面动作: 乔熙坐在沙发边给小豆丁套衣服，小豆丁缩脚抗拒，镜尾两人仍坐在沙发边。
+      台词: "Kiki, cover for me. I'll be right there!"
+      必须承载: 乔熙赶时间，小豆丁抗拒穿衣。
+      切镜点: 小豆丁缩脚动作停住后切出
+      连续性: 乔熙和小豆丁仍坐在沙发边，手机仍在乔熙耳边。
+    - 镜头编号: F01-S02
+      时长: 4-8秒
+      镜头任务: 承载穿衣完成和拿书包
+      拍摄主体: 乔熙和小豆丁
+      镜头: 双人中景，茶几侧面固定机位
+      画面动作: 小豆丁突然站在茶几旁，衣服已经穿好。乔熙拿起书包。
+      台词: ~
+      必须承载: 小豆丁已经配合穿衣，乔熙准备出门。
+      切镜点: 乔熙拿起书包后切出
+      连续性: 手机在茶几上。
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert any("缺少承接上一镜尾帧" in issue for issue in issues)
+
+
 def test_shot_director_repair_adds_fragment_continuity_context():
     director_output = """- 片段编号: F01
   片段任务: 车内命令戴项链
@@ -116,7 +219,8 @@ def test_shot_director_rules_keep_camera_and_performance_fields_separate():
     guard_rules = _shot_director_guard_stage_rule_block("9:16")
 
     for text in (rule_block, blocking_rules, guard_rules):
-        assert "镜头字段只写摄影" in text
+        assert "镜头字段只写" in text
+        assert "视角/观看位置" in text
         assert "画面动作" in text
 
     assert "人物动作表情链" in rule_block
@@ -125,6 +229,31 @@ def test_shot_director_rules_keep_camera_and_performance_fields_separate():
     assert "不要在此字段写人物动作" in rule_block
     assert "动作表情必须写进画面动作" in blocking_rules
     assert "不要写戏剧判断、人物动作、台词或表情" in guard_rules
+    assert "不要输出“固定机位/侧面机位/摄影机位于”" in guard_rules
+
+
+def test_shot_director_rejects_untranslated_camera_jargon_in_final_shot_field():
+    director_output = """- 片段编号: F01
+  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
+  节奏: 紧凑生活压力
+  空间连续性总控: 乔熙和小豆丁始终在公寓客厅沙发边，手机仍在乔熙耳边。
+  镜头列表:
+    - 镜头编号: F01-S01
+      时长: 0-4秒
+      镜头任务: 建立赶时间生活压力
+      拍摄主体: 乔熙和小豆丁
+      镜头: 双人半身关系景，沙发侧面固定机位
+      画面动作: 乔熙坐在沙发边给小豆丁套衣服，视线看向门口；小豆丁缩脚抗拒，镜尾两人仍在沙发边。
+      台词: "Kiki, cover for me. I'll be right there!"
+      必须承载: 乔熙赶时间，小豆丁抗拒穿衣。
+      切镜点: 台词落下后小豆丁抗拒反应出现时切出
+      连续性: 手机仍在乔熙耳边，小豆丁仍在沙发边。
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert any("未翻译机位术语" in issue for issue in issues)
+    assert any("侧面视角" in issue and "固定视角" in issue for issue in issues)
 
 
 def test_shot_logic_reviewer_local_issues_flag_camera_action_leak():
@@ -206,7 +335,7 @@ def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
       时长: 0-2秒
       镜头任务: 承载乔熙识别项链
       拍摄主体: 乔熙
-      镜头: 乔熙中近景，车内同侧微侧机位
+      镜头: 乔熙中近景，车内同侧微侧视角
       画面动作: 乔熙原本身体后收，视线先落到商北琛手中的项链，随后低头看清吊坠，眼神短暂停住，肩颈保持绷紧。
       台词: ~
       必须承载: 乔熙认出项链，商北琛仍在近侧形成压力，项链仍未戴上。
@@ -241,7 +370,7 @@ def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
 
     assert runtime["agent_name"] == "shot_director_logic_reviewer"
     assert runtime["status"] == "repaired_by_logic_reviewer"
-    assert "乔熙中近景，车内同侧微侧机位" in output
+    assert "乔熙中近景，车内同侧微侧视角" in output
     assert "她低头看清项链" not in sdi._yaml_line_field(output, "shot")
     assert "裁判修复采纳: 是" in report
 

@@ -15,7 +15,13 @@ from .types import (
     _REVERSE_SHOT_INSIDE_SEGMENT_RE,
 )
 from .state_store import _agent_outputs, _persist_update
-from .helpers import _fragment_id_for_segment_index, _segment_block_by_fragment_id, _yaml_line_field
+from .helpers import (
+    _MAIN_SHOT_BLOCK_RE,
+    _fragment_id_for_segment_index,
+    _has_yaml_field,
+    _segment_block_by_fragment_id,
+    _yaml_line_field,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -27,7 +33,7 @@ def _segment_block(text: str, segment_index: int, fragment_id: str | None = None
 
 
 def _timeline_blocks(prompt: str) -> list[tuple[float, float, str]]:
-    matches = list(re.finditer(r"(?m)^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)绉掞細", prompt or ""))
+    matches = list(re.finditer(r"(?m)^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)秒[:：]", prompt or ""))
     blocks: list[tuple[float, float, str]] = []
     for index, match in enumerate(matches):
         body_start = match.end()
@@ -36,15 +42,109 @@ def _timeline_blocks(prompt: str) -> list[tuple[float, float, str]]:
     if blocks:
         return blocks
 
-    shot_matches = list(re.finditer(r"(?m)^闀滃ご\s*\d+\s*銆怽s*(\d+(?:\.\d+)?)\s*绉抃s*銆?", prompt or ""))
+    shot_matches = list(
+        re.finditer(
+            r"(?m)^镜头\s*\d+\s*【\s*(?:(\d+(?:\.\d+)?)\s*[-~—]\s*)?(\d+(?:\.\d+)?)\s*秒\s*】",
+            prompt or "",
+        )
+    )
     current = 0.0
     for index, match in enumerate(shot_matches):
-        duration = float(match.group(1))
+        if match.group(1) is not None:
+            start = float(match.group(1))
+            end = float(match.group(2))
+        else:
+            duration = float(match.group(2))
+            start = current
+            end = current + duration
         body_start = match.end()
         body_end = shot_matches[index + 1].start() if index + 1 < len(shot_matches) else len(prompt)
-        blocks.append((current, current + duration, prompt[body_start:body_end].strip()))
-        current += duration
+        blocks.append((start, end, prompt[body_start:body_end].strip()))
+        current = end
     return blocks
+
+
+def _prompt_uses_shot_sequence(prompt: str) -> bool:
+    return bool(
+        re.search(r"【画面基底】[\s\S]*【镜头序列】[\s\S]*【约束】", prompt or "")
+        and re.search(r"(?m)^镜头\s*\d+\s*【", prompt or "")
+    )
+
+
+def _planner_has_reaction_handoff(planner_segment: str) -> bool:
+    return bool(
+        _has_yaml_field(planner_segment, "reaction_plan")
+        or re.search(r"(?m)^\s*(?:承接要求|镜头导演交接)\s*[:：]", planner_segment or "")
+    )
+
+
+_SHOT_DENSITY_LIFE_PRESSURE_RE = re.compile(
+    r"生活|赶时间|穿衣|上学|孩子|小豆丁|闹钟|电话|手机|草莓|安抚|哄|抗拒|乱蹬|缩手|踢开|书包|紧凑生活",
+    re.IGNORECASE,
+)
+_SHOT_DENSITY_HIGH_CUT_RE = re.compile(
+    r"追逐|打斗|抢夺|闯入|冲进|救援|爆炸|车祸|急救|信息揭示|照片|文件|真相|证据|屏幕|监控|"
+    r"亲子鉴定|高压对白|长对白|权力压迫|外部打断|宴会|群体|反转",
+    re.IGNORECASE,
+)
+
+
+def _shot_density_limit(context: str, total_seconds: float | None) -> int:
+    life_pressure = bool(_SHOT_DENSITY_LIFE_PRESSURE_RE.search(context or ""))
+    high_cut_need = bool(_SHOT_DENSITY_HIGH_CUT_RE.search(context or ""))
+    if total_seconds is None:
+        return 4 if life_pressure and not high_cut_need else 5
+    if total_seconds <= 6:
+        return 3
+    if total_seconds <= 12.5:
+        return 4 if life_pressure and not high_cut_need else 5
+    if total_seconds <= 15.5:
+        return 5
+    return 6
+
+
+def _format_seconds(value: float | None) -> str:
+    if value is None:
+        return "未知时长"
+    rounded = round(value, 1)
+    if rounded.is_integer():
+        return f"{int(rounded)}秒"
+    return f"{rounded:.1f}秒"
+
+
+def _prompt_shot_density_issues(
+    prompt: str,
+    planner_segment: str,
+    director_segment: str,
+    timeline_blocks: list[tuple[float, float, str]],
+) -> list[str]:
+    if not _prompt_uses_shot_sequence(prompt) or not timeline_blocks:
+        return []
+    total_seconds = max((end for _start, end, _body in timeline_blocks), default=0.0)
+    total_seconds = total_seconds if total_seconds > 0 else None
+    context = "\n".join([prompt or "", planner_segment or "", director_segment or ""])
+    limit = _shot_density_limit(context, total_seconds)
+    shot_count = len(timeline_blocks)
+    issues: list[str] = []
+    if shot_count > limit:
+        issues.append(
+            f"- 镜头切分过碎：{_format_seconds(total_seconds)}安排{shot_count}个镜头，"
+            f"当前片段建议不超过{limit}个有效镜头；快节奏应靠人物动作紧张、停顿缩短和情绪压力，不靠碎切。"
+        )
+    short_blocks = [
+        (index, end - start)
+        for index, (start, end, _body) in enumerate(timeline_blocks, start=1)
+        if 0 < end - start < 1.0
+    ]
+    life_pressure = bool(_SHOT_DENSITY_LIFE_PRESSURE_RE.search(context))
+    high_cut_need = bool(_SHOT_DENSITY_HIGH_CUT_RE.search(context))
+    if short_blocks and (len(short_blocks) >= 2 or (life_pressure and not high_cut_need)):
+        short_text = "、".join(f"镜头{index}={seconds:.1f}秒" for index, seconds in short_blocks[:4])
+        issues.append(
+            f"- 1秒以下碎镜过多：{short_text}。生活动作/正常动作段不得把手、手机、脚、衣服等局部动作拆成碎插入；"
+            "请合并进关系镜头，或只保留真正的信息揭示/危险命中短镜。"
+        )
+    return issues
 
 
 # ---------------------------------------------------------------------------
@@ -63,16 +163,17 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     )
     segment_source = (source_block.group(1).strip() if source_block else planner_segment).strip()
     guard_report = state.get("system_guard_report") or ""
+    uses_shot_sequence = _prompt_uses_shot_sequence(prompt)
 
     qc_issues: list[str] = []
     if guard_report:
         qc_issues.extend([line for line in guard_report.splitlines() if line.strip()])
 
-    if planner_segment and not re.search(r"reaction_plan\s*:", planner_segment):
-        qc_issues.append("- story_planner 未说明当前片段的 reaction_plan。")
-    if planner_segment and re.search(r"source_script_events\s*:", planner_segment):
+    if planner_segment and not _planner_has_reaction_handoff(planner_segment):
+        qc_issues.append("- story_planner 未说明当前片段的承接/反应计划。")
+    if planner_segment and re.search(r"(?:source_script_events|施工剧本原文事件)\s*[:：]", planner_segment):
         source_block = re.search(
-            r"source_script_events\s*:([\s\S]*?)(?=\n[a-z_]+\s*:|\Z)",
+            r"(?:source_script_events|施工剧本原文事件)\s*[:：]([\s\S]*?)(?=\n\s*(?:[a-z_]+|出现人物|入场状态|出场状态|承接要求|镜头导演交接)\s*[:：]|\Z)",
             planner_segment,
         )
         source_items = re.findall(r"-\s*(.+)", source_block.group(1) if source_block else "")
@@ -81,31 +182,21 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                 "- story_planner 似乎把完整发言/动作单元压成单条笼统事件，需更清楚标出片段覆盖事件。"
             )
 
-    # === shot_director v1 schema hard validation ===
+    # === shot_director schema validation ===
     if director_segment:
-        # v1 fragment 必填字段检查
-        if not re.search(r"fragment_task\s*:", director_segment):
-            qc_issues.append("- shot_director 缺少 fragment_task 字段（v1 片段任务描述）。")
-        if not re.search(r"rhythm\s*:", director_segment):
-            qc_issues.append("- shot_director 缺少 rhythm 字段（v1 节奏指令）。")
+        # English v1 fields and the current Chinese contract are both valid.
+        if not _has_yaml_field(director_segment, "fragment_task"):
+            qc_issues.append("- shot_director 缺少片段任务字段。")
+        if not _has_yaml_field(director_segment, "rhythm"):
+            qc_issues.append("- shot_director 缺少节奏字段。")
         if re.search(r"(?m)^\s*schema_version\s*:\s*shot_director_local_fallback_v1\s*$", director_segment):
             qc_issues.append("- shot_director 输出来自旧本地兜底，必须重跑镜头导演并确保大模型连接成功。")
-        elif re.search(r"schema_version\s*:", director_segment):
-            qc_issues.append("- shot_director 残留 v2 字段 schema_version，必须使用 v1 字段。")
-        if re.search(r"fragment_intent\s*:", director_segment):
-            qc_issues.append("- shot_director 残留 v2 字段 fragment_intent，必须使用 v1 字段。")
-        if re.search(r"reaction_coverage\s*:", director_segment):
-            qc_issues.append("- shot_director 残留 v2 字段 reaction_coverage，必须使用 v1 字段。")
-        if re.search(r"continuity_anchor\s*:", director_segment):
-            qc_issues.append("- shot_director 残留 v2 字段 continuity_anchor，必须使用 v1 字段。")
-        if not re.search(r"shots\s*:", director_segment):
-            qc_issues.append("- shot_director 未给出当前片段的 shots。")
-        # v1 shot 必填字段检查
-        if re.search(r"shots\s*:", director_segment):
-            shot_blocks = re.findall(
-                r"(?ms)^\s*-\s*shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*shot_id\s*:|^\s{0,2}[a-z_]+\s*:|\Z)",
-                director_segment,
-            )
+        if not _has_yaml_field(director_segment, "shots"):
+            qc_issues.append("- shot_director 未给出当前片段的镜头列表。")
+        if _has_yaml_field(director_segment, "shots"):
+            shot_blocks = _MAIN_SHOT_BLOCK_RE.findall(director_segment)
+            if not shot_blocks:
+                qc_issues.append("- shot_director 镜头列表中没有合法镜头编号。")
             for shot_id_raw, shot_body in shot_blocks:
                 shot_id = shot_id_raw.strip()
                 for field in (
@@ -118,22 +209,19 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                     "cut_point",
                     "continuity",
                 ):
-                    if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_body):
-                        qc_issues.append(f"- {shot_id} 缺少 v1 字段 {field}。")
-                has_merged_shot = re.search(r"(?m)^\s*-?\s*shot\s*:", shot_body)
-                has_legacy_camera_size = re.search(r"(?m)^\s*-?\s*camera\s*:", shot_body) and re.search(
-                    r"(?m)^\s*-?\s*size\s*:",
-                    shot_body,
-                )
+                    if not _has_yaml_field(shot_body, field):
+                        qc_issues.append(f"- {shot_id} 缺少字段 {field}。")
+                has_merged_shot = _has_yaml_field(shot_body, "shot")
+                has_legacy_camera_size = _has_yaml_field(shot_body, "camera") and _has_yaml_field(shot_body, "size")
                 if not (has_merged_shot or has_legacy_camera_size):
-                    qc_issues.append(f"- {shot_id} 缺少 v1 字段 shot（或旧版 camera+size）。")
+                    qc_issues.append(f"- {shot_id} 缺少镜头字段。")
 
                 duration = _yaml_line_field(shot_body, "duration")
                 if duration:
-                    if not re.search(r"(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*(?:秒|s)\b", duration):
+                    if not re.search(r"(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*(?:秒|s)", duration):
                         qc_issues.append(
                             f"- {shot_id} 的 duration 格式非法（{duration}）；"
-                            "应为连续时间段格式，例如 0-2秒、2-5秒。"
+                            "应为时长或连续时间段格式，例如 2秒、0-2秒、2-5秒。"
                         )
 
                 cut_point = _yaml_line_field(shot_body, "cut_point")
@@ -142,15 +230,6 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                         f"- {shot_id} 的 cut_point 过于简短；"
                         "必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。"
                     )
-        # v2 字段残留检查
-        for v2_field in ("coverage_role", "cut_reason", "companion_visibility", "tailframe_role",
-                         "transition_type", "tail_state_card",
-                         "shot_size", "camera_height", "angle", "movement", "lens", "depth"):
-            if re.search(rf"(?m)^\s*-?\s*{re.escape(v2_field)}\s*:", director_segment):
-                qc_issues.append(f"- shot_director 残留 v2 字段 {v2_field}，必须使用 v1 字段。")
-        # main_shots 旧结构禁用
-        if re.search(r"(?m)^\s*main_shots\s*:", director_segment):
-            qc_issues.append("- shot_director 仍在使用已禁用的 main_shots 旧结构，必须改为 shots。")
 
     has_legacy_structure = re.search(
         r"【风格锚点】[\s\S]*【画幅锚点】[\s\S]*"
@@ -164,9 +243,13 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
         r"【人物】[\s\S]*【镜头序列】[\s\S]*(?:【约束】|【全段硬约束】)",
         prompt,
     )
-    if not (has_shot_sequence_structure or has_legacy_structure):
+    has_compact_seedance_structure = re.search(
+        r"【画面基底】[\s\S]*【镜头序列】[\s\S]*【约束】",
+        prompt,
+    )
+    if not (has_compact_seedance_structure or has_shot_sequence_structure or has_legacy_structure):
         qc_issues.append(
-            "- prompt 缺少规定结构，应包含【风格锚点】【画幅锚点】【空间与首帧总控】【人物】【镜头序列】【约束】。"
+            "- prompt 缺少规定结构，应包含新版【画面基底】【镜头序列】【约束】，或兼容旧版完整结构。"
         )
     if planner_segment and re.search(r"reaction_plan\s*:\s*.*片段内", planner_segment) and not re.search(
         r"受击|反应|表情|眼神|嘴唇|下颌|呼吸|停顿", prompt
@@ -189,13 +272,17 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
         )
 
     timeline_blocks = _timeline_blocks(prompt)
-    for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(timeline_blocks[1:], start=2):
-        prefix = blk_body[:120]
-        if not re.search(r"镜头保持在|固定机位保持|镜头切至|镜头切到|镜头切近至|镜头拉开至|切至|切到|切近至|拉开至", prefix):
-            qc_issues.append(
-                f"- [PROMPT-SHOT-TRANSITION-VERB-001] 时间轴第 {block_idx} 个时间段缺少精确衔接词：必须明确写同主体保持、固定机位保持、主体切镜或同主体景别变化。"
-            )
-            break
+    qc_issues.extend(_prompt_shot_density_issues(prompt, planner_segment, director_segment, timeline_blocks))
+    if not uses_shot_sequence:
+        for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(timeline_blocks[1:], start=2):
+            prefix = blk_body[:120]
+            if not re.search(r"镜头保持在|固定机位保持|镜头切至|镜头切到|镜头切近至|镜头拉开至|切至|切到|切近至|拉开至", prefix):
+                qc_issues.append(
+                    f"- [PROMPT-SHOT-TRANSITION-VERB-001] 时间轴第 {block_idx} 个时间段缺少精确衔接词：必须明确写同主体保持、固定机位保持、主体切镜或同主体景别变化。"
+                )
+                break
+    elif "切镜时机" not in prompt:
+        qc_issues.append("- 镜头序列缺少切镜时机：非末尾镜头应写明动作顶点、台词断点、信息看清或反应出现后的切镜触发。")
 
     # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段反打硬失败 — 检查编译后 prompt ===
     if _REVERSE_SHOT_INSIDE_SEGMENT_RE.search(prompt):

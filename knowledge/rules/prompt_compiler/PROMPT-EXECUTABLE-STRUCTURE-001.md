@@ -31,7 +31,7 @@ avoid_when:
 failure_mode:
 - "输出关键词串、概念标签或表格，缺少可直接生成的导演指令。"
 output_contract: "最终 prompt 用完整自然句承载空间、人物位置、动作、台词落点、镜头变化和约束。"
-example_good: "乔熙胸部以上中近景，平视固定机位，她听到后半句时嘴唇停住。"
+example_good: "乔熙胸部以上中近景，平视固定视角，她听到后半句时嘴唇停住。"
 example_bad: "冷白灯，近景，悲伤，压迫，电影感。"
 signals:
 - dialogue_coverage

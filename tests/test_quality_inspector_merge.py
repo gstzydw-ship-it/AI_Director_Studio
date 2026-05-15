@@ -8,6 +8,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from agents.director_graph_package import quality_inspector_impl as qi
+from agents.director_graph_package.prompt_compiler_impl import _compiler_guard_report
 from agents.director_graph_package.quality_inspector_impl import (
     quality_inspector_node,
 )
@@ -123,3 +124,208 @@ shots:
     assert "缺少 v1 字段 camera" not in report
     assert "缺少 v1 字段 size" not in report
     assert "残留 v2 字段 dialogue_coverage" not in report
+
+
+def test_quality_inspector_accepts_chinese_contract_and_compact_seedance_prompt(monkeypatch):
+    monkeypatch.setattr(qi, "_persist_update", lambda state, update: update)
+
+    prompt = """片段1｜乔熙公寓客厅｜赶时间+安抚｜约5秒｜9:16
+
+【画面基底】
+清晨公寓客厅，乔熙和小豆丁在沙发与茶几之间，手机和闹钟停在茶几上。
+
+【镜头序列】
+镜头1【2.5秒】【乔熙、小豆丁】双人半身关系景，茶几侧面固定视角。乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁和衣服。（切镜时机：手机落稳后切至镜头2）
+镜头2【2.5秒】【乔熙、小豆丁】中近景，从乔熙肩后看向小豆丁。乔熙蹲近小豆丁，说出"Sweetie. I'll get you some strawberry cake later, okay?"，小豆丁伸脚配合，画面停住。
+
+尾帧：乔熙蹲在沙发边，小豆丁伸脚配合，手机仍在茶几边缘。
+
+【约束】
+严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌；Kiki不出镜。
+"""
+    planner = """- 片段编号: "F01"
+  片段任务: 完成乔熙赶时间和安抚小豆丁。
+  承接要求: 孩子拒绝上学的反应在本段闭合。
+  施工剧本原文事件:
+    - 乔熙按停闹钟，把手机放回茶几。
+    - "乔熙：Sweetie. I'll get you some strawberry cake later, okay?"
+    - 小豆丁伸脚配合。
+"""
+    director = """片段编号: F01
+片段任务: 完成乔熙赶时间和安抚小豆丁。
+节奏:
+  节奏档位: 紧凑生活动作压力
+镜头列表:
+  - 镜头编号: F01-S01
+    时长: 2.5秒
+    镜头任务: 建立手机、闹钟和亲子穿衣关系。
+    拍摄主体: 乔熙、小豆丁
+    镜头: 双人半身关系景，茶几侧面固定视角
+    画面动作: 乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁。
+    台词: ~
+    必须承载: 手机和闹钟停在茶几上。
+    切镜点: 手机落稳后切出。
+    连续性: 手机仍在茶几边缘，小豆丁仍在沙发边。
+  - 镜头编号: F01-S02
+    时长: 2.5秒
+    镜头任务: 完成草莓蛋糕安抚。
+    拍摄主体: 乔熙、小豆丁
+    镜头: 中近景，从乔熙肩后看向小豆丁
+    画面动作: 乔熙蹲近小豆丁，小豆丁伸脚配合。
+    台词: "Sweetie. I'll get you some strawberry cake later, okay?"
+    必须承载: 小豆丁从拒绝转为配合。
+    切镜点: 小豆丁伸脚后收束。
+    连续性: 两人仍在沙发边，手机仍在茶几上。
+"""
+
+    update = quality_inspector_node(
+        {
+            "active_segment_index": 1,
+            "segment_names": ["F01"],
+            "agent_outputs": {
+                "compiled_segment_1": prompt,
+                "story_planner": planner,
+                "shot_director": director,
+            },
+            "system_guard_report": "",
+        }
+    )
+
+    assert "总体评级：pass" in update["agent_outputs"]["quality_inspector"]
+
+
+def test_compiler_guard_accepts_compact_prompt_with_chinese_shot_assets():
+    prompt = """片段1｜乔熙公寓客厅｜赶时间+安抚｜约5秒｜9:16
+
+【画面基底】
+清晨公寓客厅，乔熙和小豆丁在沙发与茶几之间，手机和闹钟停在茶几上。
+
+【镜头序列】
+镜头1【2.5秒】【乔熙、小豆丁】双人半身关系景，茶几侧面固定视角。乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁和衣服。（切镜时机：手机落稳后切至镜头2）
+镜头2【2.5秒】【乔熙、小豆丁】中近景，从乔熙肩后看向小豆丁。乔熙蹲近小豆丁，说出"Sweetie. I'll get you some strawberry cake later, okay?"，小豆丁伸脚配合，画面停住。
+
+尾帧：乔熙蹲在沙发边，小豆丁伸脚配合，手机仍在茶几边缘。
+
+【约束】
+严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌；Kiki不出镜。
+"""
+    planner = """- 片段编号: "F01"
+  承接要求: 孩子拒绝上学的反应在本段闭合。
+  施工剧本原文事件:
+    - "乔熙：Sweetie. I'll get you some strawberry cake later, okay?"
+"""
+    director = """片段编号: F01
+片段任务: 完成乔熙赶时间和安抚小豆丁。
+节奏:
+  节奏档位: 紧凑生活动作压力
+镜头列表:
+  - 镜头编号: F01-S01
+    时长: 2.5秒
+    镜头任务: 建立手机、闹钟和亲子穿衣关系。
+    拍摄主体: 乔熙、小豆丁
+    镜头: 双人半身关系景，茶几侧面固定视角
+    画面动作: 乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁。
+    台词: ~
+    必须承载: 手机和闹钟停在茶几上。
+    切镜点: 手机落稳后切出。
+    连续性: 手机仍在茶几边缘，小豆丁仍在沙发边。
+"""
+
+    assert _compiler_guard_report(prompt, planner, planner, director) == ""
+
+
+def test_compiler_guard_rejects_overfragmented_life_pressure_prompt():
+    prompt = """片段1｜乔熙公寓客厅｜赶时间+穿衣受阻｜约11秒｜9:16
+
+【画面基底】
+清晨公寓客厅，乔熙和小豆丁在沙发与茶几之间，手机和闹钟在茶几上，书包在右侧地面。
+
+【镜头序列】
+镜头1【2.2秒】【乔熙、小豆丁】双人半身关系景，茶几侧面固定视角。乔熙按停闹钟，把手机放回茶几边缘，转向沙发前的衣服。（切镜时机：乔熙转向小豆丁时切至镜头2）
+镜头2【0.7秒】【乔熙的手、手机】局部近景，茶几侧面固定视角。手机停在茶几边缘，乔熙的手离开画面。（切镜时机：手机落稳后切至镜头3）
+镜头3【2.0秒】【乔熙、小豆丁】半身关系景，从乔熙肩后看向小豆丁。乔熙扶住小豆丁套衣服，说出"Kiki, cover for me. I'll be right there!"，小豆丁缩回胳膊。（切镜时机：小豆丁缩手时切至镜头4）
+镜头4【1.8秒】【小豆丁】中近景，同侧固定视角。小豆丁缩在沙发边，说出"I don't want to go to school!"。（切镜时机：拒绝台词落下后切至镜头5）
+镜头5【2.6秒】【乔熙、小豆丁】双人半身关系景，沙发前略高视角。乔熙蹲近小豆丁，说出"Sweetie. I'll get you some strawberry cake later, okay?"，小豆丁停住。（切镜时机：小豆丁伸脚时切至镜头6）
+镜头6【0.8秒】【小豆丁伸出的脚、衣服】膝下局部近景，沙发侧面固定视角。小豆丁把脚伸向衣服位置，乔熙的手停住接应。（切镜时机：小豆丁脚停到衣服旁后切至镜头7）
+镜头7【2.0秒】【乔熙、书包、小豆丁】中景，沙发前同侧关系视角。乔熙转向右侧地面提起书包，小豆丁留在沙发边，尾帧停在乔熙手中书包。
+
+【约束】
+禁止字幕、水印、屏幕文字；Kiki不出镜。
+"""
+    script = """乔熙：Kiki, cover for me. I'll be right there!
+小豆丁：I don't want to go to school!
+乔熙：Sweetie. I'll get you some strawberry cake later, okay?
+"""
+    planner = """- 片段编号: F01
+  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
+  承接要求: 孩子拒绝上学的反应在本段闭合。
+"""
+    director = """片段编号: F01
+片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
+节奏: 紧凑生活动作压力
+"""
+
+    report = _compiler_guard_report(prompt, script, planner, director)
+
+    assert "镜头切分过碎" in report
+    assert "1秒以下碎镜过多" in report
+
+
+def test_quality_inspector_rejects_overfragmented_life_pressure_prompt(monkeypatch):
+    monkeypatch.setattr(qi, "_persist_update", lambda state, update: update)
+
+    prompt = """片段1｜乔熙公寓客厅｜赶时间+穿衣受阻｜约11秒｜9:16
+
+【画面基底】
+清晨公寓客厅，乔熙和小豆丁在沙发与茶几之间，手机和闹钟在茶几上。
+
+【镜头序列】
+镜头1【2.2秒】【乔熙、小豆丁】双人半身关系景，茶几侧面固定视角。乔熙按停闹钟，把手机放回茶几边缘，转向沙发前的衣服。（切镜时机：乔熙转向小豆丁时切至镜头2）
+镜头2【0.7秒】【乔熙的手、手机】局部近景，茶几侧面固定视角。手机停在茶几边缘，乔熙的手离开画面。（切镜时机：手机落稳后切至镜头3）
+镜头3【2.0秒】【乔熙、小豆丁】半身关系景，从乔熙肩后看向小豆丁。乔熙扶住小豆丁套衣服，小豆丁缩回胳膊。（切镜时机：小豆丁缩手时切至镜头4）
+镜头4【1.8秒】【小豆丁】中近景，同侧固定视角。小豆丁缩在沙发边，说出"I don't want to go to school!"。（切镜时机：拒绝台词落下后切至镜头5）
+镜头5【2.6秒】【乔熙、小豆丁】双人半身关系景，沙发前略高视角。乔熙蹲近小豆丁，说出"Sweetie. I'll get you some strawberry cake later, okay?"，小豆丁停住。（切镜时机：小豆丁伸脚时切至镜头6）
+镜头6【0.8秒】【小豆丁伸出的脚、衣服】膝下局部近景，沙发侧面固定视角。小豆丁把脚伸向衣服位置，乔熙的手停住接应。（切镜时机：小豆丁脚停到衣服旁后切至镜头7）
+镜头7【2.0秒】【乔熙、书包、小豆丁】中景，沙发前同侧关系视角。乔熙转向右侧地面提起书包，小豆丁留在沙发边，尾帧停在乔熙手中书包。
+
+【约束】
+禁止字幕、水印、屏幕文字；Kiki不出镜。
+"""
+    planner = """- 片段编号: F01
+  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
+  承接要求: 孩子拒绝上学的反应在本段闭合。
+"""
+    director = """片段编号: F01
+片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
+节奏: 紧凑生活动作压力
+镜头列表:
+  - 镜头编号: F01-S01
+    时长: 2秒
+    镜头任务: 建立关系
+    拍摄主体: 乔熙、小豆丁
+    镜头: 双人半身关系景，茶几侧面固定视角
+    画面动作: 乔熙按停闹钟，把手机放回茶几边缘。
+    台词: ~
+    必须承载: 手机和闹钟停在茶几上。
+    切镜点: 手机落稳后切出。
+    连续性: 两人仍在沙发与茶几之间。
+"""
+
+    update = quality_inspector_node(
+        {
+            "active_segment_index": 1,
+            "segment_names": ["F01"],
+            "agent_outputs": {
+                "compiled_segment_1": prompt,
+                "story_planner": planner,
+                "shot_director": director,
+            },
+            "system_guard_report": "",
+        }
+    )
+
+    report = update["agent_outputs"]["quality_inspector"]
+
+    assert "总体评级：fail" in report
+    assert "镜头切分过碎" in report
+    assert "1秒以下碎镜过多" in report

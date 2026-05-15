@@ -109,6 +109,40 @@ _SHOT_DURATION_RE = re.compile(r"^\s*[\"']?(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*
 _SHOT_CUT_TRIGGER_RE = re.compile(
     r"(动作顶点|台词(?:断点|落下|结束)?|反应(?:出现|落点)?|信息(?:看清|揭示)|看清|停住|完成|命中|落桌|撞上|尾帧|切出|切至|切到|状态(?:稳定|完成)|片段结束|→)"
 )
+_SHOT_DENSITY_LIFE_PRESSURE_RE = re.compile(
+    r"生活|赶时间|穿衣|上学|孩子|小豆丁|闹钟|电话|手机|草莓|安抚|哄|抗拒|乱蹬|缩手|踢开|书包|紧凑生活",
+    re.IGNORECASE,
+)
+_SHOT_DENSITY_HIGH_CUT_RE = re.compile(
+    r"追逐|打斗|抢夺|闯入|冲进|救援|爆炸|车祸|急救|信息揭示|照片|文件|真相|证据|屏幕|监控|"
+    r"亲子鉴定|高压对白|长对白|权力压迫|外部打断|宴会|群体|反转",
+    re.IGNORECASE,
+)
+_SHOT_SUBJECT_SPLIT_RE = re.compile(r"[、,，/＋+]|和|与|及")
+_SHOT_PROP_SUBJECT_RE = re.compile(
+    r"闹钟|手机|电话|外套|衣服|裤|鞋|书包|照片|项链|文件|咖啡|杯|车门|房门|门|按钮|"
+    r"桌|沙发|茶几|草莓|蛋糕|手链|戒指|礼盒|道具|花|车|钥匙"
+)
+_SHOT_GROUP_SUBJECT_RE = re.compile(r"双人|两人|二人|多人|众人|群体|员工|宾客|同框|关系|母女|母子|父女")
+_SHOT_PROP_AS_SUBJECT_ALLOWED_RE = re.compile(
+    r"唯一主体|信息揭示|关键物|关键道具|线索|证据|照片|文件内容|屏幕|文字|可读|看清|特写|insert|局部|揭示"
+)
+_SHOT_SPATIAL_STATE_JUMP_RE = re.compile(
+    r"突然.{0,16}(站在|坐在|来到|出现在|跑到|移到|换到|穿好|戴好|完成)|"
+    r"已经.{0,16}(站在|坐在|来到|出现在|跑到|移到|换到|穿好|戴好|完成)|"
+    r"(站在|坐在|来到|出现在|跑到|移到|换到|穿好|戴好|完成)"
+)
+_SHOT_CONTINUITY_INHERIT_RE = re.compile(
+    r"承接上一镜|继承上一镜|上一镜|仍|还|继续|保持|同一|没有离开|未离开|接上|镜尾|尾帧|动作中段"
+)
+_SHOT_VISIBLE_TRANSITION_RE = re.compile(
+    r"起身|站起|坐下|走到|移到|退到|转身|跟随|抱起|放下|拿起|捡起|塞回|滑落|伸出|穿好|停止|停住"
+)
+_SHOT_FINAL_CAMERA_JARGON_RE = re.compile(r"机位|摄影机位于|camera|shot_size|angle|movement|scene_fixed", re.IGNORECASE)
+_SHOT_VIEWPOINT_TRANSLATION_HINT = (
+    "最终镜头字段必须把内部机位翻译成视角/观看位置，例如“侧面视角”“固定视角”"
+    "“从乔熙肩后看向小豆丁”“小豆丁视线里的乔熙”；不要输出“固定机位/侧面机位/摄影机位于”。"
+)
 
 def _shot_director_workflow_contract() -> str:
     return (
@@ -119,6 +153,10 @@ def _shot_director_workflow_contract() -> str:
         "阶段三｜规则守门导演 + 最终自然表达：只做最小修复，检查剧本外内容、漏事件、道具跳变、越轴、特写过密、切点无信息变化、镜头语言重复，并把方案整理成自然中文镜头施工单。\n"
         "内部检查项仍必须覆盖：事实提取、节奏意图读取、剪辑策略判断、戏剧任务判断、镜头骨架、镜头语言变化、动作与子镜头、切镜时机、冲突裁决、最小修复、最终交付。\n"
         "冲突裁决：原剧本事实 > 拆片边界 > 连续性/空间安全 > 节奏总控建议 > 镜头美学。\n"
+        "节奏裁决：快节奏优先来自人物动作密度、情绪压力和停顿缩短，不等于把生活动作切成碎镜；8-12秒生活动作段默认控制在2-4个有效镜头。\n"
+        "拍摄主体裁决：拍摄主体不是人物/道具清单，而是本镜观众注意力的主焦点；道具只有承担信息揭示、线索命中或动作结果时才能成为主体。\n"
+        "镜头组合裁决：先选戏剧任务镜头组合，再决定下一镜；生活压力、信息揭示、对白攻防、权力压迫、动作位移分别有不同覆盖链，禁止随机拼景别。\n"
+        "连续性裁决：每一镜必须承接上一镜尾帧；人物坐站、位置、道具归属或穿戴状态变化，要么在本镜看见过程，要么用动作中段/尾帧复位切过去。\n"
         "每个镜头除基础字段外，可以补齐 覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责，"
         "让下游无需猜测镜头职责、切镜原因、同场人物位置和尾帧状态。\n"
     )
@@ -427,10 +465,10 @@ def _spatial_geometry_contract_rules() -> str:
     return (
         "【空间几何合同硬规则】\n"
         "1. 当前轻量施工单不再输出 camera_basis 等内部字段；空间几何必须翻译进 shot 与 continuity。内部校验仍使用 camera_basis、scene_fixed、visible_landmarks 等合同词判断前景/中景/后景是否闭环。\n"
-        "2. shot/镜头字段只写摄影选择，格式为【景别 + 简洁机位/视角 + 必要运镜/前景关系】；不要在此字段写人物动作、台词、心理、戏剧效果或情绪判断。\n"
-        "3. 禁止把机位锚点、空间方位和景别硬拼成抽象短语；不要写坐标式空间说明或摄影机位置说明书。\n"
+        "2. shot/镜头字段只写最终可生成的镜头表达句，格式为【主体景别 + 视角/观看位置 + 必要运动】；不要在此字段写人物动作、台词、心理、戏剧效果或情绪判断。\n"
+        "3. 内部可以判断机位锚点，但最终必须翻译成视角：写“侧面视角”“固定视角”“从谁肩后看向谁”，不要写“侧面机位/固定机位/摄影机位于”，也不要写坐标式空间说明。\n"
         "4. continuity 必须写清具名人物站位、朝向、道具位置和可继承尾帧；不能只写\"保持连续\"，也不能只写\"画面左侧/右侧\"而不说明谁看向谁。\n"
-        "5. 人物转身、穿门、进电梯/车门/房门等阈值动作，优先使用侧面、背后或场景固定机位；不要用人物正前方固定机位硬拍动作路径。\n"
+        "5. 人物转身、穿门、进电梯/车门/房门等阈值动作，最终写成侧面视角、背后跟随视角或固定视角；不要用人物正前方视角硬拍动作路径。\n"
         "6. 如果人物面朝电梯/门口且镜头拍正面，门框只能是前景或侧边锚点，不能写成后景。\n"
         "7. 几何闭环优先于好听文案：shot、action、continuity 三者必须互相兼容。\n"
     )
@@ -449,18 +487,19 @@ def _performance_logic_contract_rules() -> str:
 
 def _camera_execution_rules() -> str:
     return (
-        "【机位与运镜可执行硬规则】\n"
+        "【内部机位规划与最终视角表达硬规则】\n"
         "1. 内部镜头设计必须保留完整镜头语法：主体+主体景别、焦段、景深、机位高度、拍摄角度、唯一运镜、动作/表演、光源；不得因为最终要给 Seedance 就提前丢掉焦段/景深/高度/角度判断。\n"
         "2. 每个 shot 只能有一个主体焦点、一个景别基底、一个主导运镜；景别可以在子分镜内递进，但不能写成\"纵深中全景到半身中景\"这种单字段混合景别。\n"
-        "3. 机位高度从仰拍、平视、俯拍、顶拍、虫眼中选择；普通关系/对白可用平视，权力压制可用仰拍，弱势/群体散开可用俯拍。最终 prompt 可把\"平视\"译成自然短句，避免机械写\"眼平高度\"。\n"
-        "4. 拍摄角度从正面、侧面、侧背、背后、过肩、场景固定机位、荷兰角、POV 中选择；POV 必须先有建立镜头说明谁在看，禁止直接跳 POV。禁止用人物相对的左前方/右前方/左后方/右后方当机位，因为人物转身后左右会反。不要每段都写数字角度。\n"
-        "5. 运镜从推镜、拉镜、横移、横摇、垂直摇、升降、变焦、稳定器跟拍、手持、固定机位中选唯一主导运镜；禁止在一个 shot 内同时推近、横移、摇摄、再回主位。\n"
+        "3. 内部可以判断平视、略低、略高、俯视等高度；最终要写成“自然平视角”“略低视角”“略高视角看动作”，避免机械写“眼平高度/低机位”。\n"
+        "4. 内部拍摄角度从正面、侧面、侧背、背后、过肩、固定观察、荷兰角、POV 中选择；最终输出必须写“正面视角/侧面视角/背后跟随视角/从谁肩后看向谁/谁的主观视角”。\n"
+        "5. 运镜从推近、拉开、横移、摇摄、升降、变焦、跟随、手持、固定观察中选唯一主导运动；禁止在一个 shot 内同时推近、横移、摇摄、再回主位。\n"
         "6. 运镜必须服务镜头目的：推近/切近/转特写只能服务信息逼近、情绪暴露、压迫上升、受击反应变重要、道具或局部动作成为焦点；禁止把慢推近当通用情绪模板。\n"
         "7. 反应落点优先按层级处理：主分镜负责主体关系和空间重心，子分镜负责受击、表情重音、局部动作；不要把\"同一运动里带到反应再回主位\"写成一个复杂主镜头。\n"
-        "8. 禁止复合景别/复合机位：不要写\"纵深中全景到半身中景\"\"中景转电梯口关系景\"\"右后方中景转固定机位\"\"同轴线偏右侧\"\"前后景关系\"。改成结构化字段：shot_size=MS/MCU，angle=正面/侧面/侧背/背面/过肩/场景固定，movement=固定/跟拍。\n"
-        "9. 禁止使用模糊机位词：三分之四角度、斜侧、斜前方、轻微前推、轻微前推跟随、缓慢靠近、背影轻压。\n"
+        "8. 禁止复合景别/复合机位：不要写\"纵深中全景到半身中景\"\"中景转电梯口关系景\"\"右后方中景转固定机位\"\"同轴线偏右侧\"\"前后景关系\"。最终改成自然句：主体 + 景别 + 视角 + 运动。\n"
+        "9. 禁止使用模糊视角词：三分之四角度、斜侧、斜前方、轻微前推、轻微前推跟随、缓慢靠近、背影轻压。\n"
         "10. 禁止抽象判断句。不要写\"沉默就是回应\"\"权力关系锁住\"\"空气收紧\"\"命令落地即见效\"\"形成清晰钩子\"。必须改写成可见动作：停顿几秒、谁看向谁、谁后退半步、谁让出通道、电梯门停在什么开合状态。\n"
         "11. 内部可以技术化，最终编译必须感知化：85mm浅景深可译为\"背景虚化、主体突出\"，深景深可译为\"前后景都清楚\"，不得把\"电影感/高级感\"写成空壳标签。\n"
+        f"12. {_SHOT_VIEWPOINT_TRANSLATION_HINT}\n"
     )
 
 def _camera_task_selection_rules() -> str:
@@ -553,19 +592,191 @@ def _shot_director_source_event_rules() -> str:
         "12. 若节奏建议与剧本事实、台词原文、动作道具连续性、人物位置、空间轴线安全冲突，后者优先。\n"
     )
 
+_SHOT_RHYTHM_FAST_ACTION_RE = re.compile(
+    r"闹钟|赶|急|忙|乱蹬|追车|追逐|逼近|跟着|身后|加快|穿过|撞开|躲|冲向|冲进|"
+    r"小跑|跑|闯|警笛|救护车|不见了|走失|掉在|滑出|抓起|藏到|扶住|倒下|坍塌|抢|拉扯",
+    re.IGNORECASE,
+)
+_SHOT_RHYTHM_DIALOGUE_RE = re.compile(
+    r"说(?!不出话)|问|喊|解释|质问|回应|承认|否认|道歉|要求|命令|继续说|低声说|"
+    r"电话(?:里|中|那头|问|说)|短信|：|:",
+    re.IGNORECASE,
+)
+_SHOT_RHYTHM_REACTION_RE = re.compile(
+    r"停住|愣|沉默|安静|脸色变|看向|回头|后退|哭|害怕|不敢|压住火气|受击|反应|"
+    r"没有立刻回答|抬头|握紧|眼眶红|僵住|没有接|点头|低头|收回手",
+    re.IGNORECASE,
+)
+_SHOT_RHYTHM_REVEAL_RE = re.compile(
+    r"("
+    r"(?:照片|文件|录音|短信|视频|监控|报告|合同|戒指|项链|亲子鉴定|诊断书|钥匙|书包|屏幕|通知|证据).{0,18}"
+    r"(?:掉|滑|散落|露|翻|拿出|捡|看清|发现|打开|递出|递到|递来|送到|送来|推过|放到|放在|摆到|亮出|取出|掏出|落出|掉出|弹出|刷出|出现|播放|投到|显示|写着)|"
+    r"(?:掉|滑|散落|露|翻|拿出|捡|看清|发现|打开|递出|递到|递来|送到|送来|推过|放到|放在|摆到|亮出|取出|掏出|落出|掉出|弹出|刷出|出现|播放|投到|显示|写着).{0,18}"
+    r"(?:照片|文件|录音|短信|视频|监控|报告|合同|戒指|项链|亲子鉴定|诊断书|钥匙|书包|屏幕|通知|证据)|"
+    r"真相出现|签名时间|遗嘱被改|过敏照片|缴费单|病危通知|新证据|真正签名"
+    r")",
+    re.IGNORECASE,
+)
+_SHOT_RHYTHM_MEMORY_RE = re.compile(r"回忆|闪回|回到现实|四年前|三年前|多年后|往事|从前", re.IGNORECASE)
+_SHOT_RHYTHM_INTRUSION_RE = re.compile(
+    r"门被推开|门突然开|突然开了|门打开|敲门|闯进|闯入|冲进|赶到|警笛|救护车|手机震动|电话响起|电话响|打断|挡在门口",
+    re.IGNORECASE,
+)
+
+def _estimate_shot_director_coverage_plan(
+    events: list[str],
+    *,
+    planner_handoff: str = "",
+    duration_target: str = "",
+) -> dict[str, str]:
+    """Estimate shot-director coverage ownership from planner events for tests and diagnostics."""
+    clean_handoff = "" if planner_handoff == "开场情绪注意力问题" else planner_handoff
+    text = "\n".join([*(events or []), clean_handoff, duration_target])
+    event_count = len(events or [])
+    has_memory = bool(_SHOT_RHYTHM_MEMORY_RE.search(text))
+    has_reveal = bool(_SHOT_RHYTHM_REVEAL_RE.search(text))
+    has_intrusion = bool(_SHOT_RHYTHM_INTRUSION_RE.search(text))
+    fast_action_hits = len(_SHOT_RHYTHM_FAST_ACTION_RE.findall(text))
+    has_fast_action = fast_action_hits >= 2 or bool(
+        re.search(r"追逐|追车|冲向|撞开|警笛|救护车|不见了|走失|乱蹬", text, re.IGNORECASE)
+    )
+    has_dialogue = bool(_SHOT_RHYTHM_DIALOGUE_RE.search(text))
+    has_reaction = bool(_SHOT_RHYTHM_REACTION_RE.search(text))
+
+    if has_memory:
+        if re.search(r"回到现实|现实", text) and event_count <= 1:
+            return {
+                "rhythm_task": "时空切层/现实回收",
+                "effective_shots": "1-2",
+                "layout": "现实关系中近景或关系景接回尾帧，避免为了回神细节新增碎镜。",
+                "cut_timing": "切点落在观众辨认现实层之后，尾帧停可继承状态。",
+                "duration_logic": "短镜接回，情绪停顿可比动作更长。",
+                "action_direction": "动作只保留回神、握住道具、看向对方等低歧义结果态。",
+            }
+        return {
+            "rhythm_task": "回忆/时空切层",
+            "effective_shots": "2-3",
+            "layout": "先用切层识别镜头建立时空，再用关系/中景承载回忆内动作。",
+            "cut_timing": "切点落在时空层明确、情绪动作完成或尾帧可回接处。",
+            "duration_logic": "第一镜短促辨认，后续镜头给情绪动作留读秒。",
+            "action_direction": "动作调度只保留记忆层的核心接触、递交、回望或离开。",
+        }
+
+    reveal_is_major = bool(
+        re.search(
+            r"看清|发现|播放|投到|显示|真相|结果|日期|照片|诊断|亲子鉴定|录音|视频|监控|短信|屏幕|"
+            r"报告|病危通知|遗嘱|过敏照片|缴费单|签名时间|新证据",
+            text,
+            re.IGNORECASE,
+        )
+    )
+    reveal_is_weak_prop = bool(
+        re.search(
+            r"(?:钥匙|书包).{0,8}(?:拿|取出|掏出|放|递|捡)|(?:拿|取出|掏出|放|递|捡).{0,8}(?:钥匙|书包)",
+            text,
+            re.IGNORECASE,
+        )
+    ) and not reveal_is_major
+    if has_intrusion and not (has_reveal and reveal_is_major):
+        return {
+            "rhythm_task": "外部打断/压力转向",
+            "effective_shots": "2-3",
+            "layout": "当前关系镜头 -> 打断来源/入口方向 -> 被打断者或群体反应复位。",
+            "cut_timing": "切点落在声音/入口/人群反应触发处，不盲切群体碎反应。",
+            "duration_logic": "前后镜较短，中间打断来源要清楚。",
+            "action_direction": "动作调度强调停住、看向、让开或护住道具等结果。",
+        }
+
+    if has_reveal and not reveal_is_weak_prop and not (has_dialogue and event_count >= 4 and not reveal_is_major):
+        if event_count <= 1 and not has_reaction and not re.search(r"看清|发现|播放|投到|真相|结果|日期|发光|录音|视频|监控|短信", text):
+            return {
+                "rhythm_task": "关键物件承接",
+                "effective_shots": "1-2",
+                "layout": "用主关系镜头接住道具进入叙事，必要时给短插入。",
+                "cut_timing": "切点落在道具状态成立后，不为递放过程单独碎切。",
+                "duration_logic": "道具进入画面不拖长，结果状态清楚即可。",
+                "action_direction": "递出、放下、拿起等过程并入主镜头，强调道具归属。",
+            }
+        return {
+            "rhythm_task": "信息揭示/关键物件",
+            "effective_shots": "2-3",
+            "layout": "关系镜头或发现前状态 -> 信息可读近景/插入 -> 人物反应或关系复位。",
+            "cut_timing": "切点不得早于文字/物件被看清，反应镜头落在信息读清之后。",
+            "duration_logic": "信息镜头至少留出可读停顿，反应镜头不抢在揭示前。",
+            "action_direction": "动作调度压缩寻找过程，保留发现、看清、停住或转向。",
+        }
+
+    if has_intrusion:
+        return {
+            "rhythm_task": "外部打断/压力转向",
+            "effective_shots": "2-3",
+            "layout": "当前关系镜头 -> 打断来源/入口方向 -> 被打断者或群体反应复位。",
+            "cut_timing": "切点落在声音/入口/人群反应触发处，不盲切群体碎反应。",
+            "duration_logic": "前后镜较短，中间打断来源要清楚。",
+            "action_direction": "动作调度强调停住、看向、让开或护住道具等结果。",
+        }
+
+    if has_fast_action:
+        return {
+            "rhythm_task": "急促动作/压力上升",
+            "effective_shots": "2-4" if event_count >= 3 else "2-3",
+            "layout": "关系/跟随镜头承载动作链，必要时在动作顶点或结果落点切近。",
+            "cut_timing": "只在动作顶点、主体切换、信息落点或结果状态完成时切。",
+            "duration_logic": "短镜密度来自动作压力，不能把每个小动作拆成独立镜头。",
+            "action_direction": "动作调度做叠压和省略，跳过走路/翻找/调整衣物等无增量过程。",
+        }
+
+    if has_dialogue and has_reaction:
+        return {
+            "rhythm_task": "高压对白/情绪反应",
+            "effective_shots": "2-4",
+            "layout": "说话者起句、同侧听者反应/过肩、必要时关系复位或反应近景。",
+            "cut_timing": "切点落在台词压力词、听者受击、短暂停顿或回应前。",
+            "duration_logic": "长句后半可用 OS/J-cut/L-cut 落在听者反应上。",
+            "action_direction": "动作调度保留视线、停顿、后退、放下道具等情绪结果，不堆微表情。",
+        }
+
+    if has_dialogue or has_reaction:
+        return {
+            "rhythm_task": "对白/情绪铺垫",
+            "effective_shots": "1-2" if event_count <= 2 else "2-3",
+            "layout": "半身关系景或过肩承载交流，需要时切听者反应。",
+            "cut_timing": "切点落在情绪落点、回应前或关系变化处。",
+            "duration_logic": "语义连续优先，不为短句机械正反打。",
+            "action_direction": "动作调度让人物动作自然承接台词，不新增解释性表演。",
+        }
+
+    return {
+        "rhythm_task": "正常承接/情绪铺垫",
+        "effective_shots": "1-2",
+        "layout": "稳定关系镜头或中景承载，不为普通过渡动作单独开镜。",
+        "cut_timing": "只有主体、空间或状态真的变化时切。",
+        "duration_logic": "镜头时长随动作自然完成，不制造假停顿。",
+        "action_direction": "弱动作并入主镜头或用结果状态呈现。",
+    }
+
 def _shot_director_rhythm_match_rules() -> str:
     return (
         "【节奏与镜头匹配规则（参考《AI 导演系统工程文档规范》）】\n"
-        "0. shot_director 只执行 story_planner 与 rhythm supervisor 给出的片段节奏指令/片段操作单，不得重新判断整体节奏；必须把必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面落到镜头设计里。\n"
+        "0. shot_director 只执行 story_planner 给出的片段边界、情绪曲线、节奏意图、必须保留落点、可压缩弱拍和尾帧承接；不得重新判断整体节奏、不得重新拆片或新增剧情。\n"
+        "0A. 镜头数、镜头时长、景别、机位、运镜、反应覆盖和切镜点由 shot_director 决定；若上游旧字段出现“最多镜头数/建议镜头数”，只当软提示，不得替代本阶段的镜头规划判断。\n"
         "1. 先识别戏剧微粒，再决定镜头：权力反转看压制与失势，冲突升级看施压与受击，悬念揭示看发现与停顿，误解错位看听者反应，情绪极点看停住后的内压，钩子结尾看最后的悬住点。\n"
         "2. 镜头数量由节奏任务决定，不由镜头库模板决定；能用 1 个主镜头讲清的动作，不要硬拆成 3 个细碎镜头。\n"
-        "3. 需要切镜时，只切信息增量最大的节点：动作前摇、揭示落点、受击反应、关系变化、关键道具或文字出现。走近、弯腰、拿起、站定等中间过渡默认省略。\n"
-        "4. 权力反转优先用站位高低、画面占比、稳定推进和反应落点表达，不靠堆叠特写表达压迫。\n"
-        "5. 冲突升级优先 2-3 秒短镜，保留施压、受击和停顿，切掉无信息量动作过程。\n"
-        "6. 悬念揭示里的关键物、文件、屏幕、照片要稳拍可读；不要为了好看加花哨运动，文字类信息优先静态或极轻微推进。\n"
-        "7. 情绪极点允许更稳、更长一点，但仍应以简单背景、少动作、少机位运动为前提；9:16 下优先稳住半身或中景，再考虑是否真的需要更近景别。\n"
-        "8. 9:16 竖屏下，半身/中景/双人关系镜头是主力，特写是强调而不是默认。若一个片段出现多次面部特写，必须有明确的炸点、受击或揭示理由，否则视为过度设计。\n"
-        "9. 微细节镜头只用于关键信息，不用于堆砌存在感。手、嘴唇、眼角、袖口、鞋尖、发丝等局部如果不承载线索、动作前摇或受击结果，就不要单独给镜头。\n"
+        "3. 快节奏不是多切镜，而是人物动作更紧、停顿更短、信息落点更密；快切只用于动作前摇、揭示落点、受击反应、关系变化、关键道具或文字出现。\n"
+        "4. 正常节奏使用正常人物动作和正常镜头切分：保持半身/中景/双人关系镜头的连续性，不为了显得有节奏而切手、切眼、切衣角。\n"
+        "5. 需要切镜时，只切信息增量最大的节点。走近、弯腰、拿起、站定、回头等中间过渡默认并入主镜头，不单独成镜。\n"
+        "6. 权力反转优先用站位高低、画面占比、稳定推进和反应落点表达，不靠堆叠特写表达压迫。\n"
+        "7. 冲突升级可以用 2-3 秒短镜，但每个短镜必须有明确戏剧功能；切掉无信息量动作过程。\n"
+        "8. 悬念揭示里的关键物、文件、屏幕、照片要稳拍可读；不要为了好看加花哨运动，文字类信息优先静态或极轻微推进。\n"
+        "9. 情绪极点允许更稳、更长一点，但仍应以简单背景、少动作、少机位运动为前提；9:16 下优先稳住半身或中景，再考虑是否真的需要更近景别。\n"
+        "10. 9:16 竖屏下，半身/中景/双人关系镜头是主力，特写是强调而不是默认。若一个片段出现多次面部特写，必须有明确的炸点、受击或揭示理由，否则视为过度设计。\n"
+        "11. 微细节镜头只用于关键信息，不用于堆砌存在感。手、嘴唇、眼角、袖口、鞋尖、发丝等局部如果不承载线索、动作前摇或受击结果，就不要单独给镜头。\n"
+        "12. 一号 layout 阶段先决定主镜头覆盖骨架和粗景别：关系/中景负责空间和动作，中近景负责对白和反应，信息插入只给关键物件或文字，远景只在建立空间、权力关系或孤立感时使用。\n"
+        "13. 二号 blocking 阶段再决定是否需要子镜头、反应镜头、OS/J-cut/L-cut、动作顶点前切和时长分配；长对白必须根据情绪压力切听者反应、过肩或景别变化，不能同一机位吃完整段。\n"
+        "14. 镜头数施工尺：情绪铺垫/正常承接 1-2 个有效镜头；急促动作群/外部打断 2-4 个；信息揭示/关键物件 2-3 个；高压对白/冲突升级 2-4 个；情绪极点/停顿反应 1-2 个；短回忆/现实切层 1-3 个。\n"
+        "15. 5-6秒片段一般不超过3个有效镜头，只有追逐、闯入、爆点连发可到4个；8-12秒片段一般2-4个；12-15秒若需要超过5个，应回报上游疑似粗拆，而不是硬塞更多镜头。\n"
+        "16. 生活动作快节奏硬规则：赶时间、穿衣、接电话、孩子抗拒、哄劝等生活压力段，8-12秒优先3-4镜；不得拆出0.7秒/0.8秒的手、手机、脚、衣服碎插入。观众要看见同一动作关系连续变紧，而不是看剪辑碎片。\n"
+        "17. 1秒以下镜头只允许用于关键信息揭示、突发危险、动作命中或必须读清的关键道具；同一片段出现两个以上1秒以下镜头，默认判为过碎，必须合并到主关系镜头或改成切镜时机。\n"
     )
 
 def _shortdrama_master_rules() -> str:
@@ -968,6 +1179,81 @@ def _source_script_events(section: str) -> list[str]:
         if item.strip()
     ]
 
+def _seconds_from_duration_text(value: str) -> float | None:
+    text = (value or "").strip().strip("\"'")
+    range_match = re.search(
+        r"(\d+(?:\.\d+)?)\s*(?:-|~|–|—)\s*(\d+(?:\.\d+)?)\s*(?:秒|s)?",
+        text,
+        re.IGNORECASE,
+    )
+    if range_match:
+        start = float(range_match.group(1))
+        end = float(range_match.group(2))
+        if end > start:
+            return end - start
+        return end
+    match = re.search(r"(\d+(?:\.\d+)?)\s*(?:秒|s)", text, re.IGNORECASE)
+    return float(match.group(1)) if match else None
+
+
+def _shot_density_limit(section: str, total_seconds: float | None) -> int:
+    context = section or ""
+    life_pressure = bool(_SHOT_DENSITY_LIFE_PRESSURE_RE.search(context))
+    high_cut_need = bool(_SHOT_DENSITY_HIGH_CUT_RE.search(context))
+    if total_seconds is None:
+        return 4 if life_pressure and not high_cut_need else 5
+    if total_seconds <= 6:
+        return 3
+    if total_seconds <= 12.5:
+        return 4 if life_pressure and not high_cut_need else 5
+    if total_seconds <= 15.5:
+        return 5
+    return 6
+
+
+def _format_seconds(value: float | None) -> str:
+    if value is None:
+        return "未知时长"
+    rounded = round(value, 1)
+    if rounded.is_integer():
+        return f"{int(rounded)}秒"
+    return f"{rounded:.1f}秒"
+
+
+def _validate_shot_director_density(
+    fragment_id: str,
+    section: str,
+    shot_blocks: list[tuple[str, str]],
+) -> list[str]:
+    if not shot_blocks:
+        return []
+    durations: list[tuple[str, float]] = []
+    for shot_id, shot_block in shot_blocks:
+        seconds = _seconds_from_duration_text(_yaml_line_field(shot_block, "duration"))
+        if seconds is not None:
+            durations.append((shot_id, seconds))
+
+    total_seconds = sum(seconds for _shot_id, seconds in durations) if durations else None
+    shot_count = len(shot_blocks)
+    limit = _shot_density_limit(section, total_seconds)
+    issues: list[str] = []
+    if shot_count > limit:
+        issues.append(
+            f"{fragment_id} 镜头切分过碎：{_format_seconds(total_seconds)}安排{shot_count}个镜头，"
+            f"当前节奏类型建议不超过{limit}个有效镜头；快节奏应优先靠人物动作紧张、停顿缩短和情绪压力，不靠碎切。"
+        )
+
+    short_shots = [(shot_id, seconds) for shot_id, seconds in durations if seconds < 1.0]
+    life_pressure = bool(_SHOT_DENSITY_LIFE_PRESSURE_RE.search(section or ""))
+    high_cut_need = bool(_SHOT_DENSITY_HIGH_CUT_RE.search(section or ""))
+    if short_shots and (len(short_shots) >= 2 or (life_pressure and not high_cut_need)):
+        short_text = "、".join(f"{shot_id}={seconds:.1f}秒" for shot_id, seconds in short_shots[:4])
+        issues.append(
+            f"{fragment_id} 出现1秒以下碎镜（{short_text}）。生活动作/正常动作段不得把手、手机、脚、衣服等局部动作拆成碎插入；"
+            "请合并进关系镜头，或只把真正的信息揭示/危险命中保留为短镜。"
+        )
+    return issues
+
 def _truncate_for_prompt(text: str, limit: int = 12000) -> str:
     text = text or ""
     if len(text) <= limit:
@@ -986,6 +1272,72 @@ def _runtime_context_contract_card() -> str:
 
 def _is_local_insert_subject(value: str) -> bool:
     return bool(re.search(r"手|手部|门缝|按钮|文件|手机|衣角|车门|电梯门|照片|道具", value or ""))
+
+
+def _shot_field_has_untranslated_camera_jargon(value: str) -> bool:
+    return bool(_SHOT_FINAL_CAMERA_JARGON_RE.search(value or ""))
+
+
+def _split_shot_subject_tokens(subject: str) -> list[str]:
+    tokens: list[str] = []
+    for item in _SHOT_SUBJECT_SPLIT_RE.split(subject or ""):
+        token = item.strip().strip("\"'“”‘’ ")
+        if token:
+            tokens.append(token)
+    return tokens
+
+
+def _shot_subject_ownership_issues(shot_id: str, shot_block: str) -> list[str]:
+    subject = _yaml_line_field(shot_block, "subject")
+    if not subject:
+        return []
+    tokens = _split_shot_subject_tokens(subject)
+    task_text = " ".join(
+        _yaml_line_field(shot_block, field)
+        for field in ("task", "action", "must_carry", "cut_point")
+    )
+    prop_tokens = [token for token in tokens if _SHOT_PROP_SUBJECT_RE.search(token)]
+    allows_prop_subject = bool(_SHOT_PROP_AS_SUBJECT_ALLOWED_RE.search(task_text))
+    is_group_subject = bool(_SHOT_GROUP_SUBJECT_RE.search(subject))
+
+    issues: list[str] = []
+    if len(tokens) >= 5:
+        issues.append(
+            f"{shot_id} 拍摄主体过载：{subject}。"
+            "拍摄主体不是人物/道具清单，只能写本镜观众注意力主焦点；其他道具写进必须承载或连续性。"
+        )
+    if prop_tokens and len(tokens) >= 3 and not allows_prop_subject and not is_group_subject:
+        issues.append(
+            f"{shot_id} 把道具混进主拍摄主体：{subject}。"
+            "道具只有承担信息揭示、关键线索或动作结果时才能成为主体；生活动作道具应留在画面动作/连续性里。"
+        )
+    if len(prop_tokens) >= 2 and not allows_prop_subject:
+        issues.append(
+            f"{shot_id} 拍摄主体像随机道具集合：{subject}。"
+            "请先判断本镜戏剧任务，再选择人物、双人关系或唯一关键物作为主体。"
+        )
+    return issues
+
+
+def _shot_tailframe_carry_issues(fragment_id: str, shot_blocks: list[tuple[str, str]]) -> list[str]:
+    issues: list[str] = []
+    for index, (shot_id, shot_block) in enumerate(shot_blocks):
+        if index == 0:
+            continue
+        action = _yaml_line_field(shot_block, "action")
+        continuity = _yaml_line_field(shot_block, "continuity")
+        combined = " ".join([action, continuity])
+        has_teleport_marker = bool(re.search(r"突然|已经", action or ""))
+        if (
+            _SHOT_SPATIAL_STATE_JUMP_RE.search(action or "")
+            and not _SHOT_CONTINUITY_INHERIT_RE.search(combined)
+            and (has_teleport_marker or not _SHOT_VISIBLE_TRANSITION_RE.search(action or ""))
+        ):
+            issues.append(
+                f"{fragment_id}/{shot_id} 缺少承接上一镜尾帧：人物位置、坐站、穿戴或道具状态发生跳变，"
+                "但本镜没有写清从上一镜如何进入当前状态。"
+            )
+    return issues
 
 
 def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
@@ -1023,6 +1375,8 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
         if not shot_blocks:
             issues.append(f"{fragment_id} 缺少 shots 字段或没有任何 shot_id。")
             continue
+        issues.extend(_validate_shot_director_density(fragment_id, block, shot_blocks))
+        issues.extend(_shot_tailframe_carry_issues(fragment_id, shot_blocks))
 
         first_shot_id, first_shot_block = shot_blocks[0]
         first_shot_size = (
@@ -1041,6 +1395,13 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
                 if not _has_shot_yaml_field(shot_block, field):
                     issues.append(f"{shot_id} 缺少必要字段 {_shot_yaml_field_names(field)[-1]}。")
 
+            shot_text = _yaml_line_field(shot_block, "shot")
+            if _shot_field_has_untranslated_camera_jargon(shot_text):
+                issues.append(
+                    f"{shot_id} 的镜头字段仍含未翻译机位术语：{shot_text}。"
+                    f"{_SHOT_VIEWPOINT_TRANSLATION_HINT}"
+                )
+
             cut_point = _yaml_line_field(shot_block, "cut_point")
             if cut_point and (
                 _GENERIC_CUT_REASON_RE.search(cut_point)
@@ -1050,10 +1411,13 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
 
             subject = _yaml_line_field(shot_block, "subject")
             task = _yaml_line_field(shot_block, "task")
+            issues.extend(_shot_subject_ownership_issues(shot_id, shot_block))
             has_parent_shot = bool(re.search(r"^\s*(?:parent_shot_id|父镜头编号)\s*:", shot_block, re.MULTILINE))
+            is_sub_shot_id = bool(re.search(r"(?:[-_][A-Za-z]|S\d+[A-Za-z])$", shot_id or ""))
             if (
                 _is_local_insert_subject(subject)
                 and not has_parent_shot
+                and not is_sub_shot_id
                 and not re.search(r"唯一主体|文件内容|信息揭示|关键物|证据|屏幕|照片", task)
             ):
                 issues.append(
@@ -1661,7 +2025,7 @@ def _dialogue_coverage_needs_visual_break(coverage: str) -> bool:
     if _dialogue_payload_is_long(quoted):
         return True
     ascii_words = re.findall(r"[A-Za-z][A-Za-z']+", text)
-    has_long_english = sum(len(word) for word in ascii_words) >= 42 or len(ascii_words) >= 8
+    has_long_english = sum(len(word) for word in ascii_words) >= 55 or len(ascii_words) >= 12
     has_multi_line_or_exchange = len(re.findall(r"[/?？]|；|;|：|:", text)) >= 2
     has_pressure_marker = bool(
         re.search(
@@ -1737,7 +2101,7 @@ def _shot_director_layout_rule_block(aspect_ratio: str) -> str:
     return (
         "【阶段一｜摆位导演 + 镜头任务与空间安全】\n"
         "你是一号镜头摆位导演。你不是全能镜头导演，只负责把当前片段的戏剧任务、空间安全和主镜头覆盖链立住。\n"
-        "必须融合旧版摆位边界与新版任务判断：先判断片段任务、必须覆盖事件、剪辑省略点、轴线和尾帧，再决定需要几个主镜头。\n"
+        "必须融合上游情绪曲线与当前片段任务：先判断观众注意力问题、必须覆盖事件、剪辑省略点、轴线和尾帧，再决定需要几个主镜头、用什么粗景别和覆盖顺序。\n"
         "输出只允许是施工 YAML，不要解释。\n\n"
         "【必须输出】\n"
         "- 片段编号、片段任务、节奏\n"
@@ -1745,11 +2109,17 @@ def _shot_director_layout_rule_block(aspect_ratio: str) -> str:
         "- 主镜头列表：镜头编号、镜头任务、拍摄主体、镜头、覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责、对白覆盖、选择理由、镜头语言机会\n\n"
         "【阶段一边界】\n"
         "1. 只搭主镜头骨架，不输出最终镜头序列，不细拆子镜头。\n"
-        "2. 不抢二号的反应细节、动作重音和子分镜；但必须给二号留下明确的镜头语言机会，例如过肩、跟拍、局部特写、动作顶点前切、关系复位。\n"
-        "3. 必须识别剪辑省略点：走路、开门、上车、进入新空间等无戏剧增量过程只保留起点和终点。\n"
-        "4. 同侧只是不越轴，不是固定机位模板；主镜头覆盖链不得全靠同侧固定中近景。\n"
-        "5. 局部、道具、眼神、手部等细节默认留给二号作为子分镜，除非当前剧本唯一信息主体就是该物件。\n"
-        "6. 禁止人物相对左右机位、数字角度、门框压线、框住人物等抽象构图术语。\n"
+        "2. 阶段一负责粗景别和主镜头职责：关系/中景建立空间与动作，中近景承载对白和受击，近景/特写只预留给信息揭示或情绪极点，远景只用于空间建立、权力关系或孤立感。\n"
+        "3. 不抢二号的反应细节、动作重音和子分镜；但必须给二号留下明确的镜头语言机会，例如过肩、跟拍、局部特写、动作顶点前切、关系复位。\n"
+        "4. 必须识别剪辑省略点：走路、开门、上车、进入新空间等无戏剧增量过程只保留起点和终点；弱拍可并入主镜头或用结果状态呈现。\n"
+        "5. 同侧只是不越轴，不是固定机位模板；主镜头覆盖链不得全靠同侧固定中近景。\n"
+        "6. 长对白或高压对白必须在主镜头骨架中预留听者反应/过肩/关系复位机会，不能让同一说话者镜头吃完整段。\n"
+        "7. 局部、道具、眼神、手部等细节默认留给二号作为子分镜，除非当前剧本唯一信息主体就是该物件。\n"
+        "8. 禁止人物相对左右机位、数字角度、门框压线、框住人物等抽象构图术语。\n"
+        "9. 快节奏生活动作段先搭少量主镜头覆盖链：8-12秒默认3-4个主镜头，不用手、手机、脚、衣服等碎插入堆速度；如果需要第5个镜头，必须绑定信息揭示、危险命中或强反应。\n"
+        "10. 拍摄主体不是人物/道具清单；每个主镜头先写观众注意力主焦点，通常是人物、双人关系或唯一关键物，闹钟/手机/衣服/书包等只在信息命中时升为主体。\n"
+        "11. 必须先选择戏剧任务镜头组合：生活压力=关系建立→动作阻力→安抚/反应→尾帧复位；信息揭示=发现前停顿→关键物可读→人物反应→关系/尾帧复位；对白攻防=说话者起句→听者受击/过肩→关系复位。\n"
+        "12. 主镜头覆盖链回答“这一镜之后为什么接下一镜”；下一镜只能因为注意力问题变化、信息看清、情绪受击、动作阶段变化或空间复位而切。\n"
         f"【画幅】{aspect_ratio}\n"
     )
 
@@ -1762,20 +2132,28 @@ def _shot_director_blocking_rule_block(aspect_ratio: str) -> str:
         "安全边界是剧本事实、人物连续性和不越轴；只要不越轴，就不要为了后续 prompt_compiler 预先降级成同侧固定机位或中近景保守模板。\n\n"
         "【必须输出】\n"
         "- 保留一号的片段编号、片段任务、节奏、空间规则和主镜头编号。\n"
-        "- 补齐镜头列表或主镜头列表中的：镜头、画面动作、台词、必须承载、切镜点、连续性、覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责；其中镜头字段只写摄影选择，动作表情必须写进画面动作。\n"
+        "- 补齐镜头列表或主镜头列表中的：镜头、画面动作、台词、必须承载、切镜点、连续性、覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责；其中镜头字段只写主体景别、视角/观看位置和必要运动，动作表情必须写进画面动作，但画面动作只写必要状态、一个主要动作变化和镜尾状态。\n"
         "- 需要子分镜时，必须挂靠父镜头：父镜头编号、触发点、主体、镜头、动作阶段、时长建议、状态变化、节拍目的。\n"
         "- 明确镜头多样性检查：是否变化主体、景别、机位/角度、运动、声音承载或镜头任务。\n\n"
         "【镜头语言选择】\n"
         "1. 同侧只表示轴线内安全，不等于固定中近景；可在轴线同侧大胆选择侧面、肩后、贴近低机位、稍高机位、稳定固定、跟随、推近、横移或关系复位，只要人物左右关系不翻转。\n"
         "2. 对白/试探/冲突互动：按攻防关系选择过肩、双人同框、听者受击反应、说话者压近、画外音承接、声音先行或声音延续；禁止把整段写成同侧固定机位中近景正反打。\n"
-        "3. 动作密集/位移/阈值动作：优先跟拍、侧面关系景、动作顶点前切、局部动作子分镜或终点复位，用切镜省略无信息过程；不要用站桩中近景吃掉动作。\n"
-        "4. 信息揭示：优先目标物或文字可读、人物视线、人物反应三段链；镜头可以短促、清楚、贴近，但具体对象必须来自当前剧本事实。\n"
-        "5. 权力压迫/反转：用站位占比、前后层次、肩后压迫、低/高机位感、稳定凝视或关系景体现，不得只拍赢方说话，也不得为了安全只退回中景。\n"
-        "6. 情绪峰值：可以使用短促特写、近景停顿、留白或声音落到反应上，但必须有信息增量，并包裹在关系镜头或可继承尾帧里。\n"
-        "7. 局部特写只在当前剧本动作或已有道具承载线索、动作前摇或受击结果时使用；具体拍什么由当前剧本决定，不固化手、衣服、手机等某一剧集细节。\n"
-        "8. 一个片段超过四个镜头时，至少变化三类：主体、景别、机位/角度、运动、声音承载或镜头任务；连续镜头不得无理由重复同侧固定机位、中近景或同一种反应句。\n"
-        "9. 最终交给三号时，镜头字段必须是自然中文摄影表达：景别 + 简洁机位/角度/运动；画面动作必须另写人物动作、台词落点、表情反应和道具状态；不要把两者混成一句。\n"
-        "10. 接触、佩戴、递交、抢夺、拉扯等动作必须写清动作阶段和结束状态，避免项链、手、衣物、身体位置在相邻镜头跳变。\n"
+        "3. 长对白/高压命令：必须根据情绪压力设置说话者起句、听者受击/过肩反应、必要时 OS/J-cut/L-cut 和关系复位；切镜点落在压力词、停顿、受击反应或回应前。\n"
+        "4. 动作密集/位移/阈值动作：优先跟拍、侧面关系景、动作顶点前切、局部动作子分镜或终点复位，用切镜省略无信息过程；不要用站桩中近景吃掉动作。\n"
+        "5. 信息揭示：优先目标物或文字可读、人物视线、人物反应三段链；镜头可以短促、清楚、贴近，但具体对象必须来自当前剧本事实。\n"
+        "6. 权力压迫/反转：用站位占比、前后层次、肩后压迫、低/高机位感、稳定凝视或关系景体现，不得只拍赢方说话，也不得为了安全只退回中景。\n"
+        "7. 情绪峰值：可以使用短促特写、近景停顿、留白或声音落到反应上，但必须有信息增量，并包裹在关系镜头或可继承尾帧里。\n"
+        "8. 局部特写只在当前剧本动作或已有道具承载线索、动作前摇或受击结果时使用；具体拍什么由当前剧本决定，不固化手、衣服、手机等某一剧集细节。\n"
+        "9. 一个片段超过四个镜头时，至少变化三类：主体、景别、机位/角度、运动、声音承载或镜头任务；连续镜头不得无理由重复同侧固定机位、中近景或同一种反应句。\n"
+        "10. 最终交给三号时，镜头字段必须是自然中文视角表达：主体景别 + 视角/观看位置 + 必要运动；画面动作必须另写人物动作、台词落点、表情反应和道具状态；不要把两者混成一句。\n"
+        f"10A. {_SHOT_VIEWPOINT_TRANSLATION_HINT}\n"
+        "11. 接触、佩戴、递交、抢夺、拉扯等动作必须写清动作阶段和结束状态，避免项链、手、衣物、身体位置在相邻镜头跳变；但不要写成手指、指尖、肩颈、呼吸、衣角的连续流水账。\n"
+        "12. 画面动作粒度上限：每个镜头 1-2 句，每句只承载一个主要动作变化；微表情和微手势只在承载线索、受击结果或动作前摇时保留，其余压缩为视线、停顿、后退、放下、保持等低歧义动作。\n"
+        "13. 生活动作快节奏靠动作叠压、台词压力和情绪转折，不靠1秒以下碎切；手、手机、脚、衣服这类局部动作默认并入主关系镜头，除非它本身就是关键线索。\n"
+        "14. 当阶段一给出3-4个主镜头时，不要为了“更快”把它扩成6-7个镜头；必要的短切写成切镜点或子分镜触发，不要升级成主镜头列表。\n"
+        "15. 每镜拍摄主体必须服务镜头功能：建立镜拍关系主体，动作阻力拍行动者+受阻者，信息揭示拍关键物，情绪落点拍受击者，复位镜拍关系和尾帧；禁止把人物、道具、食品、家具一起塞进主体。\n"
+        "16. 下一镜选择必须按戏剧任务镜头组合推进，不能随机换成另一个好看的景别；局部插入后必须接人物反应或关系复位，反应镜后必须给可继承的尾帧状态。\n"
+        "17. S02 及以后必须显式承接上一镜尾帧；人物从坐到站、从沙发到茶几、衣服从未完成到穿好、书包从地上到手里，都必须在画面动作或连续性里写出过渡。\n"
         f"【画幅】{aspect_ratio}\n"
     )
 
@@ -1798,10 +2176,16 @@ def _shot_director_guard_stage_rule_block(aspect_ratio: str) -> str:
         "每个片段在镜头列表前必须先写一句片段级连续性总控：本片段是一段什么戏剧任务，哪些人物始终处在同一空间内；"
         "单人镜只表示镜头主体变化，不代表其他在场人物离开；每镜继承上一镜尾帧、道具状态、视线方向和同侧轴线。\n\n"
         "【最终镜头表达】\n"
-        "镜头字段只写摄影选择：景别 + 简洁机位/视角 + 必要运镜/前景关系；不要写戏剧判断、人物动作、台词或表情。例如“乔熙胸部以上中近景，车内同侧过肩机位”。\n"
-        "画面动作字段必须补足人物动作表情链：谁先做什么、道具如何移动、视线怎样变化、表情/肩颈/呼吸如何反应、镜尾停在什么状态。\n"
+        "镜头字段只写最终可生成的视角表达：主体景别 + 视角/观看位置 + 必要运动/前景关系；不要写戏剧判断、人物动作、台词或表情。例如“乔熙胸部以上中近景，从商北琛肩后看向她”。\n"
+        f"{_SHOT_VIEWPOINT_TRANSLATION_HINT}\n"
+        "画面动作字段必须短、自然、可生成：写清谁先做什么、道具/身体状态如何变化、镜尾停在什么状态；不要堆叠手指、肩颈、呼吸、衣角等微细节。\n"
         "必须承载字段只写本镜必须看清的信息和状态变化，不要写抽象戏剧效果；连续性字段必须说明同场人物和道具没有消失或跳步。\n"
-        "可以写“从乔熙肩后看向商北琛”“门口侧面固定机位”，不要写“门框形成前景压线”或“人物站进门框”。\n"
+        "动作粒度上限：每个镜头 1-2 句，每句一个主要动作变化；如果需要更细的动作阶段，用切镜点或连续性说明，不要塞进画面动作。\n"
+        "镜头密度守门：8-12秒生活动作段超过4个有效镜头，或出现多个1秒以下局部碎镜时，必须合并为关系镜头/中景连续动作；快节奏由动作压力表达，不由碎切表达。\n"
+        "拍摄主体守门：拍摄主体不是人物/道具清单；如果主体里堆了闹钟、手机、衣服、草莓蛋糕、书包等多个道具，必须改为人物/双人关系/唯一关键物，并把道具移入必须承载或连续性。\n"
+        "镜头组合守门：检查整段是否遵循戏剧任务镜头组合；关系建立、动作阻力、信息揭示、受击反应、关系复位必须按观众注意力顺序出现，不能随机拼镜头。\n"
+        "承接守门：每一镜都要承接上一镜尾帧；如果人物位置、坐站、穿戴、道具归属突变，必须最小修复为可见过渡或改回上一镜状态。\n"
+        "可以写“从乔熙肩后看向商北琛”“门口侧面固定视角”，不要写“门框形成前景压线”“人物站进门框”或“固定机位”。\n"
         "台词只能使用原剧本原文或 ~；英文台词原文可保留在引号内，因为它是剧本文本，不是英文字段。\n"
         f"【画幅】{aspect_ratio}\n"
     )
@@ -2089,7 +2473,8 @@ def _rhythm_shot_director_notes_prompt(atmosphere_strategy: str) -> str:
         return ""
     return (
         "[节奏总控给镜头导演的执行约束]\n"
-        "这里只包含上游给镜头施工层的精简操作单，主要控制必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面。"
+        "这里只包含上游给镜头施工层的精简操作单，主要控制片段边界、情绪曲线、节奏意图、必须保留落点、可压缩弱拍和尾帧承接；"
+        "镜头数、景别、机位、运镜、镜头时长和切镜点由 shot_director 自行规划。"
         "若它与结构规划原文事件、原始台词、道具连续性或空间轴线安全冲突，以后者为准。\n"
         f"{_truncate_for_prompt(notes, 1200)}\n"
     )
@@ -2439,7 +2824,7 @@ _SHOT_LIBRARY_TASK_FORCED_USAGE = {
         "不得连续三个镜头使用同一景别+同一视角。"
     ),
     "rhythm_alignment": (
-        "必须把节奏总控建议翻译为时长、停顿、反应归属、切镜点或尾帧；"
+        "必须把上游情绪曲线和节奏意图翻译为镜头时长、停顿、反应归属、切镜点或尾帧；"
         "若节奏建议与原剧本/拆片边界/连续性冲突，写在节奏字段中说明以事实和连续性为准。"
     ),
     "continuity_lock": (
@@ -2711,12 +3096,13 @@ def _run_shot_director_single_pass_impl(
             "你必须先根据【镜头库调用任务单】识别当前片段属于对白覆盖、受击/碰撞、信息揭示、门/电梯阈值、尾帧承接或权力压迫等哪类镜头任务，"
             "再从知识库里的镜头库、多机位模板和连续性规则中选择合适结构。"
             "镜头选择必须继承总导演意图、节奏总控和结构规划中的原文事件；不得为了套模板新增剧情。"
-            "节奏总控只提供给镜头导演的操作单，不是镜头硬模板；你负责把必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面合法转译成镜头语言。\n\n"
+            "节奏总控只提供片段边界、情绪曲线、节奏意图、必须保留落点、可压缩弱拍和尾帧承接，不是镜头硬模板；"
+            "你负责自行决定镜头数、景别、机位、运镜、镜头时长和切镜点。\n\n"
             "【输出语言硬规则】\n"
             "最终 YAML 必须使用中文字段名，不要输出任何旧版英文字段名。\n\n"
             "【每个片段必须交付】\n"
             "1. 片段任务 — 本片段的剧情施工任务，例如建立关系、冲突升级、信息揭示、反应落点、权力反转、喜剧泄压、尾帧钩子。\n"
-            "2. 节奏 — 继承节奏总控给镜头导演的操作单，写清哪些内容拍完整、哪些内容可以省略、哪里必须停留、最多几个镜头；若发生冲突，说明按原剧本/连续性优先。\n\n"
+            "2. 节奏 — 继承节奏总控给镜头导演的情绪曲线和节奏意图，写清哪些戏剧落点必须保留、哪些弱拍可以压缩、哪里需要停顿；镜头数和切镜方案由本阶段规划。\n\n"
             "3. 空间连续性总控 — 写在镜头列表前，说明本段是什么戏剧任务、哪些人物处在同一空间内；单人镜只改变拍摄主体，不代表其他在场人物离开。\n\n"
             "【每个镜头必须回答】\n"
             "1. 时长 — 该镜头在片段内的时间段，必须连续，例如 0-2秒、2-5秒。\n"
@@ -2733,7 +3119,7 @@ def _run_shot_director_single_pass_impl(
             "- 声音 — 只在需要画外音、声音先行或声音延续时写。\n\n"
             "【镜头设计原则】\n"
             "1. 事实红线高于一切：不新增剧本外的人物、台词、动作、道具或情节。\n"
-            "2. 节奏总控决定必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面；镜头导演决定用哪些景别、机位、主体、声音和剪辑方式合法落地。\n"
+            "2. 节奏总控决定情绪曲线、节奏意图、必须保留落点、可压缩弱拍和结尾状态；镜头导演决定镜头数、镜头时长、景别、机位、主体、声音和剪辑方式。\n"
             "3. 长台词或高压命令必须拆出视觉覆盖：说话者起句、同侧听者反应/过肩、必要时后半句以画外音、声音先行或声音延续落到反应上。\n"
             "4. 切镜点不许只写\"切出/继续/增强情绪\"，必须写清触发物，例如动作顶点、台词断点、信息看清、反应出现、门关闭完成、尾帧状态稳定。\n"
             "5. 片段编号必须沿用拆片方案的 F01/F02/F03...，不得改名合并跳号。\n"
@@ -2774,7 +3160,7 @@ def _run_shot_director_single_pass_impl(
             "      声音: 画外音/声音先行/声音延续（需要时写）\n\n"
             "【关键要求】\n"
             "1. 必须覆盖拆片方案的所有片段编号。\n"
-            "2. 必须继承节奏总控给镜头导演的操作单，把必须拍完整、可以省略、不能省略、停留秒数、最多镜头数和结尾画面落实到时长、镜头任务、画面动作、切镜点、连续性；冲突时以原剧本、拆片边界和连续性为准。\n"
+            "2. 必须继承节奏总控给镜头导演的情绪曲线、节奏意图、必须保留落点、可压缩弱拍和尾帧承接，并把它们落实到镜头时长、镜头任务、画面动作、切镜点、连续性；冲突时以原剧本、拆片边界和连续性为准。\n"
             "3. 长台词或高压命令必须插入听者反应覆盖，不能站桩正反打。\n"
             "4. 保持片段编号和镜头编号稳定，遵循 F01/F02... 和 F01-S01/F01-S02... 格式。\n"
             "5. 台词只能使用原剧本文字、原剧本画外音或写 ~；不得新增台词。\n"
@@ -3117,7 +3503,7 @@ def _run_shot_director_three_stage_impl(
         "【输出 YAML 结构】\n"
         "- 片段编号: F01\n"
         "  片段任务: 本片段的戏剧施工任务\n"
-        "  节奏: 必须拍完整/可省略/不能省略/停留秒数/最多镜头数\n"
+        "  节奏: 上游情绪曲线/节奏意图/必须保留落点/可压缩弱拍/尾帧承接，以及阶段一自己的主镜头骨架判断\n"
         "  空间规则:\n"
         "    空间锚点: 场景、稳定布景、门槛或核心阻隔物\n"
         "    人物位置: 当前人物起点、朝向和关系\n"
@@ -3825,7 +4211,10 @@ def _shot_logic_local_issues(output: str, script: str = "") -> list[str]:
 
     for section in _extract_yaml_sections(output or ""):
         fragment_id = _extract_fragment_id(section) or "未知片段"
-        for shot_id, block in _main_shot_blocks(section):
+        shot_blocks = _main_shot_blocks(section)
+        for carry_issue in _shot_tailframe_carry_issues(fragment_id, shot_blocks):
+            issues.append(f"P1｜{carry_issue}")
+        for shot_id, block in shot_blocks:
             subject = _yaml_line_field(block, "subject")
             shot = _yaml_line_field(block, "shot")
             action = _yaml_line_field(block, "action")
@@ -3833,10 +4222,19 @@ def _shot_logic_local_issues(output: str, script: str = "") -> list[str]:
             continuity = _yaml_line_field(block, "continuity")
             combined_action_state = " ".join([action, must_carry, continuity])
 
+            for subject_issue in _shot_subject_ownership_issues(shot_id, block):
+                issues.append(f"P1｜{fragment_id}/{shot_id}｜{subject_issue}")
+
             if _shot_logic_camera_field_has_action_leak(shot):
                 issues.append(
                     f"P1｜{fragment_id}/{shot_id}｜镜头字段混入人物动作或表演：{shot}；"
-                    "镜头字段只应保留景别、机位、视角、运镜或前景关系。"
+                    "镜头字段只应保留主体景别、视角/观看位置、必要运动或前景关系。"
+                )
+
+            if _shot_field_has_untranslated_camera_jargon(shot):
+                issues.append(
+                    f"P1｜{fragment_id}/{shot_id}｜镜头字段仍含未翻译机位术语：{shot}；"
+                    f"{_SHOT_VIEWPOINT_TRANSLATION_HINT}"
                 )
 
             clean_action = (action or "").strip().strip("~无")
@@ -3891,7 +4289,7 @@ def _shot_logic_reviewer_system_prompt() -> str:
 你的唯一任务：审查单片段内部的镜头语言、人物动作、道具状态和镜间连续性是否合逻辑，并把最终动作修成 prompt 编译可直接使用的简短自然语句。
 
 必须重点检查：
-1. 镜头字段是否只写摄影信息：景别、机位、视角、运镜、前景关系；不得混入人物动作、表情、台词或戏剧判断。
+1. 镜头字段是否只写最终可生成的画面表达：主体景别、视角/观看位置、必要运动、前景关系；不得混入人物动作、表情、台词或戏剧判断。
 2. 画面动作是否有完整动作表情链：起始状态、动作变化、视线/表情/身体反应、镜尾状态。
 3. 单人镜是否保留同场人物：单人镜只改变拍摄主体，不代表另一人消失或离开。
 4. 道具接触戏是否锁定归属、动作阶段和镜尾状态。
@@ -3900,6 +4298,10 @@ def _shot_logic_reviewer_system_prompt() -> str:
 7. 肢体占用是否可执行：同一只手不能同时拿手机、牵人、扶人、套衣服或抓道具；如果必须并行，必须明确左右手和身体重心。
 8. 接触关系是否可成立：抓住、抱住、躲避、抗拒、压近、后缩、穿衣等动作不能在同一镜内互相抵消。
 9. 画面动作是否适合下游 prompt 编译：每个“画面动作”优先改成 1-2 句自然短动作，每句只承载一个主要动作变化，避免流水账和复杂嵌套。
+10. 拍摄主体是否正确：拍摄主体不是人物/道具清单，只能是本镜观众注意力的主焦点；其他可见物放进必须承载或连续性。
+11. 镜头组合是否服务戏剧任务：下一镜必须来自当前任务的覆盖链，例如关系建立后接动作/信息/反应，信息插入后接人物反应或关系复位，禁止随机换景别。
+12. 是否存在凭空位移：人物坐站、位置、穿戴、道具归属变化必须承接上一镜尾帧，不能下一镜突然换到另一个位置或状态。
+13. 是否把内部机位术语翻译成视角：最终镜头字段必须写“侧面视角/固定视角/从谁肩后看向谁/谁的主观视角”，不得保留“固定机位、侧面机位、摄影机位于”等词。
 
 如果没有硬问题，只输出通过结论。
 如果有问题，给出最小修复。修复只能整理镜头字段、压缩并理顺画面动作、补足连续性/切镜点，不得新增剧本外事件。

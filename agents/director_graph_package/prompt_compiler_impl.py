@@ -108,6 +108,15 @@ _SAFE_CAMERA_POSITION_RE = re.compile(
 )
 _SILENT_CUT_TRIGGER_RE = _legacy._SILENT_CUT_TRIGGER_RE
 _NEW_SUBJECT_FRAMING_RE = _legacy._NEW_SUBJECT_FRAMING_RE
+_SHOT_DENSITY_LIFE_PRESSURE_RE = re.compile(
+    r"生活|赶时间|穿衣|上学|孩子|小豆丁|闹钟|电话|手机|草莓|安抚|哄|抗拒|乱蹬|缩手|踢开|书包|紧凑生活",
+    re.IGNORECASE,
+)
+_SHOT_DENSITY_HIGH_CUT_RE = re.compile(
+    r"追逐|打斗|抢夺|闯入|冲进|救援|爆炸|车祸|急救|信息揭示|照片|文件|真相|证据|屏幕|监控|"
+    r"亲子鉴定|高压对白|长对白|权力压迫|外部打断|宴会|群体|反转",
+    re.IGNORECASE,
+)
 
 
 def _segment_block(text: str, segment_index: int, fragment_id: str | None = None) -> str:
@@ -149,20 +158,20 @@ _UNSTABLE_FRAME_COMPOSITION_RE = re.compile(
 
 def _reaction_cut_and_action_path_rules() -> str:
     return (
-        "【反应切镜与动作路径安全硬规则】\n"
+        "【反应切镜与自然动作句硬规则】\n"
         "1. 时间轴内可以也必须写清镜头切换。凡出现受击、回神、视线相撞、表情一僵、听完反应、松手等反应落点，必须明确写\"镜头切至/切回\"谁；单段内禁止写反打。\n"
-        "2. 反应镜头必须写成：镜头切至乔熙胸部以上中近景，摄影机位于乔熙正前方0度或商北琛右肩后方，眼平高度，画面前景保留商北琛右肩/西装领口虚化，乔熙抬头看向他。\n"
-        "3. 如果同一时间段内有\"商北琛说话 -> 乔熙受击反应 -> 商北琛继续说话 -> 乔熙回神动作\"，必须拆成至少两个同侧镜头句：说话镜头、乔熙听者反应/过肩镜头；不要全塞在同一个双人中景里。\n"
-        "4. 所有关键动作必须写清\"起点 -> 路径 -> 接触/避让对象 -> 终点 -> 结束状态\"。禁止只写结果词，例如冲入、撞上、退开、弹开、转身、靠近、拉开、扶住、松开、走进。\n"
-        "5. 身体位移动作必须写清移动方向和停止位置：从门外中轴向电梯门缝冲入，右肩先穿过门缝，脚步在商北琛胸前半步处刹停失败，身体前倾撞到他胸前，最后停在电梯内近门侧。\n"
-        "6. 接触动作必须写清接触部位和力度状态：商北琛右手从身侧抬到乔熙右腰侧，手掌平贴腰侧布料扶住，不上滑、不环抱，乔熙重心停止前扑。\n"
-        "7. 离开接触点的动作必须写清离开路径和结束位置：手指松开西装前襟 -> 手掌向自己胸前后撤10-15厘米 -> 自然落回身体两侧或移向发梢。\n"
-        "8. 禁止写\"手弹开\"\"从西装前襟弹开\"\"飞开\"\"甩开\"\"弹向空中\"\"猛地弹开\"\"身体弹开\"\"突然闪开\"。这些词会让视频模型生成肢体乱甩或空间跳变。\n"
-        "9. 正确示例：乔熙双手松开商北琛西装前襟，手指张开，双手先向自己胸前收回约一掌距离，再自然下落到身体两侧；手掌不向上甩、不出画、不再碰到商北琛。\n"
-        "10. 所有反应镜头都要交代画面内可见物：谁在前景虚化、谁占画面中心、被抓住的西装前襟是否仍可见、电梯门或门框在画面哪一侧。\n"
-        "11. 明确切镜不等于频繁碎切。13秒以内片段通常控制在4-5个有效镜头；只有上游明确给出关键 sub_shot 时才允许更多。\n"
+        "2. 反应镜头写成自然画面句：镜头切至乔熙中近景，商北琛肩线留在前景，乔熙听完后抬眼停住。\n"
+        "3. 如果同一时间段内有\"说话 -> 听者受击 -> 继续说话 -> 回神动作\"，至少拆成说话镜头和听者反应镜头；不要全塞在同一个双人中景里。\n"
+        "4. 动作描述遵循 Seedance 自然语言：主体 + 一个主要动作 + 情绪/视线落点。只写观众能看懂的大动作，不把每根手指、厘米距离、起点路径终点写成说明书。\n"
+        "5. 只有接触、碰撞、抢夺、摔倒、危险身体动作或关键道具移动，才补一句简短的安全状态，例如\"扶住她的腰侧，动作停住\"或\"手松开后落回身侧\"。\n"
+        "6. 禁止写\"手弹开\"\"从西装前襟弹开\"\"飞开\"\"甩开\"\"弹向空中\"\"猛地弹开\"\"身体弹开\"\"突然闪开\"。这些词会让视频模型生成肢体乱甩或空间跳变。\n"
+        "7. 正确示例：乔熙松开商北琛的西装前襟，双手收回身侧，眼神短暂停住。\n"
+        "8. 反应镜头只保留必要画面锚点：谁在前景、谁是主体、关键道具是否仍可见；不要展开空间坐标说明。\n"
+        "9. 每个非末尾镜头行必须写清切镜时机，格式优先用括号：\"（切镜时机：台词压力词落下后切至镜头2）\"、\"（切镜时机：照片内容看清后切至镜头3）\"。末尾镜头写\"尾帧：...\"，不写空泛的\"自然切\"。\n"
+        "10. 切镜时机必须绑定信息增量：动作顶点、台词压力词、听者受击、信息看清、外部打断、尾帧完成；不要写成\"更有节奏\"\"更有电影感\"。\n"
+        "11. 明确切镜不等于频繁碎切。13秒以内片段通常控制在2-3个有效镜头；只有上游明确给出关键 sub_shot 时才允许更多。\n"
         "12. 单个2秒以内时间段禁止同时承载\"局部插入镜头 + 切回人物中近景 + 一整句长台词\"。长台词至少给3秒左右，手部/道具插入镜头应放在台词前后，或并入双人中景完成。\n"
-        "13. 反应切镜要服务信息增量：说话者镜头、同侧听者反应、动作路径复位可以各自成镜；不要为了每个微动作单独切镜。\n"
+        "13. 反应切镜要服务信息增量：说话者镜头、同侧听者反应、动作复位可以各自成镜；不要为了每个微动作单独切镜。\n"
     )
 
 
@@ -200,18 +209,18 @@ def _director_jargon_translation_rules() -> str:
         "10. 错误示例：\"稳定器在同一运动里带到人物B和旁观者胸部以上受压反应。\" 这类句子像导演现场口令，不能作为最终 Seedance prompt。\n"
         "11. 上游若写\"纵深中全景到半身中景\"\"中景转关系景\"\"同轴线偏右\"\"眼平高度\"\"truck right/left\"，最终必须降级为一个简单镜头基底：\"空间全景\"、\"人物A半身中景\"、\"关键空间锚点固定中景\"、\"正面平稳跟拍\"。\n"
         "12. 禁止把\"动作主链\"\"状态单向推进\"\"关系建立\"\"尾帧承接\"\"抗拒位置\"这类内部判断写进最终 prompt；它们必须翻译成观众能看见的手、道具、身体距离和站位。\n"
-        "13. 复杂生活动作必须按可拍动作公式写：谁的哪只手/身体部位，从哪里开始，碰到什么道具或身体部位，往哪里移动，最后停在哪里。\n"
-        "14. 并行动作必须拆成可见同步关系：人物A的右手把道具X从起点拿到目标位置；左手接触人物B的身体部位或道具Y；人物B的身体部位朝相反方向移动，道具Y停在未完成状态。\n"
-        "15. 状态连续不能写成抽象约束替代画面。应写\"道具X一开始在位置A，之后移动到位置B，结尾仍停在位置B\"，不要只写\"道具状态单向推进\"。\n"
-        "16. 抗拒、躲避、挣脱必须写成身体动作和结束位置：人物B肩膀后缩、被抓住的身体部位脱离接触、后退半步、停在人物A伸手够得到但没有贴身的位置。\n"
+        "13. 复杂生活动作先压成自然可拍动作句：主体 + 一个主要动作 + 必要情绪/视线落点 + 尾帧状态；不要逐项写起点、路径、厘米距离、手指开合或身体部位说明。\n"
+        "14. 并行动作必须做取舍：同一镜头只保留影响剧情或连续性的主动作；另一个并行动作只在必要时写成简短结果状态，避免模型同时执行过多肢体任务。\n"
+        "15. 状态连续不能写成抽象约束替代画面。应写\"文件仍在人物A手里\"\"门保持半开\"\"人物B退开半步停住\"，不要只写\"状态单向推进\"。\n"
+        "16. 抗拒、躲避、挣脱写成低歧义大动作：人物B后退半步、避开视线、停在门口；只有接触、抢夺、摔倒或危险动作才补简短接触状态。\n"
         "17. 每个短镜头最多承载1-2个可见动作；如果一句里同时有道具移动、台词、接触、挣脱、位移、尾帧锁定，必须拆成相邻镜头或局部插入镜。\n"
         "18. 分类翻译表必须通用化，使用人物A/人物B/道具X/空间锚点/位置A/位置B等槽位，不能把当前剧本专名写进规则模板。\n"
         "    - 建立/复位类 -> 人物A和人物B同框，距离、朝向、视线方向、空间锚点清楚可见。\n"
         "    - 轴线/视线类 -> 保持人物A在画面同侧，人物B看向同一方向；切镜时保留肩线或视线目标。\n"
         "    - blocking调度类 -> 人物从位置A走到位置B，停在空间锚点旁，身体朝向人物B或道具X。\n"
-        "    - 动作路径类 -> 起点、路径、接触点、终点、停留姿势逐项写清。\n"
-        "    - 接触/碰撞类 -> 写清接触部位、力度、谁先接触、接触后双方停在哪里。\n"
-        "    - 道具连续类 -> 道具X从位置A移到位置B后保持在位置B，道具Y停在已改变/未完成状态。\n"
+        "    - 动作路径类 -> 压成一个主动作和结果状态，不展开起点/路径/终点；例：人物A把文件放到桌上后停住。\n"
+        "    - 接触/碰撞类 -> 只写必要接触部位和结果状态；例：人物A扶住人物B腰侧，两人停住。\n"
+        "    - 道具连续类 -> 道具X归属和结束位置清楚即可；例：文件仍在人物A手里，道具Y停在桌边。\n"
         "    - 情绪反应类 -> 抽象情绪改成肩颈、下颌、呼吸、视线、手部停顿、身体后缩等表演。\n"
         "    - 对白覆盖类 -> 说话者起句、听者反应、画外音延续、切回关系景，不能单镜吃完整压迫对白。\n"
         "    - 插入镜/切点类 -> 信息看清、动作顶点、视线撞上、手刚碰到道具时切镜。\n"
@@ -304,6 +313,10 @@ def _prompt_section(prompt: str, title: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def _prompt_base_section(prompt: str) -> str:
+    return _prompt_section(prompt, "画面基底") or _prompt_section(prompt, "空间与首帧总控")
+
+
 def _prompt_title_line(prompt: str) -> str:
     for line in (prompt or "").splitlines():
         stripped = line.strip()
@@ -359,7 +372,8 @@ def _limit_seedance_prompt_for_jimeng(prompt: str) -> str:
     title = _prompt_title_line(text)
     style = _prompt_section(text, "风格锚点")
     ratio = _prompt_section(text, "画幅锚点")
-    space = _prompt_section(text, "空间与首帧总控")
+    base = _prompt_section(text, "画面基底")
+    space = _prompt_base_section(text)
     people = _prompt_section(text, "人物")
     shots = _prompt_section(text, "镜头序列") or _prompt_section(text, "时间轴")
     constraints = _prompt_section(text, "约束")
@@ -383,7 +397,8 @@ def _limit_seedance_prompt_for_jimeng(prompt: str) -> str:
     if ratio:
         parts.append("【画幅锚点】\n" + _truncate_at_sentence(ratio, 35))
     if space:
-        parts.append("【空间与首帧总控】\n" + _truncate_at_sentence(space, 180))
+        base_title = "画面基底" if base else "空间与首帧总控"
+        parts.append(f"【{base_title}】\n" + _truncate_at_sentence(space, 220))
     if people:
         parts.append("【人物】\n" + "\n".join(_fit_lines_to_budget(people.splitlines(), 280)))
 
@@ -410,6 +425,13 @@ def _prompt_execution_text(prompt: str) -> str:
     return text or (prompt or "")
 
 
+def _prompt_uses_shot_sequence(prompt: str) -> bool:
+    return bool(
+        re.search(r"【画面基底】[\s\S]*【镜头序列】[\s\S]*【约束】", prompt or "")
+        and re.search(r"(?m)^镜头\s*\d+\s*【", prompt or "")
+    )
+
+
 def _meaningful_sentence_count(text: str) -> int:
     pieces = re.split(r"[。！？\n]+", text or "")
     return len([piece for piece in pieces if piece.strip()])
@@ -419,10 +441,57 @@ def _quoted_dialogues(text: str) -> list[str]:
     return [item.strip() for item in re.findall(r"[\"\u201c\u201d]([^\"\u201c\u201d]+)[\"\u201c\u201d]", text or "") if item.strip()]
 
 
+_PROMPT_PRESSURE_DIALOGUE_RE = re.compile(
+    r"命令|质问|逼问|羞辱|威胁|拒绝|不准|离婚|结婚|爸爸|孩子|老板|ex-husband|daddy|boss|"
+    r"meeting|directors|above|be there|don't|can't|won't|why|what|never|secretary|afford|mistake",
+    re.IGNORECASE,
+)
+
+
+def _dialogue_block_requires_visual_break(dialogues: list[str]) -> bool:
+    if not dialogues:
+        return False
+    if len(dialogues) >= 2:
+        return True
+    text = dialogues[0].strip()
+    cjk_chars = len(re.findall(r"[\u4e00-\u9fff]", text))
+    english_words = re.findall(r"[A-Za-z][A-Za-z']+", text)
+    ascii_chars = sum(len(word) for word in english_words)
+    is_long = cjk_chars >= 24 or len(english_words) >= 12 or ascii_chars >= 58 or len(text) >= 70
+    is_pressure = bool(_PROMPT_PRESSURE_DIALOGUE_RE.search(text))
+    return is_long or (is_pressure and (cjk_chars >= 14 or len(english_words) >= 8 or ascii_chars >= 42))
+
+
+_PROMPT_VISIBLE_ACTION_RE = re.compile(
+    r"伸手|按停|放回|拿起|提起|递出|推开|拉住|缩回|后退|退开|避开|躲开|蹲近|伸脚|停在|停住|"
+    r"转向|转身|看向|望向|抬头|低头|站稳|小跑|拉开|迈出|走进|走向|坐上|靠近|抱住|握紧|"
+    r"捡起|塞回|托住|晃动|回神|僵住|出镜|入画|留在|说出"
+)
+
+
+def _has_prompt_performance_beat(body: str) -> bool:
+    return bool(_PERFORMANCE_BEAT_RE.search(body or "") or _PROMPT_VISIBLE_ACTION_RE.search(body or ""))
+
+
+def _prompt_performance_count(body: str) -> int:
+    text = body or ""
+    return len(_PERFORMANCE_BEAT_RE.findall(text)) + len(_PROMPT_VISIBLE_ACTION_RE.findall(text))
+
+
+_PROMPT_SPATIAL_ANCHOR_RE = re.compile(
+    r"沙发|茶几|书包|衣服|手机|闹钟|草莓蛋糕|客厅|公寓|床|桌|车|车门|酒店|餐厅|码头|游艇|"
+    r"办公室|门口|门边|电梯|大堂|走廊|房门|前台|台阶"
+)
+
+
+def _has_prompt_spatial_anchor(body: str) -> bool:
+    return bool(_SPATIAL_ANCHOR_RE.search(body or "") or _PROMPT_SPATIAL_ANCHOR_RE.search(body or ""))
+
+
 def _has_internal_dialogue_visual_coverage(body: str) -> bool:
     quote_matches = list(re.finditer(r"[\"\u201c\u201d]([^\"\u201c\u201d]+)[\"\u201c\u201d]", body or ""))
     dialogues = [match.group(1).strip() for match in quote_matches if match.group(1).strip()]
-    if not _dialogue_payload_is_long(dialogues):
+    if not _dialogue_block_requires_visual_break(dialogues):
         return True
 
     first_quote_end = quote_matches[0].end() if quote_matches else 0
@@ -519,8 +588,13 @@ def _timeline_blocks(prompt: str) -> list[tuple[float, float, str]]:
     )
     current = 0.0
     for index, match in enumerate(shot_matches):
-        start = float(match.group(1)) if match.group(1) is not None else current
-        end = float(match.group(2))
+        if match.group(1) is not None:
+            start = float(match.group(1))
+            end = float(match.group(2))
+        else:
+            duration = float(match.group(2))
+            start = current
+            end = current + duration
         body_start = match.end()
         body_end = shot_matches[index + 1].start() if index + 1 < len(shot_matches) else len(prompt)
         blocks.append((start, end, prompt[body_start:body_end].strip()))
@@ -528,15 +602,81 @@ def _timeline_blocks(prompt: str) -> list[tuple[float, float, str]]:
     return blocks
 
 
+def _shot_density_limit(context: str, total_seconds: float | None) -> int:
+    life_pressure = bool(_SHOT_DENSITY_LIFE_PRESSURE_RE.search(context or ""))
+    high_cut_need = bool(_SHOT_DENSITY_HIGH_CUT_RE.search(context or ""))
+    if total_seconds is None:
+        return 4 if life_pressure and not high_cut_need else 5
+    if total_seconds <= 6:
+        return 3
+    if total_seconds <= 12.5:
+        return 4 if life_pressure and not high_cut_need else 5
+    if total_seconds <= 15.5:
+        return 5
+    return 6
+
+
+def _format_seconds(value: float | None) -> str:
+    if value is None:
+        return "未知时长"
+    rounded = round(value, 1)
+    if rounded.is_integer():
+        return f"{int(rounded)}秒"
+    return f"{rounded:.1f}秒"
+
+
+def _prompt_shot_density_issues(
+    prompt: str,
+    planner_segment: str,
+    director_segment: str,
+    timeline_blocks: list[tuple[float, float, str]],
+) -> list[str]:
+    if not _prompt_uses_shot_sequence(prompt) or not timeline_blocks:
+        return []
+    total_seconds = max((end for _start, end, _body in timeline_blocks), default=0.0)
+    total_seconds = total_seconds if total_seconds > 0 else None
+    context = "\n".join([prompt or "", planner_segment or "", director_segment or ""])
+    limit = _shot_density_limit(context, total_seconds)
+    shot_count = len(timeline_blocks)
+    issues: list[str] = []
+    if shot_count > limit:
+        issues.append(
+            f"- 镜头切分过碎：{_format_seconds(total_seconds)}安排{shot_count}个镜头，"
+            f"当前片段建议不超过{limit}个有效镜头；快节奏应靠人物动作紧张、停顿缩短和情绪压力，不靠碎切。"
+        )
+
+    short_blocks = [
+        (index, end - start)
+        for index, (start, end, _body) in enumerate(timeline_blocks, start=1)
+        if 0 < end - start < 1.0
+    ]
+    life_pressure = bool(_SHOT_DENSITY_LIFE_PRESSURE_RE.search(context))
+    high_cut_need = bool(_SHOT_DENSITY_HIGH_CUT_RE.search(context))
+    if short_blocks and (len(short_blocks) >= 2 or (life_pressure and not high_cut_need)):
+        short_text = "、".join(f"镜头{index}={seconds:.1f}秒" for index, seconds in short_blocks[:4])
+        issues.append(
+            f"- 1秒以下碎镜过多：{short_text}。生活动作/正常动作段不得把手、手机、脚、衣服等局部动作拆成碎插入；"
+            "请合并进关系镜头，或只保留真正的信息揭示/危险命中短镜。"
+        )
+    return issues
+
+
 def _compiler_guard_report(prompt: str, script: str, planner_segment: str, director_segment: str) -> str:
     issues: list[str] = []
     execution_text = _prompt_execution_text(prompt)
+    uses_shot_sequence = _prompt_uses_shot_sequence(prompt)
     base_report = _prompt_guard_report(prompt, script, planner_segment, director_segment)
     if base_report:
         issues.extend(line for line in base_report.splitlines() if line.strip())
 
     if _INTERNAL_FIELD_LEAK_RE.search(prompt or ""):
         issues.append("- Prompt 泄漏了上游内部字段名：必须把 fragment_task、must_carry、cut_point 等翻译成自然中文镜头语言。")
+
+    if re.search(r"机位|摄影机位于|机位在", execution_text):
+        issues.append(
+            "- Prompt 残留未翻译机位术语：最终镜头行必须写成视角/观看位置，"
+            "例如“侧面视角”“固定视角”“从乔熙肩后看向小豆丁”，不要写“固定机位/侧面机位/摄影机位于”。"
+        )
 
     uses_construction_sheet = any(
         _has_yaml_field(director_segment or "", field)
@@ -552,7 +692,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         if "缺少空间几何字段" not in issue:
             issues.append(f"- 镜头资产空间几何合同错误：{issue}")
 
-    if not re.search(r"(商北琛|乔熙|严飞|苏小可|众主管|众员工|他|她|两人|众人).{0,20}(半身中景|中景|近景|特写|中近景|全景|远景|胸部以上)", prompt):
+    if not re.search(r"(商北琛|乔熙|小豆丁|严飞|苏小可|众主管|众员工|他|她|两人|众人).{0,24}(半身中景|中景|近景|特写|中近景|全景|远景|胸部以上|关系景|七分身)", prompt):
         issues.append("- Prompt 缺少明确的主体+景别表达。")
 
     ambiguous_camera_terms = [term for term in _AMBIGUOUS_PROMPT_CAMERA_TERMS if term in prompt]
@@ -560,7 +700,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         issues.append(
             "- 机位/运镜存在模糊描述："
             + "、".join(ambiguous_camera_terms[:6])
-            + "。请改成简洁机位，例如同侧过肩机位、同侧固定机位、同侧正面微侧机位、办公桌侧面固定机位、背后跟拍。"
+            + "。请改成简洁视角，例如从对方肩后看向人物、同侧固定视角、正面微侧视角、办公桌侧面固定视角、背后跟随视角。"
         )
 
     abstract_action_terms = (
@@ -623,27 +763,27 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         issues.append(
             "- Prompt 残留复杂摄影字段："
             + "、".join(complex_camera_terms[:5])
-            + "。请降级为 Seedance 稳定短句：一个主体焦点、一个景别、一个机位、最多一种运动；反应落点改为同侧切镜。"
+            + "。请降级为 Seedance 稳定短句：一个主体焦点、一个景别、一个视角/观看位置、最多一种运动；反应落点改为同侧切镜。"
         )
     unstable_frame_terms = sorted(set(match.group(0) for match in _UNSTABLE_FRAME_COMPOSITION_RE.finditer(execution_text)))
     if unstable_frame_terms:
         issues.append(
             "- Prompt 包含不稳定构图表达："
             + "、".join(unstable_frame_terms[:5])
-            + "。请改成自然可执行表达，例如\"同侧过肩机位，从乔熙肩后看向门口，小豆丁站在门口等她\"；"
+            + "。请改成自然可执行表达，例如\"从乔熙肩后看向门口，小豆丁站在门口等她\"；"
             "门、窗、桌等只作为空间边界或阻隔物，不写成框住人物的构图术语。"
         )
 
-    space_section = _prompt_section(prompt, "空间与首帧总控")
+    space_section = _prompt_base_section(prompt)
     if space_section:
         spatial_terms = _SPATIAL_OVEREXPLAIN_TERMS_RE.findall(space_section)
         if len(space_section) > 220 or _meaningful_sentence_count(space_section) > 3 or len(spatial_terms) > 7:
             issues.append(
-                "- 空间与首帧总控过载：只保留2-3句不可变硬锚点（场景类型、1-3个空间关键节点、人物首帧站位与光线），"
+                "- 空间与首帧总控过载（新版为画面基底）：只保留2-3句不可变硬锚点（场景类型、1-3个空间关键节点、人物首帧站位与光线），"
                 "不要反复解释前景/中景/后景/左右/远端/近侧/尽头；把镜头调度、动作和表情放回时间轴。"
             )
         if _SPACE_SECTION_ACTION_RE.search(space_section):
-            issues.append("- 空间与首帧总控混入动作：该段只写首帧静态关系，走、让、散开、进入、门合拢等动作必须放在时间轴。")
+            issues.append("- 空间与首帧总控混入动作（新版为画面基底）：该段只写首帧静态关系，走、让、散开、进入、门合拢等动作必须放在镜头序列。")
 
     if _ELEVATOR_OFFICE_DRIFT_RE.search(prompt):
         issues.append(
@@ -665,39 +805,57 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             issues.append("- 群演身份锁缺失：众员工/群演不得与命名人物相似、重复或同脸，应写成匿名差异化面孔/侧脸/背影/轻虚。")
 
     if not _SAFE_CAMERA_POSITION_RE.search(prompt):
-        issues.append('- Prompt 缺少可执行摄影机位置：至少一个时间段应明确简洁机位，例如"同侧过肩机位/同侧固定机位/同侧正面微侧机位/办公桌侧面固定机位/背后跟拍"。')
+        issues.append('- Prompt 缺少可执行视角/观看位置：至少一个时间段应明确简洁视角，例如"从对方肩后看向人物/同侧固定视角/正面微侧视角/办公桌侧面固定视角/背后跟随视角"。')
 
     unsafe_action_terms = [term for term in _UNSAFE_ACTION_TERMS if term in prompt]
     if unsafe_action_terms:
         issues.append(
             "- 动作路径存在失控词："
             + "、".join(unsafe_action_terms[:6])
-            + '。请改成"起点 -> 路径 -> 接触/避让对象 -> 终点 -> 结束状态"，例如手指松开西装前襟后向自己胸前收回，再落回身体两侧。'
+            + "。请改成自然稳定动作句，例如手松开西装前襟后落回身侧，身体停住。"
         )
 
     has_reaction_beat = any(term in prompt for term in _REACTION_BEAT_TERMS)
     has_explicit_reaction_cut = re.search(r"(?:镜头)?(?:切至|切到|切回)|反打至|反打镜头", prompt)
     if has_reaction_beat and not has_explicit_reaction_cut:
-        issues.append('- 受击/反应落点缺少明确切镜：请写清"镜头切至谁、什么景别、什么机位、画面里保留谁/什么空间锚点"。')
+        issues.append('- 受击/反应落点缺少明确切镜：请写清"镜头切至谁、什么景别、什么视角/观看位置、画面里保留谁/什么空间锚点"。')
 
     all_dialogues = _quoted_dialogues(prompt)
-    if _dialogue_payload_is_long(all_dialogues) and not _DIALOGUE_VISUAL_CUT_RE.search(prompt):
+    if _dialogue_block_requires_visual_break(all_dialogues) and not _DIALOGUE_VISUAL_CUT_RE.search(prompt):
         issues.append(
                 "- 长台词/高压对白被单镜头吃完：完整发言单元要保持语义连续，但必须加入同侧听者反应、过肩、画外音或景别变化。"
         )
 
-    contact_action_terms = ("抓住", "扶住", "松开", "撞上", "冲向", "冲入", "转身", "退开", "移到", "进入电梯")
-    has_contact_action = any(term in prompt for term in contact_action_terms)
-    has_path_language = re.search(r"(?:从|由).{0,18}(?:向|到|沿|穿过|离开).{0,40}(?:停|落回|收回|站定|垂回|保持|不再)", prompt)
-    if has_contact_action and not has_path_language:
-        issues.append("- 关键动作缺少起点/路径/终点/结束状态，请把冲入、撞上、扶住、松开、转身、退开等动作写成可执行动作链。")
+    over_precise_action = re.search(r"(?:起点|终点|路径|厘米|一掌距离|接触/避让对象|手指张开).{0,40}(?:起点|终点|路径|厘米|一掌距离|接触/避让对象|手指张开)", prompt)
+    if over_precise_action:
+        issues.append("- 动作描述过细：请合并为自然动作句，只保留主体、主要动作、必要情绪/视线落点和尾帧状态。")
+
+    shot_sequence = _prompt_section(prompt, "镜头序列")
+    if shot_sequence:
+        shot_lines = [
+            line.strip()
+            for line in shot_sequence.splitlines()
+            if re.match(r"^镜头\s*\d+\s*【", line.strip())
+        ]
+        for index, line in enumerate(shot_lines):
+            is_last = index == len(shot_lines) - 1
+            if is_last:
+                if not re.search(r"尾帧|最后|结尾|保持|仍在|停住|不切|收束", line):
+                    issues.append("- 末尾镜头缺少尾帧状态：请写清人物位置、视线、道具或门/车/电梯状态如何保持。")
+                continue
+            if not re.search(r"切镜时机|切镜触发|切至镜头|切到镜头|切回镜头|转入镜头|进入镜头|→\s*镜头|切至|切到|切回", line):
+                issues.append(
+                    "- 镜头序列缺少切镜时机：每个非末尾镜头必须用括号写明动作顶点、台词压力词、信息看清或反应出现后切至下一镜。"
+                )
+                break
 
     timeline_blocks = _timeline_blocks(prompt)
+    issues.extend(_prompt_shot_density_issues(prompt, planner_segment, director_segment, timeline_blocks))
     for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
         block_dialogues = _quoted_dialogues(body)
-        if _dialogue_payload_is_long(block_dialogues) and not _has_internal_dialogue_visual_coverage(body):
+        if _dialogue_block_requires_visual_break(block_dialogues) and not _has_internal_dialogue_visual_coverage(body):
             issues.append(
-                f"- 时间轴第 {index} 个时间段让长台词/高压对白停留在单一画面：人物说话时严禁一个镜头、一个景别或一个机位说完整句；"
+                f"- 时间轴第 {index} 个时间段让长台词/高压对白停留在单一画面：人物说话时严禁一个镜头、一个景别或一个视角说完整句；"
                 '请在对白内部加入“说话者起句，切至同侧听者反应或过肩；镜头停留在听者脸部或过肩画面，说话者后半句在画外继续；若后续还有新动作或新信息点，必须另起新镜头承接”的覆盖变化。'
             )
             break
@@ -712,36 +870,39 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             )
 
     for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
-        if not _PERFORMANCE_BEAT_RE.search(body):
+        if not _has_prompt_performance_beat(body):
             issues.append(
                 f"- 时间轴第 {index} 个时间段缺少人物动作/表情落点：不要只写空间和机位，"
                 "至少写清一个可见动作、视线或表情反应。"
             )
             break
 
-    for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
-        spatial_count = len(_SPATIAL_OVEREXPLAIN_TERMS_RE.findall(body))
-        performance_count = len(_PERFORMANCE_BEAT_RE.findall(body))
-        if spatial_count > 6 and performance_count < 4:
-            issues.append(
-                f"- 时间轴第 {index} 个时间段空间描写过载：每段只保留当前镜头必要的0-1个空间锚点，"
-                "不要解释前景/中景/后景/左右边缘；把文字预算让给动作、视线和表情。"
-            )
-            break
+    if not uses_shot_sequence:
+        for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
+            spatial_count = len(_SPATIAL_OVEREXPLAIN_TERMS_RE.findall(body))
+            performance_count = _prompt_performance_count(body)
+            if spatial_count > 6 and performance_count < 4:
+                issues.append(
+                    f"- 时间轴第 {index} 个时间段空间描写过载：每段只保留当前镜头必要的0-1个空间锚点，"
+                    "不要解释前景/中景/后景/左右边缘；把文字预算让给动作、视线和表情。"
+                )
+                break
 
-    for index, (_start, _end, body) in enumerate(timeline_blocks[1:], start=2):
-        prefix = body[:120]
-        if not _TIMELINE_BRIDGE_RE.search(prefix):
-            issues.append(f'- 时间轴第 {index} 个时间段缺少段内交接词：请以"同一机位继续/延续上一镜/镜头切至/切回"承接上一时间段，单段内禁止反打。')
-            break
+    if not uses_shot_sequence:
+        for index, (_start, _end, body) in enumerate(timeline_blocks[1:], start=2):
+            prefix = body[:120]
+            if not _TIMELINE_BRIDGE_RE.search(prefix):
+                issues.append(f'- 时间轴第 {index} 个时间段缺少段内交接词：请以"同一机位继续/延续上一镜/镜头切至/切回"承接上一时间段，单段内禁止反打。')
+                break
 
-    for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
-        if not _TIMELINE_END_STATE_RE.search(body[-120:]):
-            issues.append(f"- 时间轴第 {index} 个时间段缺少结束状态：请写清谁停在什么位置、朝向、画内/画外、门/道具/距离状态。")
-            break
+    if not uses_shot_sequence:
+        for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
+            if not _TIMELINE_END_STATE_RE.search(body[-120:]):
+                issues.append(f"- 时间轴第 {index} 个时间段缺少结束状态：请写清谁停在什么位置、朝向、画内/画外、门/道具/距离状态。")
+                break
 
     for _start, _end, body in timeline_blocks:
-        if _TIMELINE_BRIDGE_RE.search(body) and not _SPATIAL_ANCHOR_RE.search(body):
+        if _TIMELINE_BRIDGE_RE.search(body) and not _has_prompt_spatial_anchor(body):
             issues.append("- 时间轴切镜缺少空间锚点：每次切镜至少保留电梯门框/中轴/员工列/前后景人物/轿厢等同一空间信号。")
             break
 
@@ -795,15 +956,16 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             break
 
     # 检测3: 单个时间段空间方位词过载
-    for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
-        spatial_direction_count = len(_SPATIAL_DIRECTION_TERMS_RE.findall(body))
-        if spatial_direction_count > 4:
-            issues.append(
-                f"- 时间轴第 {index} 个时间段空间方位词过载（{spatial_direction_count}个）：单个时间段最多保留"
-                "当前镜头必要的0-1个空间锚点短语；不要堆叠前景/中景/后景/远端/近侧/边缘/侧边/左右。"
-                "把文字预算让给人物动作和表情。"
-            )
-            break
+    if not uses_shot_sequence:
+        for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
+            spatial_direction_count = len(_SPATIAL_DIRECTION_TERMS_RE.findall(body))
+            if spatial_direction_count > 4:
+                issues.append(
+                    f"- 时间轴第 {index} 个时间段空间方位词过载（{spatial_direction_count}个）：单个时间段最多保留"
+                    "当前镜头必要的0-1个空间锚点短语；不要堆叠前景/中景/后景/远端/近侧/边缘/侧边/左右。"
+                    "把文字预算让给人物动作和表情。"
+                )
+                break
 
     # 检测4: 相邻时间段之间视角剧烈翻转——从正面突变为纯背面或反之
     _frontal_cam_re = re.compile(r"正前方0度|正面")
@@ -860,12 +1022,12 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         )
 
     # === [PROMPT-FIRST-FRAME-PIXEL-LOCK-001] 首帧像素锚点缺失 ===
-    space_anchor_section = _prompt_section(prompt, "空间与首帧总控")
-    if space_anchor_section:
+    space_anchor_section = _prompt_base_section(prompt)
+    if space_anchor_section and not uses_shot_sequence:
         pixel_hits = len(set(_PIXEL_ANCHOR_TERMS_RE.findall(space_anchor_section)))
         if pixel_hits < 2:
             issues.append(
-                "- [PROMPT-FIRST-FRAME-PIXEL-LOCK-001] 空间与首帧总控缺少像素锚点："
+                "- [PROMPT-FIRST-FRAME-PIXEL-LOCK-001] 空间与首帧总控缺少像素锚点（新版为画面基底）："
                 f"当前命中 {pixel_hits} 个像素锚词，至少需要 2 个。"
                 '请加入"画面中央 / 占画面高度 X / 对齐画面纵向 X 处 / 三分线"等像素描述，'
                 "否则模型每次生成首帧位置都不稳定，段间必跳。"
@@ -917,7 +1079,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             issues.append("- 单个短时间段同时包含多次切镜和长台词，时间预算不足；请把长台词给足约3秒，或把插入镜头并入前后镜头。")
             break
 
-    if director_segment and not re.search(r"shots\s*:", director_segment):
+    if director_segment and not _has_yaml_field(director_segment, "shots"):
         issues.append("- 当前片段镜头资产缺少 shots 骨架。")
 
     reaction_text = ""
@@ -1250,22 +1412,15 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "【输出格式硬约束——必须严格遵守】\n"
         "你的输出必须严格按以下结构，不得增删段落、不得使用 YAML、不得使用教学标签：\n\n"
         "```\n"
-        "片段N｜场景名｜情绪/动作关键词(用+连接)｜~秒数秒\n\n"
-        "【风格锚点】\n"
-        "一句话风格定义。\n\n"
-        "【画幅锚点】\n"
-        "画幅比例+方向（如 9:16竖屏）。\n\n"
-        "【空间与首帧总控】\n"
-        "**最多 1-2 句，越短越好**。只允许写：场景名 + 1-2 个不可变硬锚点（如电梯方向、桌位、门口）+ 光线基底。\n"
+        "片段N｜场景名｜情绪/动作关键词(用+连接)｜约秒数秒｜画幅比例\n\n"
+        "【画面基底】\n"
+        "最多 2-3 句：场景 + 1-3 个不可变硬锚点 + 本片段出现人物的身份/服装/当前状态 + 光线/风格。不要单独拆【风格锚点】【画幅锚点】【人物】段。\n"
         "如果镜头资产包含“空间连续性总控”，第一句必须先继承它：这是一段什么戏剧任务，哪些人物在同一空间内；单人镜只表示主体变化，不代表其他人物离开。\n"
-        "禁止：堆砌前景/中景/后景/左右/远近的层级链条；推理门后空间；把场景图复述成建筑说明书；写动作动词（走进、迈入、冲来、转身等）。\n"
-        "**镜头语言和人物动作才是这个 prompt 的主菜**——空间总控只是开场两句话，把舞台立住就够了，不要喧宾夺主。\n"
-        "Seedance会顺序读取prompt，如果空间总控里写了动作或过量空间解释，时间轴会被稀释，模型容易重复执行或重建错误场景。\n\n"
-        "【人物】\n"
-        "- 人物名：年龄/身份/服装/当前情绪状态。只写本片段会出现的人物。\n\n"
+        "禁止：堆砌前景/中景/后景/左右/远近的层级链条；推理门后空间；把场景图复述成建筑说明书；写动作动词（走进、迈入、冲来、转身等）。\n\n"
         "【镜头序列】\n"
-        "镜头1【X秒】【主体】景别，机位/视角，动作从起点到落点；对白直接嵌入动作句中（具体切镜触发→镜头2）。\n\n"
-        "镜头2【X秒】【主体】景别，机位/视角，承接上一镜动作/道具/轴线；必要时用 OS/J-cut/L-cut 把台词压到听者反应上（具体切镜触发→镜头3）。\n\n"
+        "镜头1【X秒】【主体】景别，视角/观看位置。主体 + 一个主要动作/反应 + 必要台词/信息落点 + 尾帧状态。（切镜时机：动作顶点/台词压力词/信息看清/反应出现后切至镜头2）\n\n"
+        "镜头2【X秒】【主体】景别，视角/观看位置。承接上一镜人物位置、道具和轴线；必要时用 OS/J-cut/L-cut 把台词压到听者反应上。（切镜时机：具体触发点后切至镜头3）\n\n"
+        "末尾镜头必须写清“尾帧：人物位置、视线、道具、门/车/电梯状态如何保持”，不写切到下一镜。\n\n"
         "每一行都必须来自上游 shot 的 duration、subject、shot、action、dialogue、must_carry、cut_point、continuity；"
         "如果上游有 coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role，也必须翻译进自然镜头句；不得泄漏这些字段名。\n\n"
         "【约束】\n"
@@ -1281,13 +1436,18 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "2. 人物参考图只用于锁定人物身份、面部形象、发型、服装、体态和可见随身道具一致性；不得把人物参考图当作剧情动作、台词或场景来源。\n"
         "3. 场景参考图只用于锁定空间结构、固定家具/道具、光线方向、色调和基础轴线；不得把场景参考图扩写成建筑说明书。\n"
         "4. 上一段尾帧/抽帧参考图只用于本段首帧承接：人物最终站位、朝向、姿态、道具状态、空间轴线和光线；不能覆盖当前片段的剧本事实。\n"
-        "5. 最终 Prompt 的参考图效果只能自然落入【空间与首帧总控】【人物】【镜头序列】【约束】，不要单独解释参考图。\n\n"
+        "5. 最终 Prompt 的参考图效果只能自然落入【画面基底】【镜头序列】【约束】，不要单独解释参考图。\n\n"
         "【语言风格硬约束】\n"
         "1. 用简洁的导演调度语言，不用文学化描写。\n"
         "2. 表情只写关键状态，不堆砌微表情。\n"
-        "3. 运镜必须使用可执行机位术语，并绑定摄影机位置与运动方向；不要写模糊口语。\n"
+        "3. 内部机位术语必须翻译为最终视角语言：写“侧面视角、固定视角、从谁肩后看向谁、谁的主观视角”，不要在最终 Prompt 中写“固定机位/侧面机位/摄影机位于”。\n"
         "4. 一句一个动作，句子简短有力，不在一句中塞多个并列描写。\n"
         "5. 台词直接嵌入动作描述中，不单独列出。\n\n"
+        "【动作粒度上限】\n"
+        "1. 最终镜头句只保留：主体、一个主要动作变化、必要情绪/视线落点；不要把每根手指、衣角、呼吸、肩颈、眼角连续写成动作流水账。\n"
+        "2. 生活动作只写模型容易稳定生成的大动作：拿起、放下、后退、停住、看向、递出、推开、进入、离开；微动作只在承载线索、受击结果或动作前摇时保留一次。\n"
+        "3. 如果上游 action 太细，先合并为 1-2 句自然动作；删除厘米级路径、手指开合、起点/落点流水账，只保留会影响剧情理解的接触、安全状态和尾帧。\n"
+        "4. Seedance prompt 优先 35-80 词级别的自然镜头语言；图生视频更短，重点写人物动作、镜头运动和情绪，不复述参考图已包含的对象。\n\n"
         f"{_shot_composition_task_selection_rules()}\n"
         f"{_dialogue_coverage_contract_rules()}\n"
         f"{_camera_execution_rules()}\n"
@@ -1310,13 +1470,13 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "5. 近景里不要描述超出当前画面可见范围的大量背景动作。\n"
         "6. 原则：把每个时间段想象成同一段导演编排在连续视频里自然展开。\n\n"
         "【Seedance 2.0 空间极简策略——最重要规则】\n"
-        "1. **严禁空间过载**：时间轴的重点是\"动作、情绪、机位\"。绝不允许堆叠\"前景、中景、后景、远端、近侧、边缘、画面左、画面右\"等冗余方位词。\n"
+        "1. **严禁空间过载**：时间轴的重点是\"动作、情绪、视角\"。绝不允许堆叠\"前景、中景、后景、远端、近侧、边缘、画面左、画面右\"等冗余方位词。\n"
         "2. 每个时间段最多保留 1 个必需的空间锚点（如\"电梯门旁\"），超过 1 个即为违规。\n"
         "3. 遇到上游提供的复杂 `geom:` 字段，**必须大幅裁剪**。只提取能说明机位和人物朝向的最少词汇，其余一律丢弃，绝不能逐字翻译。\n"
-        "4. 【空间与首帧总控】最多 2 句，极简点明场景和光线，禁止写出详细的建筑结构或人物的精确坐标。\n"
-        "5. 空间简写不等于剪辑省略；除第一个时间段外，每段开头必须保留\"同一机位继续/延续上一镜/镜头切至/切回\"等交接话术；单段内禁止写\"反打至/反打镜头\"。\n"
+        "4. 【画面基底】最多 2-3 句，极简点明场景、人物锁定、光线和不可变硬锚点，禁止写出详细的建筑结构或人物的精确坐标。\n"
+        "5. 空间简写不等于剪辑省略；镜头序列必须把切镜时机写成括号触发句；单段内禁止写\"反打至/反打镜头\"。\n"
         "6. compiler 不重新设计教学视频里的拍摄技巧，只忠实保留上游镜头资产已有的动作匹配、视线引导、同侧过肩、听者反应、景别递进、出画入画等设计；若上游写了反打，必须改写成同侧听者反应或提示拆段。\n"
-        "7. 每个时间段必须至少有一个人物动作或表情/视线落点；如果空间锚点和表演落点冲突，优先保留表演落点。\n"
+        "7. 每个镜头行必须至少有一个人物动作或表情/视线落点；如果空间锚点和表演落点冲突，优先保留表演落点。\n"
         "8. 背后、侧后方、180度必须绑定人物，不绑定场景。正确写法是\"商北琛背后中景/商北琛侧后方中景\"；禁止写\"电梯门外背后180度\"\"电梯口背后\"\"大堂中轴背后\"。\n"
         "9. 表现人物与电梯关系时，从人物背后或侧后方看他走向/进入电梯，不要让文字暗示从电梯里面向外拍。\n"
         "10. 电梯场景硬锁：电梯门打开后只能是封闭金属轿厢、侧壁/后壁/控制面板；禁止生成办公室、会议区、走廊、窗户、另一片大堂或会客区。\n"
@@ -1327,7 +1487,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "2. 问候/对峙用过肩或双人关系景，前景肩线只一句带过，重点写谁说话、谁不回应、视线如何移开。\n"
         "3. 命令句用半身景承载，必要时插入一次眼神/表情局部特写，再切回半身收完整句。\n"
         "4. 命令生效用群体关系景收束，写主管/员工如何停步、让路、四散、退回边线；不要补复杂南北东西或远近层级。\n"
-        "5. 最终时间轴应读起来像\"镜头机位切换 + 人物动作表情 + 台词落点\"，而不是空间坐标说明书。\n\n"
+        "5. 最终时间轴应读起来像\"镜头视角变化 + 人物动作表情 + 台词落点\"，而不是空间坐标说明书。\n\n"
         "【节奏与事件覆盖】\n"
         "1. 片段必须完整覆盖拆片方案中 source_script_events 的所有事件，不得遗漏。\n"
         "2. 建立段可以快过，炸点/受击段适当留时间，收束段干净利落。\n"
@@ -1375,7 +1535,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         tail_frame_memory = (
             f"{tail_frame_memory}\n\n"
             "【视频桥接决策执行规则】\n"
-            "1. 如果视频分析里的 next_segment_start_mode.mode 是 image_start，空间与首帧总控必须继承 selected_candidate 对应的可见人物位置、朝向、道具和空间状态。\n"
+            "1. 如果视频分析里的 next_segment_start_mode.mode 是 image_start，画面基底必须继承 selected_candidate 对应的可见人物位置、朝向、道具和空间状态。\n"
             "2. 如果 next_segment_start_mode.mode 是 direct_cut，禁止强行沿用上一段尾帧；应按当前片段规划资产重新开镜、闪回、换场或做空间复位。\n"
             "3. 如果 bridge_frame.usable_as_start_image=false，不能把该帧当作下一段首帧，只能继承明确可见的道具/空间状态。\n"
             "4. 如果 continuity_constraints.must_reset_space=true，当前片段开头必须用关系景、中景或明确空间状态重建，不要从局部特写硬接。\n"
@@ -1450,15 +1610,15 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"【当前片段规划资产】\n{current_planner_segment}\n\n"
         f"【当前片段镜头资产】\n{current_director_segment}\n\n"
         f"【上一段人物最终姿势/视频分析（最高优先级空间参考）】\n{tail_frame_memory}\n\n"
-        f"⚠️ 【空间与首帧总控的核心规则】\n"
+        f"⚠️ 【画面基底的核心规则】\n"
         f"如果上方存在【上一段人物最终姿势/视频分析】内容，则该分析描述的是上一段视频的**实际生成结果**。\n"
-        f"你在编写【空间与首帧总控】时，**必须以该视频分析中描述的人物最终位置、朝向、姿态和空间布局为准**，\n"
+        f"你在编写【画面基底】时，**必须以该视频分析中描述的人物最终位置、朝向、姿态和空间布局为准**，\n"
         f"而非照搬任何全局镜头预案。预先规划是理想状态，实际视频可能有偏差。\n"
         f"具体要求：\n"
         f"1. 首帧中人物的站位、朝向必须与视频分析中描述的【最终状态】完全一致。\n"
         f"2. 空间锚点（门、走廊、电梯等）的相对位置必须与视频分析中描述的【空间轴线】一致。\n"
         f"3. 如果视频分析提到了续接约束，必须严格执行。\n"
-        f"4. 不要在空间总控中扩写复杂场景说明；只保留1-3个关键节点和首帧人物关系，其他信息交给时间轴中的机位与动作承接。\n"
+        f"4. 不要在画面基底中扩写复杂场景说明；只保留1-3个关键节点和首帧人物关系，其他信息交给镜头序列中的机位、动作和切镜时机。\n"
         f"5. 如果场景关系不确定，禁止补写门后、走廊尽头、办公室延伸等推理空间。\n\n"
         f"【当前片段参考图约束（仅供编译，不得作为最终段落输出）】\n"
         f"{reference_prompt_block if reference_context.strip() else '无'}\n\n"
@@ -1473,52 +1633,52 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "5. source_script_events 必须全部覆盖，不得遗漏。\n\n"
         "【镜头覆盖字段翻译规则】\n"
         "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，以及三号守门字段 coverage_role / cut_reason / companion_visibility / state_delta / tailframe_role，必须按下面方式编译成【镜头序列】：\n"
-        "0. 空间连续性总控 必须转译进【空间与首帧总控】开头：说明本片段戏剧任务、同一空间、同一人物组和单人镜不代表其他人物离场；不要泄漏字段名。\n"
+        "0. 空间连续性总控 必须转译进【画面基底】开头：说明本片段戏剧任务、同一空间、同一人物组和单人镜不代表其他人物离场；不要泄漏字段名。\n"
         "1. duration 只进入镜头编号后的秒数，例如 镜头1【4秒】；不要在最终 prompt 里写 duration 字段名。\n"
         "2. task 决定镜头功能，但最终只写成自然镜头动作，不要输出 task 字段名。\n"
-        "3. subject + shot 只合成镜头行开头的摄影表达；shot 若是新版输出，只把它当成景别、机位、视角、运镜或前景关系，不要从 shot 字段抽取人物动作。\n"
+        "3. subject + shot 只合成镜头行开头的自然视角表达；shot 若是新版输出，只把它当成景别、视角/观看位置、运动或前景关系，不要从 shot 字段抽取人物动作；若上游仍写“机位”，最终必须翻译成“视角”。\n"
         "4. action + dialogue 是镜头行主体；动作、表情、视线、呼吸、肩颈、手部、道具接触和台词落点必须主要来自 action，台词直接嵌入动作句中，画外音或声音桥写成自然中文。\n"
         "5. must_carry 必须转译成画面里看得见的信息、道具状态、人物距离变化或反应结果，不能只放到约束里，也不能写成抽象戏剧效果。\n"
-        "6. cut_point 必须放进括号，写成（动作顶点前切至镜头2）、（台词断点时切至乔熙反应镜头）、（文件内容看清后切至镜头3）这类自然中文触发句；禁止使用箭头式表达。\n"
+        "6. cut_point 必须放进括号，统一写成（切镜时机：动作顶点前切至镜头2）、（切镜时机：台词断点时切至乔熙反应镜头）、（切镜时机：文件内容看清后切至镜头3）这类自然中文触发句；禁止使用箭头式表达。\n"
         "7. continuity 必须落实到镜头行或【约束】里，写清上一镜结束状态如何被下一镜继承：人物站位、道具在谁手里、手停在哪里、距离是否变化；不要只写“状态单向推进”“不得回弹”这类抽象约束。\n"
         "8. coverage_role / 覆盖职责 决定这一镜的信息任务，但最终不得写“本镜负责建立关系/承载对白/尾帧承接”。必须改成可见画面：人物A和人物B同框站在空间锚点两侧、道具X仍在人物A手里、道具Y停在已改变或未完成状态。\n"
         "9. cut_reason / 切镜原因 必须和 cut_point 合并成括号里的切镜触发，绑定动作顶点、台词断点、信息看清、反应出现或尾帧完成；不能写成“更有电影感”。\n"
         "10. companion_visibility / 同场人物位置 必须转译为镜头行里的同场关系保留：前景肩线、画面边缘、画外左/右侧、同框、过肩或明确出画/入画原因；避免单人镜让其他人物像消失。\n"
-        "11. state_delta / 状态变化 必须写成本镜相对上一镜新增的可见变化：视线转向谁、身体退了几步、手从哪里移到哪里、道具从哪里到哪里、门缝变宽或变窄；不能只写“情绪变化”“状态变化发生”。\n"
-        "12. tailframe_role / 尾帧职责 必须落实到该镜尾句或【约束】中，写清下一镜/下一段可继承的人物位置、视线、道具、门/车/电梯状态；不要写“尾帧承接”“抗拒位置”这种内部标签。\n"
+        "11. state_delta / 状态变化 必须写成本镜相对上一镜新增的可见变化：视线转向谁、身体退开或停住、道具归属如何变化、门缝变宽或变窄；不能只写“情绪变化”“状态变化发生”。\n"
+        "12. tailframe_role / 尾帧职责 必须落实到末尾镜头的“尾帧：...”或【约束】中，写清下一镜/下一段可继承的人物位置、视线、道具、门/车/电梯状态；不要写“尾帧承接”“抗拒位置”这种内部标签。\n"
         "13. 若三号守门字段与基础字段重复，保留一次自然表达即可；若三号指出硬伤修复，以三号字段为准。\n"
         "14. 如果上游旧版 shot 字段仍混有动作，必须拆开处理：摄影信息放镜头行开头，人物动作和表情并入 action 的自然句，避免最终 prompt 一句里同时塞摄影和动作导致模型误画。\n"
         "15. 最终 prompt 禁止出现 fragment_task、must_carry、cut_point、continuity、coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role、shot_id、fragment_id 等内部字段名。\n\n"
         "【Seedance 2.0 场景简写与表演优先规则】\n"
         "1. 最终 Prompt 不要把场景空间写成说明书；空间只服务连续性，不承担戏剧表达。\n"
-        "2. 【空间与首帧总控】最多2-3句，只写不可变硬锚点：场景类型、入口/门/电梯/桌边等关键节点、人物首帧站位、光线。\n"
-        "3. 每个时间段优先写：机位在哪里、谁做什么、动作从哪里到哪里、视线看向谁、表情怎样变化、结束时停在哪里。\n"
-        "4. 每个时间段的空间锚点最多0-1个短语，且必须是当前镜头确实需要看见的节点；不要反复堆叠前景/中景/后景/左右/远近/边缘。\n"
-        "5. 空间信息可以少，但剪辑交接词不能省；除第一个时间段外，每段开头必须写\"同一机位继续/延续上一镜/镜头切至/切回\"，禁止单段内写\"反打至\"。\n"
+        "2. 【画面基底】最多2-3句，只写不可变硬锚点：场景类型、入口/门/电梯/桌边等关键节点、人物首帧站位、人物身份服装、光线。\n"
+        "3. 每个镜头行优先写：景别/视角、谁做什么、视线看向谁、表情怎样变化、结束时停在哪里；不要写起点/路径/终点说明书。\n"
+        "4. 每个镜头行的空间锚点最多0-1个短语，且必须是当前镜头确实需要看见的节点；不要反复堆叠前景/中景/后景/左右/远近/边缘。\n"
+        "5. 空间信息可以少，但切镜时机不能省；每个非末尾镜头都必须写“（切镜时机：...切至镜头N）”，禁止单段内写\"反打至\"。\n"
         "6. compiler 只翻译上游导演输出，不新增拍摄技巧；但如果上游写了动作匹配、视线引导、同侧过肩、听者反应、出画入画、景别递进等设计，必须保留成可执行时间轴语言。\n"
         "7. 背后、侧后方、180度是人物相对机位，不是场景相对机位；只写\"商北琛背后中景/商北琛侧后方中景\"，不要写\"电梯门外背后180度\"。\n"
         "8. 电梯开门/入电梯时只需写\"封闭金属轿厢\"，必要时加\"控制面板\"；并在约束中禁止\"办公区、会议区、走廊、窗户、另一片大堂\"。\n"
         "9. 有众员工/群演时，必须在约束中写明：员工不得与命名人物相似、重复或同脸，优先用匿名差异化面孔、侧脸、背影、轻虚。\n\n"
         "【生活动作可拍化规则】\n"
-        "1. 遇到生活动作、冲突动作、道具动作、进入/离开、拉扯、躲避、翻找、收拾等行为，必须用可拍动作公式：主体+身体部位+起点+接触对象+移动方向+终点。\n"
-        "2. 不要输出\"动作叠压\"\"动作主链\"\"关系建立后\"\"状态单向推进\"\"抗拒位置\"；改写为\"人物A右手把道具X从位置A移到位置B\"\"人物A左手接触人物B的身体部位或道具Y\"\"人物B后退半步停住\"。\n"
-        "3. 如果一个镜头里有两个并行动作，分别绑定左右手或身体部位；不要只写\"同时处理两件事\"。\n"
-        "4. 局部近景只拍可见接触点：手、身体部位、道具边缘、屏幕外壳、门把、文件角、衣物边缘；必须写清接触前后状态，例如\"道具Y从位置A滑到位置B，目标动作没有完成\"。\n"
-        "5. 尾帧不能写成职责标签，必须写成姿势：人物A保持道具X在目标位置，空出的手停在半空；人物B退开半步，身体后缩，道具Y保持未完成或已改变状态。\n\n"
+        "1. 遇到生活动作、冲突动作、道具动作、进入/离开、拉扯、躲避、翻找、收拾等行为，先压成自然动作句：主体 + 一个主要动作 + 必要接触/方向 + 尾帧状态。\n"
+        "2. 不要输出\"动作叠压\"\"动作主链\"\"关系建立后\"\"状态单向推进\"\"抗拒位置\"；改写为\"人物A把道具X移到位置B\"\"人物A扶住/松开人物B\"\"人物B后退半步停住\"这类短句。\n"
+        "3. 如果一个镜头里有两个并行动作，只保留影响剧情或连续性的那个；另一个写进必须承载或连续性，避免模型同时执行过多肢体任务。\n"
+        "4. 局部近景只在信息必须看清时拍可见接触点；不要为手指、衣角、嘴唇、眼角、鞋尖、肩颈等微细节单独扩写，除非它是当前剧本唯一信息主体。\n"
+        "5. 尾帧不能写成职责标签，必须写成姿势：人物A保持道具X在目标位置；人物B退开半步停住；道具Y保持未完成或已改变状态。\n\n"
         "【最终约束固定项】\n"
         "【约束】段必须明确写入：严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌；禁止生成招牌文字、手机屏幕文字、文件可读字、UI文字和片内字幕。\n\n"
         "【空间几何字段翻译规则——严禁透传】\n"
         "镜头资产中的 camera_basis / camera_scene_position / camera_looks_toward / subject_position / subject_facing / visible_landmarks 是上游内部结构化字段。\n"
         "你必须将它们翻译成自然中文导演语言，绝对禁止在最终 Prompt 中出现 key=value 格式（如 camera_basis=scene_fixed、visible_landmarks=lobby_entrance=background_center）。\n"
-        "1. camera_basis=scene_fixed 时，时间轴写成\"场景固定机位/电梯口固定机位/桌侧固定机位\"等短词，不要展开成长空间说明，也不要改成人物正前方机位。\n"
+        "1. camera_basis=scene_fixed 时，时间轴写成\"固定视角\"或\"电梯口固定视角\"等短词，不要展开成长空间说明，也不要改成人物正前方视角。\n"
         "2. camera_basis=subject_relative 时，只能用于人物朝向和位置稳定的说话/反应镜头；人物穿过门框、进入电梯、进入车门时必须改用 scene_fixed。\n"
         "3. visible_landmarks 只允许挑选当前镜头最必要的1-2个可见锚点翻译，不得把全部锚点硬塞进前景/中景/后景说明。\n"
         "4. subject_facing 和 angle 冲突时，优先修正 angle 或 visible_landmarks；不要保留互相打架的\"正面+朝门+后景门框\"。\n"
-        "5. camera_scene_position → 只在必须保持空间连续时翻译成短句；如果会造成歧义，改成同侧轴线内的简洁机位，如\"同侧过肩中近景\"\"办公桌侧面固定机位\"。\n"
+        "5. camera_scene_position → 只在必须保持空间连续时翻译成短句；如果会造成歧义，改成同侧轴线内的简洁视角，如\"从对方肩后看向人物\"\"办公桌侧面固定视角\"。\n"
         "6. visible_landmarks → 只挑一个当前镜头必要锚点写成短语，如\"电梯门旁\"；不要翻译成长串前景/中景/后景说明。\n"
         "7. subject_position/subject_facing → 只在必要时翻译成人物站位和朝向，如\"商北琛站在通道中，面朝电梯\"；不要写南侧/远端/近侧/外侧/内侧等多重方位链。\\n"
         "8. 摄影机后退可行性：如果人物面朝电梯/门口且机位在正前方0度，同速后退会让摄影机退进电梯/撞墙；"
-        "必须改用侧面跟拍、背后跟拍、门框侧固定机位或场景固定机位，不得改用人物左前方/右前方。\n"
+        "必须改用侧面跟随视角、背后跟随视角、门口侧面固定视角或固定视角，不得改用人物左前方/右前方。\n"
         "9. 视角翻转铺垫：相邻时间段不得从正面突变为背面（或反之），除非文本中明确写出人物转身动作；"
         "如需视角大幅变化，必须插入侧面过渡机位或在时间轴中写明转身动作。\n\n"
         "错误示例（绝对禁止出现在最终输出中）：camera_basis=scene_fixed，camera_scene_position=lobby_axis_between_entrance_and_elevator，visible_landmarks=lobby_entrance=background_center。\n"
@@ -1538,8 +1698,8 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"{_director_jargon_translation_rules()}\n"
         "【输出前强制自检】\n"
         "1. 标题行是否为 '片段N｜场景名｜关键词｜~秒数秒' 格式？\n"
-        "2. 是否只包含【风格锚点】【画幅锚点】【空间与首帧总控】【人物】【镜头序列】【约束】六个主体段落？是否没有【参考图说明】段？\n"
-        "3. 每个镜头行是否为 镜头N【X秒】【主体】景别+简洁机位+动作/对白+括号切镜触发？\n"
+        "2. 是否只包含【画面基底】【镜头序列】【约束】三个主体段落？是否没有【风格锚点】【画幅锚点】【人物】【参考图说明】段？\n"
+        "3. 每个镜头行是否为 镜头N【X秒】【主体】景别+简洁机位+自然动作/对白+括号切镜时机？末尾镜头是否写清尾帧？\n"
         "4. 每个镜头行是否有至少1个可见动作、信息或情绪落点？\n"
         "5. 每个镜头行是否自然简短，不靠堆空间词凑字？\n"
         "6. 是否存在场景名+景别的违规写法？\n"
@@ -1549,14 +1709,14 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "10. 节奏是否合理——建立段是否简洁、炸点/受击段是否留足空间？是否存在表情堆砌导致剧情推进过慢的问题？\n"
         "11. 【空间连续性】每个时间段的画面是否从上一时间段自然演变？是否存在空间跳变或视角翻转？\n"
         "12. 【主体递进而非硬切】主体重心变化是否严格来自上游 shots/sub_shots/reaction_plan，且通过动作/视线/调度自然过渡？\n"
-        "13. 【空间总控无动作】空间与首帧总控中是否包含了动作动词（走进、迈入、冲来、转身等）？\n"
-        "    如果有，必须改为纯静态描述（站在、位于、面朝），动作只能出现在时间轴中。\n"
+        "13. 【画面基底无动作】画面基底中是否包含了动作动词（走进、迈入、冲来、转身等）？\n"
+        "    如果有，必须改为纯静态描述（站在、位于、面朝），动作只能出现在镜头序列中。\n"
         "14. 是否还存在三分之四角度、侧前方、轻微前推跟随、沉默就是回应、权力关系锁住、空气收紧等模糊或抽象描述？如有必须改成明确左右机位、角度、运镜和可见动作。\n"
-        "15. 受击反应是否写清\"镜头切至谁/什么景别/什么机位/画面中保留谁\"？关键动作是否写清起点、路径、接触对象、终点和结束状态？是否还存在弹开、飞开、甩开、突然闪开等失控动作词？\n"
+        "15. 受击反应是否写清\"镜头切至谁/什么景别/什么机位/画面中保留谁\"？关键动作是否合并成主体+主要动作+必要接触/方向+尾帧状态？是否还存在弹开、飞开、甩开、突然闪开等失控动作词？\n"
         "16. 每个镜头是否继承上一镜头结束状态？除第一个镜头外，是否用动作、视线、道具或轴线明确交接？是否误写了单段反打？每次切镜是否保留必要空间锚点？\n"
         "17. 【禁止透传内部字段】最终输出中是否存在 camera_basis=、camera_scene_position=、camera_looks_toward=、subject_position=、subject_facing=、visible_landmarks= 等 key=value 格式？如有必须全部改写为自然中文句子。\n"
-        "18. 【空间简写】空间与首帧总控是否超过3句或反复解释前景/中景/后景/左右/远近？如果是，删到只剩1-3个硬锚点。\n"
-        "19. 【表演优先】每个时间段是否至少有一个人物动作、视线或表情落点？如果没有，不要继续补空间，改补人物调度。\n"
+        "18. 【画面基底简写】画面基底是否超过3句或反复解释前景/中景/后景/左右/远近？如果是，删到只剩1-3个硬锚点。\n"
+        "19. 【表演优先】每个镜头行是否至少有一个人物动作、视线或表情落点？如果没有，不要继续补空间，改补人物调度。\n"
         "20. 【电梯硬锁】电梯门后是否被写成办公区/会议区/走廊/窗户/另一片大堂？如果是，改为封闭金属轿厢，并加入禁止项。\n"
         "21. 【群演同脸】有众员工/群演时，是否明确禁止与命名人物同脸、相似或重复？如果没有，必须加入约束。\n"
         "22. 【对白覆盖】长台词、高压命令、质问或揭晓句是否被一个固定机位从头吃到尾？如果是，必须保留/恢复同侧听者反应、过肩、画外音或景别变化；真反打必须拆到相邻片段。\n"

@@ -102,15 +102,15 @@ def _story_planner_rhythm_boundary_rules() -> str:
 def _story_planner_granularity_rules() -> str:
     return (
         "【结构规划师拆片指南（Seedance 2.0 15秒剧情任务版）】\n"
-        "1. 核心目标：每个片段承载一个 15 秒以内可完成的剧情任务；不追求多拆，也不允许把多个任务粗暴塞进一段。\n"
-        "2. 单段推荐 4-8 条施工剧本原文事件。超过 8 条必须拆开；少于 4 条通常合并到相邻片段。\n"
-        "3. 少于 4 条仍可独立的例外：明确结尾悬念、段尾停在未完成状态、尾帧承接、重大反转落点或下一段必须从该状态接起。\n"
+        "1. 核心目标：每个片段承载一个 15 秒以内可完成的情绪注意力单元；不追求多拆，也不允许把多个观众问题粗暴塞进一段。\n"
+        "2. 单段事件数由内容决定：纯短过渡可 1-3 条，完整对白/情绪单元常见 4-8 条；超过 8 条必须证明仍服务同一个观众注意力问题。\n"
+        "3. 少于 4 条仍可独立的例外：明确结尾悬念、段尾停在未完成状态、尾帧承接、重大反转落点、时间空间切换或下一段必须从该状态接起。\n"
         "4. 普通停顿、受击反应、信息揭示默认留在当前片段内部，由镜头导演处理，不自动拆成新片段。\n"
         "5. 拆片必须服从节奏总控给结构规划师的操作单：时长范围、停顿、不拆、压缩、段尾状态、反应归属和尾帧承接。\n"
         "6. 反应归属只做高层判断：留在本段、下一段承接、无须独立反应；不要替镜头导演设计具体镜头。\n"
-        "7. 一个片段只承担一个核心剧情任务；若同一段里同时包含入场、对白、群体反应、道具动作、空间变化、情绪重音，应优先拆开，而不是把所有任务压进一个片段。\n"
+        "7. 一个片段只承担一个核心观众注意力问题；若同一段里同时跨越入场、对白、群体反应、关键道具、空间变化、情绪重音等多个独立问题，应优先拆开。\n"
         "8. 大动作优先拆成连续小任务链，例如进入门缝→撞上→扶住→停住；不要把复杂动作整包塞成一句笼统事件后再期待下游补救。\n"
-        "9. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，若没有完整发言、信息揭示或明确反应落点，目标时长必须压到 2-5秒；不要写成 8-10秒。\n"
+        "9. 片段时长按功能规划：纯短动作/短位移 2-5秒；短动作群但无完整对白/反应 5-8秒；急促生活动作 + 完整台词/拒绝/安抚/反应 8-12秒；完整情绪揭示或长对白单元 10-15秒。\n"
         "10. 文戏/情绪戏/对白戏优先保持可延长的连续段；武戏/高动作冲突戏优先拆成可拼接的短段。\n"
     )
 
@@ -168,9 +168,42 @@ def _field_value(section: str, field: str) -> str:
         "intra_fragment_rhythm": ("片段内节奏分配", "段内节奏分配", "内部节拍预算", "intra_fragment_rhythm", "internal_beat_budget"),
     }.get(field, (field,))
     for candidate in fields:
-        match = re.search(rf"(?m)^\s*-?\s*{re.escape(candidate)}\s*:\s*[\"']?(.+?)[\"']?\s*$", section)
+        match = re.search(rf"(?m)^\s*-?\s*{re.escape(candidate)}[^\S\r\n]*:[^\S\r\n]*[\"']?(.+?)[\"']?\s*$", section)
         if match:
             return match.group(1).strip()
+        block_match = re.search(
+            rf"(?m)^\s*-?\s*{re.escape(candidate)}[^\S\r\n]*:[^\S\r\n]*\n"
+            r"((?:[^\S\r\n]+-[^\S\r\n]*.+(?:\n|$))+)",
+            section,
+        )
+        if block_match:
+            items = [
+                item.strip().strip("\"'")
+                for item in re.findall(r"(?m)^[^\S\r\n]*-[^\S\r\n]*(.+?)[^\S\r\n]*$", block_match.group(1))
+                if item.strip()
+            ]
+            if items:
+                return "；".join(items)
+        lines = section.splitlines()
+        for index, line in enumerate(lines):
+            if not re.match(rf"^\s*-?\s*{re.escape(candidate)}[^\S\r\n]*:[^\S\r\n]*$", line):
+                continue
+            field_indent = len(line) - len(line.lstrip())
+            items: list[str] = []
+            for following in lines[index + 1 :]:
+                if not following.strip():
+                    continue
+                following_indent = len(following) - len(following.lstrip())
+                if following_indent <= field_indent:
+                    break
+                item_match = re.match(r"\s*-\s*[\"']?(.+?)[\"']?\s*$", following)
+                if item_match:
+                    items.append(item_match.group(1).strip().strip("\"'"))
+                    continue
+                if items:
+                    break
+            if items:
+                return "；".join(items)
     return ""
 
 def _infer_boundary_reason(section: str) -> str:
@@ -213,11 +246,13 @@ def _infer_fragment_task(section: str) -> str:
 def _infer_shot_director_handoff(section: str) -> str:
     duration = _field_value(section, "duration_target") or "按目标时长执行"
     reaction_plan = _field_value(section, "reaction_plan") or "按片段内动作和台词自然承接"
+    rhythm = _field_value(section, "intra_fragment_rhythm") or "按本片段情绪曲线执行"
     exit_state = _field_value(section, "出场状态") or _field_value(section, "exit_state")
     exit_part = f"结尾画面按出场状态承接：{exit_state}" if exit_state else "结尾画面按本片段最后一个原文事件承接"
     return (
-        f"镜头导演只覆盖本片段原文事件；目标时长：{duration}；承接要求：{reaction_plan}；"
-        f"{exit_part}；不得新增剧本外人物、台词、道具、动作或空间。"
+        f"镜头导演只覆盖本片段原文事件；目标时长：{duration}；情绪/节奏意图：{rhythm}；"
+        f"戏剧落点：{reaction_plan}；弱拍和过渡动作可压缩进主镜头或结果状态；"
+        f"{exit_part}；镜头数、景别、机位、切镜点由镜头导演决定，不得新增剧本外人物、台词、道具、动作或空间。"
     )
 
 def _infer_intra_fragment_rhythm(section: str) -> str:
@@ -230,7 +265,7 @@ def _infer_intra_fragment_rhythm(section: str) -> str:
     has_dialogue_or_reaction = bool(re.search(r"：|:|拒绝|哄|安抚|反应|停住|犹豫|看清|照片|OS", text))
     if has_fast_action and has_dialogue_or_reaction:
         return (
-            f"前段用 2-3秒完成急促动作链；后段在剩余{duration}内完成台词、反应或情绪落点。"
+            f"前段用约2-5秒完成急促动作链；后段在剩余{duration}内完成台词、反应或情绪落点。"
             "镜头导演在同一片段内部控制快慢，不拆成新片段。"
         )
     if has_fast_action:
@@ -321,6 +356,307 @@ def _repair_story_planner_source_events(section: str, script: str) -> str:
         return section
     return _replace_source_script_events_block(section, repaired_events)
 
+def _replace_planner_scalar_field(section: str, fields: tuple[str, ...], value: str) -> str:
+    field_pattern = "|".join(re.escape(field) for field in fields)
+    safe_value = value.replace('"', "'")
+    updated, count = re.subn(
+        rf"(?m)^(\s*(?:{field_pattern})\s*:\s*).*$",
+        rf'\1"{safe_value}"',
+        section,
+        count=1,
+    )
+    return updated if count else section
+
+def _coarse_split_chunk_size(event_count: int) -> int:
+    if event_count <= 8:
+        return event_count
+    if event_count >= 12:
+        target_chunks = 6 if event_count >= 24 else 5
+        return max(2, (event_count + target_chunks - 1) // target_chunks)
+    chunk_count = max(2, (event_count + 5) // 6)
+    return max(4, (event_count + chunk_count - 1) // chunk_count)
+
+def _duration_for_event_chunk(event_count: int) -> str:
+    if event_count <= 1:
+        return "2-5秒"
+    if event_count <= 3:
+        return "5-8秒"
+    if event_count <= 6:
+        return "8-12秒"
+    return "10-15秒"
+
+_ATTENTION_HARD_BOUNDARY_RE = re.compile(
+    r"闪回|回忆|回到现实|现实中|四年前|三年前|多年前|多年后|第二天|翌日|当晚|"
+    r"另一边|与此同时|切到|转场|新场景|场景[:：]|EXT\.|INT\.",
+    re.IGNORECASE,
+)
+_ATTENTION_REVEAL_RE = re.compile(
+    r"("
+    r"(?:照片|文件|录音|短信|视频|监控|报告|合同|戒指|项链|亲子鉴定|诊断书|书包|屏幕|证据|缴费单|通知).{0,18}"
+    r"(?:掉|滑|散落|露|翻|拿|捡|看清|发现|打开|递出|递到|递来|送到|送来|推过|放到|放在|摆到|亮出|取出|掏出|落出|掉出|弹出|刷出|出现|播放|投到)|"
+    r"(?:掉|滑|散落|露|翻|拿|捡|看清|发现|打开|递出|递到|递来|送到|送来|推过|放到|放在|摆到|亮出|取出|掏出|落出|掉出|弹出|刷出|出现|播放|投到).{0,18}"
+    r"(?:照片|文件|录音|短信|视频|监控|报告|合同|戒指|项链|亲子鉴定|诊断书|书包|屏幕|证据|缴费单|通知)|"
+    r"新证据|真相出现|签名时间|病危通知|过敏照片|缴费单|钥匙发光|钥匙亮起"
+    r")",
+    re.IGNORECASE,
+)
+_ATTENTION_INTRUSION_RE = re.compile(
+    r"(?:门被推开|大门被推开|门突然开|突然开了|门打开|敲门|突然闯入|闯进来|冲进来|赶到|警笛|救护车|电话响起|电话响|手机震动)"
+    r"(?:.{0,18}(?:打断|看向|停住|僵住|沉默|愣住|转头|所有人))?",
+    re.IGNORECASE,
+)
+_ATTENTION_KEY_OBJECT_RE = re.compile(
+    r"照片|文件|录音|短信|视频|监控|报告|合同|戒指|项链|亲子鉴定|诊断书|钥匙|书包|屏幕|证据|缴费单|通知"
+)
+
+def _fallback_attention_unit_count(total_events: int) -> int:
+    if total_events <= 0:
+        return 0
+    if total_events <= 6:
+        return 1
+    if total_events <= 10:
+        return 2
+    if total_events <= 16:
+        return 3
+    if total_events <= 24:
+        return 4
+    if total_events <= 34:
+        return 5
+    return min(9, max(6, (total_events + 7) // 8))
+
+def _attention_boundary_reason(line: str) -> str:
+    text = line or ""
+    if _ATTENTION_HARD_BOUNDARY_RE.search(text):
+        return "时间/空间/记忆层切换"
+    if _ATTENTION_REVEAL_RE.search(text):
+        return "新信息或关键物件改变观众注意力"
+    if _ATTENTION_INTRUSION_RE.search(text):
+        return "外部打断制造新的观众注意力问题"
+    return ""
+
+def _attention_key_objects(line: str) -> set[str]:
+    objects = set(_ATTENTION_KEY_OBJECT_RE.findall(line or ""))
+    if objects & {"亲子鉴定", "诊断书", "报告", "证据"}:
+        objects.add("文件")
+    return objects
+
+def _script_emotional_attention_units(script: str) -> list[tuple[int, int, str]]:
+    """Estimate emotional-attention units from script lines without using fixed counts."""
+    lines = _script_event_lines(script)
+    if not lines:
+        return []
+
+    starts: list[tuple[int, str]] = [(0, "开场情绪注意力问题")]
+    for index, line in enumerate(lines[1:], start=1):
+        reason = _attention_boundary_reason(line)
+        if not reason:
+            continue
+        last_start = starts[-1][0]
+        is_hard_boundary = bool(_ATTENTION_HARD_BOUNDARY_RE.search(line or ""))
+        if index - last_start <= 1 and not is_hard_boundary:
+            if _attention_key_objects(lines[last_start]) & _attention_key_objects(line):
+                continue
+        starts.append((index, reason))
+
+    units: list[tuple[int, int, str]] = []
+    for position, (start, reason) in enumerate(starts):
+        end = starts[position + 1][0] - 1 if position + 1 < len(starts) else len(lines) - 1
+        if start <= end:
+            units.append((start, end, reason))
+    return units
+
+def _target_episode_fragment_count(total_events: int, source_script: str = "") -> int:
+    units = _script_emotional_attention_units(source_script)
+    if len(units) > 1:
+        return len(units)
+    return _fallback_attention_unit_count(max(total_events, len(_script_event_lines(source_script))))
+
+def _group_sections_by_attention_units(sections: list[str], source_script: str) -> list[list[str]]:
+    units = _script_emotional_attention_units(source_script)
+    script_lines = _script_event_lines(source_script)
+    if len(units) <= 1 or not script_lines:
+        return []
+
+    groups: list[list[str]] = [[] for _unit in units]
+    fallback_index = 0
+    for section in sections:
+        span = _source_event_span(section, script_lines)
+        if span:
+            section_start = span[0]
+            unit_index = 0
+            for index, (unit_start, unit_end, _reason) in enumerate(units):
+                if unit_start <= section_start <= unit_end:
+                    unit_index = index
+                    break
+        else:
+            unit_index = min(fallback_index, len(groups) - 1)
+            fallback_index += 1
+        groups[unit_index].append(section)
+    return [group for group in groups if group]
+
+def _chunk_events_by_attention_units(events: list[str], source_script: str) -> list[list[str]]:
+    units = _script_emotional_attention_units(source_script)
+    script_lines = _script_event_lines(source_script)
+    if len(units) <= 1 or not script_lines:
+        return []
+
+    chunks: list[list[str]] = []
+    consumed: set[str] = set()
+    for start, end, _reason in units:
+        unit_lines = set(script_lines[start : end + 1])
+        chunk = [event for event in events if event in unit_lines and event not in consumed]
+        if chunk:
+            chunks.append(chunk)
+            consumed.update(chunk)
+    leftovers = [event for event in events if event not in consumed]
+    if leftovers:
+        if chunks:
+            chunks[-1].extend(leftovers)
+        else:
+            chunks.append(leftovers)
+    return chunks
+
+def _group_sections_by_event_budget(sections: list[str], target_count: int) -> list[list[str]]:
+    remaining_sections = list(sections)
+    remaining_events = sum(len(_source_script_events(section)) for section in remaining_sections)
+    groups: list[list[str]] = []
+    while remaining_sections and len(groups) < target_count:
+        slots_left = target_count - len(groups)
+        event_budget = max(1, (remaining_events + slots_left - 1) // slots_left)
+        group: list[str] = []
+        group_events = 0
+        while remaining_sections:
+            next_events = len(_source_script_events(remaining_sections[0]))
+            if group and group_events + next_events > event_budget and len(remaining_sections) >= slots_left:
+                break
+            section = remaining_sections.pop(0)
+            group.append(section)
+            group_events += next_events
+            remaining_events -= next_events
+            if len(remaining_sections) < slots_left:
+                break
+        groups.append(group)
+    if remaining_sections:
+        groups[-1].extend(remaining_sections)
+    return groups
+
+def _combined_unique_events(sections: list[str]) -> list[str]:
+    events: list[str] = []
+    seen: set[str] = set()
+    for section in sections:
+        for event in _source_script_events(section):
+            if event in seen:
+                continue
+            seen.add(event)
+            events.append(event)
+    return events
+
+def _first_nonempty_field(sections: list[str], field: str) -> str:
+    for section in sections:
+        value = _field_value(section, field)
+        if value:
+            return value
+    return ""
+
+def _last_nonempty_field(sections: list[str], field: str) -> str:
+    for section in reversed(sections):
+        value = _field_value(section, field)
+        if value:
+            return value
+    return ""
+
+def _merge_episode_unit_group(sections: list[str], group_index: int) -> str:
+    events = _combined_unique_events(sections)
+    first_section = sections[0]
+    merged = _replace_source_script_events_block(first_section, events)
+    merged = _replace_planner_scalar_field(
+        merged,
+        ("duration_target", "目标时长", "鐩爣鏃堕暱"),
+        "10-15秒" if len(events) >= 7 else ("8-12秒" if len(events) >= 4 else "5-8秒"),
+    )
+    merged = _replace_planner_scalar_field(
+        merged,
+        ("节奏类型", "鑺傚绫诲瀷"),
+        "正常承接",
+    )
+    task_seed = _first_nonempty_field(sections, "dramatic_unit")
+    merged = _replace_planner_scalar_field(
+        merged,
+        ("dramatic_unit", "片段任务", "戏剧单元", "鐗囨浠诲姟", "鎴忓墽鍗曞厓"),
+        f"第{group_index}个戏剧单元：{task_seed or '覆盖本组连续原文事件'}",
+    )
+    merged = _replace_planner_scalar_field(
+        merged,
+        ("事件密度判断", "浜嬩欢瀵嗗害鍒ゆ柇"),
+        "本片段合并相邻小节拍，属于同一戏剧单元；快慢变化在片段内部处理，不拆成平级片段。",
+    )
+    merged = _replace_planner_scalar_field(
+        merged,
+        ("片段内节奏分配", "段内节奏分配", "内部节拍预算", "intra_fragment_rhythm", "internal_beat_budget", "鐗囨鍐呰妭濂忓垎閰?"),
+        "前半段用急忙、短促、动作叠压完成主要动作或问答推进；后半段保留反应、拒绝、承接或状态变化，由镜头导演在片段内部用有限切镜处理。",
+    )
+    merged = _replace_planner_scalar_field(
+        merged,
+        ("动作节奏指导", "鍔ㄤ綔鑺傚鎸囧"),
+        "快节奏靠人物动作紧张、停顿变短和少量有动机切镜表达；正常节奏保持自然动作和正常镜头切分。",
+    )
+    merged = _replace_planner_scalar_field(
+        merged,
+        ("reaction_plan", "承接要求", "鎵挎帴瑕佹眰"),
+        "完整问答、回应与反应落点优先留在同一片段内部；下游镜头导演只在信息增量节点切镜。",
+    )
+    merged = _replace_planner_scalar_field(
+        merged,
+        ("director_brief", "镜头导演交接", "shot_director_handoff", "闀滃ご瀵兼紨浜ゆ帴", "瀵兼紨浜ゆ帴"),
+        "按本戏剧单元完成镜头设计；快节奏用人物动作紧张和有限快切，不为每个微动作单独开镜头，最终 prompt 使用自然动作句。",
+    )
+    entry_state = _first_nonempty_field(sections, "入场状态")
+    exit_state = _last_nonempty_field(sections, "出场状态")
+    if entry_state:
+        merged = _replace_planner_scalar_field(merged, ("入场状态", "entry_state", "鍏ュ満鐘舵€?"), entry_state)
+    if exit_state:
+        merged = _replace_planner_scalar_field(merged, ("出场状态", "exit_state", "鍑哄満鐘舵€?"), exit_state)
+    return merged
+
+def _auto_merge_overfragmented_story_planner_sections(sections: list[str], source_script: str = "") -> list[str]:
+    total_events = sum(len(_source_script_events(section)) for section in sections)
+    script_events = _script_event_lines(source_script)
+    target_count = _target_episode_fragment_count(max(total_events, len(script_events)), source_script)
+    if len(sections) <= max(target_count + 1, 3) or max(total_events, len(script_events)) < 8:
+        return sections
+
+    groups = _group_sections_by_attention_units(sections, source_script) or _group_sections_by_event_budget(sections, target_count)
+    return [_merge_episode_unit_group(group, index + 1) for index, group in enumerate(groups) if group]
+
+def _auto_split_coarse_story_planner_sections(sections: list[str], source_script: str = "") -> list[str]:
+    """Deterministically split oversized planner fragments after LLM repair stalls."""
+    split_sections: list[str] = []
+    for section in sections:
+        events = _source_script_events(section)
+        if len(events) <= 8 or not _story_planner_coarse_fragment_issues(section):
+            split_sections.append(section)
+            continue
+
+        chunks = _chunk_events_by_attention_units(events, source_script)
+        if not chunks:
+            chunk_size = _coarse_split_chunk_size(len(events))
+            chunks = [events[index : index + chunk_size] for index in range(0, len(events), chunk_size)]
+        for chunk_index, chunk in enumerate(chunks, 1):
+            chunk_section = _replace_source_script_events_block(section, chunk)
+            chunk_section = _replace_planner_scalar_field(
+                chunk_section,
+                ("duration_target", "目标时长", "鐩爣鏃堕暱"),
+                _duration_for_event_chunk(len(chunk)),
+            )
+            original_id = _extract_fragment_id(section) or "当前片段"
+            chunk_section = _replace_planner_scalar_field(
+                chunk_section,
+                ("dramatic_unit", "片段任务", "戏剧单元", "鐗囨浠诲姟", "鎴忓墽鍗曞厓"),
+                f"{original_id} 的连续施工子段 {chunk_index}，只覆盖本子段原文事件。",
+            )
+            split_sections.append(chunk_section)
+    return split_sections
+
 def _normalise_story_planner_output(planner_output: str, source_script: str = "") -> str:
     """Autofill repairable story_planner schema omissions before validation."""
     sections = _extract_yaml_sections(planner_output or "")
@@ -365,9 +701,14 @@ def _normalise_story_planner_output(planner_output: str, source_script: str = ""
         section_text = "\n".join(lines).strip()
         if source_script:
             section_text = _repair_story_planner_source_events(section_text, source_script)
-        normalised_sections.append(_normalise_fragment_section_id(section_text, len(normalised_sections) + 1))
+        normalised_sections.append(section_text)
 
-    return "\n\n".join(normalised_sections).strip()
+    normalised_sections = _auto_merge_overfragmented_story_planner_sections(normalised_sections, source_script)
+    normalised_sections = _auto_split_coarse_story_planner_sections(normalised_sections, source_script)
+    return "\n\n".join(
+        _normalise_fragment_section_id(section, index + 1)
+        for index, section in enumerate(normalised_sections)
+    ).strip()
 
 def _source_script_events(section: str) -> list[str]:
     block_match = re.search(
@@ -382,13 +723,29 @@ def _source_script_events(section: str) -> list[str]:
         if item.strip()
     ]
 
+_SOURCE_EVENT_METADATA_RE = re.compile(
+    r"^\s*(?:"
+    r"【\s*(?:第?\d+\s*集|\d+\s*集|本集完|字幕|音效|特写|镜头|空镜|转场|镜转)[^】]*】|"
+    r"人物\s*[:：].*|"
+    r"\d+(?:-\d+)?\s+.*[/／].*"
+    r")\s*$",
+    re.IGNORECASE,
+)
+
+def _is_source_event_metadata(event: str) -> bool:
+    return bool(_SOURCE_EVENT_METADATA_RE.match((event or "").strip()))
+
+def _dramatic_source_events(section: str) -> list[str]:
+    return [event for event in _source_script_events(section) if not _is_source_event_metadata(event)]
+
 _URGENT_SHORT_ACTION_RE = re.compile(
     r"急促|小跑|快步|冲|闯|赶|跑|扑|撞|追|抢|打断|推开|拉开|踉跄|摔|"
     r"开门|进门|出门|上车|下车|电梯|门口|聚拢|列队|整理仪表"
 )
 
 _DURATION_EXTENSION_REASON_RE = re.compile(
-    r"长台词|长对白|质问|命令|信息揭示|发现|看清|照片|受击|反转|停住|愣"
+    r"完整发言|完整台词|完整对白|长台词|长对白|台词|对白|问答|拒绝|安抚|哄|"
+    r"质问|命令|信息揭示|发现|看清|照片|受击|反转|停住|愣|情绪落点|反应落点|：|:"
 )
 
 _NO_REACTION_RE = re.compile(r"无需独立反应|无须独立反应|不涉及独立反应|无受击|无需反应|无须反应")
@@ -445,7 +802,7 @@ _INTERNAL_FAST_BEAT_RE = re.compile(
 )
 
 _INTERNAL_LATER_BEAT_RE = re.compile(
-    r"后段|第二|第2|剩余|之后|随后|台词|拒绝|哄|安抚|反应|情绪|落点|停住|"
+    r"后段|第二|第2|剩余|之后|随后|台词|拒绝|抗拒|阻碍|压制|哄|安抚|反应|情绪|落点|停住|"
     r"信息|揭示|回忆|闪回|OS|承诺|回应|亲吻|照片|爸爸|受击",
     re.IGNORECASE,
 )
@@ -495,7 +852,8 @@ def _story_planner_duration_contract_issues(planner_output: str) -> list[str]:
 
         issues.append(
             f"{fragment_id} 是急促短动作但目标时长为 {duration}；"
-            "无长对白、信息揭示或明确反应落点时必须压到 2-5秒，多个短动作叠加也应控制在 5-6秒，不能写成慢动作段。"
+            "无完整台词、信息揭示或明确反应落点时必须压到 2-5秒；"
+            "多个短动作叠加但仍无情绪转折时最多按 5-8秒紧凑段处理，不能写成慢动作段。"
         )
     return issues
 
@@ -527,8 +885,8 @@ def _rhythm_planning_contract_issues(planner_output: str) -> list[str]:
                 ):
                     issues.append(
                         f"{fragment_id} 标记为快节奏且目标时长为 {duration}；"
-                        "合并戏剧单元可以超过 6秒，但必须在片段内节奏分配中把急促动作小节拍压到 5-6秒以内，"
-                        "并说明后续台词、反应或情绪落点的时间预算。"
+                        "合并完整情绪注意力单元可以超过 6秒，但必须在片段内节奏分配中写清前段急促动作预算（通常不超过6秒），"
+                        "并说明后续台词、反应、安抚或情绪落点的时间预算。"
                     )
             if action_rhythm and not re.search(r"急|忙|叠|短促|紧凑|抢时间", action_rhythm):
                 issues.append(f"{fragment_id} 的动作节奏指导没有明确急忙、叠压或短促执行。")
@@ -605,7 +963,8 @@ def _story_planner_fast_cluster_merge_issues(planner_output: str) -> list[str]:
     last_id = _extract_fragment_id(fast_sections[-1]) or "unknown"
     return [
         f"{first_id}-{last_id} 属于同一急促生活动作群（闹钟/手机/外套/孩子抗拒），但被拆成多个连续快节奏短段；"
-        "这类短动作群应优先合并为一个 5-6秒 紧凑段，并在动作节奏指导中写明急急忙忙、动作叠压。"
+        "这类生活动作群若共同服务于同一个观众注意力问题，应优先合并为一个 8-12秒完整片段；"
+        "片段内前段压缩急促动作，后段保留孩子拒绝、人物应对或情绪落点。"
     ]
 
 def _dialogue_unit_section_text(section: str) -> str:
@@ -670,11 +1029,17 @@ def _dialogue_boundary_allows_split(previous_section: str, next_section: str) ->
             _field_value(next_section, "reaction_plan"),
             _field_value(next_section, "director_brief"),
             _field_value(next_section, "入场状态"),
+            "\n".join(_source_script_events(previous_section)[-2:]),
+            "\n".join(_source_script_events(next_section)[:3]),
         )
         if part
     )
     normalized = _NO_REACTION_RE.sub("", boundary_text)
-    return bool(_DIALOGUE_UNIT_BOUNDARY_ALLOW_RE.search(normalized))
+    return bool(
+        _DIALOGUE_UNIT_BOUNDARY_ALLOW_RE.search(normalized)
+        or _ATTENTION_REVEAL_RE.search(normalized)
+        or _ATTENTION_HARD_BOUNDARY_RE.search(normalized)
+    )
 
 def _story_planner_dialogue_unit_split_issues(planner_output: str, script: str = "") -> list[str]:
     sections = _extract_yaml_sections(planner_output)
@@ -768,14 +1133,21 @@ def _story_planner_fragment_count_instruction(script: str) -> str:
         return ""
 
     return (
-        "【戏剧单元拆片硬约束】\n"
+        "【情绪注意力单元拆片硬约束】\n"
         f"当前施工剧本约 {source_lines} 条非空原文行；这些行只是 source_script_events 覆盖清单，"
         "不是片段数量公式，不得按行数或物理动作数推导片段数。\n"
-        "必须先识别戏剧单元：人物目标、阻碍、策略变化、完整问答、反应落点、状态转折。"
-        "一连串动作若服务于同一个目标或同一个生活任务，应合并为同一戏剧单元；"
-        "节奏快慢只影响目标时长、片段内节奏分配、动作节奏指导和镜头导演交接，不把动作链拆成多个平级片段。\n"
-        "如果一个完整戏剧任务内存在快慢变化，请保持为一个片段，并在片段内节奏分配中写清："
-        "第1小节约几秒、完成什么戏剧功能；第2小节约几秒、完成什么戏剧功能。\n\n"
+        "片段数量由观众注意力问题决定，不固定为 5-6 个：短单场可能 2-3 段，普通完整场可能 3-6 段，"
+        "多场景/多信息揭示/含回忆时可以更多。\n"
+        "必须先识别情绪注意力单元：观众此刻真正关心什么，人物情绪围绕这个问题怎样铺垫、触发、爆点、反应和初步处理。"
+        "一连串动作、台词和反应若共同服务于同一个观众注意力问题，应合并为同一片段；"
+        "不要因为人物目标轻微变化、出现一句台词或出现一次反应就切开。\n"
+        "只有观众注意力问题改变、新信息/关键物件改变叙事方向、情绪曲线完成一轮闭合、现实/回忆/时间空间切换时，才优先切段。"
+        "节奏快慢只影响目标时长、片段内节奏分配、动作节奏指导和镜头导演交接，不把节奏小拍子拆成多个平级片段。\n"
+        "反过来，不能把多个情绪注意力问题粗暴塞进一个长片段：如果同一段同时跨越两个以上核心问题，例如孩子抗拒、照片掉落、回忆进入，应拆成相邻片段。\n"
+        "如果一个完整情绪注意力单元内存在快慢变化，请保持为一个片段，并在片段内节奏分配中写清："
+        "第1小节约几秒、完成什么戏剧功能；第2小节约几秒、完成什么戏剧功能。\n"
+        "拆片导演只能交情绪曲线、节奏意图、必须保留的戏剧落点、可压缩弱拍和尾帧承接；"
+        "禁止决定镜头数、景别、机位、运镜或切镜方案，这些由镜头导演完成。\n\n"
     )
 
 def _story_planner_fragment_granularity_issues(planner_output: str) -> list[str]:
@@ -792,6 +1164,89 @@ def _story_planner_fragment_granularity_issues(planner_output: str) -> list[str]
             "请按人物目标、阻碍、策略变化、完整问答、反应落点和状态转折合并相邻动作。"
         ]
     return []
+
+def _story_planner_episode_unit_count_issues(planner_output: str, script: str = "") -> list[str]:
+    """Keep full-episode planning near the estimated emotional-attention units."""
+    sections = _extract_yaml_sections(planner_output)
+    script_events = _script_event_lines(script)
+    if len(script_events) < 12 or not sections:
+        return []
+    fragment_count = len(sections)
+    target_count = _target_episode_fragment_count(sum(len(_source_script_events(section)) for section in sections), script)
+    if target_count <= 0:
+        return []
+    min_allowed = max(1, target_count - (2 if target_count >= 5 else 1))
+    max_allowed = target_count + (2 if target_count >= 5 else 1)
+    if min_allowed <= fragment_count <= max_allowed:
+        return []
+    if fragment_count < min_allowed:
+        return [
+            f"整集拆片只有 {fragment_count} 个片段，但当前剧本约有 {target_count} 个情绪注意力问题；"
+            "疑似把多个观众注意力问题粗拆在一起。请按情绪铺垫、触发、爆点、反应和初步处理来确认自然段落。"
+        ]
+    return [
+        f"整集拆片达到 {fragment_count} 个片段，但当前剧本约有 {target_count} 个情绪注意力问题；"
+        "疑似把动作、台词或反应节拍拆得太碎。共同服务于同一观众注意力问题的铺垫、触发、反应应留在同一片段内部。"
+    ]
+
+_COARSE_FRAGMENT_SIGNAL_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("space_shift", re.compile(r"进门|出门|进入|离开|上车|下车|电梯|门口|走廊|到达|转场|新空间|enter|exit|arrive|leave", re.IGNORECASE)),
+    ("dialogue_unit", re.compile(r"：|:|问|说|喊|解释|质问|回应|安抚|拒绝|承诺|dialogue|asks?|says?|reply", re.IGNORECASE)),
+    ("reaction_reveal", re.compile(r"反应|停住|愣|看清|发现|照片|文件|秘密|受击|沉默|回避|reveal|react|freeze", re.IGNORECASE)),
+    ("prop_or_state", re.compile(r"拿|放|递|塞|抓|松开|推开|拉开|扣|穿|手机|外套|书包|门|道具|grab|release|phone|coat|bag|door", re.IGNORECASE)),
+    ("conflict_turn", re.compile(r"冲突|反转|压制|追问|命令|拒绝|躲|退|让开|撞|扶住|confront|refuse|push|pull", re.IGNORECASE)),
+)
+
+
+def _coarse_fragment_signal_count(section: str) -> int:
+    text = "\n".join(
+        part
+        for part in (
+            _field_value(section, "dramatic_unit"),
+            _field_value(section, "节奏类型"),
+            _field_value(section, "事件密度判断"),
+            _field_value(section, "动作节奏指导"),
+            _field_value(section, "intra_fragment_rhythm"),
+            _field_value(section, "reaction_plan"),
+            _field_value(section, "director_brief"),
+            "\n".join(_dramatic_source_events(section)),
+        )
+        if part
+    )
+    return sum(1 for _name, pattern in _COARSE_FRAGMENT_SIGNAL_PATTERNS if pattern.search(text))
+
+
+def _story_planner_coarse_fragment_issues(planner_output: str) -> list[str]:
+    """Reject fragments that pack several dramatic tasks into one oversized segment."""
+    issues: list[str] = []
+    for section in _extract_yaml_sections(planner_output):
+        fragment_id = _extract_fragment_id(section) or "unknown"
+        raw_event_count = len(_source_script_events(section))
+        event_count = len(_dramatic_source_events(section))
+        duration = _field_value(section, "duration_target")
+        upper_seconds = _duration_upper_seconds(duration) or 0
+        signal_count = _coarse_fragment_signal_count(section)
+        intra_rhythm = _field_value(section, "intra_fragment_rhythm")
+        section_text = _dialogue_unit_section_text(section)
+
+        if raw_event_count and event_count == 0:
+            continue
+        if event_count < 9 and upper_seconds <= 12:
+            continue
+        if signal_count < 3:
+            continue
+        if event_count <= 8 and _has_duration_extension_reason(section_text):
+            continue
+        if event_count <= 12 and _has_short_fast_internal_beat(intra_rhythm) and _has_later_internal_beat(intra_rhythm):
+            continue
+
+        issues.append(
+            f"{fragment_id} 疑似粗拆：{event_count} 条原文事件、目标时长 {duration or '未标注'}，"
+            "同时包含多个戏剧任务或状态变化。请按观众注意力问题拆成相邻片段，"
+            "纯短过渡可 2-5/5-8秒，完整情绪或对白单元可 8-12/10-15秒；"
+            "每段只承担一个核心问题，只把真正连续的铺垫、触发、反应和初步处理留在同一片段内。"
+        )
+    return issues
 
 
 _HARD_BOUNDARY_SIGNAL_RE = re.compile(
@@ -892,7 +1347,8 @@ def _story_planner_thin_continuation_split_issues(planner_output: str, script: s
         issues.append(
             f"{first_id}-{second_id} 疑似把同一连续动作/问答单元拆成过薄相邻片段；"
             f"两段合计仅 {len(previous_events) + len(next_events)} 条原文事件，时长标注为 {combined_duration or '未标注'}。"
-            "请优先合并为一个 5-8秒或 8-12秒片段，并用片段内节奏分配写清快慢变化；"
+            "请优先合并为一个完整情绪注意力片段，并按内容选择 8-12秒或 10-15秒；"
+            "若只是纯短过渡才使用 5-8秒。用片段内节奏分配写清快慢变化；"
             "只有出现转场、明确状态转折、独立尾帧悬点或必须分段生成的硬边界时才拆开。"
         )
         break
@@ -1014,8 +1470,10 @@ def _validate_story_planner_output(
                 issues.append(f"{fragment_id} 缺少字段 {display_name}。")
 
     issues.extend(_story_planner_fragment_granularity_issues(planner_output))
+    issues.extend(_story_planner_coarse_fragment_issues(planner_output))
     issues.extend(_story_planner_duration_contract_issues(planner_output))
     if require_rhythm_fields:
+        issues.extend(_story_planner_episode_unit_count_issues(planner_output, source_script))
         issues.extend(_rhythm_planning_contract_issues(planner_output))
         issues.extend(_story_planner_fast_cluster_merge_issues(planner_output))
         issues.extend(_story_planner_dialogue_unit_split_issues(planner_output, source_script))
@@ -1049,12 +1507,15 @@ def _story_planner_repair_prompt(
         "4. 禁止输出镜头、机位、景别、子分镜、剧情解释、场景预分析简表、剧情增强约束或风险长说明。\n"
         "5. 施工剧本原文事件必须逐条引用【当前施工剧本】中的原文，不能概括、改写或新增剧本外动作。\n"
         "6. 只做分段，不做分镜；不要写 shots、shot_id、sub_shots、camera、angle、beat_design。\n"
-        "7. 按 15 秒估算：普通对白段约 6-8 条原文事件；动作密集段约 2-4 条原文事件；一句完整台词或一个未完成动作不要从中间拆。\n"
-        "8. 每个片段必须补齐 节奏类型、事件密度判断、片段内节奏分配、动作节奏指导；动作节奏指导必须明确急忙/叠压/短促/慢处理等执行状态。\n"
-        "9. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，若没有长对白、信息揭示或明确反应落点，目标时长必须压到 2-5秒；多个短动作叠加也应控制在 5-6秒，禁止写成 8-10秒。\n"
-        "10. 闹钟/手机/外套/孩子抗拒这类同一生活动作群若被拆成多个连续快节奏短段，应合并为一个 5-6秒 紧凑段，除非有长对白、信息揭示、场景转换或明确反应落点。\n"
-        "11. 合并相邻片段时不要丢失节奏差异；把差异写进片段内节奏分配，例如“0-2秒：急促动作链；2-6秒：孩子拒绝台词与乔熙应对”。\n"
-        "12. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本重建完整 YAML。\n\n"
+        "7. 片段数量由观众注意力问题决定，不固定为 5-6 个；共同服务于同一情绪问题的铺垫、触发、爆点、反应和初步处理必须留在同一片段。\n"
+        "8. 按 15 秒估算：纯短动作/短位移 2-5秒；短动作群但无完整对白/反应 5-8秒；急促生活动作 + 完整台词/拒绝/安抚/反应 8-12秒；完整情绪揭示或长对白单元 10-15秒。\n"
+        "9. 禁止粗拆：单段超过 8 条原文事件或超过 12秒时，必须证明它只是同一情绪注意力单元；若同时跨越多个观众问题（如孩子抗拒、照片掉落、回忆进入），必须拆成相邻片段。\n"
+        "10. 每个片段必须补齐 节奏类型、事件密度判断、片段内节奏分配、动作节奏指导；动作节奏指导只写急忙/叠压/短促/慢处理/正常承接等表演节奏，不写镜头方案。\n"
+        "10A. 镜头导演交接只写情绪曲线、节奏意图、必须保留的戏剧落点、可压缩弱拍和尾帧承接；不得写镜头数、机位、景别、镜头编号或切镜方案。\n"
+        "11. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，若没有完整台词、信息揭示或明确反应落点，目标时长必须压到 2-5秒；不要为了凑长让人物慢慢走、慢慢停、慢慢看。\n"
+        "12. 闹钟/手机/外套/孩子抗拒这类同一生活动作群，如果共同服务于“乔熙赶时间但孩子拒绝上学”同一个观众注意力问题，应合并为 8-12秒完整片段；前段压缩急促动作，后段留给拒绝、安抚和情绪落点。\n"
+        "13. 合并相邻片段时不要丢失节奏差异；把差异写进片段内节奏分配，例如“0-4秒：急促动作链；4-8秒：孩子拒绝；8-12秒：乔熙应对和情绪落点”。\n"
+        "14. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本重建完整 YAML。\n\n"
         f"【节奏总控施工指令】\n{_truncate_for_prompt(rhythm_guidance or 'none', 2400)}\n\n"
         f"【当前施工剧本】\n{original_script}\n\n"
         f"【上一轮无效输出】\n{_truncate_for_prompt(previous_output, 9000)}\n\n"
@@ -1286,12 +1747,16 @@ def _rhythm_story_planner_system_prompt() -> str:
         "你不能和镜头导演混同：禁止设计具体镜头、机位、景别、焦段、运镜、子分镜或镜头方案。\n"
         "戏剧单元与节奏预算并列优先：完整问答、连续回应、同一对话目标和反应落点未完成前，不得为了卡秒数拆成平级片段。\n"
         "同一戏剧任务内可以有多个内部小节拍：第一部分可以短促，第二部分可以放长；这应写进片段内节奏分配，而不是拆成多个片段。\n"
-        "快节奏的定义是短时间 + 密集有效事件 + 短动作连续发生；不是把很多短动作拉长到 8-10 秒慢慢演。\n"
+        "快节奏的定义是短时间 + 密集有效事件 + 人物动作紧张/反应间隔变短；不是把完整情绪单元硬压成碎片，也不是把短动作慢慢演。\n"
         "急促动作、短位移、冲入、小跑聚拢、闹钟按掉、夹手机、够外套、扯拉链、按肩、开门入场、上下车或电梯进出，"
-        "如果没有完整发言、信息揭示或明确反应落点，通常应压到 2-5秒；多短动作叠加但都很短时可用 5-6秒紧凑段。\n"
-        "同一急促生活动作群（例如闹钟、手机、外套、孩子抗拒在同一小段时间里连续发生）优先合并成一个 5-6秒 紧凑段，"
-        "不要拆成多个 5-6秒 快节奏段。\n"
-        "人物动作节奏必须写清：急急忙忙、动作叠压、正常承接、停住观察、慢处理或犹豫拖延。"
+        "如果没有完整发言、信息揭示或明确反应落点，通常应压到 2-5秒；多短动作叠加但都很短时可用 5-8秒紧凑段。\n"
+        "同一急促生活动作群（例如闹钟、手机、外套、孩子抗拒和乔熙安抚共同服务于同一个注意力问题）优先合并成 8-12秒完整片段，"
+        "不要拆成多个快节奏短段。\n"
+        "但合并不是粗拆：一旦同一片段同时跨越入场/离场、完整对白、信息揭示、道具状态变化、反应落点或冲突转折中的三类以上，"
+        "且观众注意力问题已经改变，应拆成相邻片段，让每段只承担一个核心剧情任务。\n"
+        "人物动作节奏必须写清：急急忙忙、动作叠压、正常承接、停住观察、慢处理或犹豫拖延。\n"
+        "镜头导演交接只提供情绪曲线、节奏意图、必须保留的戏剧落点、可压缩弱拍和尾帧承接；"
+        "不得规定镜头数、景别、机位、运镜或切镜方案。"
     )
 
 def _rhythm_story_planner_user_prompt(
@@ -1320,35 +1785,36 @@ def _rhythm_story_planner_user_prompt(
         "每个片段必须包含：\n"
         "- 片段编号：必须从 F01 开始顺序递增。\n"
         "- 片段任务：一句话说明本段要完成的剧情施工任务，只概括原文事件，不写镜头、机位、景别或运镜。\n"
-        "- 目标时长：通常 15 秒以内；急促短动作按 2-5秒 或 5-6秒紧凑段处理。\n"
+        "- 目标时长：通常 15 秒以内；纯短动作/短位移 2-5秒，短动作群无完整反应 5-8秒，完整生活冲突/对白/情绪单元 8-12秒或10-15秒。\n"
         "- 节奏类型：快节奏 / 慢节奏 / 正常承接 / 停顿反应。\n"
         "- 事件密度判断：说明是短时间密集事件、低密度过渡、完整发言单元或反应落点。\n"
-        "- 片段内节奏分配：按内部小节拍写时间预算和戏剧功能，例如“0-2秒：闹钟/电话/穿衣动作链急促完成；2-6秒：孩子拒绝台词和乔熙应对落地”。\n"
+        "- 片段内节奏分配：按内部小节拍写时间预算和戏剧功能，例如“0-4秒：闹钟/电话/穿衣动作链急促完成；4-8秒：孩子拒绝；8-12秒：乔熙应对落地”。\n"
         "- 动作节奏指导：明确人物动作应急急忙忙、动作叠压、正常承接、停住观察、慢处理或犹豫拖延；这是给动作调度导演和镜头导演的节奏约束。\n"
         "- 施工剧本原文事件：数组，逐条照抄当前施工剧本里的动作或台词原文。\n"
         "- 出现人物：只写本片段出现或被明确听见的人物。\n"
         "- 入场状态：本片段开始时，人物、道具、门、电梯、空间等必要状态。\n"
         "- 出场状态：本片段结束时，需要下游接住的必要状态。\n"
         "- 承接要求：只写分段承接提醒，例如反应留在本段、下一段承接某状态、无需独立反应。\n"
-        "- 镜头导演交接：写清必须拍完整、可压缩/可省略、不能省略、最少停留、最多镜头数、结尾画面；不得写具体镜头方案。\n\n"
+        "- 镜头导演交接：写清情绪曲线、节奏意图、必须保留的戏剧落点、可压缩弱拍、尾帧承接；不得写镜头数、景别、机位、运镜或具体切镜方案。\n\n"
         "【分段与节奏规则】\n"
         "1. 只按剧情动作单元、完整发言单元、场景/状态变化来分段，不平均切秒数。\n"
         "1A. 戏剧单元与节奏并列：同一人物关系内的完整问答、连续回应、安抚/质问/解释和反应落点，应优先保持在同一个片段内；镜头变化或 5-8秒生成单元只能在片段内部处理。\n"
         "1B. 片段可以包含多个内部小节拍；用片段内节奏分配控制快慢，不用新增片段制造承接负担。\n"
-        "2. 快节奏 = 短时间 + 密集有效事件 + 短动作连续发生；不要把短动作拆成慢悠悠的长段。\n"
-        "3. 多个短动作叠加时，优先压缩成紧凑短段，例如 5-6秒，而不是写成 8-10秒。\n"
+        "2. 快节奏 = 短时间 + 密集有效事件 + 人物动作紧张/反应间隔变短；不要把同一观众问题拆成多个碎片，也不要把短动作慢悠悠拉长。\n"
+        "3. 片段时长按戏剧功能规划：纯短动作/短位移 2-5秒；短动作群但无完整对白/反应 5-8秒；急促生活动作 + 完整台词/拒绝/安抚/反应 8-12秒；完整情绪揭示或长对白单元 10-15秒。\n"
         "4. 急促动作、短位移、闹钟按掉、夹手机、够外套、扯拉链、按肩、冲入、小跑、开门入场、上下车或电梯进出，没有完整发言/信息揭示/明确反应落点时，目标时长必须是 2-5秒。\n"
-        "5. 如果短时间内同时有电话台词、孩子抗拒、外套动作等多个短动作，可写 5-6秒紧凑段，并在动作节奏指导中写明急急忙忙、动作叠压。\n"
-        "6. 闹钟/手机/外套/孩子抗拒这类同一生活动作群，如果没有长对白、信息揭示、场景转换或明确反应落点，不要按闹钟、电话、外套分别拆成多个 5-6秒段；应合并成一个 5-6秒 紧凑段。\n"
-        "7. 节奏提示只能影响片段边界、片段任务、目标时长、入场状态、出场状态、承接要求、动作节奏指导和镜头导演交接，不得变成新的剧本事件。\n"
-        "8. 不要在一句话中间、一个动作中间、同一个反应尚未落地、只是换表情或未来会换镜头的位置拆开。\n"
-        "9. 禁止输出任何镜头设计字段，包括 shots、shot_id、sub_shots、camera、angle、size、beat_design、景别、机位、运镜。"
+        "5. 如果短时间内同时有电话台词、孩子抗拒、外套动作和人物应对，并共同服务于同一个观众注意力问题，应写成 8-12秒完整片段，并在片段内节奏分配中明确前段急促、后段反应/安抚。\n"
+        "6. 闹钟/手机/外套/孩子抗拒这类同一生活动作群，不要按闹钟、电话、外套分别拆成多个短段；只有照片掉落、回忆进入、时间空间切换或新的观众问题出现时才切段。\n"
+        "7. 禁止粗拆：单段若超过 8 条原文事件或接近 12-15秒，必须只覆盖一个核心观众注意力问题；若混入入场/离场、完整对白、信息揭示、道具变化、反应落点、冲突转折中的三类以上且注意力问题已改变，应拆成相邻片段。\n"
+        "8. 节奏提示只能影响片段边界、片段任务、目标时长、入场状态、出场状态、承接要求、动作节奏指导和镜头导演交接，不得变成新的剧本事件。\n"
+        "9. 不要在一句话中间、一个动作中间、同一个反应尚未落地、只是换表情或未来会换镜头的位置拆开。\n"
+        "10. 禁止输出任何镜头设计字段，包括 shots、shot_id、sub_shots、camera、angle、size、beat_design、景别、机位、运镜。"
     )
 
 def rhythm_story_planner_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
     truncated_script = _truncate_for_prompt(state.get("script", ""), 12000)
-    planner_hint = f"节奏拆片导演 短时间密集事件 急促动作 2-5秒 5-6秒 动作节奏指导 不做分镜 {truncated_script[:200]}"
+    planner_hint = f"节奏拆片导演 情绪注意力单元 短动作2-5秒 生活动作群8-12秒 10-15秒 情绪曲线 动作节奏指导 不做分镜 {truncated_script[:200]}"
     slim_rules, retrieval_meta = _story_planner_slim_rule_digest(planner_hint, n_results=5)
     retrieval_meta["context_hint"] = planner_hint
     retrieval_meta["reason"] = "merged rhythm_story_planner uses one slim rule-registry digest for rhythm and segmentation."
@@ -1363,7 +1829,7 @@ def rhythm_story_planner_node(state: DirectorState) -> DirectorState:
         user_prompt=user_prompt,
         original_script=state.get("script", ""),
         scene_output=str(state.get("scene_context_brief") or ""),
-        rhythm_guidance="节奏与拆片已合并到同一次推理；修复时继续遵守急促短动作 2-5秒、紧凑短动作群 5-6秒。",
+        rhythm_guidance="节奏与拆片已合并到同一次推理；修复时继续遵守：纯短动作 2-5秒，短动作群无完整反应 5-8秒，完整情绪注意力单元 8-12秒或10-15秒。",
         require_rhythm_fields=True,
     )
     knowledge_metadata = _record_knowledge_metadata(state, "story_planner", planner_hint, retrieval_meta)
@@ -1423,20 +1889,21 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         "只输出 YAML 列表。每个片段只允许这些中文字段：\n"
         "- 片段编号：必须从 F01 开始顺序递增。\n"
         "- 片段任务：一句话说明本段要完成的剧情施工任务，只概括原文事件，不写镜头、机位、景别或运镜。\n"
-        "- 目标时长：通常 15 秒以内；内容很短可以更短。\n"
+        "- 目标时长：通常 15 秒以内；纯短动作/短位移 2-5秒，短动作群无完整反应 5-8秒，完整生活冲突/对白/情绪单元 8-12秒或10-15秒。\n"
         "- 片段内节奏分配：当一个片段内含快慢变化时，写清内部小节拍的时间预算和戏剧功能；没有快慢变化可写“按整体目标时长执行”。\n"
         "- 施工剧本原文事件：数组，逐条照抄当前施工剧本里的动作或台词原文。\n"
         "- 出现人物：只写本片段出现或被明确听见的人物。\n"
         "- 入场状态：本片段开始时，人物、道具、门、电梯、空间等必要状态。\n"
         "- 出场状态：本片段结束时，需要下游接住的必要状态。\n"
         "- 承接要求：只写分段承接提醒，例如反应留在本段、下一段承接某状态、无需独立反应。\n"
-        "- 镜头导演交接：把节奏总控里和本段相关的必须拍完整、可省略、不能省略、最少停留、最多镜头数、结尾画面压成一句施工交接；没有额外节奏要求时写按目标时长与承接要求执行。不得写具体镜头方案。\n\n"
+        "- 镜头导演交接：把本段情绪曲线、节奏意图、必须保留的戏剧落点、可压缩弱拍、尾帧承接压成一句施工交接；没有额外节奏要求时写按目标时长与承接要求执行。不得写镜头数、景别、机位、运镜或具体切镜方案。\n\n"
         "【分段规则】\n"
         "1. 只按剧情动作单元、完整发言单元、场景/状态变化来分段，不平均切秒数。\n"
         "2. 不要为了凑满 15 秒补写剧本外内容；动作少就短一点，弱事件可合并。\n"
         "3. 一段太长或同时包含多个清楚任务时再拆开；普通停顿、短反应、信息揭示不用单独拆成一段。\n"
+        "3A. 禁止粗拆：单段超过 8 条原文事件或接近 12-15秒时，必须只覆盖一个核心观众注意力问题；若同时混入入场/离场、完整对白、信息揭示、道具变化、反应落点、冲突转折中的三类以上且注意力问题已改变，应拆成相邻片段。\n"
         "4. 节奏提示只能影响片段边界、片段任务、目标时长、片段内节奏分配、入场状态、出场状态、承接要求和镜头导演交接，不得变成新的剧本事件。\n"
-        "5. 15 秒估算尺：普通对白段通常可容纳 6-8 条原文事件；动作密集段通常只容纳 2-4 条原文事件；长对白按完整意思单元拆。\n"
+        "5. 15 秒估算尺：纯短动作/短位移 2-5秒；短动作群但无完整对白/反应 5-8秒；急促生活动作 + 完整台词/拒绝/安抚/反应 8-12秒；完整情绪揭示或长对白单元 10-15秒。\n"
         "6. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，没有完整发言/信息揭示/明确反应落点时，目标时长必须是 2-5秒；不要为了凑 10秒让人物慢慢走、慢慢停、慢慢看。\n"
         "7. 优先在进门完成、照片落地、人物发现、关系反转、场景切换、动作结果已经成立的位置拆开。\n"
         "8. 不要在一句话中间、一个动作中间、同一个反应尚未落地、只是换表情或未来会换镜头的位置拆开。\n"

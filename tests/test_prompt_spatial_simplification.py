@@ -157,6 +157,6 @@ def test_prompt_compiler_prompt_teaches_successful_shot_chain(monkeypatch):
     assert "局部动作或人物半身建立节奏" in captured["system_prompt"]
     assert "过肩或双人关系景" in captured["system_prompt"]
     assert "命令句用半身景承载" in captured["system_prompt"]
-    assert "镜头机位切换 + 人物动作表情 + 台词落点" in captured["system_prompt"]
+    assert "镜头视角变化 + 人物动作表情 + 台词落点" in captured["system_prompt"]
     assert "单段内禁止写\"反打至/反打镜头\"" in captured["system_prompt"]
     assert "同侧听者反应" in captured["system_prompt"]
