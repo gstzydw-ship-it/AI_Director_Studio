@@ -1,0 +1,175 @@
+- generic [ref=e2]:
+  - complementary [ref=e3]:
+    - generic [ref=e4]:
+      - generic [ref=e5]: ADS
+      - generic [ref=e6]:
+        - heading "AI Director Studio" [level=1] [ref=e7]
+        - generic [ref=e8]: LangGraph v0.3
+    - navigation [ref=e9]:
+      - button "01 导演工作台" [ref=e10] [cursor=pointer]:
+        - generic [ref=e11]: "01"
+        - generic [ref=e12]: 导演工作台
+      - button "02 模型配置" [ref=e13] [cursor=pointer]:
+        - generic [ref=e14]: "02"
+        - generic [ref=e15]: 模型配置
+      - button "03 知识库" [ref=e16] [cursor=pointer]:
+        - generic [ref=e17]: "03"
+        - generic [ref=e18]: 知识库
+    - generic [ref=e19]:
+      - generic [ref=e20]: 本地会话
+      - generic [ref=e23]: Agent 就绪
+  - main [ref=e24]:
+    - generic [ref=e25]:
+      - generic [ref=e26]:
+        - generic [ref=e27]:
+          - generic [ref=e28]: Director Console
+          - heading "导演工作台" [level=2] [ref=e29]
+        - paragraph [ref=e30]: 剧本、参考图、流水线状态和最终 Prompt 集中在一个视野里。
+      - generic [ref=e31]:
+        - generic [ref=e32]:
+          - generic [ref=e33]: 当前状态
+          - strong [ref=e34]: 就绪
+        - generic [ref=e35]:
+          - generic [ref=e36]: 参考素材
+          - strong [ref=e37]: 0 张
+        - generic [ref=e38]:
+          - generic [ref=e39]: 输出目标
+          - strong [ref=e40]: Seedance Prompt
+      - generic [ref=e41]:
+        - generic [ref=e42]:
+          - generic [ref=e43]:
+            - generic [ref=e45]:
+              - generic [ref=e46]: Source
+              - heading "剧本输入" [level=3] [ref=e47]
+            - textbox "粘贴你的剧本片段..." [ref=e49]
+          - generic [ref=e50]:
+            - button "启动导演流水线" [ref=e51] [cursor=pointer]
+            - button "清除上一段" [ref=e52] [cursor=pointer]
+            - button "新建空白任务" [ref=e53] [cursor=pointer]
+            - button "恢复最近任务" [ref=e54] [cursor=pointer]
+          - generic [ref=e55]:
+            - generic [ref=e57]:
+              - generic [ref=e58]: Controls
+              - heading "运行设置" [level=3] [ref=e59]
+            - generic [ref=e60]:
+              - generic [ref=e61]:
+                - generic [ref=e62]:
+                  - generic [ref=e63]: 画幅
+                  - combobox [ref=e64]:
+                    - option "16:9 横屏" [selected]
+                    - option "9:16 竖屏"
+                - generic [ref=e65]:
+                  - generic [ref=e66]: 运行模式
+                  - generic [ref=e67] [cursor=pointer]:
+                    - checkbox "快速模式" [ref=e68]
+                    - generic [ref=e69]: 快速模式
+                  - generic [ref=e70]: 跳过预分析和质检，保留拆片与 Prompt 编译。
+              - generic [ref=e71]:
+                - generic [ref=e72]:
+                  - generic [ref=e73]: 参考图 人物、空间、服装和位置关系都可以分批加入。
+                  - generic [ref=e74]:
+                    - button "自动匹配" [ref=e75] [cursor=pointer]
+                    - button "清空" [ref=e76] [cursor=pointer]
+                - generic [ref=e77]:
+                  - combobox [ref=e78]:
+                    - option "-- 从本地参考图库选择 --" [selected]
+                    - option "严飞.png"
+                    - option "乔熙.png"
+                    - option "乔熙公寓-客厅.png"
+                    - option "儿童房.png"
+                    - option "南星.png"
+                    - option "司机老王.png"
+                    - option "商北琛.png"
+                    - option "商旭.png"
+                    - option "夏橙.png"
+                    - option "小豆丁.png"
+                    - option "岑佳期.png"
+                    - option "总部办公区.png"
+                    - option "李总.png"
+                    - option "李长城.png"
+                    - option "江肆.png"
+                    - option "江阿姨.png"
+                    - option "沈希然.png"
+                    - option "男主.png"
+                    - option "白薇.png"
+                    - option "秦悦.png"
+                    - option "老中医.png"
+                    - option "苏婉月.png"
+                    - option "苏小可.png"
+                    - option "苏黎世服务员.png"
+                    - option "陈正.png"
+                    - option "陈秀花.png"
+                    - option "陈进.png"
+                    - option "集团大堂.png"
+                    - option "集团门口.png"
+                    - option "顾宸.png"
+                  - button "Choose File" [ref=e79]
+                - generic [ref=e81]: 已添加 0 张
+                - generic [ref=e83]: 还没有参考图。可以分批添加，后添加的不会覆盖前面的。
+              - generic [ref=e84]:
+                - generic [ref=e85]: 参考图说明
+                - textbox "可用 @图片1、@图片2 调用上方缩略图，例如：@图片1 商北琛人物参考，只锁定五官发型和黑色高定西装；@图片3 天御集团大堂，只锁定空间、轴线、冷白顶光。" [ref=e86]
+        - generic [ref=e87]:
+          - generic [ref=e88]:
+            - generic [ref=e90]:
+              - generic [ref=e91]: Pipeline
+              - heading "Agent 流水线" [level=3] [ref=e92]
+            - generic [ref=e93]:
+              - generic [ref=e94]:
+                - button "查看场景预分析输出" [ref=e95] [cursor=pointer]:
+                  - generic [ref=e96]: "01"
+                  - generic [ref=e97]:
+                    - generic [ref=e98]: 场景预分析
+                    - generic [ref=e99]: 参考图/站位/空间
+                  - generic [ref=e100]: 等待
+                - button "查看剧情增强输出" [ref=e101] [cursor=pointer]:
+                  - generic [ref=e102]: "02"
+                  - generic [ref=e103]:
+                    - generic [ref=e104]: 剧情增强
+                    - generic [ref=e105]: 弱冲突可拍化
+                  - generic [ref=e106]: 等待
+                - button "查看节奏拆片导演输出" [ref=e107] [cursor=pointer]:
+                  - generic [ref=e108]: "03"
+                  - generic [ref=e109]:
+                    - generic [ref=e110]: 节奏拆片导演
+                    - generic [ref=e111]: 快慢/时长/动作节奏/交接
+                  - generic [ref=e112]: 等待
+                - button "查看三段镜头导演输出" [ref=e113] [cursor=pointer]:
+                  - generic [ref=e114]: "04"
+                  - generic [ref=e115]:
+                    - generic [ref=e116]: 三段镜头导演
+                    - generic [ref=e117]: 摆位/调度/守门
+                  - generic [ref=e118]: 等待
+                - button "查看分镜流程图输出" [ref=e119] [cursor=pointer]:
+                  - generic [ref=e120]: "05"
+                  - generic [ref=e121]:
+                    - generic [ref=e122]: 分镜流程图
+                    - generic [ref=e123]: 可视化设计
+                  - generic [ref=e124]: 等待
+                - button "查看 Seedance 编译输出" [ref=e125] [cursor=pointer]:
+                  - generic [ref=e126]: "06"
+                  - generic [ref=e127]:
+                    - generic [ref=e128]: Seedance编译
+                    - generic [ref=e129]: 单段Prompt
+                  - generic [ref=e130]: 等待
+                - button "查看质检导演输出" [ref=e131] [cursor=pointer]:
+                  - generic [ref=e132]: "07"
+                  - generic [ref=e133]:
+                    - generic [ref=e134]: 质检导演
+                    - generic [ref=e135]: 判例/返修
+                  - generic [ref=e136]: 等待
+              - generic [ref=e138]:
+                - generic [ref=e139]:
+                  - generic [ref=e140]:
+                    - generic [ref=e141]: 实时追踪
+                    - strong [ref=e142]: Agent 任务过程
+                  - generic [ref=e143]: 等待启动
+                - generic [ref=e146]: 等待任务启动...
+          - generic [ref=e147]:
+            - generic [ref=e148]:
+              - generic [ref=e149]:
+                - generic [ref=e150]: Output
+                - heading "执行结果" [level=3] [ref=e151]
+                - paragraph [ref=e152]: 按 Agent 查看输出、审核、重跑和保存继续。
+              - button "复制当前" [ref=e154] [cursor=pointer]
+            - generic [ref=e159]: 等待执行...
