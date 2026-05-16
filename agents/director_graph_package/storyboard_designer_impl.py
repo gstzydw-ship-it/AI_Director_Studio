@@ -114,10 +114,14 @@ def _extract_shots_from_director_segment(director_segment: str) -> list[dict[str
     return shots
 
 def _extract_fragment_task_and_rhythm(director_segment: str) -> tuple[str, str]:
-    """Pull fragment-level task and rhythm notes."""
+    """Pull v3 fragment-level task and rhythm notes for frame planning."""
     return (
-        _yaml_line_field(director_segment, "fragment_task"),
-        _yaml_line_field(director_segment, "rhythm"),
+        _yaml_line_field(director_segment, "dramatic_task")
+        or _yaml_line_field(director_segment, "event_atom")
+        or _yaml_line_field(director_segment, "fragment_task"),
+        _yaml_line_field(director_segment, "rhythm_intent")
+        or _yaml_line_field(director_segment, "shot_budget")
+        or _yaml_line_field(director_segment, "rhythm"),
     )
 
 
