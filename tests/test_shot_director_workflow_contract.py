@@ -30,6 +30,29 @@ from agents.director_graph_package.shot_director_impl import (  # noqa: E402
 from agents.director_graph_package import shot_director_impl as sdi  # noqa: E402
 
 
+def _coverage_v3_output(shots: str, *, target_count: int = 1, max_count: int = 3) -> str:
+    return f"""- fragment_id: F01
+  schema_version: shot_director_coverage_v3
+  coverage_plan:
+    dramatic_task: test coverage
+    rhythm_intent: controlled
+    space_contract:
+      location: test room
+    shot_budget:
+      target_count: {target_count}
+      max_count: {max_count}
+    required_beats:
+      - establish_continuity
+  template_plan:
+    shots:
+{shots}
+  guard_result:
+    status: pass
+    final_shots: [F01-S01]
+    repairs: []
+"""
+
+
 def test_shot_director_explicit_workflow_contract_is_present():
     contract = _shot_director_workflow_contract()
     coverage_contract = _shot_director_coverage_contract_prompt()
@@ -60,7 +83,7 @@ def test_shot_director_explicit_workflow_contract_is_present():
         assert field_name in coverage_contract
 
 
-def test_shot_director_accepts_all_chinese_output_fields():
+def test_shot_director_rejects_legacy_chinese_output_fields():
     director_output = """- 片段编号: F01
   片段任务: 电梯口压迫
   节奏: 前压后停
@@ -78,7 +101,9 @@ def test_shot_director_accepts_all_chinese_output_fields():
       连续性: 乔熙在画面右侧，商北琛在画面左侧，电梯门仍半开
 """
 
-    assert _validate_shot_director_output(director_output, ["F01"]) == []
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert any("only schema_version: shot_director_coverage_v3 is supported." in issue for issue in issues)
 
 
 def test_shot_director_accepts_coverage_v3_template_plan():
@@ -189,24 +214,29 @@ def test_shot_director_rejects_overfragmented_life_pressure_segment():
     durations = ["0-2.2秒", "2.2-2.9秒", "2.9-4.9秒", "4.9-6.7秒", "6.7-9.3秒", "9.3-10.1秒", "10.1-12.1秒"]
     for index, duration in enumerate(durations, start=1):
         shot_lines.append(
-            f"""    - 镜头编号: F01-S{index:02d}
-      时长: {duration}
-      镜头任务: 承载清晨赶时间穿衣动作
-      拍摄主体: 乔熙、小豆丁
-      镜头: 双人半身关系景，茶几侧面固定机位
-      画面动作: 乔熙在沙发前帮小豆丁穿衣，小豆丁短暂抗拒后停住。
-      台词: ~
-      必须承载: 乔熙赶时间，小豆丁抗拒穿衣。
-      切镜点: 小豆丁抗拒动作停住后切出
-      连续性: 乔熙和小豆丁仍在沙发与茶几之间，手机仍在茶几上。
+            f"""      - shot_id: F01-S{index:02d}
+        duration: {duration}
+        task: 承载清晨赶时间穿衣动作
+        subject: 乔熙、小豆丁
+        shot: 双人半身关系景，茶几侧面固定视角
+        action: 乔熙在沙发前帮小豆丁穿衣，小豆丁短暂抗拒后停住。
+        dialogue: ~
+        must_carry: 乔熙赶时间，小豆丁抗拒穿衣。
+        cut_point: 小豆丁抗拒动作停住后切出
+        continuity: 乔熙和小豆丁仍在沙发与茶几之间，手机仍在茶几上。
+        coverage_role: 承载生活动作压力
+        cut_reason: 小豆丁抗拒动作停住后切出
+        companion_visibility: 乔熙和小豆丁同框
+        state_delta: 抗拒动作短暂停住
+        tailframe_role: 交给下一镜继续穿衣状态
+        template_id: COV-SD20-W1-LIFE-PRESSURE
+        template_level: W1
+        reference_need: identity_reference scene_reference
+        model_complexity_score: 2
+        tail_state: 乔熙和小豆丁仍在沙发与茶几之间
 """
         )
-    director_output = """- 片段编号: F01
-  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
-  节奏: 紧凑生活动作压力
-  空间连续性总控: 本片段是一段公寓生活压力戏；乔熙和小豆丁始终在沙发与茶几之间。
-  镜头列表:
-""" + "".join(shot_lines)
+    director_output = _coverage_v3_output("".join(shot_lines), target_count=7, max_count=7)
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
@@ -231,22 +261,27 @@ def test_shot_director_rules_lock_subject_ownership_and_task_combos():
 
 
 def test_shot_director_rejects_overloaded_random_subject_list():
-    director_output = """- 片段编号: F01
-  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
-  节奏: 紧凑生活压力
-  空间连续性总控: 乔熙和小豆丁始终在公寓客厅沙发边，手机仍在乔熙耳边。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-4秒
-      镜头任务: 建立赶时间生活压力
-      拍摄主体: 乔熙、小豆丁、闹钟、手机、外套、草莓蛋糕、书包
-      镜头: 双人半身关系景，沙发侧面固定机位
-      画面动作: 乔熙坐在沙发边给小豆丁套衣服，小豆丁缩脚抗拒，镜尾两人仍在沙发边。
-      台词: "Kiki, cover for me. I'll be right there!"
-      必须承载: 乔熙赶时间，小豆丁抗拒穿衣。
-      切镜点: 小豆丁缩脚动作停住后切出
-      连续性: 手机仍在乔熙耳边，小豆丁仍在沙发边。
-"""
+    director_output = _coverage_v3_output("""      - shot_id: F01-S01
+        duration: 0-4秒
+        task: 建立赶时间生活压力
+        subject: 乔熙、小豆丁、闹钟、手机、外套、草莓蛋糕、书包
+        shot: 双人半身关系景，沙发侧面固定视角
+        action: 乔熙坐在沙发边给小豆丁套衣服，小豆丁缩脚抗拒，镜尾两人仍在沙发边。
+        dialogue: "Kiki, cover for me. I'll be right there!"
+        must_carry: 乔熙赶时间，小豆丁抗拒穿衣。
+        cut_point: 小豆丁缩脚动作停住后切出
+        continuity: 手机仍在乔熙耳边，小豆丁仍在沙发边。
+        coverage_role: 建立生活压力
+        cut_reason: 小豆丁缩脚动作停住后切出
+        companion_visibility: 乔熙和小豆丁同框
+        state_delta: 小豆丁抗拒动作出现
+        tailframe_role: 交给下一镜继续穿衣状态
+        template_id: COV-SD20-W1-LIFE-PRESSURE
+        template_level: W1
+        reference_need: identity_reference scene_reference
+        model_complexity_score: 2
+        tail_state: 乔熙和小豆丁仍在沙发边
+""")
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
@@ -255,32 +290,47 @@ def test_shot_director_rejects_overloaded_random_subject_list():
 
 
 def test_shot_director_rejects_teleport_without_tailframe_carry():
-    director_output = """- 片段编号: F01
-  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
-  节奏: 紧凑生活压力
-  空间连续性总控: 乔熙和小豆丁始终在公寓客厅沙发边，手机仍在乔熙耳边。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-4秒
-      镜头任务: 建立母女穿衣阻力
-      拍摄主体: 乔熙和小豆丁
-      镜头: 双人半身关系景，沙发侧面固定机位
-      画面动作: 乔熙坐在沙发边给小豆丁套衣服，小豆丁缩脚抗拒，镜尾两人仍坐在沙发边。
-      台词: "Kiki, cover for me. I'll be right there!"
-      必须承载: 乔熙赶时间，小豆丁抗拒穿衣。
-      切镜点: 小豆丁缩脚动作停住后切出
-      连续性: 乔熙和小豆丁仍坐在沙发边，手机仍在乔熙耳边。
-    - 镜头编号: F01-S02
-      时长: 4-8秒
-      镜头任务: 承载穿衣完成和拿书包
-      拍摄主体: 乔熙和小豆丁
-      镜头: 双人中景，茶几侧面固定机位
-      画面动作: 小豆丁突然站在茶几旁，衣服已经穿好。乔熙拿起书包。
-      台词: ~
-      必须承载: 小豆丁已经配合穿衣，乔熙准备出门。
-      切镜点: 乔熙拿起书包后切出
-      连续性: 手机在茶几上。
-"""
+    director_output = _coverage_v3_output("""      - shot_id: F01-S01
+        duration: 0-4秒
+        task: 建立母女穿衣阻力
+        subject: 乔熙和小豆丁
+        shot: 双人半身关系景，沙发侧面固定视角
+        action: 乔熙坐在沙发边给小豆丁套衣服，小豆丁缩脚抗拒，镜尾两人仍坐在沙发边。
+        dialogue: "Kiki, cover for me. I'll be right there!"
+        must_carry: 乔熙赶时间，小豆丁抗拒穿衣。
+        cut_point: 小豆丁缩脚动作停住后切出
+        continuity: 乔熙和小豆丁仍坐在沙发边，手机仍在乔熙耳边。
+        coverage_role: 建立母女穿衣阻力
+        cut_reason: 小豆丁缩脚动作停住后切出
+        companion_visibility: 乔熙和小豆丁同框
+        state_delta: 小豆丁抗拒动作出现
+        tailframe_role: 交给下一镜继续穿衣状态
+        template_id: COV-SD20-W1-LIFE-PRESSURE
+        template_level: W1
+        reference_need: identity_reference scene_reference
+        model_complexity_score: 2
+        tail_state: 乔熙和小豆丁仍坐在沙发边
+      - shot_id: F01-S02
+        duration: 4-8秒
+        task: 承载穿衣完成和拿书包
+        subject: 乔熙和小豆丁
+        shot: 双人中景，茶几侧面固定视角
+        action: 小豆丁突然站在茶几旁，衣服已经穿好。乔熙拿起书包。
+        dialogue: ~
+        must_carry: 小豆丁已经配合穿衣，乔熙准备出门。
+        cut_point: 乔熙拿起书包后切出
+        continuity: 手机在茶几上。
+        coverage_role: 承载穿衣完成和拿书包
+        cut_reason: 乔熙拿起书包后切出
+        companion_visibility: 乔熙和小豆丁同框
+        state_delta: 小豆丁已站起且衣服穿好
+        tailframe_role: 交给出门动作
+        template_id: COV-SD20-W1-LIFE-PRESSURE
+        template_level: W1
+        reference_need: identity_reference scene_reference
+        model_complexity_score: 2
+        tail_state: 乔熙拿起书包，小豆丁站在茶几旁
+""", target_count=2, max_count=2)
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
@@ -313,7 +363,10 @@ def test_shot_director_repair_adds_fragment_continuity_context():
     assert "空间连续性总控:" in repaired
     assert "乔熙、商北琛在9-1 夜/内/劳斯莱斯车内的同一空间内" in repaired
     assert "单人镜只改变拍摄主体" in repaired
-    assert _validate_shot_director_output(repaired, ["F01"]) == []
+    assert any(
+        "only schema_version: shot_director_coverage_v3 is supported." in issue
+        for issue in _validate_shot_director_output(repaired, ["F01"])
+    )
 
 
 def test_shot_director_rules_keep_camera_and_performance_fields_separate():
@@ -336,26 +389,31 @@ def test_shot_director_rules_keep_camera_and_performance_fields_separate():
 
 
 def test_shot_director_rejects_untranslated_camera_jargon_in_final_shot_field():
-    director_output = """- 片段编号: F01
-  片段任务: 清晨赶时间给小豆丁穿衣并安抚她上学。
-  节奏: 紧凑生活压力
-  空间连续性总控: 乔熙和小豆丁始终在公寓客厅沙发边，手机仍在乔熙耳边。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-4秒
-      镜头任务: 建立赶时间生活压力
-      拍摄主体: 乔熙和小豆丁
-      镜头: 双人半身关系景，沙发侧面固定机位
-      画面动作: 乔熙坐在沙发边给小豆丁套衣服，视线看向门口；小豆丁缩脚抗拒，镜尾两人仍在沙发边。
-      台词: "Kiki, cover for me. I'll be right there!"
-      必须承载: 乔熙赶时间，小豆丁抗拒穿衣。
-      切镜点: 台词落下后小豆丁抗拒反应出现时切出
-      连续性: 手机仍在乔熙耳边，小豆丁仍在沙发边。
-"""
+    director_output = _coverage_v3_output("""      - shot_id: F01-S01
+        duration: 0-4秒
+        task: 建立赶时间生活压力
+        subject: 乔熙和小豆丁
+        shot: 双人半身关系景，沙发侧面固定机位
+        action: 乔熙坐在沙发边给小豆丁套衣服，视线看向门口；小豆丁缩脚抗拒，镜尾两人仍在沙发边。
+        dialogue: "Kiki, cover for me. I'll be right there!"
+        must_carry: 乔熙赶时间，小豆丁抗拒穿衣。
+        cut_point: 台词落下后小豆丁抗拒反应出现时切出
+        continuity: 手机仍在乔熙耳边，小豆丁仍在沙发边。
+        coverage_role: 建立生活压力
+        cut_reason: 小豆丁抗拒反应出现时切出
+        companion_visibility: 乔熙和小豆丁同框
+        state_delta: 小豆丁抗拒动作出现
+        tailframe_role: 交给下一镜继续穿衣状态
+        template_id: COV-SD20-W1-LIFE-PRESSURE
+        template_level: W1
+        reference_need: identity_reference scene_reference
+        model_complexity_score: 2
+        tail_state: 乔熙和小豆丁仍在沙发边
+""")
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
-    assert any("未翻译机位术语" in issue for issue in issues)
+    assert any("untranslated camera jargon" in issue for issue in issues)
     assert any("侧面视角" in issue and "固定视角" in issue for issue in issues)
 
 
@@ -429,21 +487,44 @@ def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
       切镜点: 乔熙看清后切出
       连续性: 项链在画面里
 """
-    repaired_output = """- 片段编号: F01
-  片段任务: 车内命令戴项链
-  节奏: 项链靠近后乔熙识别
-  空间连续性总控: 本片段是一段车内项链压迫；乔熙和商北琛始终在同一车后排空间内；单人镜只改变拍摄主体，不代表另一人离开。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-2秒
-      镜头任务: 承载乔熙识别项链
-      拍摄主体: 乔熙
-      镜头: 乔熙中近景，车内同侧微侧视角
-      画面动作: 乔熙原本身体后收，视线先落到商北琛手中的项链，随后低头看清吊坠，眼神短暂停住，肩颈保持绷紧。
-      台词: ~
-      必须承载: 乔熙认出项链，商北琛仍在近侧形成压力，项链仍未戴上。
-      切镜点: 乔熙看清项链后眼神停住时切出
-      连续性: 商北琛仍在乔熙近侧，项链仍在商北琛手中，乔熙坐在原位没有离开。
+    repaired_output = """- fragment_id: F01
+  schema_version: shot_director_coverage_v3
+  coverage_plan:
+    dramatic_task: 车内命令戴项链
+    rhythm_intent: 项链靠近后乔熙识别
+    space_contract:
+      location: 劳斯莱斯车内
+    shot_budget:
+      target_count: 1
+      max_count: 1
+    required_beats:
+      - necklace_recognition
+  template_plan:
+    shots:
+      - shot_id: F01-S01
+        duration: 0-2秒
+        task: 承载乔熙识别项链
+        subject: 乔熙
+        shot: 乔熙中近景，车内同侧微侧视角
+        action: 乔熙肩颈绷紧，视线从商北琛手中的项链落到吊坠。看清后她眼神停住，身体仍坐在原位。
+        dialogue: ~
+        must_carry: 乔熙认出项链，商北琛仍在近侧形成压力，项链仍未戴上。
+        cut_point: 乔熙看清项链后眼神停住时切出
+        continuity: 商北琛仍在乔熙近侧，项链仍在商北琛手中，乔熙坐在原位没有离开。
+        coverage_role: 承载乔熙识别项链
+        cut_reason: 乔熙看清项链后眼神停住时切出
+        companion_visibility: 商北琛仍在乔熙近侧画外或边缘
+        state_delta: 乔熙从紧绷转为认出项链后的停住
+        tailframe_role: 保留乔熙认出项链后的停顿
+        template_id: COV-SD20-W1-REACTION-HOLD
+        template_level: W1
+        reference_need: identity_reference scene_reference
+        model_complexity_score: 2
+        tail_state: 乔熙坐在原位，商北琛近侧施压，项链仍未戴上。
+  guard_result:
+    status: pass
+    final_shots: [F01-S01]
+    repairs: []
 """
 
     def fake_call_llm(system_prompt, user_prompt, **kwargs):

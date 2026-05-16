@@ -35,8 +35,11 @@ from .helpers import (
 from .llm import call_llm
 from .prompting import build_system_prompt
 from .seedance_contracts import (
+    NO_TEXT_HARD_CONSTRAINT,
+    abstract_viewpoint_terms,
     extract_seedance_contract_flags,
     format_seedance_contract_block,
+    prompt_contract_issues,
     seedance_qc_issues,
 )
 from .state_store import _agent_outputs, _persist_update
@@ -752,6 +755,12 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
     base_report = _prompt_guard_report(prompt, script, planner_segment, director_segment)
     if base_report:
         issues.extend(line for line in base_report.splitlines() if line.strip())
+    for contract_issue in prompt_contract_issues(prompt):
+        issues.append(f"- [FINAL-SEEDANCE-PROMPT-CONTRACT] {contract_issue}")
+    for term in abstract_viewpoint_terms("\n".join([prompt or "", director_segment or ""])):
+        issues.append(
+            f"- [SEEDANCE-ABSTRACT-VIEWPOINT-GATE] forbidden abstract viewpoint '{term}'; repair_route=shot_director/prompt_compiler."
+        )
 
     if _INTERNAL_FIELD_LEAK_RE.search(prompt or ""):
         issues.append("- Prompt 泄漏了上游内部字段名：必须把 fragment_task、must_carry、cut_point 等翻译成自然中文镜头语言。")
@@ -762,11 +771,11 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             "例如“侧面视角”“固定视角”“从乔熙肩后看向小豆丁”，不要写“固定机位/侧面机位/摄影机位于”。"
         )
 
-    uses_construction_sheet = any(
+    uses_seedance_shot_contract = any(
         _has_yaml_field(director_segment or "", field)
         for field in ("duration", "must_carry", "cut_point", "continuity")
     )
-    director_geometry_issues = [] if uses_construction_sheet else _validate_spatial_geometry_contract(director_segment or "")
+    director_geometry_issues = [] if uses_seedance_shot_contract else _validate_spatial_geometry_contract(director_segment or "")
     if any("缺少空间几何字段" in issue for issue in director_geometry_issues):
         issues.append(
             "- 镜头资产缺少空间几何合同：shots 必须包含 camera_basis、camera_scene_position、"
@@ -1641,6 +1650,11 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
             "已拒绝继续编译。请先重跑三段式镜头导演并确保大模型调用成功。"
         )
     current_director_segment = _compress_director_for_compiler(current_director_segment_raw)
+    current_frame_control_contract = (
+        outputs.get(f"frame_control_contract_seg{segment_index:02d}")
+        or outputs.get(f"frame_control_contract_seg{segment_index}")
+        or ""
+    )
     current_seedance_contract = _seedance_contract_card(current_planner_segment, current_director_segment_raw)
     scene_memory = _scene_memory_card(outputs.get("scene_analyst", ""), 1400)
     current_source_events = _current_segment_event_card(current_planner_segment, 1600)
@@ -1682,7 +1696,35 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
     )
     # --- v1 schema validation ---
     v1_issues: list[str] = []
-    if current_director_segment_raw:
+    minimum_contract_issues: list[str] = []
+    if "rhythm_operation_sheet_ref" not in current_planner_segment and "rhythm_operation_sheet" not in str(outputs.get("rhythm_rewrite_director", "")):
+        minimum_contract_issues.append("missing rhythm_operation_sheet handoff")
+    for field in (
+        "generation_unit_id",
+        "source_script_events",
+        "event_atom",
+        "duration_target",
+        "model_complexity_score",
+        "reference_needs",
+        "tail_state_required",
+        "shot_director_handoff",
+    ):
+        if field not in current_planner_segment:
+            minimum_contract_issues.append(f"generation_unit missing {field}")
+    if "shot_director_coverage_v3" not in current_director_segment_raw:
+        minimum_contract_issues.append("shot_director schema_version must be shot_director_coverage_v3")
+    for field in ("coverage_plan", "template_plan", "guard_result", "template_id", "template_level", "tail_state"):
+        if field not in current_director_segment_raw:
+            minimum_contract_issues.append(f"shot_director coverage_v3 missing {field}")
+    if "tail_state" not in current_director_segment_raw and "tail_state_required" not in current_planner_segment and "tailframe_state" not in current_frame_control_contract:
+        minimum_contract_issues.append("missing tailframe_contract/tail_state")
+    if minimum_contract_issues:
+        raise RuntimeError(
+            "[FINAL-SEEDANCE-PROMPT-GATE] prompt_compiler refused to compile incomplete upstream contracts.\n"
+            + "\n".join(f"  - {issue}" for issue in minimum_contract_issues)
+            + "\nrepair_route=story_planner/shot_director/storyboard_designer before prompt_compiler."
+        )
+    if current_director_segment_raw and "shot_director_coverage_v3" not in current_director_segment_raw:
         for field in ("fragment_task", "rhythm", "shots"):
             if not _has_yaml_field(current_director_segment_raw, field):
                 v1_issues.append(f"shot_director 缺少 fragment 字段 {field}。")
@@ -1707,7 +1749,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
                     v1_issues.append(f"{shot_id} 缺少必要字段 {field}。")
             if not _has_yaml_field(shot_body, "shot"):
                 v1_issues.append(f"{shot_id} 缺少必要字段 shot。")
-    else:
+    elif not current_director_segment_raw:
         v1_issues.append("当前片段缺少镜头资产，无法编译。")
 
     if v1_issues:
@@ -1725,6 +1767,8 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"【当前片段规划资产】\n{current_planner_segment}\n\n"
         f"【Seedance 2.0 合同字段卡（必须保留并用于编译决策，不得作为最终字段名输出）】\n{current_seedance_contract}\n\n"
         f"【当前片段镜头资产】\n{current_director_segment}\n\n"
+        f"【frame_control_contract / tailframe_contract】\n{current_frame_control_contract or 'none'}\n\n"
+        f"【final_seedance_prompt required】\nstyle_anchor; aspect_anchor=9:16竖屏; continuity_contract; reference_binding_contract; timeline; tailframe_contract; hard_constraints; {NO_TEXT_HARD_CONSTRAINT}\n\n"
         f"【上一段人物最终姿势/视频分析（最高优先级空间参考）】\n{tail_frame_memory}\n\n"
         f"⚠️ 【画面基底的核心规则】\n"
         f"如果上方存在【上一段人物最终姿势/视频分析】内容，则该分析描述的是上一段视频的**实际生成结果**。\n"

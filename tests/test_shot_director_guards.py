@@ -23,6 +23,29 @@ from agents.director_graph_package.shot_director_impl import (  # noqa: E402
 from agents.director_graph_package import shot_director_impl  # noqa: E402
 
 
+def _coverage_v3_output(shots: str, *, target_count: int = 1, max_count: int = 3) -> str:
+    return f"""- fragment_id: F01
+  schema_version: shot_director_coverage_v3
+  coverage_plan:
+    dramatic_task: test coverage
+    rhythm_intent: controlled
+    space_contract:
+      location: test room
+    shot_budget:
+      target_count: {target_count}
+      max_count: {max_count}
+    required_beats:
+      - establish_continuity
+  template_plan:
+    shots:
+{shots}
+  guard_result:
+    status: pass
+    final_shots: [F01-S01]
+    repairs: []
+"""
+
+
 def test_clean_shot_director_output_strips_thinking_and_markdown():
     raw = """<thinking>
 fragment_id: F04
@@ -332,8 +355,7 @@ shots:
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
-    assert any("transition_type" in issue for issue in issues)
-    assert any("tail_state_card" in issue for issue in issues)
+    assert any("only schema_version: shot_director_coverage_v3 is supported." in issue for issue in issues)
 
 
 
@@ -374,44 +396,27 @@ sub_shots:
 
 
 def test_shot_director_allows_empty_sub_shots_array():
-    director_output = """fragment_id: F01
-schema_version: shot_director_v2
-fragment_intent: "handoff"
-reaction_coverage: "none"
-continuity_anchor: "same lobby"
-blocking_plan: "single stable shot"
-state_chain:
-  - track: "door"
-    progression: "open -> open"
-event_coverage:
-  - source_event: "Event."
-    covered_by: "F01-S01"
-shots:
-  - shot_id: "F01-S01"
-    subject: "Actor"
-    shot_size: "medium shot"
-    camera_height: "eye level"
-    angle: "front"
-    movement: "static"
-    camera_basis: "subject_relative"
-    camera_scene_position: "room_axis_front"
-    camera_looks_toward: "toward_actor"
-    subject_position: "room_center"
-    subject_facing: "toward_camera"
-    visible_landmarks: "room_axis=background_center"
-    lens: "35mm"
-    depth: "medium"
-    coverage_role: "speaker_coverage"
-    cut_reason: "scene_entry"
-    companion_visibility: "none"
-    state_delta: "stable"
-    tailframe_role: "tailframe_reset"
-    dialogue_coverage: "none"
-    transition_type: "scene_fixed"
-    tail_state_card: "人物站位: Actor在room_center；接触关系: 无接触；道具/门/车门状态: 门保持open；视线朝向: toward_camera；距离关系: 单人中景距离"
-    shot_intent: "cover event"
-sub_shots: []
-"""
+    director_output = _coverage_v3_output("""      - shot_id: F01-S01
+        duration: 0-3s
+        task: establish continuity
+        subject: Actor
+        shot: medium relation shot, eye-level
+        action: Actor moves to exit.
+        dialogue: none
+        must_carry: continuity and position lock
+        cut_point: scene exit
+        continuity: Actor remains in same lobby state
+        coverage_role: continuity
+        cut_reason: actor leaves the room and moves to next area
+        companion_visibility: Actor visible
+        state_delta: stable
+        tailframe_role: carry state
+        template_id: COV-SD20-W1-ENTRY
+        template_level: W1
+        reference_need: identity_reference script_reference
+        model_complexity_score: 1
+        tail_state: Actor at lobby with stable position
+""")
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
@@ -420,98 +425,82 @@ sub_shots: []
 
 def test_shot_director_v1_uses_merged_shot_field():
     director_output = """- fragment_id: F01
-  fragment_task: "建立关系"
-  rhythm: "稳慢压"
-  continuity_context: "本片段是一段建立关系；乔熙、商北琛在同一办公室空间内；单人镜只改变拍摄主体，不代表另一人离开。"
+  fragment_task: "legacy-shorthand"
+  rhythm: "moderate"
+  continuity_context: "legacy v1 layout should fail now"
   shots:
     - shot_id: F01-S01
-      duration: "0-3秒"
-      task: "建立两人对峙关系"
-      subject: "乔熙、商北琛"
-      shot: "过肩视角半身以上中景"
-      action: "乔熙站在桌前看向商北琛，商北琛隔桌回看她。"
+      duration: 0-3s
+      task: "legacy shot field test"
+      subject: "Actor"
+      shot: "wide"
+      action: "Actor takes one step."
       dialogue: "~"
-      must_carry: "两人隔桌对峙关系清楚。"
-      cut_point: "两人视线稳定对上、空间关系看清后切。"
-      continuity: "乔熙仍在桌前，商北琛仍在桌后，保持同侧轴线。"
+      must_carry: "legacy control"
+      cut_point: "after line"
+      continuity: "actor steps forward"
 """
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
-    assert issues == []
+    assert any("only schema_version: shot_director_coverage_v3 is supported." in issue for issue in issues)
 
 
-def test_shot_director_requires_construction_sheet_fields():
+def test_shot_director_rejects_legacy_v2_schema():
     director_output = """- fragment_id: F01
   schema_version: shot_director_v2
-  fragment_intent: "建立关系 + 反应落点"
-  reaction_coverage: "乔熙被命令击中后的反讽反应必须可见"
-  continuity_anchor: "乔熙在桌前，商北琛在桌后，保持右前方同侧轴线与办公桌阻隔关系"
+  fragment_intent: "legacy coverage"
+  reaction_coverage: "legacy coverage fields"
+  continuity_anchor: "legacy continuity anchor"
   shots:
     - shot_id: F01-S01
-      subject: "乔熙、商北琛"
-      shot_size: "双人中景"
-      camera_height: "平视"
-      angle: "右前方45度"
-      movement: "固定"
+      subject: "Actor"
+      shot_size: "full shot"
+      camera_height: "low"
+      angle: "front"
+      movement: "static"
       lens: "35mm"
-      depth: "中景深"
-      coverage_role: "建立两人距离和办公桌阻隔关系"
-      cut_reason: "关系建立后，切到乔熙反应"
-      companion_visibility: "两人同画面，办公桌在中间"
-      tailframe_role: "把乔熙桌前站位交给下一镜"
-      dialogue_coverage: "无对白"
+      depth: "medium"
+      coverage_role: "legacy"
+      cut_reason: "legacy cut"
+      companion_visibility: "both visible"
+      tailframe_role: "carry state"
+      dialogue_coverage: "none"
       transition_type: stay_on_A
-      tail_state_card: "人物站位：乔熙桌前、商北琛桌后；接触关系：无；道具/门状态：办公桌阻隔；视线朝向：互看；距离关系：隔桌对峙"
-    - shot_id: F01-S02
-      subject: "乔熙"
-      shot_size: "中近景"
-      camera_height: "平视"
-      angle: "同侧过肩"
-      movement: "固定"
-      lens: "50mm"
-      depth: "浅景深"
-      coverage_role: "承接乔熙听完后的受击反应"
-      cut_reason: "反问句落下后，停在乔熙受击反应尾帧"
-      companion_visibility: "商北琛肩线在前景边缘"
-      tailframe_role: "以乔熙视线停住作为尾帧"
-      dialogue_coverage: "乔熙原台词：What's this? Trying to intimidate me?"
-      transition_type: cut_to_B
-      tail_state_card: "人物站位：乔熙仍在桌前；接触关系：无；道具/门状态：工牌仍挂在胸前；视线朝向：看向商北琛；距离关系：隔桌"
+      tail_state_card: "legacy actor state"
 """
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
-    assert issues == []
+    assert any("only schema_version: shot_director_coverage_v3 is supported." in issue for issue in issues)
 
 
-def test_shot_director_rejects_vague_cut_point_in_construction_sheet():
-    director_output = """- fragment_id: F01
-  schema_version: shot_director_v2
-  fragment_intent: "建立关系"
-  reaction_coverage: "无独立反应"
-  continuity_anchor: "保持左右关系"
-  shots:
-    - shot_id: F01-S01
-      subject: "乔熙、商北琛"
-      shot_size: "双人中景"
-      camera_height: "平视"
-      angle: "右前方45度"
-      movement: "固定"
-      lens: "35mm"
-      depth: "中景深"
-      coverage_role: "建立对峙关系"
-      cut_reason: "更有电影感"
-      companion_visibility: "两人同画面"
-      tailframe_role: "保持对峙尾帧"
-      dialogue_coverage: "无对白"
-      transition_type: stay_on_A
-      tail_state_card: "人物站位：两人对峙；接触关系：无；道具/门状态：无；视线朝向：互看；距离关系：隔桌"
-"""
+def test_shot_director_rejects_vague_cut_point_in_coverage_v3():
+    director_output = _coverage_v3_output("""      - shot_id: F01-S01
+        duration: 0-3s
+        task: establish continuity
+        subject: Actor
+        shot: medium relation shot
+        action: Actor hesitates.
+        dialogue: none
+        must_carry: continuity carry
+        cut_point: cinematic
+        continuity: Actor stays in lobby
+        coverage_role: continuity
+        cut_reason: actor response unclear
+        companion_visibility: actor visible
+        state_delta: stable
+        tailframe_role: carry state
+        template_id: COV-SD20-W1-ENTRY
+        template_level: W1
+        reference_need: identity_reference script_reference
+        model_complexity_score: 1
+        tail_state: Actor in lobby
+""")
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
-    assert any("cut_reason 过于空泛" in issue for issue in issues)
+    assert any("cut_point must bind to action apex, dialogue break, readable information, reaction, or tailframe state." in issue for issue in issues)
 
 
 def test_shot_director_restart_rerun_waits_for_per_segment_generation():

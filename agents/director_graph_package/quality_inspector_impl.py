@@ -22,7 +22,7 @@ from .helpers import (
     _segment_block_by_fragment_id,
     _yaml_line_field,
 )
-from .seedance_contracts import seedance_qc_issues
+from .seedance_contracts import abstract_viewpoint_terms, has_no_text_hard_constraint, prompt_contract_issues, seedance_qc_issues
 
 
 # ---------------------------------------------------------------------------
@@ -430,6 +430,19 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     qc_issues: list[str] = []
     if guard_report:
         qc_issues.extend([line for line in guard_report.splitlines() if line.strip()])
+
+    if "rhythm_operation_sheet_ref" not in planner_segment and "rhythm_operation_sheet" not in str(outputs.get("rhythm_rewrite_director", "")):
+        qc_issues.append("- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=story_planner rule=RHYTHM_OPERATION_SHEET_REQUIRED repair_route=rhythm: missing rhythm_operation_sheet handoff.")
+    if "shot_director_coverage_v3" not in director_segment:
+        qc_issues.append("- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=shot_director rule=COVERAGE_V3_REQUIRED repair_route=shot_director: missing shot_director_coverage_v3.")
+    if "tail_state" not in director_segment and "tail_state_required" not in planner_segment and "尾帧" not in prompt:
+        qc_issues.append("- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=prompt_compiler rule=TAILFRAME_CONTRACT_REQUIRED repair_route=storyboard_designer/prompt_compiler: missing inheritable tailframe.")
+    if not has_no_text_hard_constraint(prompt):
+        qc_issues.append("- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=prompt_compiler rule=NO_TEXT_HARD_CONSTRAINT repair_route=prompt_compiler: missing explicit no subtitle/screen text/watermark/logo constraint.")
+    for issue in prompt_contract_issues(prompt):
+        qc_issues.append(f"- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=prompt_compiler rule={issue} repair_route=prompt_compiler.")
+    for term in abstract_viewpoint_terms("\n".join([prompt or "", director_segment or ""])):
+        qc_issues.append(f"- [SEEDANCE-ABSTRACT-VIEWPOINT-GATE] target=shot_director/prompt_compiler rule=ABSTRACT_VIEWPOINT issue={term} repair_route=shot_director.")
 
     if planner_segment and not _planner_has_reaction_handoff(planner_segment):
         qc_issues.append("- story_planner 未说明当前片段的承接/反应计划。")

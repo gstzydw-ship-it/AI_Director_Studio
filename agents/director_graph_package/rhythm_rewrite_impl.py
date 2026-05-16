@@ -5,6 +5,7 @@ import re
 from typing import Any
 
 from .llm import call_llm
+from .seedance_contracts import NO_TEXT_HARD_CONSTRAINT, rhythm_operation_sheet_issues
 
 DirectorState = dict[str, Any]
 
@@ -373,6 +374,36 @@ def _rhythm_supervisor_user_prompt(state: DirectorState) -> str:
     )
 
 
+def _fallback_rhythm_operation_sheet(state: DirectorState, issues: list[str] | None = None) -> str:
+    """Append a deterministic rhythm operation sheet when the model misses the contract."""
+    _ = state
+    issue_note = ", ".join(issues or [])
+    return (
+        "rhythm_operation_sheet:\n"
+        "  segment_id: EP01_ALL\n"
+        "  rhythm_mode: controlled_short_drama_pacing\n"
+        "  target_duration: per_generation_unit_4_12s_max_15s\n"
+        "  pressure_curve: compress_transitions_then_hold_reaction\n"
+        "  beat_plan:\n"
+        "    - protect existing script events only\n"
+        "    - keep one visible event atom per generation unit\n"
+        "    - reserve the final 0.5s for inheritable tail state\n"
+        "  beat_budget: one core event, one reaction landing, one tail state per unit\n"
+        "  pause_points: keep only information reveal, refusal, recognition, or frozen reaction pauses\n"
+        "  reaction_ownership: assign each reaction to the character visibly hit by the event\n"
+        "  compression_policy: compress weak transitions; do not add plot or dialogue; leave visual design to downstream coverage\n"
+        "  tail_state_required: character positions, gaze, hand state, prop owner, and door/vehicle/elevator state must be inheritable\n"
+        "  shot_budget_hint: W1/W2 units prefer 1-3 executable shots; dense life pressure max 4\n"
+        "  forbidden:\n"
+        "    - camera_language\n"
+        "    - shot_design\n"
+        "    - subtitle_generation\n"
+        "    - screen_text_dependency\n"
+        f"  hard_constraint: {NO_TEXT_HARD_CONSTRAINT}\n"
+        f"  repair_note: {issue_note or 'deterministic contract append'}"
+    )
+
+
 def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
     from .legacy_impl import (
         _agent_outputs,
@@ -430,6 +461,9 @@ def rhythm_rewrite_director_node(state: DirectorState) -> DirectorState:
     output = call_llm(system_prompt, user_prompt, agent_name="rhythm_rewrite_director")
     output = _cleanup_rhythm_abstract_language(output)
     output = _clamp_rhythm_segment_duration_suggestions(output)
+    contract_issues = rhythm_operation_sheet_issues(output)
+    if contract_issues:
+        output = output.rstrip() + "\n\n" + _fallback_rhythm_operation_sheet(state, contract_issues)
     knowledge_metadata = _record_knowledge_metadata(state, "rhythm_rewrite_director", rhythm_hint, retrieval_meta)
     atmosphere_strategy = output.strip()
     outputs["rhythm_rewrite_director"] = atmosphere_strategy

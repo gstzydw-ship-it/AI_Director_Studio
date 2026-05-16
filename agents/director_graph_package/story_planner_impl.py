@@ -13,6 +13,7 @@ from . import legacy_impl as _legacy
 from .helpers import _agent_runtime_trace, _fragment_line_pattern, _truncate_for_prompt
 from .llm import call_llm
 from .planning_context_impl import _script_fidelity_rules
+from .seedance_contracts import generation_unit_contract_issues
 from .state_store import _agent_outputs, _persist_update
 from ..knowledge_base import query_rule_registry
 from ..request_context import emit_runtime_event
@@ -249,7 +250,7 @@ def _infer_shot_director_handoff(section: str) -> str:
     return (
         f"镜头导演只覆盖本片段原文事件；目标时长：{duration}；情绪/节奏意图：{rhythm}；"
         f"戏剧落点：{reaction_plan}；弱拍和过渡动作可压缩进主镜头或结果状态；"
-        f"{exit_part}；镜头数、景别、机位、切镜点由镜头导演决定，不得新增剧本外人物、台词、道具、动作或空间。"
+        f"{exit_part}；下游只可覆盖本段事件、节奏落点和尾帧承接，不得新增剧本外人物、台词、道具、动作或空间。"
     )
 
 def _infer_intra_fragment_rhythm(section: str) -> str:
@@ -310,6 +311,7 @@ def _infer_reference_needs(section: str) -> str:
 
 _SEEDANCE_GENERATION_UNIT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "generation_unit_id": ("generation_unit_id",),
+    "source_script_events": ("source_script_events", "施工剧本原文事件", "当前剧本事件"),
     "signal_type": ("signal_type",),
     "duration_target": ("duration_target",),
     "event_atom": ("event_atom",),
@@ -319,6 +321,8 @@ _SEEDANCE_GENERATION_UNIT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "split_required": ("split_required",),
     "reference_needs": ("reference_needs",),
     "tail_state_required": ("tail_state_required",),
+    "rhythm_operation_sheet_ref": ("rhythm_operation_sheet_ref",),
+    "shot_director_handoff": ("shot_director_handoff", "镜头导演交接", "导演交接"),
 }
 
 
@@ -332,6 +336,8 @@ def _has_seedance_generation_unit_signal(section: str) -> bool:
         "split_required",
         "reference_needs",
         "tail_state_required",
+        "rhythm_operation_sheet_ref",
+        "shot_director_handoff",
     )
     return any(_has_planner_field_alias(section, _SEEDANCE_GENERATION_UNIT_FIELD_ALIASES[field]) for field in signal_fields)
 
@@ -418,6 +424,8 @@ def _ensure_seedance_generation_unit_fields(section: str) -> str:
         "split_required": _infer_split_required(current),
         "reference_needs": _infer_reference_needs(current),
         "tail_state_required": _infer_tail_state_required(current),
+        "rhythm_operation_sheet_ref": _extract_fragment_id(current) or _infer_generation_unit_id(current),
+        "shot_director_handoff": _infer_shot_director_handoff(current),
     }
     before = ("source_script_events",)
     for field in (
@@ -431,6 +439,8 @@ def _ensure_seedance_generation_unit_fields(section: str) -> str:
         "split_required",
         "reference_needs",
         "tail_state_required",
+        "rhythm_operation_sheet_ref",
+        "shot_director_handoff",
     ):
         if not _is_missing_planner_field(current, field):
             continue
@@ -1718,6 +1728,9 @@ def _validate_story_planner_output(
             missing = _missing_seedance_generation_unit_fields(section)
             if missing:
                 issues.append(f"{fragment_id} missing Seedance generation_unit fields: {', '.join(missing)}.")
+            for contract_issue in generation_unit_contract_issues(section):
+                if contract_issue.startswith("generation_unit_forbidden"):
+                    issues.append(f"{fragment_id} {contract_issue}.")
             score_text = _field_value(section, "model_complexity_score")
             score_match = re.search(r"\d+", score_text or "")
             if score_match and int(score_match.group(0)) >= 5:
@@ -1773,7 +1786,7 @@ def _story_planner_repair_prompt(
         "11. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，若没有完整台词、信息揭示或明确反应落点，目标时长必须压到 2-5秒；不要为了凑长让人物慢慢走、慢慢停、慢慢看。\n"
         "12. 闹钟/手机/外套/孩子抗拒这类同一生活动作群，如果共同服务于“乔熙赶时间但孩子拒绝上学”同一个观众注意力问题，应合并为 8-12秒完整片段；前段压缩急促动作，后段留给拒绝、安抚和情绪落点。\n"
         "13. 合并相邻片段时不要丢失节奏差异；把差异写进片段内节奏分配，例如“0-4秒：急促动作链；4-8秒：孩子拒绝；8-12秒：乔熙应对和情绪落点”。\n"
-        "14. 每段必须补齐 Seedance generation_unit 合同字段：generation_unit_id、signal_type、duration_target、event_atom、emotion_delta、reaction_handoff、model_complexity_score、split_required、reference_needs、tail_state_required。\n"
+        "14. 每段必须补齐 Seedance generation_unit 合同字段：generation_unit_id、source_script_events、duration_target、event_atom、model_complexity_score、reference_needs、tail_state_required、rhythm_operation_sheet_ref、shot_director_handoff；兼容字段 signal_type、emotion_delta、reaction_handoff、split_required 也要保留。\n"
         "14A. 只输出上述固定英文合同键；event_atom 只写一个可见事件原子，不写机位、景别或运镜。\n"
         "15. model_complexity_score 按 Seedance 能力矩阵保守估算；3-4 分要写 split_required 或降级/拆分建议，5 分及以上不得作为单段交付。\n"
         "16. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本重建完整 YAML。\n\n"
@@ -2017,7 +2030,7 @@ def _rhythm_story_planner_system_prompt() -> str:
         "但合并不是粗拆：一旦同一片段同时跨越入场/离场、完整对白、信息揭示、道具状态变化、反应落点或冲突转折中的三类以上，"
         "且观众注意力问题已经改变，应拆成相邻片段，让每段只承担一个核心剧情任务。\n"
         "人物动作节奏必须写清：急急忙忙、动作叠压、正常承接、停住观察、慢处理或犹豫拖延。\n"
-        "每个片段必须同时是 Seedance 可生成单元，输出 generation_unit_id、signal_type、event_atom、emotion_delta、reaction_handoff、model_complexity_score、split_required、reference_needs、tail_state_required。\n"
+        "每个片段必须同时是 Seedance 可生成单元，输出 generation_unit_id、source_script_events、duration_target、event_atom、model_complexity_score、reference_needs、tail_state_required、rhythm_operation_sheet_ref、shot_director_handoff，并保留 signal_type、emotion_delta、reaction_handoff、split_required。\n"
         "镜头导演交接只提供情绪曲线、节奏意图、必须保留的戏剧落点、可压缩弱拍和尾帧承接；"
         "不得规定镜头数、景别、机位、运镜或切镜方案。"
     )
@@ -2044,7 +2057,7 @@ def _rhythm_story_planner_user_prompt(
         f"{slim_rules or '无额外规则；按下方分段规则执行。'}\n\n"
         f"{fragment_count_instruction}"
         "【输出格式】\n"
-        "只输出 YAML 列表。每个片段必须包含固定英文 Seedance 合同键 generation_unit_id / signal_type / duration_target / event_atom / emotion_delta / reaction_handoff / model_complexity_score / split_required / reference_needs / tail_state_required；不要 Markdown 代码围栏。\n"
+        "只输出 YAML 列表。每个片段必须包含固定英文 Seedance 合同键 generation_unit_id / source_script_events / duration_target / event_atom / model_complexity_score / reference_needs / tail_state_required / rhythm_operation_sheet_ref / shot_director_handoff，并保留 signal_type / emotion_delta / reaction_handoff / split_required；不要 Markdown 代码围栏。\n"
         "每个片段必须包含：\n"
         "- 片段编号：必须从 F01 开始顺序递增。\n"
         "- 片段任务：一句话说明本段要完成的剧情施工任务，只概括原文事件，不写镜头、机位、景别或运镜。\n"
@@ -2151,7 +2164,7 @@ def story_planner_node(state: DirectorState) -> DirectorState:
     system_prompt = (
         "你是纯拆片 agent。你的唯一工作是把当前施工剧本拆成片段清单。\n"
         "只做分段，不做分镜；只判断每段从哪里到哪里、约几秒、交给下游时要接住什么状态。\n"
-        "每个片段必须同时是 Seedance generation_unit 合同单元，写清 generation_unit_id、signal_type、event_atom、emotion_delta、reaction_handoff、model_complexity_score、split_required、reference_needs、tail_state_required。\n"
+        "每个片段必须同时是 Seedance generation_unit 合同单元，写清 generation_unit_id、source_script_events、duration_target、event_atom、model_complexity_score、reference_needs、tail_state_required、rhythm_operation_sheet_ref、shot_director_handoff，并保留 signal_type、emotion_delta、reaction_handoff、split_required。\n"
         "不要设计镜头、机位、景别、运镜、子分镜；不要写剧情解释；不要新增动作、台词、人物、道具或场景。\n"
         "直接输出 YAML，不要寒暄，不要 Markdown 代码围栏。"
     )
@@ -2165,7 +2178,7 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         f"{slim_rules or '无额外规则；按下方分段规则执行。'}\n\n"
         f"{_story_planner_fragment_count_instruction(str(state.get('script') or truncated_script))}"
         "【输出格式】\n"
-        "只输出 YAML 列表。每个片段必须包含固定英文 Seedance 合同键 generation_unit_id / signal_type / duration_target / event_atom / emotion_delta / reaction_handoff / model_complexity_score / split_required / reference_needs / tail_state_required：\n"
+        "只输出 YAML 列表。每个片段必须包含固定英文 Seedance 合同键 generation_unit_id / source_script_events / duration_target / event_atom / model_complexity_score / reference_needs / tail_state_required / rhythm_operation_sheet_ref / shot_director_handoff，并保留 signal_type / emotion_delta / reaction_handoff / split_required：\n"
         "- 片段编号：必须从 F01 开始顺序递增。\n"
         "- 片段任务：一句话说明本段要完成的剧情施工任务，只概括原文事件，不写镜头、机位、景别或运镜。\n"
         "- 目标时长：通常 15 秒以内；纯短动作/短位移 2-5秒，短动作群无完整反应 5-8秒，完整生活冲突/对白/情绪单元 8-12秒或10-15秒。\n"

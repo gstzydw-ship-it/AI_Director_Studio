@@ -30,7 +30,7 @@ from .types import DirectorState, OUTPUT_DIR
 # ---------------------------------------------------------------------------
 _STORYBOARD_SYSTEM_PROMPT = (
     "浣犳槸鍒嗛暅棣栧抚鍥捐璁″笀锛屾湇鍔′簬 Seedance 2.0 瑙嗛鐢熸垚娴佺▼銆俓n"
-    "浣犵殑浠诲姟涓嶆槸閲嶆柊瀵兼紨鍓ф儏锛屼篃涓嶆槸鐢诲姩浣滄极鐢伙紝鑰屾槸鎶婇暅澶村婕旂粰鍑虹殑姣忎釜闀滃ご锛?
+    "浣犵殑浠诲姟涓嶆槸閲嶆柊瀵兼紨鍓ф儏锛屼篃涓嶆槸鐢诲姩浣滄极鐢伙紝鑰屾槸鎶婇暅澶村婕旂粰鍑虹殑姣忎釜闀滃ご锛?"
     "杞崲鎴愯闀滃ご寮€濮嬬灛闂寸殑闈欐棣栧抚鐢婚潰鎻愮ず璇嶃€俓n\n"
     "纭鍒欙細\n"
     "1. 鍙緭鍑烘渶缁堢粰鐢熷浘鎺ュ彛浣跨敤鐨勬彁绀鸿瘝锛屼笉瑕佽В閲婏紝涓嶈浠ｇ爜鍧椼€俓n"
@@ -41,7 +41,7 @@ _STORYBOARD_SYSTEM_PROMPT = (
     "6. 绂佹灞曠ず鍔ㄤ綔杩囩▼銆佽繍鍔ㄨ建杩广€佸彴璇嶆枃瀛椼€佸鐧芥皵娉°€佹极鐢绘嫙澹拌瘝銆佹儏缁鏄庢枃瀛椼€俓n"
     "   宸︽爮鍒嗛暅鐢婚潰涓嶈鐢讳汉鐗╄繍鍔ㄦ柟鍚戠澶达紱鍙虫爮鏈轰綅鍥惧彧鍏佽鍑虹幇鎽勫奖鏈烘湞鍚戙€佽绾胯酱绾垮拰瑙嗛噹鑼冨洿绠ご銆俓n"
     "7. 蹇呴』涓ユ牸鏈嶄粠闀滃ご瀵兼紨鐨勯暅澶寸紪鍙枫€佹媿鎽勪富浣撱€侀暅澶?鏅埆/鏈轰綅銆佸垏闀滅偣鍜岃繛缁€э紝涓嶅緱鏂板鍓ф儏銆佷汉鐗┿€侀亾鍏锋垨绌洪棿銆俓n"
-    "8. 鍦烘櫙鍙傝€冨浘閲岀殑鍥哄畾瀹跺叿鍜岀┖闂撮敋鐐逛綅缃繀椤婚攣姝伙紝渚嬪鑼跺嚑銆佹矙鍙戙€佺獥鎴枫€侀棬銆佸湴姣€佸簥銆佹煖瀛愮瓑锛?
+    "8. 鍦烘櫙鍙傝€冨浘閲岀殑鍥哄畾瀹跺叿鍜岀┖闂撮敋鐐逛綅缃繀椤婚攣姝伙紝渚嬪鑼跺嚑銆佹矙鍙戙€佺獥鎴枫€侀棬銆佸湴姣€佸簥銆佹煖瀛愮瓑锛?"
     "涓嶅緱涓轰簡鏋勫浘渚垮埄绉诲姩銆佹浛鎹㈡垨鏂板缓杩欎簺鐗╀綋銆俓n"
     "9. 濡傛灉闀滃ご闇€瑕佺壒鍐欓亾鍏凤紝鍙兘浠庡弬鑰冨満鏅師浣嶇疆杩涜瑁佸垏銆佹帹杩戞垨鎹㈡満浣嶆媿鎽勶紝涓嶈兘鎶婇亾鍏锋尓鍒版梺杈瑰彴闈€佸簥澶存垨鏂颁綅缃€俓n"
     "10. 鍙傝€冨浘鍙敤浜庨攣瀹氫汉鐗╄劯銆佸彂鍨嬨€佹湇瑁呫€佸満鏅┖闂淬€佸厜绾裤€侀亾鍏峰瑙傚拰浣嶇疆鍏崇郴銆俓n"
@@ -63,7 +63,7 @@ _STORYBOARD_OUTPUT_CONTRACT = (
     "  - 鍙虫爮淇鏈轰綅鍥撅細CAM 鎽勫奖鏈轰笁瑙掑舰銆佷汉鐗╁僵鑹插渾鐐广€佸叧閿浐瀹氱墿绠€鍖栧潡銆佽绾胯酱绾裤€侀暅澶存湞鍚戠嚎銆丗OV 瑙嗛噹鎵囧舰銆佷汉鐗╃浉瀵硅窛绂籠n"
     "  - 鍥哄畾瀹跺叿浣嶇疆閿佸畾锛氭槑纭啓鍑鸿尪鍑犮€佹矙鍙戙€佺獥鎴枫€佸湴姣瓑鍏抽敭鐗╀綋蹇呴』淇濇寔鍙傝€冨満鏅腑鐨勭浉瀵逛綅缃紝鍙兘瑁佸垏鎴栨帹杩戯紝涓嶈兘鎼姩\n"
     "  - 涓庝笂涓€闀滅殑杩炵画鎬n\n"
-    "鏈€鍚庝竴琛岋細缁熶竴鐢婚潰椋庢牸锛岃姹傚共鍑€瀵兼紨鏁呬簨鏉裤€佹竻鏅版í鍚戝垎琛屻€佷笁鏍忓榻愩€佺紪鍙锋竻妤氥€佸彸鏍忔満浣嶅浘鍍忔媿鎽勫钩闈㈠浘鑰屼笉鏄楗板浘銆佸急鍖栬楗般€佹棤瀵圭櫧瀛椼€佹棤鍔ㄤ綔绾裤€佹棤浜虹墿杩愬姩绠ご锛岄€傚悎缁?Seedance 2.0 褰撻甯у弬鑰冦€?
+    "Final line: clean director storyboard, horizontal shot rows, three aligned columns, clear shot numbers, right column is a simple camera plan, no dialogue text, no motion lines, no character movement arrows."
 )
 
 
@@ -146,6 +146,35 @@ def _format_shot_for_storyboard(shot: dict[str, str], index: int) -> str:
         f"- 切点约束：{cut_point}",
     ])
 
+
+def _frame_control_contract(shots: list[dict[str, str]]) -> str:
+    """Summarize first/key/tail frame state without adding or reordering shots."""
+    first = shots[0] if shots else {}
+    last = shots[-1] if shots else {}
+    key_changes = []
+    for shot in shots:
+        shot_id = shot.get("shot_id") or "shot"
+        state_delta = shot.get("state_delta") or shot.get("action") or shot.get("must_carry") or "no new state"
+        key_changes.append(f"    - {shot_id}: {state_delta}")
+    return "\n".join(
+        [
+            "frame_control_contract:",
+            f"  first_frame_state: {first.get('continuity') or first.get('tail_state') or first.get('action') or 'inherit planner entry state'}",
+            "  keyframe_state_changes:",
+            *(key_changes or ["    - none"]),
+            f"  tailframe_state: {last.get('tail_state') or last.get('continuity') or last.get('tailframe_role') or 'inherit final shot state'}",
+            f"  character_positions: {last.get('companion_visibility') or last.get('subject') or 'preserve current shot subjects'}",
+            f"  prop_states: {last.get('must_carry') or last.get('continuity') or 'preserve prop ownership from shot_director'}",
+            f"  gaze_direction: {last.get('action') or 'preserve visible attention direction'}",
+            f"  hand_state: {last.get('tail_state') or last.get('continuity') or 'preserve visible hand/prop state'}",
+            f"  door_or_vehicle_or_elevator_state: {last.get('continuity') or last.get('tail_state') or 'unchanged unless shot_director states otherwise'}",
+            "  forbidden:",
+            "    - add_new_shots",
+            "    - reorder_shots",
+            "    - add_new_camera_language",
+        ]
+    )
+
 def _reference_usage_for_item(item: dict[str, Any]) -> str:
     """Describe how one image reference may influence the storyboard prompt."""
     role_text = " ".join(
@@ -153,17 +182,17 @@ def _reference_usage_for_item(item: dict[str, Any]) -> str:
         for key in ("role", "type", "purpose", "name", "filename", "label", "description", "note")
     ).lower()
 
-    if any(marker in role_text for marker in ("previous_segment_tail_frame", "tail_frame", "涓婁竴娈?, "灏惧抚")):
-        return "涓婁竴鐗囨灏惧抚鍥撅紝鍙攣鐗囨鎵挎帴鐘舵€侊細浜虹墿鏈€缁堢珯浣嶃€佹湞鍚戙€佸Э鎬併€侀亾鍏风姸鎬佸拰鍙绌洪棿鍏崇郴锛涘彧鍦ㄥ悓鍦烘櫙杩炵画鏃剁敤浜庣涓€鏍兼壙鎺ャ€?
+    if any(marker in role_text for marker in ("previous_segment_tail_frame", "tail_frame", "tailframe")):
+        return "Previous segment tail frame: lock only inheritable character position, facing, posture, prop state, and visible spatial relation."
     if any(marker in role_text for marker in ("previous_segment_storyboard_crop", "last_storyboard_crop", "鍒嗛暅瑁佸垏")):
-        return "涓婁竴娈垫渶鍚庝竴鏍煎垎闀滆鍒囧浘锛屽湪娌℃湁瑙嗛灏惧抚鏃堕攣鍙鍑哄満鐘舵€侊紱鍙綔涓哄悓鍦烘櫙绗竴鏍兼壙鎺ョ殑娆＄骇渚濇嵁銆?
+        return "Previous storyboard crop: use only as a secondary continuity reference for first-frame state."
     if any(marker in role_text for marker in ("annotated_scene_layout", "scene_layout_annotation", "scene_layout", "淇", "鏍囩偣", "绔欎綅")):
-        return "鍦烘櫙寮€灞€鏍囩偣鍥撅紝鍙攣褰撳墠鍦烘櫙寮€灞€鐨勫垵濮嬬珯浣嶃€佸浐瀹氱墿鍜屽熀纭€杞寸嚎锛涗笉瑕佹眰閫愭杩愬姩杞ㄨ抗锛屼笉鎶婃爣鐐瑰綋鎴愭瘡涓暅澶村繀椤诲鍒荤殑鍔ㄤ綔璺緞銆?
+        return "Scene layout reference: lock initial positions, fixed objects, and baseline axis only; do not create motion paths."
     if any(marker in role_text for marker in ("character", "portrait", "浜虹墿", "瑙掕壊", "鏈嶈", "澶栬", "婕斿憳")):
-        return "浜虹墿鍥撅紝鍙攣浜虹墿澶栬锛氳劯鍨嬨€佷簲瀹樸€佸彂鍨嬨€佹湇瑁呫€佽韩浠戒竴鑷存€у拰鍙闅忚韩閬撳叿銆?
-    if any(marker in role_text for marker in ("scene", "space", "location", "room", "鍦烘櫙", "绌洪棿", "鍦扮偣", "姣嶇増", "涔濆鏍?)):
-        return "鍦烘櫙鍥撅紝鍙攣绌洪棿缁撴瀯銆佸厜绾挎柟鍚戙€佽壊璋冦€佸浐瀹氬鍏枫€佷富瑕侀亾鍏峰拰鐩稿浣嶇疆鍏崇郴銆?
-    return "瑙嗚鍙傝€冨浘锛屽彧閿佸凡鏍囨槑鐨勫瑙傘€佺┖闂存垨閬撳叿浜嬪疄锛涗笉寰楁柊澧炲墽鎯呫€佷汉鐗┿€侀亾鍏锋垨绌洪棿銆?
+        return "Character reference: lock appearance, hair, costume, identity consistency, and visible personal props only."
+    if any(marker in role_text for marker in ("scene", "space", "location", "room", "鍦烘櫙", "绌洪棿", "鍦扮偣", "姣嶇増")):
+        return "Scene reference: lock space, light direction, fixed furniture, main props, and relative positions only."
+    return "Visual reference: lock only the explicitly marked appearance, space, or prop facts; do not add plot, characters, props, or locations."
 
 
 def _previous_segment_tail_frame_b64(state: DirectorState) -> str:
@@ -189,7 +218,7 @@ def _has_previous_segment_tail_frame_reference(state: DirectorState) -> bool:
         if not isinstance(item, dict):
             continue
         role_text = " ".join(str(item.get(key) or "") for key in ("role", "type", "purpose", "source"))
-        if "previous_segment_tail_frame" in role_text or "涓婁竴鐗囨灏惧抚" in role_text or "涓婁竴娈靛熬甯? in role_text:
+        if "previous_segment_tail_frame" in role_text or "tail_frame" in role_text or "tailframe" in role_text:
             return True
     return False
 
@@ -236,7 +265,7 @@ def _segment_scene_label(planner_segment: str) -> str:
 def _segment_exit_state(planner_segment: str) -> str:
     return _line_field_by_names(
         planner_segment,
-        ("鍑哄満鐘舵€?, "exit_state", "final_state", "鎵挎帴瑕佹眰"),
+        ("exit_state", "final_state", "tail_state_required"),
     )
 
 
@@ -260,56 +289,28 @@ def _build_storyboard_continuity_notes(
     current_fragment_id: str,
 ) -> str:
     """Compile segment-to-segment continuity rules for storyboard prompts."""
-    if segment_index <= 1:
-        return (
-            "銆愮墖娈佃繛缁€х紪璇戣鍒欍€慭n"
-            "鏈鏄涓€娈垫垨娌℃湁涓婁竴娈垫壙鎺ヨ緭鍏ワ細鐢ㄤ汉鐗╁弬鑰冨浘閿佸瑙傦紝鐢ㄥ満鏅弬鑰冨浘閿佺┖闂达紝"
-            "鐢ㄥ満鏅紑灞€鏍囩偣鍥鹃攣鍒濆绔欎綅銆佸浐瀹氱墿鍜屽熀纭€杞寸嚎銆?
-        )
-
-    current_planner = _planner_segment_block(planner_output, segment_index, current_fragment_id)
-    previous_fragment_id = _fragment_id_for_segment_index(state.get("segment_names") or [], segment_index - 1)
-    previous_planner = _planner_segment_block(planner_output, segment_index - 1, previous_fragment_id)
-    current_scene = _segment_scene_label(current_planner)
-    previous_scene = _segment_scene_label(previous_planner)
-    previous_exit_state = _segment_exit_state(previous_planner)
-    tail_frame = _has_previous_segment_tail_frame_reference(state)
-    storyboard_crop = _previous_segment_storyboard_crop_b64(state)
-    tail_analysis = str(state.get("tail_frame_analysis") or "")
-    reset_requested = _tail_analysis_requests_reset(tail_analysis)
-
-    current_key = _normalise_scene_label(current_scene)
-    previous_key = _normalise_scene_label(previous_scene)
-    is_new_scene = bool(current_key and previous_key and current_key != previous_key)
-    relation = "鏂板満鏅? if is_new_scene else "鍚屽満鏅悗缁墖娈?
-    if not current_key or not previous_key:
-        relation = "鍦烘櫙鍏崇郴鏈槑锛屾寜闀滃ご瀵兼紨涓庢ˉ鎺ュ垎鏋愪繚瀹堝鐞?
-
-    lines = [
-        "銆愮墖娈佃繛缁€х紪璇戣鍒欍€?,
-        f"鍦烘櫙鍏崇郴锛歿relation}銆備笂涓€娈靛満鏅細{previous_scene or '鏈爣鏄?}锛涘綋鍓嶅満鏅細{current_scene or '鏈爣鏄?}銆?,
-        "鍚屽満鏅悗缁墖娈碉細涓嶅己鍒舵柊鏍囩偣锛涚涓€鏍兼壙鎺ヤ紭鍏堢骇涓轰笂涓€娈佃棰戝熬甯э紝鍏舵涓婁竴娈垫渶鍚庝竴鏍煎垎闀滆鍒囧浘锛屾渶鍚庣敤涓婁竴娈靛嚭鍦虹姸鎬佹枃瀛椼€?,
-        "鏂板満鏅細涓嶅己琛屾壙鎺ヤ笂涓€娈靛熬甯э紱閲嶆柊鐢ㄥ綋鍓嶆柊鍦烘櫙鍙傝€冨浘鍜屽満鏅紑灞€鏍囩偣鍥惧畾鐩橈紝閲嶅缓鍒濆绔欎綅銆佸浐瀹氱墿鍜屽熀纭€杞寸嚎銆?,
-    ]
-
-    if is_new_scene or reset_requested:
-        reason = "鏂板満鏅? if is_new_scene else "瑙嗛妗ユ帴鍒嗘瀽瑕佹眰 direct_cut 鎴?must_reset_space"
-        lines.append(f"褰撳墠鎵ц锛歿reason}锛岀涓€鏍间笉瑕佺収鎼笂涓€娈靛熬甯т汉鐗╃珯浣嶏紱鍙户鎵垮墽鏈槑纭繚鐣欑殑閬撳叿浜嬪疄銆?)
-    elif tail_frame:
-        lines.append("褰撳墠鎵ц锛氭湁 previous_segment_tail_frame锛岀涓€鏍煎繀椤绘壙鎺ヤ笂涓€娈佃棰戝熬甯х殑鍙浜虹墿绔欎綅銆佹湞鍚戙€佸Э鎬併€侀亾鍏风姸鎬佸拰绌洪棿鍏崇郴銆?)
-    elif storyboard_crop:
-        lines.append("褰撳墠鎵ц锛氭病鏈変笂涓€娈佃棰戝熬甯э紝绗竴鏍兼壙鎺ヤ笂涓€娈垫渶鍚庝竴鏍煎垎闀滆鍒囧浘涓殑鍙鍑哄満鐘舵€併€?)
-    elif previous_exit_state:
-        lines.append(f"褰撳墠鎵ц锛氭病鏈夊彲鐢ㄨ瑙夋壙鎺ュ浘锛岀涓€鏍兼敼鐢ㄤ笂涓€娈靛嚭鍦虹姸鎬佹枃瀛楁壙鎺ワ細{previous_exit_state}")
-    else:
-        lines.append("褰撳墠鎵ц锛氭病鏈夊彲鐢ㄤ笂涓€娈佃瑙夋垨鍑哄満鐘舵€侊紝鍙寜褰撳墠鐗囨闀滃ご瀵兼紨銆佷汉鐗╁浘銆佸満鏅浘鍜屽紑灞€鏍囩偣鍥惧畾鐩樸€?)
-
-    if tail_analysis:
-        lines.append("涓婁竴娈靛熬甯?瑙嗛妗ユ帴鍒嗘瀽鎽樿锛?)
-        lines.append(_truncate_for_prompt(tail_analysis, 900))
-
-    return "\n".join(lines)
-
+    notes: list[str] = []
+    planner_segment = _planner_segment_block(planner_output, segment_index, current_fragment_id)
+    scene_label = _segment_scene_label(planner_segment)
+    exit_state = _segment_exit_state(planner_segment)
+    if scene_label:
+        notes.append(f"current_scene: {scene_label}")
+    if exit_state:
+        notes.append(f"current_exit_state: {exit_state}")
+    if segment_index > 1:
+        previous_fragment_id = f"F{segment_index - 1:02d}"
+        previous_planner_segment = _planner_segment_block(planner_output, segment_index - 1, previous_fragment_id)
+        previous_scene = _segment_scene_label(previous_planner_segment)
+        previous_exit = _segment_exit_state(previous_planner_segment)
+        if previous_scene and scene_label and _normalise_scene_label(previous_scene) == _normalise_scene_label(scene_label) and previous_exit:
+            notes.append(f"inherit_previous_tail_state: {previous_exit}")
+    if _has_previous_segment_tail_frame_reference(state):
+        notes.append("previous_tail_frame_reference: first-frame continuity only; do not add shots or rewrite script.")
+    if _previous_segment_storyboard_crop_b64(state) and not _previous_segment_tail_frame_b64(state):
+        notes.append("previous_storyboard_crop: secondary continuity reference only.")
+    if not notes:
+        return ""
+    return "frame continuity notes:\n" + "\n".join(f"- {note}" for note in notes)
 
 def _build_character_reference_notes(state: DirectorState) -> str:
     """Assemble character/scene reference notes from uploaded images."""
@@ -327,36 +328,35 @@ def _build_character_reference_notes(state: DirectorState) -> str:
         if tail_frame:
             manifest.append(
                 {
-                    "label": f"@鍥剧墖{len(manifest) + 1}",
+                    "label": f"@image{len(manifest) + 1}",
                     "filename": "previous_segment_tail_frame",
-                    "purpose": "涓婁竴鐗囨灏惧抚鍥?,
+                    "purpose": "previous segment tail frame",
                     "role": "previous_segment_tail_frame",
                 }
             )
         elif storyboard_crop:
             manifest.append(
                 {
-                    "label": f"@鍥剧墖{len(manifest) + 1}",
+                    "label": f"@image{len(manifest) + 1}",
                     "filename": "previous_segment_last_storyboard_crop",
-                    "purpose": "涓婁竴娈垫渶鍚庝竴鏍煎垎闀滆鍒囧浘",
+                    "purpose": "previous segment last storyboard crop",
                     "role": "previous_segment_storyboard_crop",
                 }
             )
 
-    notes: list[str] = ["銆愬弬鑰冨浘浣跨敤瑙勫垯銆戜弗鏍兼寜 API 杈撳叆椤哄簭"]
+    notes: list[str] = ["Reference image usage rules: keep API input order."]
     for index, item in enumerate(manifest[:len(api_images) or len(manifest)], start=1):
-        label = item.get("label") or f"@鍥剧墖{index}"
-        filename = item.get("filename") or "鏈懡鍚嶅弬鑰冨浘"
-        purpose = item.get("purpose") or item.get("role") or item.get("type") or "瑙嗚鍙傝€?
+        label = item.get("label") or f"@image{index}"
+        filename = item.get("filename") or "unnamed_reference"
+        purpose = item.get("purpose") or item.get("role") or item.get("type") or "visual_reference"
         desc = item.get("description") or item.get("note") or ""
-        suffix = f"锛歿desc}" if desc else ""
+        suffix = f"; note: {desc}" if desc else ""
         usage = _reference_usage_for_item(item)
-        notes.append(f"- 鍙傝€冨浘{index}锛圓PI杈撳叆绗瑊index}寮狅紱{label}锛泏filename}锛夛細{usage} 鍘熷鐢ㄩ€旓細{purpose}{suffix}")
+        notes.append(f"- reference_image_{index}: api_order={index}; label={label}; filename={filename}; usage={usage}; purpose={purpose}{suffix}")
     notes.append(
-        "鎬昏鍒欙細浜虹墿鍥鹃攣澶栬锛屼汉鐗╁弬鑰冨浘鍙敤浜庨攣瀹氳劯鍨嬨€佷簲瀹樸€佸彂鍨嬨€佹湇瑁呭拰韬唤涓€鑷存€э紱"
-        "鍦烘櫙鍥鹃攣绌洪棿锛屽満鏅紑灞€鏍囩偣鍥鹃攣鍒濆绔欎綅/鍥哄畾鐗?鍩虹杞寸嚎锛?
-        "涓婁竴鐗囨灏惧抚閿佺墖娈垫壙鎺ョ姸鎬併€傝尪鍑犮€佹矙鍙戙€佺獥鎴枫€侀棬銆佸湴姣瓑鍥哄畾绌洪棿閿氱偣涓嶅緱绉诲姩銆佹浛鎹㈡垨閲嶆柊鎽嗘斁锛?
-        "鏍囩偣鍜屽竷灞€鍙傝€冨彧鐢ㄤ簬寮€灞€瀹氱洏锛屼笉瑕佹眰閫愭杩愬姩杞ㄨ抗锛屼篃涓嶅緱鐓ф妱鍙傝€冨浘閲岀殑鍔ㄤ綔銆?
+        "Global rule: character references lock identity and wardrobe only; scene references lock space and fixed anchors only; "
+        "previous tail frames lock continuity state. Do not move or redesign fixed anchors such as sofa, table, window, door, rug, or vehicle. "
+        "Do not copy action from reference images and do not add shots."
     )
     return "\n".join(notes)
 
@@ -421,33 +421,33 @@ def _build_storyboard_user_prompt(
     aspect_ratio: str,
     continuity_notes: str = "",
 ) -> str:
-    """Construct the prompt that turns shot design into first-frame panels."""
+    """Construct the prompt that turns shot design into storyboard frame states."""
     lines: list[str] = [
-        f"鐢熸垚鐗囨 {segment_index} 鐨勫垎闀滈甯у浘鎻愮ず璇嶏細{segment_name}",
+        f"Build storyboard frame-control prompt for segment {segment_index}: {segment_name}",
         "",
-        f"銆愯棰戠敾骞呫€憑aspect_ratio}",
-        f"銆愬垎闀滃浘鐢诲箙纭姹傘€戞暣寮犲垎闀滈甯у浘蹇呴』涓ユ牸浣跨敤 {aspect_ratio} 姣斾緥锛屼笉鑳芥敼鍙樻垚鍏朵粬姣斾緥锛涙牸瀛愬彧鑳藉湪杩欎釜鐢诲箙鍐呴儴鎺掑竷銆?,
+        f"video_aspect_ratio: {aspect_ratio}",
+        f"storyboard_canvas_requirement: keep the complete storyboard in {aspect_ratio}; do not change aspect ratio.",
         "",
     ]
 
     if fragment_task:
-        lines.append(f"銆愮墖娈典换鍔°€憑fragment_task}")
+        lines.append(f"segment_task: {fragment_task}")
     if rhythm:
-        lines.append(f"銆愯妭濂忋€憑rhythm}")
+        lines.append(f"rhythm_context: {rhythm}")
     lines.append("")
 
     if planner_context:
-        lines.append("銆愭媶鐗囪鍒掍笂涓嬫枃銆?)
+        lines.append("planner_generation_unit_context:")
         lines.append(_truncate_for_prompt(planner_context, 600))
         lines.append("")
 
     if script_context:
-        lines.append("銆愬綋鍓嶇墖娈靛寮哄墽鏈弬鑰冦€?)
+        lines.append("current_script_excerpt:")
         lines.append(_truncate_for_prompt(script_context, 900))
-        lines.append("浣跨敤瑙勫垯锛氬彧鐢ㄥ畠鏍稿浜虹墿銆侀亾鍏枫€佸彴璇嶄簨瀹炲拰鍔ㄤ綔璧风偣锛涢暅澶存帓甯冧粛浠ラ暅澶村婕斾负鍑嗐€?)
+        lines.append("Use this only for character, prop, dialogue fact, and action start-state checks; keep shot order from shot_director.")
         lines.append("")
 
-    lines.append(f"銆愰暅澶村婕旈甯ф牸娓呭崟锛屽叡 {len(shots)} 闀溿€?)
+    lines.append(f"shot_director_locked_shot_list: count={len(shots)}")
     for idx, shot in enumerate(shots):
         lines.append(_format_shot_for_storyboard(shot, idx))
     lines.append("")
@@ -463,20 +463,12 @@ def _build_storyboard_user_prompt(
     lines.append(_STORYBOARD_OUTPUT_CONTRACT)
     lines.append("")
     lines.append(
-        "鐜板湪鍙緭鍑烘渶缁堢粰 gpt-image-2 鐢熷浘鎺ュ彛浣跨敤鐨勪竴娈典腑鏂囨彁绀鸿瘝銆?
-        f"蹇呴』鏄竴寮?{aspect_ratio} 姣斾緥鐨勫浘锛屽寘鍚湰鐗囨鍏ㄩ儴闀滃ご棣栧抚鏍煎瓙锛?
-        "蹇呴』鍋氭垚浠庝笂鍒颁笅鎺掑垪鐨勬í鍚戦暅澶磋锛屾瘡琛屼笁鏍忥細宸︽爮鍒嗛暅棣栧抚鍥撅紝涓爮闀滃ご鍙傛暟鍗★紝鍙虫爮淇鏈轰綅鍥撅紱"
-        "姣忚宸︿笂瑙掑繀椤绘湁鈥滈暅澶? / 闀滃ご2 / 闀滃ご3...鈥濈紪鍙凤紱"
-        "宸︽爮鍙敾棣栧抚/鍏抽敭闈欐鐬棿锛岀姝㈠鐧芥皵娉°€佸瓧骞曘€佷汉鐗╄繍鍔ㄧ澶淬€佸姩浣滆建杩癸紝"
-        "涔熶笉鍑虹幇鍙拌瘝鏂囧瓧銆佸姩浣滅嚎鎴栬В閲婃€ф枃瀛楋紱"
-        "涓爮鍙啓鐭弬鏁帮紝涓嶅啓澶ф璇存槑锛涘彸鏍忓繀椤荤敾淇鏈轰綅鍥撅紝鐢?CAM 鎽勫奖鏈轰笁瑙掑舰銆佷汉鐗╁僵鑹插渾鐐广€侀暅澶存湞鍚戠嚎銆丗OV 瑙嗛噹鎵囧舰鍜岃酱绾挎爣璁颁氦浠ｆ満浣嶅叧绯伙紱"
-        "姣忚閮借鍐欐竻鍥哄畾瀹跺叿浣嶇疆閿佸畾锛屽挨鍏惰尪鍑犮€佹矙鍙戙€佺獥鎴峰拰鍦版蹇呴』淇濇寔鍙傝€冨満鏅噷鐨勭浉瀵逛綅缃紝"
-        "涓嶈兘鍑虹幇鈥滄梺杈瑰彴闈⑩€濃€滃簥澶磋竟缂樷€濃€滃彟涓€涓闈⑩€濈瓑浼氭敼鍙樼┖闂翠綅缃殑鏇夸唬璇存硶銆?
+        "Output only the final prompt for the image model. It must describe first_frame_state, keyframe_state_changes, "
+        "tailframe_state, character_positions, prop_states, gaze_direction, hand_state, and door_or_vehicle_or_elevator_state. "
+        "Do not add shots, reorder shots, invent new camera positions, add subtitles, add readable text, or add explanatory overlays."
     )
 
     return "\n".join(lines)
-
-
 # ---------------------------------------------------------------------------
 # Image generation helpers
 # ---------------------------------------------------------------------------
@@ -492,14 +484,10 @@ def _call_image_generation_api(
     # The prompt is already the image description; the system message only locks
     # the target format for compatible image-generation backends.
     system = (
-        "浣犳槸鍒嗛暅鏁呬簨鏉跨敓鎴愭ā鍨嬨€傝鎶婁笅闈㈢殑涓枃鎻愮ず璇嶆覆鏌撴垚涓€寮犱笓涓氬婕旀晠浜嬫澘锛?
-        "涓€娈典竴寮犲浘锛屾暣寮犲浘蹇呴』涓ユ牸閬靛畧鎻愮ず璇嶅啓鏄庣殑瑙嗛鐢诲箙姣斾緥銆?
-        "姣忎釜闀滃ご鍗犱竴琛岋紝姣忚蹇呴』鏄乏鏍忓垎闀滈甯у浘銆佷腑鏍忛暅澶村弬鏁板崱銆佸彸鏍忎刊瑙嗘満浣嶅浘鐨勪笁鏍忕粨鏋勩€?
-        "姣忚宸︿笂瑙掑啓娓呪€滈暅澶? / 闀滃ご2 / 闀滃ご3...鈥濄€?
-        "宸︽爮鍙敾棣栧抚/鍏抽敭闈欐鐬棿锛岀姝㈠鐧芥皵娉°€佸瓧骞曘€佷汉鐗╄繍鍔ㄧ澶淬€佸姩浣滆建杩广€?
-        "鍙虫爮蹇呴』鐢荤畝娲佹満浣嶅钩闈㈠浘锛岀敤 CAM 鎽勫奖鏈轰笁瑙掑舰銆佷汉鐗╁僵鑹插渾鐐广€侀暅澶存湞鍚戠嚎銆丗OV 瑙嗛噹鎵囧舰鍜岃酱绾挎爣璁颁氦浠ｆ媿鎽勫叧绯汇€?
-        "鍦烘櫙鍙傝€冨浘涓殑鍥哄畾瀹跺叿鍜岀┖闂撮敋鐐瑰繀椤讳繚鎸佸師濮嬬浉瀵逛綅缃紱杩戞櫙鍙兘瑁佸垏鎴栨帹杩戯紝涓嶅緱绉诲姩鑼跺嚑銆佹矙鍙戙€佺獥鎴枫€佸湴姣瓑鍥哄畾鐗┿€?
-        "涓嶈鐢熸垚鍙拌瘝鏂囧瓧銆佸鐧芥皵娉°€佸瓧骞曘€佸姩浣滅嚎銆佷汉鐗╄繍鍔ㄨ建杩规垨棰濆瑙ｉ噴鎬ф枃瀛椼€?
+        "Render a professional director storyboard from the provided prompt. "
+        "Keep the requested video aspect ratio exactly. Each shot occupies one row. "
+        "Show only locked first-frame/key-frame/tail-frame state, camera plan, and continuity anchors. "
+        "Do not add subtitles, readable text, speech bubbles, motion arrows, action trails, overlays, or extra explanatory text."
     )
 
     try:
@@ -514,7 +502,7 @@ def _call_image_generation_api(
             agent_name=agent_name,
         )
     except Exception as exc:
-        return f"[鐢熷浘澶辫触锛歿exc}]"
+        return f"[image_generation_failed: {exc}]"
 
     # The result may be a markdown image link, a raw URL, or plain text.
     # Try to extract a URL / data URI.
@@ -634,9 +622,7 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
         return _persist_update(
             state,
             {
-                "message": (
-                    f"鍒嗛暅棣栧抚鍥惧凡璺宠繃锛氱 {segment_index} 娈佃繕娌℃湁闀滃ご瀵兼紨杈撳嚭銆?
-                ),
+                "message": f"Storyboard prompt skipped: segment {segment_index} has no shot_director output.",
             },
         )
 
@@ -645,9 +631,7 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
         return _persist_update(
             state,
             {
-                "message": (
-                    f"鍒嗛暅棣栧抚鍥惧凡璺宠繃锛氱 {segment_index} 娈垫病鏈夊彲璇嗗埆鐨勯暅澶村垪琛ㄣ€?
-                ),
+                "message": f"Storyboard prompt skipped: segment {segment_index} has no recognizable shot list.",
             },
         )
 
@@ -695,7 +679,7 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
             agent_name="storyboard_prompt_designer",
         )
     except Exception as exc:
-        raise RuntimeError(f"鏁呬簨鏉挎彁绀鸿瘝澶фā鍨嬭繛鎺ヤ笉鎴愬姛锛歿exc}") from exc
+        raise RuntimeError(f"storyboard prompt model call failed: {exc}") from exc
 
     # Clean up the prompt 鈥?strip fences if the LLM ignored instructions.
     storyboard_prompt = re.sub(r"^```(?:\w+)?\n?|\n?```$", "", storyboard_prompt.strip()).strip()
@@ -704,15 +688,13 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
 
     updated_outputs = dict(outputs)
     updated_outputs[prompt_key] = storyboard_prompt
+    updated_outputs[f"frame_control_contract_seg{segment_index:02d}"] = _frame_control_contract(shots)
 
     return _persist_update(
         state,
         {
             "agent_outputs": updated_outputs,
-            "message": (
-                f"鍒嗛暅棣栧抚鍥炬彁绀鸿瘝宸茬敓鎴愶紙绗?{segment_index}/{total_segments} 娈碉級锛?
-                "璇峰鏍稿悗鍐嶆墜鍔ㄧ敓鎴愬浘鐗囥€?
-            ),
+            "message": f"Storyboard prompt generated for segment {segment_index}/{total_segments}; review before image generation.",
         },
     )
 
@@ -737,7 +719,7 @@ def generate_storyboard_image_for_segment(
         or ""
     ).strip()
     if not prompt:
-        raise RuntimeError(f"绗?{selected_index} 娈佃繕娌℃湁鍒嗛暅棣栧抚鍥炬彁绀鸿瘝锛屾棤娉曠敓鍥俱€?)
+        raise RuntimeError(f"Segment {selected_index} has no storyboard prompt; cannot generate image.")
 
     reference_b64s = _reference_images_for_storyboard(state)
     image_result = _call_image_generation_api(
@@ -746,7 +728,7 @@ def generate_storyboard_image_for_segment(
         agent_name="storyboard_designer",
     )
     if not image_result or image_result.startswith("["):
-        raise RuntimeError(image_result or "鐢熷浘鎺ュ彛娌℃湁杩斿洖鍥剧墖銆?)
+        raise RuntimeError(image_result or "image generation API returned no image.")
 
     from ..request_context import request_session_id
 

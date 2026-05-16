@@ -53,6 +53,8 @@ def test_story_planner_normalise_adds_seedance_unit_contract_fields():
         "split_required",
         "reference_needs",
         "tail_state_required",
+        "rhythm_operation_sheet_ref",
+        "shot_director_handoff",
     ):
         assert f"{field}:" in normalised
 
@@ -95,3 +97,5 @@ def test_story_planner_seedance_contract_is_in_prompts():
         assert "event_atom" in prompt
         assert "reaction_handoff" in prompt
         assert "tail_state_required" in prompt
+        assert "rhythm_operation_sheet_ref" in prompt
+        assert "shot_director_handoff" in prompt

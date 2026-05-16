@@ -34,6 +34,124 @@ TEXT_DEPENDENCY_RE = re.compile(
     r"|(?:字幕|屏幕文字|屏幕内文字|画面内文字|文件文字|手机文字|可读文字|文字浮层|文字证据|subtitles?|captions?|screen text|onscreen text|on-screen text).{0,16}(?:揭示|说明|传达|显示|写着|读出|作为关键|作为证据)"
     r")"
 )
+NO_TEXT_HARD_CONSTRAINT = (
+    "禁止字幕、屏幕文字、英文字幕、文字浮层、水印、logo、可读标牌、"
+    "手机屏幕文字、文件可读字"
+)
+NO_TEXT_REQUIRED_TERMS = (
+    "字幕",
+    "屏幕文字",
+    "英文字幕",
+    "文字浮层",
+    "水印",
+    "logo",
+    "可读标牌",
+    "手机屏幕文字",
+    "文件可读字",
+)
+ABSTRACT_VIEWPOINT_RE = re.compile(
+    r"沙发与地毯之间的关系视角|空间关系视角|关系视角|职责视角|承接视角|"
+    r"客厅侧面略高视角|复杂坐标式机位|关系复位视角|覆盖职责视角"
+)
+CAMERA_LANGUAGE_RE = re.compile(
+    r"机位|景别|过肩|反打|特写|推镜|拉镜|摇镜|移镜|环绕|俯拍|仰拍|"
+    r"camera|shot_size|angle|movement",
+    re.IGNORECASE,
+)
+FINAL_PROMPT_REQUIRED_TERMS = (
+    "风格",
+    "9:16",
+    "连续性",
+    "参考",
+    "镜头",
+    "尾帧",
+    "约束",
+)
+
+
+def contains_camera_language(text: str) -> bool:
+    return bool(CAMERA_LANGUAGE_RE.search(text or ""))
+
+
+def _strip_forbidden_metadata(text: str) -> str:
+    """Ignore explicit forbidden lists when scanning for accidental output content."""
+    kept: list[str] = []
+    in_forbidden = False
+    for line in (text or "").splitlines():
+        stripped = line.strip()
+        if re.match(r"(?i)^forbidden\s*:", stripped):
+            in_forbidden = True
+            continue
+        if in_forbidden and (stripped.startswith("-") or not stripped):
+            continue
+        in_forbidden = False
+        kept.append(line)
+    return "\n".join(kept)
+
+
+def abstract_viewpoint_terms(text: str) -> list[str]:
+    return _dedupe(match.group(0) for match in ABSTRACT_VIEWPOINT_RE.finditer(text or ""))
+
+
+def has_no_text_hard_constraint(text: str) -> bool:
+    lowered = (text or "").lower()
+    return all(term.lower() in lowered for term in NO_TEXT_REQUIRED_TERMS)
+
+
+def prompt_contract_issues(prompt: str) -> list[str]:
+    issues: list[str] = []
+    prompt = prompt or ""
+    for term in FINAL_PROMPT_REQUIRED_TERMS:
+        if term not in prompt:
+            issues.append(f"final_seedance_prompt_missing:{term}")
+    if not has_no_text_hard_constraint(prompt):
+        issues.append("final_seedance_prompt_missing:no_text_hard_constraint")
+    for term in abstract_viewpoint_terms(prompt):
+        issues.append(f"final_seedance_prompt_forbidden_abstract_viewpoint:{term}")
+    return _dedupe(issues)
+
+
+def rhythm_operation_sheet_issues(text: str) -> list[str]:
+    required = (
+        "rhythm_operation_sheet",
+        "segment_id",
+        "rhythm_mode",
+        "target_duration",
+        "pressure_curve",
+        "beat_plan",
+        "beat_budget",
+        "pause_points",
+        "reaction_ownership",
+        "compression_policy",
+        "tail_state_required",
+        "shot_budget_hint",
+    )
+    issues = [f"rhythm_operation_sheet_missing:{field}" for field in required if field not in (text or "")]
+    content_text = _strip_forbidden_metadata(text or "")
+    if contains_camera_language(content_text):
+        issues.append("rhythm_operation_sheet_forbidden:camera_language")
+    if not has_no_text_hard_constraint(text or ""):
+        issues.append("rhythm_operation_sheet_missing:no_text_hard_constraint")
+    return _dedupe(issues)
+
+
+def generation_unit_contract_issues(text: str) -> list[str]:
+    required = (
+        "generation_unit_id",
+        "source_script_events",
+        "event_atom",
+        "duration_target",
+        "model_complexity_score",
+        "reference_needs",
+        "tail_state_required",
+        "rhythm_operation_sheet_ref",
+        "shot_director_handoff",
+    )
+    issues = [f"generation_unit_missing:{field}" for field in required if field not in (text or "")]
+    content_text = _strip_forbidden_metadata(text or "")
+    if contains_camera_language(content_text):
+        issues.append("generation_unit_forbidden:camera_language")
+    return _dedupe(issues)
 
 
 def _ensure_text(text: str) -> str:

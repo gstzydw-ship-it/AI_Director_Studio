@@ -8,7 +8,7 @@ from typing import Any, Callable
   
 from ..knowledge_base import get_agent_knowledge_files  
 from .helpers import _primary_script_character_names  
-from .seedance_contracts import seedance_qc_issues
+from .seedance_contracts import abstract_viewpoint_terms, seedance_qc_issues
 from .state_store import _persist_update, load_state  
 from .story_planner_impl import _extract_segments  
 from .types import DirectorState  
@@ -58,9 +58,8 @@ _DIALOGUE_COVERAGE_TERMS_RE = re.compile(
     r"(反应|受击|听者|对手|对方|过肩|肩线|反打|视线|切回|切至|切到|切出|台词断点|画外音|OS|L-cut|J-cut|景别递进)"
 )
 # =============================================================================
-# shot_director v1 schema contract — 镜头导演字段
+# shot_director v3 schema contract — 镜头导演字段
 # =============================================================================
-_SHOT_CONSTRUCTION_FRAGMENT_FIELDS: tuple[str, ...] = ("fragment_task", "rhythm", "continuity_context", "shots")
 _SHOT_COVERAGE_V3_FRAGMENT_FIELDS: tuple[str, ...] = ("coverage_plan", "template_plan", "guard_result")
 _SHOT_COVERAGE_V3_PLAN_FIELDS: tuple[str, ...] = (
     "dramatic_task",
@@ -71,7 +70,7 @@ _SHOT_COVERAGE_V3_PLAN_FIELDS: tuple[str, ...] = (
 )
 _SHOT_COVERAGE_V3_TEMPLATE_FIELDS: tuple[str, ...] = ("shots",)
 _SHOT_COVERAGE_V3_GUARD_FIELDS: tuple[str, ...] = ("status", "final_shots")
-_SHOT_CONSTRUCTION_REQUIRED_FIELDS: tuple[str, ...] = (
+_SHOT_COVERAGE_V3_TEMPLATE_SHOT_FIELDS: tuple[str, ...] = (
     "shot_id",
     "duration",
     "task",
@@ -82,6 +81,16 @@ _SHOT_CONSTRUCTION_REQUIRED_FIELDS: tuple[str, ...] = (
     "must_carry",
     "cut_point",
     "continuity",
+    "coverage_role",
+    "cut_reason",
+    "companion_visibility",
+    "state_delta",
+    "tailframe_role",
+    "template_id",
+    "template_level",
+    "model_complexity_score",
+    "reference_need",
+    "tail_state",
 )
 _SHOT_YAML_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "fragment_id": ("fragment_id", "片段编号"),
@@ -291,7 +300,7 @@ def _build_shot_director_workflow_trace(
             "blocking_language_action": "动作调度导演负责镜头语言选择、动作路径、反应落点和子分镜。",
             "guard_final_handoff": "规则守门导演负责最小修复和自然中文最终交付。",
         },
-        "required_shot_fields": list(_SHOT_CONSTRUCTION_REQUIRED_FIELDS),
+        "required_shot_fields": list(_SHOT_COVERAGE_V3_TEMPLATE_SHOT_FIELDS),
         "coverage_contract_fields": list(_SHOT_COVERAGE_CONTRACT_FIELDS),
         "aspect_ratio": aspect_ratio,
         "rhythm_guidance_present": bool(rhythm_shot_notes),
@@ -1221,7 +1230,7 @@ def _validate_shot_director_coverage_v3(director_output: str, expected_segments:
         issues.extend(_shot_tailframe_carry_issues(fragment_id, shot_blocks))
 
         for shot_id, shot_block in shot_blocks:
-            for field in _SHOT_CONSTRUCTION_REQUIRED_FIELDS:
+            for field in _SHOT_COVERAGE_V3_TEMPLATE_SHOT_FIELDS:
                 if not _has_shot_yaml_field(shot_block, field):
                     issues.append(f"{shot_id} missing required field {field}.")
             for field in ("coverage_role", "cut_reason", "companion_visibility", "state_delta", "tailframe_role"):
@@ -1229,6 +1238,8 @@ def _validate_shot_director_coverage_v3(director_output: str, expected_segments:
                     issues.append(f"{shot_id} coverage v3 missing field {field}.")
             issues.extend(_validate_shot_seedance_template_contract(shot_id, shot_block))
             shot_text = _yaml_line_field(shot_block, "shot")
+            for term in abstract_viewpoint_terms(shot_text):
+                issues.append(f"{shot_id} forbidden abstract viewpoint: {term}. Use a concrete W1/W2/R1 coverage phrase.")
             if _shot_field_has_untranslated_camera_jargon(shot_text):
                 issues.append(
                     f"{shot_id} shot field still has untranslated camera jargon: {shot_text}. "
@@ -1486,170 +1497,17 @@ def _shot_tailframe_carry_issues(fragment_id: str, shot_blocks: list[tuple[str, 
 
 
 def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
-    """Validate shot_director v1 schema.
-
-    V1 规则：
-    1. fragment 必须有 fragment_task、rhythm、shots
-    2. 每个 shot 必须有 shot_id、duration、task、subject、shot、action、dialogue、must_carry、cut_point、continuity
-    3. 可选字段 type、audio 只在需要时写
-    4. 首镜头不能用特写类景别建立空间
-    """
+    """Validate the production shot_director coverage v3 schema."""
     if _uses_coverage_v3_schema(director_output):
         return _validate_shot_director_coverage_v3(director_output, expected_segments)
 
-    if _uses_construction_sheet_schema(director_output):
-        return _validate_shot_director_construction_sheet(director_output, expected_segments)
-
     issues: list[str] = []
     for segment_name in expected_segments:
         segment_num = re.sub(r"\D", "", segment_name)
         fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
-        block_match = re.search(
-            rf"(?m)(^\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-            rf"(?=\n\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?F\d+|\Z)",
-            director_output,
+        issues.append(
+            f"{fragment_id} invalid schema: only schema_version: shot_director_coverage_v3 is supported."
         )
-        if not block_match:
-            issues.append(f"shot_director 缺少 {fragment_id} 的镜头设计。")
-            continue
-        block = block_match.group(1)
-
-        # V1 fragment 必填字段
-        for field in _SHOT_CONSTRUCTION_FRAGMENT_FIELDS:
-            if not _has_shot_yaml_field(block, field):
-                issues.append(f"{fragment_id} 缺少片段字段 {_shot_yaml_field_names(field)[-1]}。")
-
-        shot_blocks = _main_shot_blocks(block)
-        if not shot_blocks:
-            issues.append(f"{fragment_id} 缺少 shots 字段或没有任何 shot_id。")
-            continue
-        issues.extend(_validate_shot_director_density(fragment_id, block, shot_blocks))
-        issues.extend(_shot_tailframe_carry_issues(fragment_id, shot_blocks))
-
-        first_shot_id, first_shot_block = shot_blocks[0]
-        first_shot_size = (
-            _yaml_line_field(first_shot_block, "shot")
-            or _yaml_line_field(first_shot_block, "size")
-            or _yaml_line_field(first_shot_block, "shot_size")
-        )
-        if _is_closeup_shot_size(first_shot_size):
-            issues.append(
-                f"{fragment_id} 的首镜头 {first_shot_id} 直接使用特写类景别。"
-                "短剧主骨架必须先用半身/中景/关系镜头建立人物距离和空间方向。"
-            )
-
-        for shot_id, shot_block in shot_blocks:
-            for field in _SHOT_CONSTRUCTION_REQUIRED_FIELDS:
-                if not _has_shot_yaml_field(shot_block, field):
-                    issues.append(f"{shot_id} 缺少必要字段 {_shot_yaml_field_names(field)[-1]}。")
-
-            shot_text = _yaml_line_field(shot_block, "shot")
-            if _shot_field_has_untranslated_camera_jargon(shot_text):
-                issues.append(
-                    f"{shot_id} 的镜头字段仍含未翻译机位术语：{shot_text}。"
-                    f"{_SHOT_VIEWPOINT_TRANSLATION_HINT}"
-                )
-
-            cut_point = _yaml_line_field(shot_block, "cut_point")
-            if cut_point and (
-                _GENERIC_CUT_REASON_RE.search(cut_point)
-                or not _SHOT_CUT_TRIGGER_RE.search(cut_point)
-            ):
-                issues.append(f"{shot_id} 的 cut_point 过于空泛，必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。")
-
-            subject = _yaml_line_field(shot_block, "subject")
-            task = _yaml_line_field(shot_block, "task")
-            issues.extend(_shot_subject_ownership_issues(shot_id, shot_block))
-            has_parent_shot = bool(re.search(r"^\s*(?:parent_shot_id|父镜头编号)\s*:", shot_block, re.MULTILINE))
-            is_sub_shot_id = bool(re.search(r"(?:[-_][A-Za-z]|S\d+[A-Za-z])$", shot_id or ""))
-            if (
-                _is_local_insert_subject(subject)
-                and not has_parent_shot
-                and not is_sub_shot_id
-                and not re.search(r"唯一主体|文件内容|信息揭示|关键物|证据|屏幕|照片", task)
-            ):
-                issues.append(
-                    f"{shot_id} 把局部动作/局部道具（{subject}）升级成了主镜头主体。"
-                    "手部、门缝、按钮、文件、手机等默认应作为 insert/reaction 子镜头。"
-                )
-
-    return issues
-
-
-_CONSTRUCTION_SHEET_SHOT_FIELDS = (
-    "shot_id",
-    "subject",
-    "shot_size",
-    "camera_height",
-    "angle",
-    "movement",
-    "lens",
-    "depth",
-    "coverage_role",
-    "cut_reason",
-    "companion_visibility",
-    "tailframe_role",
-    "dialogue_coverage",
-    "transition_type",
-    "tail_state_card",
-)
-
-_CONSTRUCTION_SHEET_TRANSITIONS = {
-    "stay_on_A",
-    "cut_to_B",
-    "cut_back_to_A",
-    "scene_fixed",
-    "insert",
-    "cutaway",
-    "tailframe_reset",
-}
-
-
-def _uses_construction_sheet_schema(output: str) -> bool:
-    return bool(
-        re.search(r"(?m)^\s*schema_version\s*:\s*shot_director_v2\b", output or "")
-        or re.search(r"(?m)^\s*fragment_intent\s*:", output or "")
-        or re.search(r"(?m)^\s*tail_state_card\s*:", output or "")
-        or re.search(r"(?m)^\s*transition_type\s*:", output or "")
-    )
-
-
-def _validate_shot_director_construction_sheet(director_output: str, expected_segments: list[str]) -> list[str]:
-    issues: list[str] = []
-    vague_cut_reason_re = re.compile(
-        r"更有电影感|更有電影感|cinematic|looks good|more cinematic|高级|好看|氛围更强|情绪更强|鐢靛奖鎰?",
-        re.IGNORECASE,
-    )
-    for segment_name in expected_segments:
-        segment_num = re.sub(r"\D", "", segment_name)
-        fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
-        block_match = re.search(
-            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
-            director_output or "",
-        )
-        if not block_match:
-            issues.append(f"shot_director 缺少 {fragment_id} 的镜头设计。")
-            continue
-        fragment_block = block_match.group(1)
-        for field in ("fragment_intent", "reaction_coverage", "continuity_anchor", "shots"):
-            if not re.search(rf"(?m)^\s*{field}\s*:", fragment_block):
-                issues.append(f"{fragment_id} 缺少 construction sheet 字段 {field}。")
-
-        shot_blocks = _main_shot_blocks(fragment_block)
-        if not shot_blocks:
-            issues.append(f"{fragment_id} 缺少 shots 字段或没有任何 shot_id。")
-            continue
-        for shot_id, shot_block in shot_blocks:
-            for field in _CONSTRUCTION_SHEET_SHOT_FIELDS:
-                if not re.search(rf"(?m)^\s*-?\s*{field}\s*:", shot_block):
-                    issues.append(f"{shot_id} 缺少 construction sheet 字段 {field}。")
-            transition_type = _yaml_line_field(shot_block, "transition_type").strip().strip('"\'')
-            if transition_type and transition_type not in _CONSTRUCTION_SHEET_TRANSITIONS:
-                issues.append(f"{shot_id} transition_type 非法：{transition_type}。")
-            cut_reason = _yaml_line_field(shot_block, "cut_reason")
-            if vague_cut_reason_re.search(cut_reason or ""):
-                issues.append(f"{shot_id} cut_reason 过于空泛，必须绑定信息、反应、动作路径、空间复位或尾帧交接。")
     return issues
 
 def _yaml_scalar_field(block: str, field: str) -> str:
@@ -1962,6 +1820,8 @@ def _repair_shot_director_output_contracts(output: str, script: str) -> str:
     repaired = _repair_shot_layout_output(output)
     repaired = _repair_shot_director_contract_output(repaired, script)
     repaired = _repair_body_mechanics_contract_output(repaired)
+    if _uses_coverage_v3_schema(repaired):
+        return repaired
     repaired = _translate_shot_director_english_contract_output(repaired)
     repaired = _repair_fragment_continuity_contexts(repaired, script)
     return repaired
