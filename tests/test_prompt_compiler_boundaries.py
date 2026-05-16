@@ -181,7 +181,9 @@ def test_normalise_compiled_prompt_limits_jimeng_submit_length() -> None:
     assert len(cleaned) <= prompt_compiler_impl.JIMENG_PROMPT_CHAR_LIMIT
     assert "请生成视频后" not in cleaned
     assert "尾帧截图" not in cleaned
-    assert "【镜头序列】" in cleaned
+    assert "【时间轴】" in cleaned
+    assert "【镜头序列】" not in cleaned
+    assert "【人物】" not in cleaned
     assert "严禁出现任何文字" in cleaned
 
 

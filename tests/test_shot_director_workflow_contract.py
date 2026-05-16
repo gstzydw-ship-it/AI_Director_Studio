@@ -73,13 +73,12 @@ def test_shot_director_explicit_workflow_contract_is_present():
         assert stage_name in contract
 
     for field_name in (
-        "覆盖职责",
-        "切镜原因",
-        "同场人物位置",
-        "状态变化",
-        "尾帧职责",
+        "coverage_role",
+        "cut_reason",
+        "continuity",
+        "tailframe_role",
+        "template_plan",
     ):
-        assert field_name in contract
         assert field_name in coverage_contract
 
 
@@ -375,17 +374,12 @@ def test_shot_director_rules_keep_camera_and_performance_fields_separate():
     guard_rules = _shot_director_guard_stage_rule_block("9:16")
 
     for text in (rule_block, blocking_rules, guard_rules):
-        assert "镜头字段只写" in text
-        assert "视角/观看位置" in text
-        assert "画面动作" in text
+        assert "template_plan" in text or "shot 字段" in text or "shot_id" in text
+        assert "action" in text or "画面动作" in text
 
-    assert "人物动作表情链" in rule_block
-    assert "起始状态 -> 动作变化 -> 表情/身体反应 -> 结束状态" in rule_block
-    assert "道具接触戏必须锁定道具归属和动作阶段" in rule_block
-    assert "不要在此字段写人物动作" in rule_block
-    assert "动作表情必须写进画面动作" in blocking_rules
-    assert "不要写戏剧判断、人物动作、台词或表情" in guard_rules
-    assert "不要输出“固定机位/侧面机位/摄影机位于”" in guard_rules
+    assert "template_plan.shots" in blocking_rules
+    assert "guard_result" in guard_rules
+    assert "shot_director_coverage_v3" in guard_rules
 
 
 def test_shot_director_rejects_untranslated_camera_jargon_in_final_shot_field():

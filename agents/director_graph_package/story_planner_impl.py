@@ -132,15 +132,17 @@ def _extract_yaml_sections(yaml_text: str) -> list[str]:
     return sections
 
 def _extract_fragment_id(section: str) -> str:
-    match = re.search(r"(?m)^\s*-?\s*(?:fragment_id|片段编号)\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
+    match = re.search(r"(?m)^\s*-?\s*fragment_id\s*:\s*[\"']?([^\"'\s#]+)[\"']?", section)
     return match.group(1).strip() if match else ""
 
 def _normalise_fragment_section_id(section: str, index: int) -> str:
     """Force planner fragment ids into the runtime contract: F01, F02, ..."""
     old_id = _extract_fragment_id(section)
+    if not old_id:
+        return section
     new_id = f"F{index:02d}"
     updated = re.sub(
-        r"(?m)^(\s*-?\s*(?:fragment_id|片段编号)\s*:\s*)[\"']?[^\"'\s#]+[\"']?",
+        r"(?m)^(\s*-?\s*fragment_id\s*:\s*)[\"']?[^\"'\s#]+[\"']?",
         rf'\1"{new_id}"',
         section,
         count=1,
@@ -311,7 +313,7 @@ def _infer_reference_needs(section: str) -> str:
 
 _SEEDANCE_GENERATION_UNIT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "generation_unit_id": ("generation_unit_id",),
-    "source_script_events": ("source_script_events", "施工剧本原文事件", "当前剧本事件"),
+    "source_script_events": ("source_script_events",),
     "signal_type": ("signal_type",),
     "duration_target": ("duration_target",),
     "event_atom": ("event_atom",),
@@ -322,7 +324,7 @@ _SEEDANCE_GENERATION_UNIT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "reference_needs": ("reference_needs",),
     "tail_state_required": ("tail_state_required",),
     "rhythm_operation_sheet_ref": ("rhythm_operation_sheet_ref",),
-    "shot_director_handoff": ("shot_director_handoff", "镜头导演交接", "导演交接"),
+    "shot_director_handoff": ("shot_director_handoff",),
 }
 
 
@@ -858,63 +860,23 @@ def _auto_split_coarse_story_planner_sections(sections: list[str], source_script
     return split_sections
 
 def _normalise_story_planner_output(planner_output: str, source_script: str = "") -> str:
-    """Autofill repairable story_planner schema omissions before validation."""
+    """Keep only lightweight post-processing for the Seedance generation-unit contract.
+
+    The runtime no longer migrates legacy planner fields into the new schema. If the
+    model outputs old keys such as Chinese segment-task/handoff fields, validation
+    should fail and the repair prompt should request canonical contract fields.
+    """
     sections = _extract_yaml_sections(planner_output or "")
     if not sections:
         return (planner_output or "").strip()
 
     normalised_sections: list[str] = []
     for section in sections:
-        lines = section.splitlines()
-        section_after_boundary = "\n".join(lines)
-        if not _has_planner_field_alias(section_after_boundary, ("dramatic_unit", "片段任务", "戏剧单元")):
-            _insert_planner_field_before(
-                lines,
-                field="片段任务",
-                value=_infer_fragment_task(section_after_boundary),
-                before_fields=("duration_target", "目标时长", "source_script_events", "施工剧本原文事件"),
-            )
-            section_after_boundary = "\n".join(lines)
-        if not _has_planner_field_alias(section_after_boundary, ("reaction_plan", "承接要求")):
-            _insert_planner_field_before(
-                lines,
-                field="承接要求",
-                value=_infer_reaction_plan(section_after_boundary),
-                before_fields=("director_brief", "beat_design", "shots"),
-            )
-            section_after_boundary = "\n".join(lines)
-        if not _has_planner_field_alias(section_after_boundary, ("片段内节奏分配", "段内节奏分配", "内部节拍预算", "intra_fragment_rhythm", "internal_beat_budget")):
-            _insert_planner_field_before(
-                lines,
-                field="片段内节奏分配",
-                value=_infer_intra_fragment_rhythm(section_after_boundary),
-                before_fields=("动作节奏指导", "施工剧本原文事件", "source_script_events", "director_brief", "beat_design", "shots"),
-            )
-            section_after_boundary = "\n".join(lines)
-        if not _has_planner_field_alias(section_after_boundary, ("shot_director_handoff", "镜头导演交接", "导演交接")):
-            _insert_planner_field_before(
-                lines,
-                field="镜头导演交接",
-                value=_infer_shot_director_handoff(section_after_boundary),
-                before_fields=("director_brief", "beat_design", "shots"),
-            )
-            section_after_boundary = "\n".join(lines)
-        if not _has_planner_field_alias(section_after_boundary, ("model_complexity_score",)):
-            _insert_planner_field_before(
-                lines,
-                field="model_complexity_score",
-                value=str(_estimate_generation_unit_complexity(section_after_boundary)),
-                before_fields=("source_script_events",),
-            )
-            section_after_boundary = "\n".join(lines)
-        section_text = _ensure_seedance_generation_unit_fields("\n".join(lines)).strip()
+        section_text = section.strip()
         if source_script:
             section_text = _repair_story_planner_source_events(section_text, source_script)
-        section_text = _ensure_seedance_generation_unit_fields(section_text)
         normalised_sections.append(section_text)
 
-    normalised_sections = _auto_merge_overfragmented_story_planner_sections(normalised_sections, source_script)
-    normalised_sections = _auto_split_coarse_story_planner_sections(normalised_sections, source_script)
     return "\n\n".join(
         _normalise_fragment_section_id(section, index + 1)
         for index, section in enumerate(normalised_sections)
@@ -1702,13 +1664,9 @@ def _validate_story_planner_output(
         return ["story_planner 未输出可解析的 fragment_id 分段。"]
 
     required_field_groups = [
-        ("片段编号", ("片段编号", "fragment_id")),
-        ("目标时长", ("目标时长", "duration_target")),
-        ("施工剧本原文事件", ("施工剧本原文事件", "当前剧本事件", "source_script_events")),
-        ("出现人物", ("出现人物", "cast", "active_cast")),
-        ("入场状态", ("入场状态", "continuity", "state_contract")),
-        ("出场状态", ("出场状态", "continuity", "state_contract")),
-        ("承接要求", ("承接要求", "reaction_plan")),
+        ("fragment_id", ("fragment_id",)),
+        ("duration_target", ("duration_target",)),
+        ("source_script_events", ("source_script_events",)),
     ]
     source_script = script or ""
     for section in sections:
@@ -1773,21 +1731,21 @@ def _story_planner_repair_prompt(
         f"{_story_planner_fragment_count_instruction(original_script)}"
         "【修复硬约束】\n"
         "1. 只输出 YAML，不要解释、不要 Markdown 代码围栏、不要前后说明。\n"
-        "2. 片段编号必须从 F01 开始顺序递增，不能跳号，不能使用场次号或复合编号。\n"
-        "3. 每个片段必须输出 story_generation_unit 合同字段：fragment_id、generation_unit_id、source_script_events、event_atom、duration_target、model_complexity_score、reference_needs、tail_state_required、rhythm_operation_sheet_ref、shot_director_handoff；可保留 signal_type、emotion_delta、reaction_handoff、split_required。\n"
+        "2. fragment_id 必须从 F01 开始顺序递增，不能跳号，不能使用旧版“片段编号”、场次号或复合编号。\n"
+        "3. 每个片段必须输出 story_generation_unit 合同字段：fragment_id、generation_unit_id、source_script_events、signal_type、duration_target、event_atom、emotion_delta、reaction_handoff、model_complexity_score、split_required、reference_needs、tail_state_required、rhythm_operation_sheet_ref、shot_director_handoff。\n"
         "4. 禁止输出镜头、机位、景别、子分镜、剧情解释、场景预分析简表、剧情增强约束或风险长说明。\n"
         "5. 施工剧本原文事件必须逐条引用【当前施工剧本】中的原文，不能概括、改写或新增剧本外动作。\n"
         "6. 只做分段，不做分镜；不要写 shots、shot_id、sub_shots、camera、angle、beat_design。\n"
         "7. 片段数量由观众注意力问题决定，不固定为 5-6 个；共同服务于同一情绪问题的铺垫、触发、爆点、反应和初步处理必须留在同一片段。\n"
         "8. 按 15 秒估算：纯短动作/短位移 2-5秒；短动作群但无完整对白/反应 5-8秒；急促生活动作 + 完整台词/拒绝/安抚/反应 8-12秒；完整情绪揭示或长对白单元 10-15秒。\n"
         "9. 禁止粗拆：单段超过 8 条原文事件或超过 12秒时，必须证明它只是同一情绪注意力单元；若同时跨越多个观众问题（如孩子抗拒、照片掉落、回忆进入），必须拆成相邻片段。\n"
-        "10. 每个片段必须补齐 节奏类型、事件密度判断、片段内节奏分配、动作节奏指导；动作节奏指导只写急忙/叠压/短促/慢处理/正常承接等表演节奏，不写镜头方案。\n"
-        "10A. 镜头导演交接只写情绪曲线、节奏意图、必须保留的戏剧落点、可压缩弱拍和尾帧承接；不得写镜头数、机位、景别、镜头编号或切镜方案。\n"
+        "10. 节奏信息只能写进 duration_target、event_atom、emotion_delta、reaction_handoff、tail_state_required、shot_director_handoff，不再输出旧版节奏字段。\n"
+        "10A. shot_director_handoff 只写情绪曲线、节奏意图、必须保留的戏剧落点、可压缩弱拍和尾帧承接；不得写镜头数、机位、景别、镜头编号或切镜方案。\n"
         "11. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，若没有完整台词、信息揭示或明确反应落点，目标时长必须压到 2-5秒；不要为了凑长让人物慢慢走、慢慢停、慢慢看。\n"
         "12. 闹钟/手机/外套/孩子抗拒这类同一生活动作群，如果共同服务于“乔熙赶时间但孩子拒绝上学”同一个观众注意力问题，应合并为 8-12秒完整片段；前段压缩急促动作，后段留给拒绝、安抚和情绪落点。\n"
-        "13. 合并相邻片段时不要丢失节奏差异；把差异写进片段内节奏分配，例如“0-4秒：急促动作链；4-8秒：孩子拒绝；8-12秒：乔熙应对和情绪落点”。\n"
-        "14. 每段必须补齐 Seedance story_generation_unit 合同字段：fragment_id、generation_unit_id、source_script_events、duration_target、event_atom、model_complexity_score、reference_needs、tail_state_required、rhythm_operation_sheet_ref、shot_director_handoff；兼容字段 signal_type、emotion_delta、reaction_handoff、split_required 也要保留。\n"
-        "14A. 优先输出上述固定英文合同键；不要回退到旧版“片段任务/承接要求/镜头导演交接”作为主合同。event_atom 只写一个可见事件原子，不写机位、景别或运镜。\n"
+        "13. 合并相邻片段时不要丢失节奏差异；把差异压进 event_atom、emotion_delta、reaction_handoff 和 shot_director_handoff，不再输出旧版“片段内节奏分配”。\n"
+        "14. 每段必须补齐 Seedance story_generation_unit 合同字段：fragment_id、generation_unit_id、source_script_events、signal_type、duration_target、event_atom、emotion_delta、reaction_handoff、model_complexity_score、split_required、reference_needs、tail_state_required、rhythm_operation_sheet_ref、shot_director_handoff。\n"
+        "14A. 只输出固定英文合同键；不要回退到旧版“片段任务/承接要求/镜头导演交接/施工剧本原文事件/目标时长”作为主合同。event_atom 只写一个可见事件原子，不写机位、景别或运镜。\n"
         "15. model_complexity_score 按 Seedance 能力矩阵保守估算；3-4 分要写 split_required 或降级/拆分建议，5 分及以上不得作为单段交付。\n"
         "16. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本重建完整 YAML。\n\n"
         f"【节奏总控施工指令】\n{_truncate_for_prompt(rhythm_guidance or 'none', 2400)}\n\n"

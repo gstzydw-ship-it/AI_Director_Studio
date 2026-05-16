@@ -2251,8 +2251,8 @@ ui:
   host: 127.0.0.1
   port: 8686
 vectordb:
-  api_key: sk-HsZaawvDDyvdMeowBwSYw4GQHyxfwhhH3Ce8eSB8ReRHlqoQ
-  base_url: https://apicn.unifyllm.top/v1
+  api_key: sk-OXnHhpVZBJI2cLj61FslV9GKNBAHIF5yRcsstUWc4JSwBDkQ
+  base_url: https://www.dmxapi.com/v1
   chunk_overlap: 100
   chunk_size: 800
   collection_name: director_knowledge

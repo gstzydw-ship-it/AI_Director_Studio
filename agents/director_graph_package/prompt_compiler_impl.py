@@ -396,11 +396,10 @@ def _limit_seedance_prompt_for_jimeng(prompt: str) -> str:
     title = _prompt_title_line(text)
     style = _prompt_section(text, "风格锚点")
     ratio = _prompt_section(text, "画幅锚点")
-    base = _prompt_section(text, "画面基底")
     space = _prompt_base_section(text)
-    people = _prompt_section(text, "人物")
     shots = _prompt_section(text, "镜头序列") or _prompt_section(text, "时间轴")
     constraints = _prompt_section(text, "约束")
+    reference_call = _prompt_section(text, "参考调用")
 
     fixed_constraint = (
         "严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌；"
@@ -421,18 +420,17 @@ def _limit_seedance_prompt_for_jimeng(prompt: str) -> str:
     if ratio:
         parts.append("【画幅锚点】\n" + _truncate_at_sentence(ratio, 35))
     if space:
-        base_title = "画面基底" if base else "空间与首帧总控"
-        parts.append(f"【{base_title}】\n" + _truncate_at_sentence(space, 220))
-    if people:
-        parts.append("【人物】\n" + "\n".join(_fit_lines_to_budget(people.splitlines(), 280)))
+        parts.append("【空间与首帧总控】\n" + _truncate_at_sentence(space, 220))
 
     prefix = "\n\n".join(parts)
     suffix = "【约束】\n" + fixed_constraint
     shot_budget = _JIMENG_PROMPT_SAFE_LIMIT - len(prefix) - len(suffix) - 8
     if shots and shot_budget > 120:
-        shot_lines = _fit_lines_to_budget(shots.splitlines(), shot_budget - len("【镜头序列】\n"))
-        parts.append("【镜头序列】\n" + "\n".join(shot_lines))
+        shot_lines = _fit_lines_to_budget(shots.splitlines(), shot_budget - len("【时间轴】\n"))
+        parts.append("【时间轴】\n" + "\n".join(shot_lines))
     parts.append(suffix)
+    if reference_call:
+        parts.append("【参考调用】\n" + "\n".join(_fit_lines_to_budget(reference_call.splitlines(), 220)))
 
     fitted = _compact_prompt_text("\n\n".join(part for part in parts if part.strip()))
     if len(fitted) <= _JIMENG_PROMPT_SAFE_LIMIT:
@@ -1521,18 +1519,22 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "你的唯一职责：读取当前片段压缩上下文（场景空间记忆卡、当前拆片资产、当前镜头资产），"
         "针对指定片段编译出一份可直接放入 Seedance 模型的最终中文导演 Prompt。\n\n"
         "【输出格式硬约束——必须严格遵守】\n"
-        "你的输出必须严格按以下结构，不得增删段落、不得使用 YAML、不得使用教学标签：\n\n"
+        "你的输出必须严格按系统固定的 Gold Standard 结构，不得增删段落、不得使用 YAML、不得使用教学标签：\n\n"
         "```\n"
-        "片段N｜场景名｜情绪/动作关键词(用+连接)｜约秒数秒｜画幅比例\n\n"
-        "【画面基底】\n"
-        "最多 2-3 句：场景 + 1-3 个不可变硬锚点 + 本片段出现人物的身份/服装/当前状态 + 光线/风格。不要单独拆【风格锚点】【画幅锚点】【人物】段。\n"
-        "如果镜头资产包含“空间连续性总控”，第一句必须先继承它：这是一段什么戏剧任务，哪些人物在同一空间内；单人镜只表示主体变化，不代表其他人物离开。\n"
+        "片段N｜场景名｜情绪/动作关键词(用+连接)｜~秒数秒\n\n"
+        "【风格锚点】\n"
+        "一句话定义现实短剧风格、光线气质与表演基调。\n\n"
+        "【画幅锚点】\n"
+        "9:16竖屏。\n\n"
+        "【空间与首帧总控】\n"
+        "最多 2-3 句：场景 + 1-3 个不可变硬锚点 + 本片段出现人物的身份/服装/当前状态 + 光线。"
+        "如果镜头资产包含“空间连续性总控”，第一句必须先继承它：这是一段什么戏剧任务，哪些人物在同一空间内；单人镜只表示主体变化，不代表其他人物离开。"
         "禁止：堆砌前景/中景/后景/左右/远近的层级链条；推理门后空间；把场景图复述成建筑说明书；写动作动词（走进、迈入、冲来、转身等）。\n\n"
-        "【镜头序列】\n"
-        "镜头1【X秒】【主体】景别，视角/观看位置。主体 + 一个主要动作/反应 + 必要台词/信息落点 + 尾帧状态。（切镜时机：动作顶点/台词压力词/信息看清/反应出现后切至镜头2）\n\n"
-        "镜头2【X秒】【主体】景别，视角/观看位置。承接上一镜人物位置、道具和轴线；必要时用 OS/J-cut/L-cut 把台词压到听者反应上。（切镜时机：具体触发点后切至镜头3）\n\n"
-        "末尾镜头必须写清“尾帧：人物位置、视线、道具、门/车/电梯状态如何保持”，不写切到下一镜。\n\n"
-        "每一行都必须来自上游 shot 的 duration、subject、shot、action、dialogue、must_carry、cut_point、continuity；"
+        "【时间轴】\n\n"
+        "0-X秒：主体、景别、视角/观看位置。主体 + 一个主要动作/反应 + 必要台词/信息落点 + 结束状态。（切镜时机：动作顶点/台词压力词/信息看清/反应出现后进入下一时间段）\n\n"
+        "X-Y秒：承接上一时间段人物位置、道具和轴线；必要时用画外音或声音桥把台词压到听者反应上。（切镜时机：具体触发点后进入下一时间段）\n\n"
+        "末尾时间段必须写清“尾帧：人物位置、视线、道具、门/车/电梯状态如何保持”，不写切到下一镜。\n\n"
+        "每一段都必须来自上游 shot 的 duration、subject、shot、action、dialogue、must_carry、cut_point、continuity；"
         "如果上游有 coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role，也必须翻译进自然镜头句；不得泄漏这些字段名。\n\n"
         "【Seedance 2.0 合同编译 gate】\n"
         "如果当前片段资产包含 template_id、template_level、reference_need、tail_state、model_complexity_score，必须先按这些字段决定是否可编译，再写 prompt。\n"
@@ -1542,7 +1544,9 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "4. tail_state 必须落实为末尾镜头的可继承尾帧：角色位置、视线/注意力、道具/门/车状态和未解决问题必须清楚。\n"
         "5. 禁止依赖字幕、屏幕文字、手机/文件可读文字传达剧情；改用演员动作、视线、道具状态或已有对白。compiler 只返修/降级上游资产，不新增剧情或镜头事件。\n\n"
         "【约束】\n"
-        "主体锁定、空间锁定、道具连续性、禁止项。必须包含：严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌。简洁列出。\n\n"
+        "空间轴线、人物服装发型、道具连续性、禁止项。必须包含：严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌。简洁列出；不得写“主体锁定”“不抢中心”“镜头保持稳定”等压死调度的霸王约束。\n\n"
+        "【参考调用】\n"
+        "如有参考图，只写每张参考图的唯一职责；无参考图则省略本段。\n\n"
         "片段N prompt 已输出。\n"
         "请生成视频后，上传：\n\n"
         "片段N的尾帧截图\n"
@@ -1550,11 +1554,11 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "我将基于实际尾帧继续输出片段N+1。\n"
         "```\n\n"
         "【参考图使用硬约束】\n"
-        "1. 参考图只作为编译期约束，禁止在最终 Prompt 中输出【参考图说明】段、@图片编号、文件名或图片用途清单。\n"
+        "1. 参考图只作为编译期约束；如需输出，只能写入【参考调用】段，不得输出【参考图说明】段、文件名或图片用途清单。\n"
         "2. 人物参考图只用于锁定人物身份、面部形象、发型、服装、体态和可见随身道具一致性；不得把人物参考图当作剧情动作、台词或场景来源。\n"
         "3. 场景参考图只用于锁定空间结构、固定家具/道具、光线方向、色调和基础轴线；不得把场景参考图扩写成建筑说明书。\n"
         "4. 上一段尾帧/抽帧参考图只用于本段首帧承接：人物最终站位、朝向、姿态、道具状态、空间轴线和光线；不能覆盖当前片段的剧本事实。\n"
-        "5. 最终 Prompt 的参考图效果只能自然落入【画面基底】【镜头序列】【约束】，不要单独解释参考图。\n\n"
+        "5. 最终 Prompt 的参考图效果自然落入【空间与首帧总控】【时间轴】【约束】，参考资产职责只在【参考调用】中简洁说明。\n\n"
         "【语言风格硬约束】\n"
         "1. 用简洁的导演调度语言，不用文学化描写。\n"
         "2. 表情只写关键状态，不堆砌微表情。\n"
@@ -1597,8 +1601,8 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "1. **严禁空间过载**：时间轴的重点是\"动作、情绪、视角\"。绝不允许堆叠\"前景、中景、后景、远端、近侧、边缘、画面左、画面右\"等冗余方位词。\n"
         "2. 每个时间段最多保留 1 个必需的空间锚点（如\"电梯门旁\"），超过 1 个即为违规。\n"
         "3. 遇到上游提供的复杂 `geom:` 字段，**必须大幅裁剪**。只提取能说明机位和人物朝向的最少词汇，其余一律丢弃，绝不能逐字翻译。\n"
-        "4. 【画面基底】最多 2-3 句，极简点明场景、人物锁定、光线和不可变硬锚点，禁止写出详细的建筑结构或人物的精确坐标。\n"
-        "5. 空间简写不等于剪辑省略；镜头序列必须把切镜时机写成括号触发句；单段内禁止写\"反打至/反打镜头\"。\n"
+        "4. 【空间与首帧总控】最多 2-3 句，极简点明场景、人物首帧状态、光线和不可变硬锚点，禁止写出详细的建筑结构或人物的精确坐标。\n"
+        "5. 空间简写不等于剪辑省略；【时间轴】必须把切镜时机写成括号触发句；单段内禁止写\"反打至/反打镜头\"。\n"
         "6. compiler 不重新设计教学视频里的拍摄技巧，只忠实保留上游镜头资产已有的动作匹配、视线引导、听者反应、景别递进、出画入画等设计；若上游写了反打，必须提示拆段或打回 shot_director。\n"
         "7. 每个镜头行必须至少有一个人物动作或表情/视线落点；如果空间锚点和表演落点冲突，优先保留表演落点。\n"
         "8. 背后、侧后方、180度必须绑定人物，不绑定场景。正确写法是\"商北琛背后中景/商北琛侧后方中景\"；禁止写\"电梯门外背后180度\"\"电梯口背后\"\"大堂中轴背后\"。\n"
@@ -1665,7 +1669,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         tail_frame_memory = (
             f"{tail_frame_memory}\n\n"
             "【视频桥接决策执行规则】\n"
-            "1. 如果视频分析里的 next_segment_start_mode.mode 是 image_start，画面基底必须继承 selected_candidate 对应的可见人物位置、朝向、道具和空间状态。\n"
+            "1. 如果视频分析里的 next_segment_start_mode.mode 是 image_start，【空间与首帧总控】必须继承 selected_candidate 对应的可见人物位置、朝向、道具和空间状态。\n"
             "2. 如果 next_segment_start_mode.mode 是 direct_cut，禁止强行沿用上一段尾帧；应按当前片段规划资产重新开镜、闪回、换场或做空间复位。\n"
             "3. 如果 bridge_frame.usable_as_start_image=false，不能把该帧当作下一段首帧，只能继承明确可见的道具/空间状态。\n"
             "4. 如果 continuity_constraints.must_reset_space=true，当前片段开头必须用关系景、中景或明确空间状态重建，不要从局部特写硬接。\n"
@@ -1689,7 +1693,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
     reference_usage_instruction = (
         "只允许使用【当前片段参考图约束】中列出的当前片段参考图作为隐性约束；"
         "人物图只锁定身份/五官/服装，场景图只锁定空间/光线/轴线。"
-        "最终 Prompt 禁止输出【参考图说明】段、@图片编号、文件名或图片用途清单。\n\n"
+        "最终 Prompt 禁止输出【参考图说明】段、文件名或图片用途清单；如有参考图，只能在【参考调用】段写唯一职责。\n\n"
         if reference_context.strip()
         else "本次未提供参考图；最终 Prompt 中严禁编造 @图片1、@图片2、@图片3 或任何参考图占位。\n\n"
     )
@@ -1733,15 +1737,15 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"【frame_control_contract / tailframe_contract】\n{current_frame_control_contract or 'none'}\n\n"
         f"【final_seedance_prompt required】\nstyle_anchor; aspect_anchor=9:16竖屏; continuity_contract; reference_binding_contract; timeline; tailframe_contract; hard_constraints; {NO_TEXT_HARD_CONSTRAINT}\n\n"
         f"【上一段人物最终姿势/视频分析（最高优先级空间参考）】\n{tail_frame_memory}\n\n"
-        f"⚠️ 【画面基底的核心规则】\n"
+        f"⚠️ 【空间与首帧总控的核心规则】\n"
         f"如果上方存在【上一段人物最终姿势/视频分析】内容，则该分析描述的是上一段视频的**实际生成结果**。\n"
-        f"你在编写【画面基底】时，**必须以该视频分析中描述的人物最终位置、朝向、姿态和空间布局为准**，\n"
+        f"你在编写【空间与首帧总控】时，**必须以该视频分析中描述的人物最终位置、朝向、姿态和空间布局为准**，\n"
         f"而非照搬任何全局镜头预案。预先规划是理想状态，实际视频可能有偏差。\n"
         f"具体要求：\n"
         f"1. 首帧中人物的站位、朝向必须与视频分析中描述的【最终状态】完全一致。\n"
         f"2. 空间锚点（门、走廊、电梯等）的相对位置必须与视频分析中描述的【空间轴线】一致。\n"
         f"3. 如果视频分析提到了续接约束，必须严格执行。\n"
-        f"4. 不要在画面基底中扩写复杂场景说明；只保留1-3个关键节点和首帧人物关系，其他信息交给镜头序列中的机位、动作和切镜时机。\n"
+        f"4. 不要在【空间与首帧总控】中扩写复杂场景说明；只保留1-3个关键节点和首帧人物关系，其他信息交给【时间轴】中的视角、动作和切镜时机。\n"
         f"5. 如果场景关系不确定，禁止补写门后、走廊尽头、办公室延伸等推理空间。\n\n"
         f"【当前片段参考图约束（仅供编译，不得作为最终段落输出）】\n"
         f"{reference_prompt_block if reference_context.strip() else '无'}\n\n"
@@ -1756,8 +1760,8 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "5. source_script_events 必须全部覆盖，不得遗漏。\n"
         "6. 若合同字段卡出现 template_id、template_level、reference_need、tail_state、model_complexity_score，必须逐项使用：X/candidate/R1无参考/复杂度超限/尾帧不清/文字依赖都要输出明确返修或降级内容，不得直接扩写生成。\n\n"
         "【镜头覆盖字段翻译规则】\n"
-        "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，以及三号守门字段 coverage_role / cut_reason / companion_visibility / state_delta / tailframe_role，必须按下面方式编译成【镜头序列】：\n"
-        "0. 空间连续性总控 必须转译进【画面基底】开头：说明本片段戏剧任务、同一空间、同一人物组和单人镜不代表其他人物离场；不要泄漏字段名。\n"
+        "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，以及三号守门字段 coverage_role / cut_reason / companion_visibility / state_delta / tailframe_role，必须按下面方式编译成【时间轴】：\n"
+        "0. 空间连续性总控 必须转译进【空间与首帧总控】开头：说明本片段戏剧任务、同一空间、同一人物组和单人镜不代表其他人物离场；不要泄漏字段名。\n"
         "1. duration 只进入镜头编号后的秒数，例如 镜头1【4秒】；不要在最终 prompt 里写 duration 字段名。\n"
         "2. task 决定镜头功能，但最终只写成自然镜头动作，不要输出 task 字段名。\n"
         "3. subject + shot 只合成镜头行开头的自然视角表达；shot 若是新版输出，只把它当成景别、视角/观看位置、运动或前景关系，不要从 shot 字段抽取人物动作；若上游仍写“机位”，最终必须翻译成“视角”。\n"
@@ -1779,7 +1783,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "3. 如果约束里禁止屏幕文字，就不要要求闹钟、手机或文件上的数字/文字清楚可读；改为“闹钟响着，乔熙看向闹钟，表现快迟到”。\n\n"
         "【Seedance 2.0 场景简写与表演优先规则】\n"
         "1. 最终 Prompt 不要把场景空间写成说明书；空间只服务连续性，不承担戏剧表达。\n"
-        "2. 【画面基底】最多2-3句，只写不可变硬锚点：场景类型、入口/门/电梯/桌边等关键节点、人物首帧站位、人物身份服装、光线。\n"
+        "2. 【空间与首帧总控】最多2-3句，只写不可变硬锚点：场景类型、入口/门/电梯/桌边等关键节点、人物首帧站位、人物身份服装、光线。\n"
         "3. 每个镜头行优先写：景别/视角、谁做什么、视线看向谁、表情怎样变化、结束时停在哪里；不要写起点/路径/终点说明书。\n"
         "4. 每个镜头行的空间锚点最多0-1个短语，且必须是当前镜头确实需要看见的节点；不要反复堆叠前景/中景/后景/左右/远近/边缘。\n"
         "5. 空间信息可以少，但切镜时机不能省；每个非末尾镜头都必须写“（切镜时机：...切至镜头N）”，禁止单段内写\"反打至\"。\n"
@@ -1826,8 +1830,8 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"{_director_jargon_translation_rules()}\n"
         "【输出前强制自检】\n"
         "1. 标题行是否为 '片段N｜场景名｜关键词｜~秒数秒' 格式？\n"
-        "2. 是否只包含【画面基底】【镜头序列】【约束】三个主体段落？是否没有【风格锚点】【画幅锚点】【人物】【参考图说明】段？\n"
-        "3. 每个镜头行是否为 镜头N【X秒】【主体】景别+简洁机位+自然动作/对白+括号切镜时机？末尾镜头是否写清尾帧？\n"
+        "2. 是否包含【风格锚点】【画幅锚点】【空间与首帧总控】【时间轴】【约束】五个固定段落？如有参考图，是否只额外包含【参考调用】？是否没有【画面基底】【镜头序列】【人物】【参考图说明】段？\n"
+        "3. 每个时间轴条目是否为 X-Y秒：主体+景别+简洁视角+自然动作/对白+括号切镜时机？末尾时间段是否写清尾帧？\n"
         "4. 每个镜头行是否有至少1个可见动作、信息或情绪落点？\n"
         "5. 每个镜头行是否自然简短，不靠堆空间词凑字？\n"
         "6. 是否存在场景名+景别的违规写法？\n"
@@ -1837,13 +1841,13 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "10. 节奏是否合理——建立段是否简洁、炸点/受击段是否留足空间？是否存在表情堆砌导致剧情推进过慢的问题？\n"
         "11. 【空间连续性】每个时间段的画面是否从上一时间段自然演变？是否存在空间跳变或视角翻转？\n"
         "12. 【主体递进而非硬切】主体重心变化是否严格来自上游 template_plan.shots、coverage_role、cut_point 和 tailframe_role，且通过动作/视线/调度自然过渡？\n"
-        "13. 【画面基底无动作】画面基底中是否包含了动作动词（走进、迈入、冲来、转身等）？\n"
-        "    如果有，必须改为纯静态描述（站在、位于、面朝），动作只能出现在镜头序列中。\n"
+        "13. 【空间与首帧总控无动作】空间与首帧总控中是否包含了动作动词（走进、迈入、冲来、转身等）？\n"
+        "    如果有，必须改为纯静态描述（站在、位于、面朝），动作只能出现在【时间轴】中。\n"
         "14. 是否还存在三分之四角度、侧前方、轻微前推跟随、沉默就是回应、权力关系锁住、空气收紧等模糊或抽象描述？如有必须改成明确左右机位、角度、运镜和可见动作。\n"
         "15. 受击反应是否写清\"镜头切至谁/什么景别/什么机位/画面中保留谁\"？关键动作是否合并成主体+主要动作+必要接触/方向+尾帧状态？是否还存在弹开、飞开、甩开、突然闪开等失控动作词？\n"
         "16. 每个镜头是否继承上一镜头结束状态？除第一个镜头外，是否用动作、视线、道具或轴线明确交接？是否误写了单段反打？每次切镜是否保留必要空间锚点？\n"
         "17. 【禁止透传内部字段】最终输出中是否存在 camera_basis=、camera_scene_position=、camera_looks_toward=、subject_position=、subject_facing=、visible_landmarks= 等 key=value 格式？如有必须全部改写为自然中文句子。\n"
-        "18. 【画面基底简写】画面基底是否超过3句或反复解释前景/中景/后景/左右/远近？如果是，删到只剩1-3个硬锚点。\n"
+        "18. 【空间与首帧总控简写】空间与首帧总控是否超过3句或反复解释前景/中景/后景/左右/远近？如果是，删到只剩1-3个硬锚点。\n"
         "19. 【表演优先】每个镜头行是否至少有一个人物动作、视线或表情落点？如果没有，不要继续补空间，改补人物调度。\n"
         "20. 【电梯硬锁】电梯门后是否被写成办公区/会议区/走廊/窗户/另一片大堂？如果是，改为封闭金属轿厢，并加入禁止项。\n"
         "21. 【群演同脸】有众员工/群演时，是否明确禁止与命名人物同脸、相似或重复？如果没有，必须加入约束。\n"
@@ -1853,7 +1857,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "25. 【空间方位词密度】每个时间段的空间方位词（前景/中景/后景/远端/近侧/边缘/侧边/画面左/画面右/前方/后方/左侧/右侧）是否超过3个？如果超过，只保留最必要的0-1个锚点。\n"
         "26. 【视角翻转铺垫】相邻两个时间段之间是否存在从正面突变为背面（或反之）的视角翻转？如果有，必须在文本中铺垫人物转身动作，或插入侧面过渡机位。\n"
         "27. 【内部字段泄漏】是否出现 fragment_task、must_carry、cut_point、continuity、coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role、空间连续性总控、shot_id、fragment_id 等字段名？如有必须改写成自然中文镜头语言。\n"
-        "28. 【导演口语翻译】镜头序列里是否还残留\"稳定器在同一运动里带到\"\"顺势带到\"\"受压反应\"\"权力压住\"\"压入\"\"卡断\"\"炸点\"\"钩子\"\"凝滞\"\"留白\"等导演调度口语？如有必须改成镜头从谁到谁、景别、运动方向、触发动作和低头/屏息/肩膀收紧/眼神回避等可见表演。\n"
+        "28. 【导演口语翻译】时间轴里是否还残留\"稳定器在同一运动里带到\"\"顺势带到\"\"受压反应\"\"权力压住\"\"压入\"\"卡断\"\"炸点\"\"钩子\"\"凝滞\"\"留白\"等导演调度口语？如有必须改成镜头从谁到谁、景别、运动方向、触发动作和低头/屏息/肩膀收紧/眼神回避等可见表演。\n"
         "29. 【三号守门成果落地】若当前片段镜头资产包含覆盖职责、切镜原因、同场人物位置、状态变化、尾帧职责，是否已经分别落进镜头信息任务、切镜触发、同场关系、可见状态变化和尾帧继承？不能只把它们留在上游资产里。\n"
         "30. 【参考图隐性落地】是否只把参考图约束自然落进人物、空间、道具连续性里，没有输出 @图片编号、文件名或参考图用途清单？\n"
         "31. 【无文字字幕】约束段是否明确禁止任何文字、字幕、水印、logo、屏幕文字和可读标牌？\n"

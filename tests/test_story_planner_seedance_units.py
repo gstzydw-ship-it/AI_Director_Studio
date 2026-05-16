@@ -28,6 +28,28 @@ BASE_PLANNER_YAML = """
   director_brief: "Protect the evidence reveal and the reaction landing."
 """
 
+VALID_GENERATION_UNIT_YAML = """
+- fragment_id: F01
+  generation_unit_id: U01
+  source_script_events:
+    - "Alex picks up the phone."
+    - "Alex freezes after seeing the photo."
+  signal_type: prop_reveal
+  duration_target: "5-8s"
+  event_atom: "Alex sees the phone evidence and freezes."
+  emotion_delta: "focused -> alerted"
+  reaction_handoff: "Alex holds the phone and looks toward the doorway."
+  model_complexity_score: 1
+  split_required: false
+  reference_needs:
+    - identity_reference
+    - scene_reference
+    - prop_reference
+  tail_state_required: "Alex holds the phone near the table and stays alerted."
+  rhythm_operation_sheet_ref: F01
+  shot_director_handoff: "Protect the prop reveal and Alex's visible reaction landing."
+"""
+
 
 def test_story_planner_validation_reports_missing_seedance_unit_contract():
     issues = spi._validate_story_planner_output(
@@ -40,25 +62,21 @@ def test_story_planner_validation_reports_missing_seedance_unit_contract():
     assert any("tail_state_required" in issue for issue in issues)
 
 
-def test_story_planner_normalise_adds_seedance_unit_contract_fields():
+def test_story_planner_normalise_does_not_migrate_legacy_schema():
     normalised = spi._normalise_story_planner_output(BASE_PLANNER_YAML)
 
-    for field in (
-        "generation_unit_id",
-        "signal_type",
-        "event_atom",
-        "emotion_delta",
-        "reaction_handoff",
-        "model_complexity_score",
-        "split_required",
-        "reference_needs",
-        "tail_state_required",
-        "rhythm_operation_sheet_ref",
-        "shot_director_handoff",
-    ):
-        assert f"{field}:" in normalised
+    assert "generation_unit_id:" not in normalised
+    assert "tail_state_required:" not in normalised
 
-    assert spi._validate_story_planner_output(normalised, require_generation_unit_fields=True) == []
+    issues = spi._validate_story_planner_output(normalised, require_generation_unit_fields=True)
+    assert any("missing Seedance generation_unit" in issue for issue in issues)
+
+
+def test_story_planner_accepts_canonical_generation_unit_contract():
+    assert spi._validate_story_planner_output(
+        VALID_GENERATION_UNIT_YAML,
+        require_generation_unit_fields=True,
+    ) == []
 
 
 def test_story_planner_rejects_legacy_seedance_fields_without_canonical_contract():

@@ -45,6 +45,10 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
                 "    通过: true\n"
                 "    发现: 未发现硬逻辑错误\n"
                 "    处理: 保留\n"
+                "  - 角色: 戏剧任务与节奏设计审查员\n"
+                "    通过: true\n"
+                "    发现: 增强服务场景任务\n"
+                "    处理: 保留\n"
                 "  - 角色: 冲突强度与画面冲击审查员\n"
                 "    通过: true\n"
                 "    发现: 动作有速度和压力\n"
@@ -55,8 +59,11 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
                 "  道具连续性: 5\n"
                 "  人物动机: 5\n"
                 "  空间调度: 5\n"
+                "  注意力任务链: 5\n"
                 "  主线保护: 5\n"
                 "  可拍性: 5\n"
+                "  戏剧任务匹配: 5\n"
+                "  粗颗粒动作: 5\n"
                 "  冲突强度: 5\n"
                 "  画面冲击: 5\n"
                 "逻辑审查:\n"
@@ -119,7 +126,7 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
     assert "不得新增台词" in captured["primary_user"]
     assert "禁止输出状态合同" in captured["primary_system"]
     assert "手机/电话尤其要谨慎" in captured["primary_system"]
-    assert "每两句原台词之间最多补 1-2 个动作节拍" in captured["primary_user"]
+    assert "每两句原台词之间最多补 1-2 个核心节拍" in captured["primary_user"]
     assert "通话结束后必须写清手机去向" in captured["primary_system"]
     assert "不要写“状态合同/入场状态/出场状态/道具状态变化/禁止连续性/特写/音效”" in captured["primary_user"]
     assert "【场景预分析约束】" in captured["primary_user"]
@@ -127,8 +134,9 @@ def test_director_showrunner_node_enhances_script_and_writes_contract(monkeypatc
     assert "严格审查清单" in captured["review_user"]
     assert "施事逻辑" in captured["review_user"]
     assert "多维审查" in captured["review_user"]
+    assert "戏剧任务与节奏设计审查员" in captured["review_system"]
     assert "冲突强度与画面冲击审查员" in captured["review_system"]
-    assert "冲突强度 / 画面冲击" in captured["review_user"]
+    assert "注意力任务链 / 主线保护 / 可拍性 / 戏剧任务匹配" in captured["review_user"]
     assert "急匆匆一路小跑出来" in captured["review_user"]
     assert "增强版剧本" in result["agent_outputs"]["director_showrunner"]
     assert "增强版剧本" not in result["director_brief"]
@@ -182,6 +190,10 @@ def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch
             "    通过: true\n"
             "    发现: 衣角施事错误已修复\n"
             "    处理: 采纳修复\n"
+            "  - 角色: 戏剧任务与节奏设计审查员\n"
+            "    通过: true\n"
+            "    发现: 晨间节奏服务赶时间任务\n"
+            "    处理: 通过\n"
             "  - 角色: 冲突强度与画面冲击审查员\n"
             "    通过: true\n"
             "    发现: 晨间冲突保持可见压力\n"
@@ -198,8 +210,11 @@ def test_director_showrunner_logic_review_can_replace_primary_output(monkeypatch
             "  道具连续性: 5\n"
             "  人物动机: 5\n"
             "  空间调度: 5\n"
+            "  注意力任务链: 5\n"
             "  主线保护: 5\n"
             "  可拍性: 5\n"
+            "  戏剧任务匹配: 5\n"
+            "  粗颗粒动作: 5\n"
             "  冲突强度: 5\n"
             "  画面冲击: 5\n"
             "逻辑审查:\n"
@@ -329,6 +344,10 @@ def test_director_showrunner_retries_with_compact_prompt_after_504(monkeypatch):
             "增强版剧本: |\n"
             "  A stops at the door, grips the folder, then enters.\n"
             "多维审查:\n"
+            "  - 角色: 戏剧任务与节奏设计审查员\n"
+            "    通过: true\n"
+            "    发现: 门口停顿服务慢节奏压力\n"
+            "    处理: 通过\n"
             "  - 角色: 冲突强度与画面冲击审查员\n"
             "    通过: true\n"
             "    发现: 门口停顿形成可见压力\n"
@@ -339,8 +358,11 @@ def test_director_showrunner_retries_with_compact_prompt_after_504(monkeypatch):
             "  道具连续性: 5\n"
             "  人物动机: 5\n"
             "  空间调度: 5\n"
+            "  注意力任务链: 5\n"
             "  主线保护: 5\n"
             "  可拍性: 5\n"
+            "  戏剧任务匹配: 5\n"
+            "  粗颗粒动作: 5\n"
             "  冲突强度: 5\n"
             "  画面冲击: 5\n"
             "逻辑审查: []\n"
@@ -519,15 +541,25 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
         assert agent_name == "director_showrunner_logic_reviewer"
         review_rounds.append(user_prompt)
         if len(review_rounds) == 1:
-            return (
-                "审查结论: PASS\n"
-                "增强版剧本: |\n"
-                "  秘书和主管们从玻璃主入口附近聚拢到台阶前，整理衣服和文件。\n"
+                return (
+                    "审查结论: PASS\n"
+                    "剧情增强设计:\n"
+                    "  场景任务: 新老板到场压迫\n"
+                    "  人物目标: 主管秘书快速迎接\n"
+                    "  阻碍设计: 门口聚拢仍偏静态\n"
+                    "  节奏类型: 快节奏\n"
+                    "  粗颗粒原则: 不拆细整理衣服动作\n"
+                    "增强版剧本: |\n"
+                    "  秘书和主管们从玻璃主入口附近聚拢到台阶前，整理衣服和文件。\n"
                 "多维审查:\n"
                 "  - 角色: 场景调度审查员\n"
                 "    通过: false\n"
                 "    发现: 群体来源已修，但需要二次门禁确认\n"
                 "    处理: 返修后复审\n"
+                "  - 角色: 戏剧任务与节奏设计审查员\n"
+                "    通过: false\n"
+                "    发现: 迎接场面还不够有速度压力\n"
+                "    处理: 要求返修\n"
                 "  - 角色: 冲突强度与画面冲击审查员\n"
                 "    通过: false\n"
                 "    发现: 聚拢动作仍偏静态，画面冲击不足\n"
@@ -544,8 +576,11 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
                 "  道具连续性: 5\n"
                 "  人物动机: 3\n"
                 "  空间调度: 4\n"
+                "  注意力任务链: 5\n"
                 "  主线保护: 5\n"
                 "  可拍性: 4\n"
+                "  戏剧任务匹配: 3\n"
+                "  粗颗粒动作: 5\n"
                 "  冲突强度: 3\n"
                 "  画面冲击: 3\n"
                 "逻辑审查: []\n"
@@ -561,12 +596,22 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
             )
         return (
             "审查结论: PASS\n"
+            "剧情增强设计:\n"
+            "  场景任务: 新老板到场压迫\n"
+            "  人物目标: 主管秘书快速迎接\n"
+            "  阻碍设计: 门口队列快速成形\n"
+            "  节奏类型: 快节奏\n"
+            "  粗颗粒原则: 保持聚拢和排队为核心动作\n"
             "增强版剧本: |\n"
             "  秘书和主管们从玻璃主入口附近聚拢到台阶前，整理衣服和文件，快速排成迎接队列。\n"
             "多维审查:\n"
             "  - 角色: 场景调度审查员\n"
             "    通过: true\n"
             "    发现: 群体调度合理\n"
+            "    处理: 通过\n"
+            "  - 角色: 戏剧任务与节奏设计审查员\n"
+            "    通过: true\n"
+            "    发现: 迎接场面服务新老板压迫到场\n"
             "    处理: 通过\n"
             "  - 角色: 冲突强度与画面冲击审查员\n"
             "    通过: true\n"
@@ -578,8 +623,11 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
             "  道具连续性: 5\n"
             "  人物动机: 5\n"
             "  空间调度: 5\n"
+            "  注意力任务链: 5\n"
             "  主线保护: 5\n"
             "  可拍性: 5\n"
+            "  戏剧任务匹配: 5\n"
+            "  粗颗粒动作: 5\n"
             "  冲突强度: 5\n"
             "  画面冲击: 5\n"
             "逻辑审查: []\n"
@@ -613,7 +661,7 @@ def test_director_showrunner_strict_review_runs_second_round_when_repair_require
     assert runtime["verdict"] == "PASS"
     assert [item["verdict"] for item in runtime["rounds"]] == ["REPAIR_REQUIRED", "PASS"]
     assert runtime["rounds"][0]["reported_verdict"] == "PASS"
-    assert runtime["rounds"][0]["gate_reason"] == "score_below_4:人物动机,冲突强度,画面冲击"
+    assert runtime["rounds"][0]["gate_reason"] == "score_below_4:人物动机,戏剧任务匹配,冲突强度,画面冲击"
     assert "快速排成迎接队列" in result["enhanced_script"]
 
 
@@ -650,6 +698,10 @@ def test_director_showrunner_blocks_unapproved_enhancement_after_max_rounds(monk
             "    通过: false\n"
             "    发现: 施事错误仍未修复\n"
             "    处理: 需要阻断\n"
+            "  - 角色: 戏剧任务与节奏设计审查员\n"
+            "    通过: false\n"
+            "    发现: 增强仍在细化穿衣动作\n"
+            "    处理: 需要阻断\n"
             "  - 角色: 冲突强度与画面冲击审查员\n"
             "    通过: true\n"
             "    发现: 本轮主要阻断点不是冲突强度\n"
@@ -666,8 +718,11 @@ def test_director_showrunner_blocks_unapproved_enhancement_after_max_rounds(monk
             "  道具连续性: 5\n"
             "  人物动机: 5\n"
             "  空间调度: 5\n"
+            "  注意力任务链: 2\n"
             "  主线保护: 5\n"
             "  可拍性: 4\n"
+            "  戏剧任务匹配: 2\n"
+            "  粗颗粒动作: 2\n"
             "  冲突强度: 4\n"
             "  画面冲击: 4\n"
             "逻辑审查: []\n"
