@@ -81,6 +81,109 @@ def test_shot_director_accepts_all_chinese_output_fields():
     assert _validate_shot_director_output(director_output, ["F01"]) == []
 
 
+def test_shot_director_accepts_coverage_v3_template_plan():
+    director_output = """- fragment_id: F01
+  schema_version: shot_director_coverage_v3
+  coverage_plan:
+    dramatic_task: elevator two-person pressure
+    rhythm_intent: hold reaction after pressure line
+    space_contract:
+      location: elevator
+      characters_present: [Sunny, Nash]
+      axis: face-to-face axis
+    shot_budget:
+      target_count: 2
+      max_count: 3
+    required_beats:
+      - beat_id: B01
+        purpose: establish_relation
+  template_plan:
+    shots:
+      - shot_id: F01-S01
+        duration: 0-3s
+        task: establish close two-person pressure
+        subject: Sunny and Nash
+        shot: two-person medium relation shot, eye-level fixed view
+        action: Sunny looks at Nash after standing steady; Nash holds his position.
+        dialogue: ~
+        must_carry: distance, facing direction, closed elevator door
+        cut_point: cut after the distance relation is readable
+        continuity: both remain inside the same closed elevator
+        coverage_role: establish_relation
+        cut_reason: distance relation becomes readable before reaction
+        companion_visibility: both visible in same frame
+        state_delta: Sunny is steady
+        tailframe_role: hand off to reaction
+        template_id: COV-SD20-W1-TWO-SHOT-PRESSURE
+        template_level: W1
+        reference_need: identity_reference scene_reference
+        model_complexity_score: 2
+        tail_state: Sunny and Nash remain close, facing each other, elevator door closed.
+      - shot_id: F01-S02
+        duration: 3-6s
+        task: carry Sunny impact reaction
+        subject: Sunny
+        shot: Sunny chest-up medium close shot, eye-level, from Nash shoulder toward Sunny
+        action: Sunny looks up at Nash and briefly freezes.
+        dialogue: ~
+        must_carry: Sunny reaction after being pressured
+        cut_point: cut after reaction appears
+        continuity: Nash shoulder remains in foreground; distance unchanged
+        coverage_role: impact_reaction
+        cut_reason: reaction appears before returning to relation
+        companion_visibility: Nash shoulder in foreground
+        state_delta: Sunny changes from unsettled to frozen
+        tailframe_role: hold post-reaction state
+        template_id: COV-SD20-W1-REACTION-HOLD
+        template_level: W1
+        reference_need: identity_reference scene_reference
+        model_complexity_score: 2
+        tail_state: Sunny remains facing Nash; Nash is still close in the same elevator.
+  guard_result:
+    status: pass
+    repairs: []
+    final_shots: [F01-S01, F01-S02]
+"""
+
+    assert _validate_shot_director_output(director_output, ["F01"]) == []
+
+def test_shot_director_coverage_v3_requires_coverage_fields():
+    director_output = """- fragment_id: F01
+  schema_version: shot_director_coverage_v3
+  coverage_plan:
+    dramatic_task: 建立关系
+    rhythm_intent: 正常承接
+    space_contract:
+      location: 电梯内
+    shot_budget:
+      target_count: 1
+    required_beats:
+      - establish_relation
+  template_plan:
+    shots:
+      - shot_id: F01-S01
+        duration: 0-3秒
+        task: 建立关系
+        subject: 乔熙和商北琛
+        shot: 双人半身关系景，平视，固定视角
+        action: 两人面对面站定。
+        dialogue: ~
+        must_carry: 两人位置关系
+        cut_point: 位置关系看清后切出
+        continuity: 两人仍在同一电梯内
+  guard_result:
+    status: pass
+    final_shots: [F01-S01]
+"""
+
+    issues = _validate_shot_director_output(director_output, ["F01"])
+
+    assert any("coverage v3 missing field coverage_role" in issue for issue in issues)
+    assert any("coverage v3 missing field tailframe_role" in issue for issue in issues)
+    assert any("missing Seedance coverage template field template_id" in issue for issue in issues)
+    assert any("seedance_template_id_missing" in issue for issue in issues)
+
+
 def test_shot_director_rejects_overfragmented_life_pressure_segment():
     shot_lines = []
     durations = ["0-2.2秒", "2.2-2.9秒", "2.9-4.9秒", "4.9-6.7秒", "6.7-9.3秒", "9.3-10.1秒", "10.1-12.1秒"]

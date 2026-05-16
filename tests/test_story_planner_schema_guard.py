@@ -553,6 +553,56 @@ def test_story_planner_accepts_legacy_cast_and_continuity_aliases():
     assert _validate_story_planner_output(planner_output, "A enters.") == []
 
 
+def test_story_planner_normalises_seedance_generation_unit_contract():
+    planner_output = """
+- fragment_id: F01
+  duration_target: "6s"
+  dramatic_unit: "A finds the photo"
+  source_script_events:
+    - "A finds the photo."
+  cast:
+    active: ["A"]
+  continuity:
+    entry: "A holds the bag."
+    exit: "A sees the photo."
+  reaction_plan: "The shock stays inside this fragment."
+  director_brief: "Keep the prop reveal readable."
+"""
+
+    normalised = _normalise_story_planner_output(planner_output, "A finds the photo.")
+
+    assert "generation_unit_id:" in normalised
+    assert "event_atom:" in normalised
+    assert "model_complexity_score:" in normalised
+    assert "reference_needs:" in normalised
+    assert _validate_story_planner_output(normalised, "A finds the photo.") == []
+
+
+def test_story_planner_rejects_explicit_overcomplex_seedance_unit(monkeypatch):
+    monkeypatch.setattr(spi, "_llm_validate_source_events", lambda *args, **kwargs: [])
+    planner_output = """
+- fragment_id: F01
+  duration_target: "12s"
+  dramatic_unit: "A fights through a crowd and reveals the truth"
+  generation_unit: "core_visible_event=fight and reveal; reaction_bridge=everyone reacts; emotion_landing=A wins"
+  model_complexity_score: 5
+  required_reference_role: "identity_reference + scene_reference + motion_reference"
+  source_script_events:
+    - "A fights through the crowd."
+  cast:
+    active: ["A", "B", "C"]
+  continuity:
+    entry: "The crowd blocks A."
+    exit: "A has crossed the room."
+  reaction_plan: "The reveal lands inside the fragment."
+  director_brief: "Needs a video reference or split."
+"""
+
+    issues = _validate_story_planner_output(planner_output, "A fights through the crowd.")
+
+    assert any("model_complexity_score=5" in issue for issue in issues)
+
+
 def test_story_planner_dense_source_events_are_soft_not_blocking():
     events = [f"Event {i}." for i in range(1, 13)]
     planner_output = "\n".join(

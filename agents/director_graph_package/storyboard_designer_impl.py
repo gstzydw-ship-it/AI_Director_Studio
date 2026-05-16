@@ -1,4 +1,4 @@
-"""Storyboard first-frame designer implementation.
+﻿"""Storyboard first-frame designer implementation.
 
 Generates one storyboard sheet per segment. Each panel is the first frame of
 one shot from the shot director output, intended as a Seedance 2.0 visual
@@ -29,41 +29,41 @@ from .types import DirectorState, OUTPUT_DIR
 # Prompt constants
 # ---------------------------------------------------------------------------
 _STORYBOARD_SYSTEM_PROMPT = (
-    "你是分镜首帧图设计师，服务于 Seedance 2.0 视频生成流程。\n"
-    "你的任务不是重新导演剧情，也不是画动作漫画，而是把镜头导演给出的每个镜头，"
-    "转换成该镜头开始瞬间的静止首帧画面提示词。\n\n"
-    "硬规则：\n"
-    "1. 只输出最终给生图接口使用的提示词，不要解释，不要代码块。\n"
-    "2. 一个片段输出一张分镜首帧图；整张图的宽高比例必须与视频画幅完全一致，9:16 就生成竖版 9:16，16:9 就生成横版 16:9。\n"
-    "3. 图中每个镜头必须按一行三栏排版：左栏是分镜首帧画面，中栏是镜头参数和动作要点，右栏是俯视机位图。\n"
-    "4. 每行左栏只展示该镜头开始时的静止状态：人物位置、身体朝向、视线方向、道具位置、场景锚点、景别和机位。\n"
-    "5. 右栏机位图必须是简洁俯视示意图：用 CAM 三角形表示摄影机，用彩色圆点表示人物/关键物，用视线扇形或镜头朝向线表示拍摄方向，标出轴线和视野范围。\n"
-    "6. 禁止展示动作过程、运动轨迹、台词文字、对白气泡、漫画拟声词、情绪说明文字。\n"
-    "   左栏分镜画面不要画人物运动方向箭头；右栏机位图只允许出现摄影机朝向、视线轴线和视野范围箭头。\n"
-    "7. 必须严格服从镜头导演的镜头编号、拍摄主体、镜头/景别/机位、切镜点和连续性，不得新增剧情、人物、道具或空间。\n"
-    "8. 场景参考图里的固定家具和空间锚点位置必须锁死，例如茶几、沙发、窗户、门、地毯、床、柜子等；"
-    "不得为了构图便利移动、替换或新建这些物体。\n"
-    "9. 如果镜头需要特写道具，只能从参考场景原位置进行裁切、推近或换机位拍摄，不能把道具挪到旁边台面、床头或新位置。\n"
-    "10. 参考图只用于锁定人物脸、发型、服装、场景空间、光线、道具外观和位置关系。\n"
-    "11. 输出必须是中文，字段和说明都不要使用英文。\n"
-    "12. 目标是给 Seedance 2.0 提供首帧锚点和机位核对图，让后续视频按首帧图和镜头导演方案生成。\n"
+    "浣犳槸鍒嗛暅棣栧抚鍥捐璁″笀锛屾湇鍔′簬 Seedance 2.0 瑙嗛鐢熸垚娴佺▼銆俓n"
+    "浣犵殑浠诲姟涓嶆槸閲嶆柊瀵兼紨鍓ф儏锛屼篃涓嶆槸鐢诲姩浣滄极鐢伙紝鑰屾槸鎶婇暅澶村婕旂粰鍑虹殑姣忎釜闀滃ご锛?
+    "杞崲鎴愯闀滃ご寮€濮嬬灛闂寸殑闈欐棣栧抚鐢婚潰鎻愮ず璇嶃€俓n\n"
+    "纭鍒欙細\n"
+    "1. 鍙緭鍑烘渶缁堢粰鐢熷浘鎺ュ彛浣跨敤鐨勬彁绀鸿瘝锛屼笉瑕佽В閲婏紝涓嶈浠ｇ爜鍧椼€俓n"
+    "2. 涓€涓墖娈佃緭鍑轰竴寮犲垎闀滈甯у浘锛涙暣寮犲浘鐨勫楂樻瘮渚嬪繀椤讳笌瑙嗛鐢诲箙瀹屽叏涓€鑷达紝9:16 灏辩敓鎴愮珫鐗?9:16锛?6:9 灏辩敓鎴愭í鐗?16:9銆俓n"
+    "3. 鍥句腑姣忎釜闀滃ご蹇呴』鎸変竴琛屼笁鏍忔帓鐗堬細宸︽爮鏄垎闀滈甯х敾闈紝涓爮鏄暅澶村弬鏁板拰鍔ㄤ綔瑕佺偣锛屽彸鏍忔槸淇鏈轰綅鍥俱€俓n"
+    "4. 姣忚宸︽爮鍙睍绀鸿闀滃ご寮€濮嬫椂鐨勯潤姝㈢姸鎬侊細浜虹墿浣嶇疆銆佽韩浣撴湞鍚戙€佽绾挎柟鍚戙€侀亾鍏蜂綅缃€佸満鏅敋鐐广€佹櫙鍒拰鏈轰綅銆俓n"
+    "5. 鍙虫爮鏈轰綅鍥惧繀椤绘槸绠€娲佷刊瑙嗙ず鎰忓浘锛氱敤 CAM 涓夎褰㈣〃绀烘憚褰辨満锛岀敤褰╄壊鍦嗙偣琛ㄧず浜虹墿/鍏抽敭鐗╋紝鐢ㄨ绾挎墖褰㈡垨闀滃ご鏈濆悜绾胯〃绀烘媿鎽勬柟鍚戯紝鏍囧嚭杞寸嚎鍜岃閲庤寖鍥淬€俓n"
+    "6. 绂佹灞曠ず鍔ㄤ綔杩囩▼銆佽繍鍔ㄨ建杩广€佸彴璇嶆枃瀛椼€佸鐧芥皵娉°€佹极鐢绘嫙澹拌瘝銆佹儏缁鏄庢枃瀛椼€俓n"
+    "   宸︽爮鍒嗛暅鐢婚潰涓嶈鐢讳汉鐗╄繍鍔ㄦ柟鍚戠澶达紱鍙虫爮鏈轰綅鍥惧彧鍏佽鍑虹幇鎽勫奖鏈烘湞鍚戙€佽绾胯酱绾垮拰瑙嗛噹鑼冨洿绠ご銆俓n"
+    "7. 蹇呴』涓ユ牸鏈嶄粠闀滃ご瀵兼紨鐨勯暅澶寸紪鍙枫€佹媿鎽勪富浣撱€侀暅澶?鏅埆/鏈轰綅銆佸垏闀滅偣鍜岃繛缁€э紝涓嶅緱鏂板鍓ф儏銆佷汉鐗┿€侀亾鍏锋垨绌洪棿銆俓n"
+    "8. 鍦烘櫙鍙傝€冨浘閲岀殑鍥哄畾瀹跺叿鍜岀┖闂撮敋鐐逛綅缃繀椤婚攣姝伙紝渚嬪鑼跺嚑銆佹矙鍙戙€佺獥鎴枫€侀棬銆佸湴姣€佸簥銆佹煖瀛愮瓑锛?
+    "涓嶅緱涓轰簡鏋勫浘渚垮埄绉诲姩銆佹浛鎹㈡垨鏂板缓杩欎簺鐗╀綋銆俓n"
+    "9. 濡傛灉闀滃ご闇€瑕佺壒鍐欓亾鍏凤紝鍙兘浠庡弬鑰冨満鏅師浣嶇疆杩涜瑁佸垏銆佹帹杩戞垨鎹㈡満浣嶆媿鎽勶紝涓嶈兘鎶婇亾鍏锋尓鍒版梺杈瑰彴闈€佸簥澶存垨鏂颁綅缃€俓n"
+    "10. 鍙傝€冨浘鍙敤浜庨攣瀹氫汉鐗╄劯銆佸彂鍨嬨€佹湇瑁呫€佸満鏅┖闂淬€佸厜绾裤€侀亾鍏峰瑙傚拰浣嶇疆鍏崇郴銆俓n"
+    "11. 杈撳嚭蹇呴』鏄腑鏂囷紝瀛楁鍜岃鏄庨兘涓嶈浣跨敤鑻辨枃銆俓n"
+    "12. 鐩爣鏄粰 Seedance 2.0 鎻愪緵棣栧抚閿氱偣鍜屾満浣嶆牳瀵瑰浘锛岃鍚庣画瑙嗛鎸夐甯у浘鍜岄暅澶村婕旀柟妗堢敓鎴愩€俓n"
 )
 
 _STORYBOARD_OUTPUT_CONTRACT = (
-    "【分镜故事板输出合同】\n"
-    "必须生成一段给生图接口使用的中文提示词，结构如下：\n\n"
-    "第一行：说明这是一张片段分镜故事板，明确写出整张图必须使用与视频一致的画幅比例，不允许做成普通长图或横竖比例错误的拼图。\n"
-    "第二行：说明包含多少个镜头行，按镜头编号从上到下排列；每行左上角必须显示中文编号：镜头1、镜头2、镜头3……\n"
-    "版式要求：每个镜头占一行，行内必须是三栏结构：左栏约 55% 为分镜首帧图，中栏约 25% 为镜头参数卡，右栏约 20% 为俯视机位图。\n"
-    "统一要求：左栏只画镜头开始瞬间，不画动作过程，不出现台词文字、对白气泡、字幕、运动轨迹、人物运动箭头或解释性文字；中栏只允许短参数文字；右栏只允许机位图标签、摄影机朝向和视野范围。\n"
-    "每个镜头行必须写清：\n"
-    "  - 镜头编号，以及画面中显示的中文行标签，例如：镜头1\n"
-    "  - 左栏分镜首帧：起始站位、拍摄主体、景别/机位/视角、人物身体朝向和视线方向、道具与空间锚点位置\n"
-    "  - 中栏参数卡：时长、镜头任务、主体、景别、机位、动作起点、必须可见信息、连续性锚点\n"
-    "  - 右栏俯视机位图：CAM 摄影机三角形、人物彩色圆点、关键固定物简化块、视线轴线、镜头朝向线、FOV 视野扇形、人物相对距离\n"
-    "  - 固定家具位置锁定：明确写出茶几、沙发、窗户、地毯等关键物体必须保持参考场景中的相对位置，只能裁切或推近，不能搬动\n"
-    "  - 与上一镜的连续性\n\n"
-    "最后一行：统一画面风格，要求干净导演故事板、清晰横向分行、三栏对齐、编号清楚、右栏机位图像拍摄平面图而不是装饰图、弱化装饰、无对白字、无动作线、无人物运动箭头，适合给 Seedance 2.0 当首帧参考。"
+    "銆愬垎闀滄晠浜嬫澘杈撳嚭鍚堝悓銆慭n"
+    "蹇呴』鐢熸垚涓€娈电粰鐢熷浘鎺ュ彛浣跨敤鐨勪腑鏂囨彁绀鸿瘝锛岀粨鏋勫涓嬶細\n\n"
+    "绗竴琛岋細璇存槑杩欐槸涓€寮犵墖娈靛垎闀滄晠浜嬫澘锛屾槑纭啓鍑烘暣寮犲浘蹇呴』浣跨敤涓庤棰戜竴鑷寸殑鐢诲箙姣斾緥锛屼笉鍏佽鍋氭垚鏅€氶暱鍥炬垨妯珫姣斾緥閿欒鐨勬嫾鍥俱€俓n"
+    "绗簩琛岋細璇存槑鍖呭惈澶氬皯涓暅澶磋锛屾寜闀滃ご缂栧彿浠庝笂鍒颁笅鎺掑垪锛涙瘡琛屽乏涓婅蹇呴』鏄剧ず涓枃缂栧彿锛氶暅澶?銆侀暅澶?銆侀暅澶?鈥︹€n"
+    "鐗堝紡瑕佹眰锛氭瘡涓暅澶村崰涓€琛岋紝琛屽唴蹇呴』鏄笁鏍忕粨鏋勶細宸︽爮绾?55% 涓哄垎闀滈甯у浘锛屼腑鏍忕害 25% 涓洪暅澶村弬鏁板崱锛屽彸鏍忕害 20% 涓轰刊瑙嗘満浣嶅浘銆俓n"
+    "缁熶竴瑕佹眰锛氬乏鏍忓彧鐢婚暅澶村紑濮嬬灛闂达紝涓嶇敾鍔ㄤ綔杩囩▼锛屼笉鍑虹幇鍙拌瘝鏂囧瓧銆佸鐧芥皵娉°€佸瓧骞曘€佽繍鍔ㄨ建杩广€佷汉鐗╄繍鍔ㄧ澶存垨瑙ｉ噴鎬ф枃瀛楋紱涓爮鍙厑璁哥煭鍙傛暟鏂囧瓧锛涘彸鏍忓彧鍏佽鏈轰綅鍥炬爣绛俱€佹憚褰辨満鏈濆悜鍜岃閲庤寖鍥淬€俓n"
+    "姣忎釜闀滃ご琛屽繀椤诲啓娓咃細\n"
+    "  - 闀滃ご缂栧彿锛屼互鍙婄敾闈腑鏄剧ず鐨勪腑鏂囪鏍囩锛屼緥濡傦細闀滃ご1\n"
+    "  - 宸︽爮鍒嗛暅棣栧抚锛氳捣濮嬬珯浣嶃€佹媿鎽勪富浣撱€佹櫙鍒?鏈轰綅/瑙嗚銆佷汉鐗╄韩浣撴湞鍚戝拰瑙嗙嚎鏂瑰悜銆侀亾鍏蜂笌绌洪棿閿氱偣浣嶇疆\n"
+    "  - 涓爮鍙傛暟鍗★細鏃堕暱銆侀暅澶翠换鍔°€佷富浣撱€佹櫙鍒€佹満浣嶃€佸姩浣滆捣鐐广€佸繀椤诲彲瑙佷俊鎭€佽繛缁€ч敋鐐筡n"
+    "  - 鍙虫爮淇鏈轰綅鍥撅細CAM 鎽勫奖鏈轰笁瑙掑舰銆佷汉鐗╁僵鑹插渾鐐广€佸叧閿浐瀹氱墿绠€鍖栧潡銆佽绾胯酱绾裤€侀暅澶存湞鍚戠嚎銆丗OV 瑙嗛噹鎵囧舰銆佷汉鐗╃浉瀵硅窛绂籠n"
+    "  - 鍥哄畾瀹跺叿浣嶇疆閿佸畾锛氭槑纭啓鍑鸿尪鍑犮€佹矙鍙戙€佺獥鎴枫€佸湴姣瓑鍏抽敭鐗╀綋蹇呴』淇濇寔鍙傝€冨満鏅腑鐨勭浉瀵逛綅缃紝鍙兘瑁佸垏鎴栨帹杩戯紝涓嶈兘鎼姩\n"
+    "  - 涓庝笂涓€闀滅殑杩炵画鎬n\n"
+    "鏈€鍚庝竴琛岋細缁熶竴鐢婚潰椋庢牸锛岃姹傚共鍑€瀵兼紨鏁呬簨鏉裤€佹竻鏅版í鍚戝垎琛屻€佷笁鏍忓榻愩€佺紪鍙锋竻妤氥€佸彸鏍忔満浣嶅浘鍍忔媿鎽勫钩闈㈠浘鑰屼笉鏄楗板浘銆佸急鍖栬楗般€佹棤瀵圭櫧瀛椼€佹棤鍔ㄤ綔绾裤€佹棤浜虹墿杩愬姩绠ご锛岄€傚悎缁?Seedance 2.0 褰撻甯у弬鑰冦€?
 )
 
 
@@ -71,27 +71,40 @@ _STORYBOARD_OUTPUT_CONTRACT = (
 # Internal helpers
 # ---------------------------------------------------------------------------
 def _extract_shots_from_director_segment(director_segment: str) -> list[dict[str, str]]:
-    """Parse shot YAML block into structured shot records.
-
-    Splits on ``shot_id:`` boundaries and extracts each shot's fields via
-    line-based regex so that YAML list markers ``-`` do not confuse the
-    parser.
-    """
-    shots: list[dict[str, str]] = []
+    """Parse shot YAML block into structured shot records."""
 
     # Find the positions of every shot id line in the segment.
-    indices = [m.start() for m in re.finditer(r"(?m)^\s*-?\s*(?:shot_id|镜头编号)\s*:", director_segment)]
+    indices = [m.start() for m in re.finditer(r"(?m)^\s*-?\s*(?:shot_id|闀滃ご缂栧彿)\s*:", director_segment)]
     if not indices:
-        return shots
+        return []
+
+    shots: list[dict[str, str]] = []
 
     for i, start in enumerate(indices):
         end = indices[i + 1] if i + 1 < len(indices) else len(director_segment)
         block = director_segment[start:end]
 
         shot: dict[str, str] = {}
-        for key in ("shot_id", "duration", "task", "subject", "camera", "size",
-                    "shot", "type", "action", "dialogue", "must_carry",
-                    "cut_point", "continuity"):
+        for key in (
+            "shot_id",
+            "duration",
+            "task",
+            "main_subject",
+            "supporting_subjects",
+            "subject",
+            "template_id",
+            "template_level",
+            "coverage_role",
+            "shot",
+            "action",
+            "must_carry",
+            "cut_point",
+            "continuity",
+            "continuity_anchor",
+            "dialogue",
+            "dialogue_coverage",
+            "reaction_coverage",
+        ):
             value = _yaml_line_field(block, key)
             if value:
                 shot[key] = value
@@ -99,7 +112,6 @@ def _extract_shots_from_director_segment(director_segment: str) -> list[dict[str
             shots.append(shot)
 
     return shots
-
 
 def _extract_fragment_task_and_rhythm(director_segment: str) -> tuple[str, str]:
     """Pull fragment-level task and rhythm notes."""
@@ -111,35 +123,28 @@ def _extract_fragment_task_and_rhythm(director_segment: str) -> tuple[str, str]:
 
 def _format_shot_for_storyboard(shot: dict[str, str], index: int) -> str:
     """Convert one shot into a first-frame storyboard requirement."""
-    shot_id = shot.get("shot_id") or f"第{index + 1}镜"
-    duration = shot.get("duration") or "按镜头导演方案"
-    task = shot.get("task") or "承接镜头导演任务"
-    subject = shot.get("subject") or "按镜头导演指定主体"
-    camera_bits = [shot.get("shot", ""), shot.get("size", ""), shot.get("camera", "")]
-    camera = " / ".join(bit for bit in camera_bits if bit) or "按镜头导演指定镜头"
-    action = shot.get("action") or "根据镜头任务判断起始状态"
-    must_carry = shot.get("must_carry") or "镜头导演要求的关键信息"
-    cut_point = shot.get("cut_point") or "仅用于理解镜头顺序"
-    continuity = shot.get("continuity") or "继承上一镜尾帧空间关系"
+    shot_id = shot.get("shot_id") or f"镜头 {index + 1}"
+    duration = shot.get("duration") or "4-6s"
+    task = shot.get("task") or shot.get("coverage_role") or "镜头推进与关系承接"
+    subject = shot.get("main_subject") or shot.get("subject") or "主角与关键人物"
+    template_id = shot.get("template_id") or "未指定模板"
+    template_level = shot.get("template_level") or shot.get("template_status") or "W1"
+    coverage = shot.get("coverage_role") or shot.get("dialogue_coverage") or shot.get("reaction_coverage") or "关系延续"
+    action = shot.get("action") or shot.get("must_carry") or "无复杂动作"
+    continuity = shot.get("continuity") or shot.get("continuity_anchor") or "延续主镜头关系"
+    cut_point = shot.get("cut_point") or "默认按拍序切换"
 
-    return "\n".join(
-        [
-            f"镜头 {shot_id} 首帧格：",
-            f"- 时长参考：{duration}",
-            f"- 镜头任务：{task}",
-            f"- 拍摄主体：{subject}",
-            f"- 景别/机位/视角：{camera}",
-            "- 故事板行版式：本镜头占一行，左栏画分镜首帧，中栏列镜头参数，右栏画俯视机位图。",
-            "- 首帧状态：只画该镜头开始的一瞬间，人物已经处在起始站位；不画完整动作过程。",
-            "- 右栏机位图：用 CAM 三角形表示摄影机，用彩色圆点表示人物和关键物；根据景别/机位/视角画出摄影机位置、镜头朝向、视线轴线、FOV 视野扇形和人物相对距离。",
-            f"- 原动作参考：{action}；只用于判断首帧起点和后续运动方向，不在图里生成动作轨迹、动作线、箭头或过程画面。",
-            f"- 必须可见：{must_carry}",
-            f"- 连续性锚点：{continuity}",
-            "- 固定空间锁定：茶几、沙发、窗户、门、地毯、床、柜子等固定家具必须保持参考场景中的原始相对位置；近景和特写只能通过裁切、推近或换机位实现，不得把道具移动到旁边台面、床头或新位置。",
-            f"- 切镜点参考：{cut_point}；只用于镜头顺序理解，不在画面中写字或画箭头。",
-        ]
-    )
-
+    return "\n".join([
+        f"镜头 {shot_id} 首帧",
+        f"- 时长：{duration}",
+        f"- 任务：{task}",
+        f"- 主体：{subject}",
+        f"- 参考模板：{template_id}（{template_level}）",
+        f"- 关系：{coverage}",
+        f"- 动作与关系：{action}",
+        f"- 连续性锚点：{continuity}",
+        f"- 切点约束：{cut_point}",
+    ])
 
 def _reference_usage_for_item(item: dict[str, Any]) -> str:
     """Describe how one image reference may influence the storyboard prompt."""
@@ -148,17 +153,17 @@ def _reference_usage_for_item(item: dict[str, Any]) -> str:
         for key in ("role", "type", "purpose", "name", "filename", "label", "description", "note")
     ).lower()
 
-    if any(marker in role_text for marker in ("previous_segment_tail_frame", "tail_frame", "上一段", "尾帧")):
-        return "上一片段尾帧图，只锁片段承接状态：人物最终站位、朝向、姿态、道具状态和可见空间关系；只在同场景连续时用于第一格承接。"
-    if any(marker in role_text for marker in ("previous_segment_storyboard_crop", "last_storyboard_crop", "分镜裁切")):
-        return "上一段最后一格分镜裁切图，在没有视频尾帧时锁可见出场状态；只作为同场景第一格承接的次级依据。"
-    if any(marker in role_text for marker in ("annotated_scene_layout", "scene_layout_annotation", "scene_layout", "俯视", "标点", "站位")):
-        return "场景开局标点图，只锁当前场景开局的初始站位、固定物和基础轴线；不要求逐段运动轨迹，不把标点当成每个镜头必须复刻的动作路径。"
-    if any(marker in role_text for marker in ("character", "portrait", "人物", "角色", "服装", "外观", "演员")):
-        return "人物图，只锁人物外观：脸型、五官、发型、服装、身份一致性和可见随身道具。"
-    if any(marker in role_text for marker in ("scene", "space", "location", "room", "场景", "空间", "地点", "母版", "九宫格")):
-        return "场景图，只锁空间结构、光线方向、色调、固定家具、主要道具和相对位置关系。"
-    return "视觉参考图，只锁已标明的外观、空间或道具事实；不得新增剧情、人物、道具或空间。"
+    if any(marker in role_text for marker in ("previous_segment_tail_frame", "tail_frame", "涓婁竴娈?, "灏惧抚")):
+        return "涓婁竴鐗囨灏惧抚鍥撅紝鍙攣鐗囨鎵挎帴鐘舵€侊細浜虹墿鏈€缁堢珯浣嶃€佹湞鍚戙€佸Э鎬併€侀亾鍏风姸鎬佸拰鍙绌洪棿鍏崇郴锛涘彧鍦ㄥ悓鍦烘櫙杩炵画鏃剁敤浜庣涓€鏍兼壙鎺ャ€?
+    if any(marker in role_text for marker in ("previous_segment_storyboard_crop", "last_storyboard_crop", "鍒嗛暅瑁佸垏")):
+        return "涓婁竴娈垫渶鍚庝竴鏍煎垎闀滆鍒囧浘锛屽湪娌℃湁瑙嗛灏惧抚鏃堕攣鍙鍑哄満鐘舵€侊紱鍙綔涓哄悓鍦烘櫙绗竴鏍兼壙鎺ョ殑娆＄骇渚濇嵁銆?
+    if any(marker in role_text for marker in ("annotated_scene_layout", "scene_layout_annotation", "scene_layout", "淇", "鏍囩偣", "绔欎綅")):
+        return "鍦烘櫙寮€灞€鏍囩偣鍥撅紝鍙攣褰撳墠鍦烘櫙寮€灞€鐨勫垵濮嬬珯浣嶃€佸浐瀹氱墿鍜屽熀纭€杞寸嚎锛涗笉瑕佹眰閫愭杩愬姩杞ㄨ抗锛屼笉鎶婃爣鐐瑰綋鎴愭瘡涓暅澶村繀椤诲鍒荤殑鍔ㄤ綔璺緞銆?
+    if any(marker in role_text for marker in ("character", "portrait", "浜虹墿", "瑙掕壊", "鏈嶈", "澶栬", "婕斿憳")):
+        return "浜虹墿鍥撅紝鍙攣浜虹墿澶栬锛氳劯鍨嬨€佷簲瀹樸€佸彂鍨嬨€佹湇瑁呫€佽韩浠戒竴鑷存€у拰鍙闅忚韩閬撳叿銆?
+    if any(marker in role_text for marker in ("scene", "space", "location", "room", "鍦烘櫙", "绌洪棿", "鍦扮偣", "姣嶇増", "涔濆鏍?)):
+        return "鍦烘櫙鍥撅紝鍙攣绌洪棿缁撴瀯銆佸厜绾挎柟鍚戙€佽壊璋冦€佸浐瀹氬鍏枫€佷富瑕侀亾鍏峰拰鐩稿浣嶇疆鍏崇郴銆?
+    return "瑙嗚鍙傝€冨浘锛屽彧閿佸凡鏍囨槑鐨勫瑙傘€佺┖闂存垨閬撳叿浜嬪疄锛涗笉寰楁柊澧炲墽鎯呫€佷汉鐗┿€侀亾鍏锋垨绌洪棿銆?
 
 
 def _previous_segment_tail_frame_b64(state: DirectorState) -> str:
@@ -184,7 +189,7 @@ def _has_previous_segment_tail_frame_reference(state: DirectorState) -> bool:
         if not isinstance(item, dict):
             continue
         role_text = " ".join(str(item.get(key) or "") for key in ("role", "type", "purpose", "source"))
-        if "previous_segment_tail_frame" in role_text or "上一片段尾帧" in role_text or "上一段尾帧" in role_text:
+        if "previous_segment_tail_frame" in role_text or "涓婁竴鐗囨灏惧抚" in role_text or "涓婁竴娈靛熬甯? in role_text:
             return True
     return False
 
@@ -224,14 +229,14 @@ def _line_field_by_names(block: str, names: tuple[str, ...]) -> str:
 def _segment_scene_label(planner_segment: str) -> str:
     return _line_field_by_names(
         planner_segment,
-        ("scene", "scene_id", "场景", "场景编号", "场景名称", "地点", "空间"),
+        ("scene", "scene_id", "鍦烘櫙", "鍦烘櫙缂栧彿", "鍦烘櫙鍚嶇О", "鍦扮偣", "绌洪棿"),
     )
 
 
 def _segment_exit_state(planner_segment: str) -> str:
     return _line_field_by_names(
         planner_segment,
-        ("出场状态", "exit_state", "final_state", "承接要求"),
+        ("鍑哄満鐘舵€?, "exit_state", "final_state", "鎵挎帴瑕佹眰"),
     )
 
 
@@ -257,9 +262,9 @@ def _build_storyboard_continuity_notes(
     """Compile segment-to-segment continuity rules for storyboard prompts."""
     if segment_index <= 1:
         return (
-            "【片段连续性编译规则】\n"
-            "本段是第一段或没有上一段承接输入：用人物参考图锁外观，用场景参考图锁空间，"
-            "用场景开局标点图锁初始站位、固定物和基础轴线。"
+            "銆愮墖娈佃繛缁€х紪璇戣鍒欍€慭n"
+            "鏈鏄涓€娈垫垨娌℃湁涓婁竴娈垫壙鎺ヨ緭鍏ワ細鐢ㄤ汉鐗╁弬鑰冨浘閿佸瑙傦紝鐢ㄥ満鏅弬鑰冨浘閿佺┖闂达紝"
+            "鐢ㄥ満鏅紑灞€鏍囩偣鍥鹃攣鍒濆绔欎綅銆佸浐瀹氱墿鍜屽熀纭€杞寸嚎銆?
         )
 
     current_planner = _planner_segment_block(planner_output, segment_index, current_fragment_id)
@@ -276,31 +281,31 @@ def _build_storyboard_continuity_notes(
     current_key = _normalise_scene_label(current_scene)
     previous_key = _normalise_scene_label(previous_scene)
     is_new_scene = bool(current_key and previous_key and current_key != previous_key)
-    relation = "新场景" if is_new_scene else "同场景后续片段"
+    relation = "鏂板満鏅? if is_new_scene else "鍚屽満鏅悗缁墖娈?
     if not current_key or not previous_key:
-        relation = "场景关系未明，按镜头导演与桥接分析保守处理"
+        relation = "鍦烘櫙鍏崇郴鏈槑锛屾寜闀滃ご瀵兼紨涓庢ˉ鎺ュ垎鏋愪繚瀹堝鐞?
 
     lines = [
-        "【片段连续性编译规则】",
-        f"场景关系：{relation}。上一段场景：{previous_scene or '未标明'}；当前场景：{current_scene or '未标明'}。",
-        "同场景后续片段：不强制新标点；第一格承接优先级为上一段视频尾帧，其次上一段最后一格分镜裁切图，最后用上一段出场状态文字。",
-        "新场景：不强行承接上一段尾帧；重新用当前新场景参考图和场景开局标点图定盘，重建初始站位、固定物和基础轴线。",
+        "銆愮墖娈佃繛缁€х紪璇戣鍒欍€?,
+        f"鍦烘櫙鍏崇郴锛歿relation}銆備笂涓€娈靛満鏅細{previous_scene or '鏈爣鏄?}锛涘綋鍓嶅満鏅細{current_scene or '鏈爣鏄?}銆?,
+        "鍚屽満鏅悗缁墖娈碉細涓嶅己鍒舵柊鏍囩偣锛涚涓€鏍兼壙鎺ヤ紭鍏堢骇涓轰笂涓€娈佃棰戝熬甯э紝鍏舵涓婁竴娈垫渶鍚庝竴鏍煎垎闀滆鍒囧浘锛屾渶鍚庣敤涓婁竴娈靛嚭鍦虹姸鎬佹枃瀛椼€?,
+        "鏂板満鏅細涓嶅己琛屾壙鎺ヤ笂涓€娈靛熬甯э紱閲嶆柊鐢ㄥ綋鍓嶆柊鍦烘櫙鍙傝€冨浘鍜屽満鏅紑灞€鏍囩偣鍥惧畾鐩橈紝閲嶅缓鍒濆绔欎綅銆佸浐瀹氱墿鍜屽熀纭€杞寸嚎銆?,
     ]
 
     if is_new_scene or reset_requested:
-        reason = "新场景" if is_new_scene else "视频桥接分析要求 direct_cut 或 must_reset_space"
-        lines.append(f"当前执行：{reason}，第一格不要照搬上一段尾帧人物站位；只继承剧本明确保留的道具事实。")
+        reason = "鏂板満鏅? if is_new_scene else "瑙嗛妗ユ帴鍒嗘瀽瑕佹眰 direct_cut 鎴?must_reset_space"
+        lines.append(f"褰撳墠鎵ц锛歿reason}锛岀涓€鏍间笉瑕佺収鎼笂涓€娈靛熬甯т汉鐗╃珯浣嶏紱鍙户鎵垮墽鏈槑纭繚鐣欑殑閬撳叿浜嬪疄銆?)
     elif tail_frame:
-        lines.append("当前执行：有 previous_segment_tail_frame，第一格必须承接上一段视频尾帧的可见人物站位、朝向、姿态、道具状态和空间关系。")
+        lines.append("褰撳墠鎵ц锛氭湁 previous_segment_tail_frame锛岀涓€鏍煎繀椤绘壙鎺ヤ笂涓€娈佃棰戝熬甯х殑鍙浜虹墿绔欎綅銆佹湞鍚戙€佸Э鎬併€侀亾鍏风姸鎬佸拰绌洪棿鍏崇郴銆?)
     elif storyboard_crop:
-        lines.append("当前执行：没有上一段视频尾帧，第一格承接上一段最后一格分镜裁切图中的可见出场状态。")
+        lines.append("褰撳墠鎵ц锛氭病鏈変笂涓€娈佃棰戝熬甯э紝绗竴鏍兼壙鎺ヤ笂涓€娈垫渶鍚庝竴鏍煎垎闀滆鍒囧浘涓殑鍙鍑哄満鐘舵€併€?)
     elif previous_exit_state:
-        lines.append(f"当前执行：没有可用视觉承接图，第一格改用上一段出场状态文字承接：{previous_exit_state}")
+        lines.append(f"褰撳墠鎵ц锛氭病鏈夊彲鐢ㄨ瑙夋壙鎺ュ浘锛岀涓€鏍兼敼鐢ㄤ笂涓€娈靛嚭鍦虹姸鎬佹枃瀛楁壙鎺ワ細{previous_exit_state}")
     else:
-        lines.append("当前执行：没有可用上一段视觉或出场状态，只按当前片段镜头导演、人物图、场景图和开局标点图定盘。")
+        lines.append("褰撳墠鎵ц锛氭病鏈夊彲鐢ㄤ笂涓€娈佃瑙夋垨鍑哄満鐘舵€侊紝鍙寜褰撳墠鐗囨闀滃ご瀵兼紨銆佷汉鐗╁浘銆佸満鏅浘鍜屽紑灞€鏍囩偣鍥惧畾鐩樸€?)
 
     if tail_analysis:
-        lines.append("上一段尾帧/视频桥接分析摘要：")
+        lines.append("涓婁竴娈靛熬甯?瑙嗛妗ユ帴鍒嗘瀽鎽樿锛?)
         lines.append(_truncate_for_prompt(tail_analysis, 900))
 
     return "\n".join(lines)
@@ -322,36 +327,36 @@ def _build_character_reference_notes(state: DirectorState) -> str:
         if tail_frame:
             manifest.append(
                 {
-                    "label": f"@图片{len(manifest) + 1}",
+                    "label": f"@鍥剧墖{len(manifest) + 1}",
                     "filename": "previous_segment_tail_frame",
-                    "purpose": "上一片段尾帧图",
+                    "purpose": "涓婁竴鐗囨灏惧抚鍥?,
                     "role": "previous_segment_tail_frame",
                 }
             )
         elif storyboard_crop:
             manifest.append(
                 {
-                    "label": f"@图片{len(manifest) + 1}",
+                    "label": f"@鍥剧墖{len(manifest) + 1}",
                     "filename": "previous_segment_last_storyboard_crop",
-                    "purpose": "上一段最后一格分镜裁切图",
+                    "purpose": "涓婁竴娈垫渶鍚庝竴鏍煎垎闀滆鍒囧浘",
                     "role": "previous_segment_storyboard_crop",
                 }
             )
 
-    notes: list[str] = ["【参考图使用规则】严格按 API 输入顺序"]
+    notes: list[str] = ["銆愬弬鑰冨浘浣跨敤瑙勫垯銆戜弗鏍兼寜 API 杈撳叆椤哄簭"]
     for index, item in enumerate(manifest[:len(api_images) or len(manifest)], start=1):
-        label = item.get("label") or f"@图片{index}"
-        filename = item.get("filename") or "未命名参考图"
-        purpose = item.get("purpose") or item.get("role") or item.get("type") or "视觉参考"
+        label = item.get("label") or f"@鍥剧墖{index}"
+        filename = item.get("filename") or "鏈懡鍚嶅弬鑰冨浘"
+        purpose = item.get("purpose") or item.get("role") or item.get("type") or "瑙嗚鍙傝€?
         desc = item.get("description") or item.get("note") or ""
-        suffix = f"：{desc}" if desc else ""
+        suffix = f"锛歿desc}" if desc else ""
         usage = _reference_usage_for_item(item)
-        notes.append(f"- 参考图{index}（API输入第{index}张；{label}；{filename}）：{usage} 原始用途：{purpose}{suffix}")
+        notes.append(f"- 鍙傝€冨浘{index}锛圓PI杈撳叆绗瑊index}寮狅紱{label}锛泏filename}锛夛細{usage} 鍘熷鐢ㄩ€旓細{purpose}{suffix}")
     notes.append(
-        "总规则：人物图锁外观，人物参考图只用于锁定脸型、五官、发型、服装和身份一致性；"
-        "场景图锁空间，场景开局标点图锁初始站位/固定物/基础轴线，"
-        "上一片段尾帧锁片段承接状态。茶几、沙发、窗户、门、地毯等固定空间锚点不得移动、替换或重新摆放；"
-        "标点和布局参考只用于开局定盘，不要求逐段运动轨迹，也不得照抄参考图里的动作。"
+        "鎬昏鍒欙細浜虹墿鍥鹃攣澶栬锛屼汉鐗╁弬鑰冨浘鍙敤浜庨攣瀹氳劯鍨嬨€佷簲瀹樸€佸彂鍨嬨€佹湇瑁呭拰韬唤涓€鑷存€э紱"
+        "鍦烘櫙鍥鹃攣绌洪棿锛屽満鏅紑灞€鏍囩偣鍥鹃攣鍒濆绔欎綅/鍥哄畾鐗?鍩虹杞寸嚎锛?
+        "涓婁竴鐗囨灏惧抚閿佺墖娈垫壙鎺ョ姸鎬併€傝尪鍑犮€佹矙鍙戙€佺獥鎴枫€侀棬銆佸湴姣瓑鍥哄畾绌洪棿閿氱偣涓嶅緱绉诲姩銆佹浛鎹㈡垨閲嶆柊鎽嗘斁锛?
+        "鏍囩偣鍜屽竷灞€鍙傝€冨彧鐢ㄤ簬寮€灞€瀹氱洏锛屼笉瑕佹眰閫愭杩愬姩杞ㄨ抗锛屼篃涓嶅緱鐓ф妱鍙傝€冨浘閲岀殑鍔ㄤ綔銆?
     )
     return "\n".join(notes)
 
@@ -387,12 +392,12 @@ def _current_script_excerpt(
         return _truncate_for_prompt(marked_block, 1200)
 
     segment_patterns = (
-        rf"(?:片段编号\s*[：:]\s*{re.escape(fragment_id)})",
-        rf"(?:片段\s*{segment_index}\b)",
-        rf"(?:第\s*{segment_index}\s*段)",
+        rf"(?:鐗囨缂栧彿\s*[锛?]\s*{re.escape(fragment_id)})",
+        rf"(?:鐗囨\s*{segment_index}\b)",
+        rf"(?:绗琝s*{segment_index}\s*娈?",
     )
     start_re = "|".join(segment_patterns)
-    next_re = r"(?:片段编号\s*[：:]\s*F\d{2,}|片段\s*\d+\b|第\s*\d+\s*段)"
+    next_re = r"(?:鐗囨缂栧彿\s*[锛?]\s*F\d{2,}|鐗囨\s*\d+\b|绗琝s*\d+\s*娈?"
     match = re.search(rf"(?ms)(?:^|\n)\s*(?:{start_re}).*?(?=\n\s*{next_re}|\Z)", script)
     if match:
         return _truncate_for_prompt(match.group(0).strip(), 1200)
@@ -418,31 +423,31 @@ def _build_storyboard_user_prompt(
 ) -> str:
     """Construct the prompt that turns shot design into first-frame panels."""
     lines: list[str] = [
-        f"生成片段 {segment_index} 的分镜首帧图提示词：{segment_name}",
+        f"鐢熸垚鐗囨 {segment_index} 鐨勫垎闀滈甯у浘鎻愮ず璇嶏細{segment_name}",
         "",
-        f"【视频画幅】{aspect_ratio}",
-        f"【分镜图画幅硬要求】整张分镜首帧图必须严格使用 {aspect_ratio} 比例，不能改变成其他比例；格子只能在这个画幅内部排布。",
+        f"銆愯棰戠敾骞呫€憑aspect_ratio}",
+        f"銆愬垎闀滃浘鐢诲箙纭姹傘€戞暣寮犲垎闀滈甯у浘蹇呴』涓ユ牸浣跨敤 {aspect_ratio} 姣斾緥锛屼笉鑳芥敼鍙樻垚鍏朵粬姣斾緥锛涙牸瀛愬彧鑳藉湪杩欎釜鐢诲箙鍐呴儴鎺掑竷銆?,
         "",
     ]
 
     if fragment_task:
-        lines.append(f"【片段任务】{fragment_task}")
+        lines.append(f"銆愮墖娈典换鍔°€憑fragment_task}")
     if rhythm:
-        lines.append(f"【节奏】{rhythm}")
+        lines.append(f"銆愯妭濂忋€憑rhythm}")
     lines.append("")
 
     if planner_context:
-        lines.append("【拆片规划上下文】")
+        lines.append("銆愭媶鐗囪鍒掍笂涓嬫枃銆?)
         lines.append(_truncate_for_prompt(planner_context, 600))
         lines.append("")
 
     if script_context:
-        lines.append("【当前片段增强剧本参考】")
+        lines.append("銆愬綋鍓嶇墖娈靛寮哄墽鏈弬鑰冦€?)
         lines.append(_truncate_for_prompt(script_context, 900))
-        lines.append("使用规则：只用它核对人物、道具、台词事实和动作起点；镜头排布仍以镜头导演为准。")
+        lines.append("浣跨敤瑙勫垯锛氬彧鐢ㄥ畠鏍稿浜虹墿銆侀亾鍏枫€佸彴璇嶄簨瀹炲拰鍔ㄤ綔璧风偣锛涢暅澶存帓甯冧粛浠ラ暅澶村婕斾负鍑嗐€?)
         lines.append("")
 
-    lines.append(f"【镜头导演首帧格清单，共 {len(shots)} 镜】")
+    lines.append(f"銆愰暅澶村婕旈甯ф牸娓呭崟锛屽叡 {len(shots)} 闀溿€?)
     for idx, shot in enumerate(shots):
         lines.append(_format_shot_for_storyboard(shot, idx))
     lines.append("")
@@ -458,15 +463,15 @@ def _build_storyboard_user_prompt(
     lines.append(_STORYBOARD_OUTPUT_CONTRACT)
     lines.append("")
     lines.append(
-        "现在只输出最终给 gpt-image-2 生图接口使用的一段中文提示词。"
-        f"必须是一张 {aspect_ratio} 比例的图，包含本片段全部镜头首帧格子；"
-        "必须做成从上到下排列的横向镜头行，每行三栏：左栏分镜首帧图，中栏镜头参数卡，右栏俯视机位图；"
-        "每行左上角必须有“镜头1 / 镜头2 / 镜头3...”编号；"
-        "左栏只画首帧/关键静止瞬间，禁止对白气泡、字幕、人物运动箭头、动作轨迹，"
-        "也不出现台词文字、动作线或解释性文字；"
-        "中栏只写短参数，不写大段说明；右栏必须画俯视机位图，用 CAM 摄影机三角形、人物彩色圆点、镜头朝向线、FOV 视野扇形和轴线标记交代机位关系；"
-        "每行都要写清固定家具位置锁定，尤其茶几、沙发、窗户和地毯必须保持参考场景里的相对位置，"
-        "不能出现“旁边台面”“床头边缘”“另一个桌面”等会改变空间位置的替代说法。"
+        "鐜板湪鍙緭鍑烘渶缁堢粰 gpt-image-2 鐢熷浘鎺ュ彛浣跨敤鐨勪竴娈典腑鏂囨彁绀鸿瘝銆?
+        f"蹇呴』鏄竴寮?{aspect_ratio} 姣斾緥鐨勫浘锛屽寘鍚湰鐗囨鍏ㄩ儴闀滃ご棣栧抚鏍煎瓙锛?
+        "蹇呴』鍋氭垚浠庝笂鍒颁笅鎺掑垪鐨勬í鍚戦暅澶磋锛屾瘡琛屼笁鏍忥細宸︽爮鍒嗛暅棣栧抚鍥撅紝涓爮闀滃ご鍙傛暟鍗★紝鍙虫爮淇鏈轰綅鍥撅紱"
+        "姣忚宸︿笂瑙掑繀椤绘湁鈥滈暅澶? / 闀滃ご2 / 闀滃ご3...鈥濈紪鍙凤紱"
+        "宸︽爮鍙敾棣栧抚/鍏抽敭闈欐鐬棿锛岀姝㈠鐧芥皵娉°€佸瓧骞曘€佷汉鐗╄繍鍔ㄧ澶淬€佸姩浣滆建杩癸紝"
+        "涔熶笉鍑虹幇鍙拌瘝鏂囧瓧銆佸姩浣滅嚎鎴栬В閲婃€ф枃瀛楋紱"
+        "涓爮鍙啓鐭弬鏁帮紝涓嶅啓澶ф璇存槑锛涘彸鏍忓繀椤荤敾淇鏈轰綅鍥撅紝鐢?CAM 鎽勫奖鏈轰笁瑙掑舰銆佷汉鐗╁僵鑹插渾鐐广€侀暅澶存湞鍚戠嚎銆丗OV 瑙嗛噹鎵囧舰鍜岃酱绾挎爣璁颁氦浠ｆ満浣嶅叧绯伙紱"
+        "姣忚閮借鍐欐竻鍥哄畾瀹跺叿浣嶇疆閿佸畾锛屽挨鍏惰尪鍑犮€佹矙鍙戙€佺獥鎴峰拰鍦版蹇呴』淇濇寔鍙傝€冨満鏅噷鐨勭浉瀵逛綅缃紝"
+        "涓嶈兘鍑虹幇鈥滄梺杈瑰彴闈⑩€濃€滃簥澶磋竟缂樷€濃€滃彟涓€涓闈⑩€濈瓑浼氭敼鍙樼┖闂翠綅缃殑鏇夸唬璇存硶銆?
     )
 
     return "\n".join(lines)
@@ -487,14 +492,14 @@ def _call_image_generation_api(
     # The prompt is already the image description; the system message only locks
     # the target format for compatible image-generation backends.
     system = (
-        "你是分镜故事板生成模型。请把下面的中文提示词渲染成一张专业导演故事板："
-        "一段一张图，整张图必须严格遵守提示词写明的视频画幅比例。"
-        "每个镜头占一行，每行必须是左栏分镜首帧图、中栏镜头参数卡、右栏俯视机位图的三栏结构。"
-        "每行左上角写清“镜头1 / 镜头2 / 镜头3...”。"
-        "左栏只画首帧/关键静止瞬间，禁止对白气泡、字幕、人物运动箭头、动作轨迹。"
-        "右栏必须画简洁机位平面图，用 CAM 摄影机三角形、人物彩色圆点、镜头朝向线、FOV 视野扇形和轴线标记交代拍摄关系。"
-        "场景参考图中的固定家具和空间锚点必须保持原始相对位置；近景只能裁切或推近，不得移动茶几、沙发、窗户、地毯等固定物。"
-        "不要生成台词文字、对白气泡、字幕、动作线、人物运动轨迹或额外解释性文字。"
+        "浣犳槸鍒嗛暅鏁呬簨鏉跨敓鎴愭ā鍨嬨€傝鎶婁笅闈㈢殑涓枃鎻愮ず璇嶆覆鏌撴垚涓€寮犱笓涓氬婕旀晠浜嬫澘锛?
+        "涓€娈典竴寮犲浘锛屾暣寮犲浘蹇呴』涓ユ牸閬靛畧鎻愮ず璇嶅啓鏄庣殑瑙嗛鐢诲箙姣斾緥銆?
+        "姣忎釜闀滃ご鍗犱竴琛岋紝姣忚蹇呴』鏄乏鏍忓垎闀滈甯у浘銆佷腑鏍忛暅澶村弬鏁板崱銆佸彸鏍忎刊瑙嗘満浣嶅浘鐨勪笁鏍忕粨鏋勩€?
+        "姣忚宸︿笂瑙掑啓娓呪€滈暅澶? / 闀滃ご2 / 闀滃ご3...鈥濄€?
+        "宸︽爮鍙敾棣栧抚/鍏抽敭闈欐鐬棿锛岀姝㈠鐧芥皵娉°€佸瓧骞曘€佷汉鐗╄繍鍔ㄧ澶淬€佸姩浣滆建杩广€?
+        "鍙虫爮蹇呴』鐢荤畝娲佹満浣嶅钩闈㈠浘锛岀敤 CAM 鎽勫奖鏈轰笁瑙掑舰銆佷汉鐗╁僵鑹插渾鐐广€侀暅澶存湞鍚戠嚎銆丗OV 瑙嗛噹鎵囧舰鍜岃酱绾挎爣璁颁氦浠ｆ媿鎽勫叧绯汇€?
+        "鍦烘櫙鍙傝€冨浘涓殑鍥哄畾瀹跺叿鍜岀┖闂撮敋鐐瑰繀椤讳繚鎸佸師濮嬬浉瀵逛綅缃紱杩戞櫙鍙兘瑁佸垏鎴栨帹杩戯紝涓嶅緱绉诲姩鑼跺嚑銆佹矙鍙戙€佺獥鎴枫€佸湴姣瓑鍥哄畾鐗┿€?
+        "涓嶈鐢熸垚鍙拌瘝鏂囧瓧銆佸鐧芥皵娉°€佸瓧骞曘€佸姩浣滅嚎銆佷汉鐗╄繍鍔ㄨ建杩规垨棰濆瑙ｉ噴鎬ф枃瀛椼€?
     )
 
     try:
@@ -509,7 +514,7 @@ def _call_image_generation_api(
             agent_name=agent_name,
         )
     except Exception as exc:
-        return f"[生图失败：{exc}]"
+        return f"[鐢熷浘澶辫触锛歿exc}]"
 
     # The result may be a markdown image link, a raw URL, or plain text.
     # Try to extract a URL / data URI.
@@ -603,7 +608,7 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
       - aspect_ratio is used to hint panel layout
 
     Writes back:
-      - agent_outputs["storyboard_prompt_seg{N}"]  → the image prompt text
+      - agent_outputs["storyboard_prompt_seg{N}"]  鈫?the image prompt text
 
     Image generation is intentionally separate: the UI lets the user review the
     prompt first, then explicitly call the image API.
@@ -630,7 +635,7 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
             state,
             {
                 "message": (
-                    f"分镜首帧图已跳过：第 {segment_index} 段还没有镜头导演输出。"
+                    f"鍒嗛暅棣栧抚鍥惧凡璺宠繃锛氱 {segment_index} 娈佃繕娌℃湁闀滃ご瀵兼紨杈撳嚭銆?
                 ),
             },
         )
@@ -641,7 +646,7 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
             state,
             {
                 "message": (
-                    f"分镜首帧图已跳过：第 {segment_index} 段没有可识别的镜头列表。"
+                    f"鍒嗛暅棣栧抚鍥惧凡璺宠繃锛氱 {segment_index} 娈垫病鏈夊彲璇嗗埆鐨勯暅澶村垪琛ㄣ€?
                 ),
             },
         )
@@ -690,9 +695,9 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
             agent_name="storyboard_prompt_designer",
         )
     except Exception as exc:
-        raise RuntimeError(f"故事板提示词大模型连接不成功：{exc}") from exc
+        raise RuntimeError(f"鏁呬簨鏉挎彁绀鸿瘝澶фā鍨嬭繛鎺ヤ笉鎴愬姛锛歿exc}") from exc
 
-    # Clean up the prompt — strip fences if the LLM ignored instructions.
+    # Clean up the prompt 鈥?strip fences if the LLM ignored instructions.
     storyboard_prompt = re.sub(r"^```(?:\w+)?\n?|\n?```$", "", storyboard_prompt.strip()).strip()
 
     prompt_key = f"storyboard_prompt_seg{segment_index:02d}"
@@ -705,8 +710,8 @@ def storyboard_designer_node(state: DirectorState) -> DirectorState:
         {
             "agent_outputs": updated_outputs,
             "message": (
-                f"分镜首帧图提示词已生成（第 {segment_index}/{total_segments} 段），"
-                "请审核后再手动生成图片。"
+                f"鍒嗛暅棣栧抚鍥炬彁绀鸿瘝宸茬敓鎴愶紙绗?{segment_index}/{total_segments} 娈碉級锛?
+                "璇峰鏍稿悗鍐嶆墜鍔ㄧ敓鎴愬浘鐗囥€?
             ),
         },
     )
@@ -732,7 +737,7 @@ def generate_storyboard_image_for_segment(
         or ""
     ).strip()
     if not prompt:
-        raise RuntimeError(f"第 {selected_index} 段还没有分镜首帧图提示词，无法生图。")
+        raise RuntimeError(f"绗?{selected_index} 娈佃繕娌℃湁鍒嗛暅棣栧抚鍥炬彁绀鸿瘝锛屾棤娉曠敓鍥俱€?)
 
     reference_b64s = _reference_images_for_storyboard(state)
     image_result = _call_image_generation_api(
@@ -741,7 +746,7 @@ def generate_storyboard_image_for_segment(
         agent_name="storyboard_designer",
     )
     if not image_result or image_result.startswith("["):
-        raise RuntimeError(image_result or "生图接口没有返回图片。")
+        raise RuntimeError(image_result or "鐢熷浘鎺ュ彛娌℃湁杩斿洖鍥剧墖銆?)
 
     from ..request_context import request_session_id
 
@@ -768,7 +773,7 @@ def generate_storyboard_image_for_segment(
         {
             "agent_outputs": updated_outputs,
             "storyboard_images_by_segment": storyboard_images,
-            "message": f"分镜首帧图片已生成（第 {selected_index} 段） → {image_path_or_uri}",
+            "message": f"鍒嗛暅棣栧抚鍥剧墖宸茬敓鎴愶紙绗?{selected_index} 娈碉級 鈫?{image_path_or_uri}",
         },
     )
     return {
@@ -801,3 +806,5 @@ def generate_storyboard_for_segment(
         "prompt": outputs.get(f"storyboard_prompt_seg{int(seg):02d}", ""),
         "image_path": (result.get("storyboard_images_by_segment") or {}).get(seg, ""),
     }
+
+

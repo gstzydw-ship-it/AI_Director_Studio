@@ -1979,6 +1979,15 @@
             return /Prompt\s*重新编译失败|编译失败|LLM.*失败|网络连接失败|RuntimeError|Traceback|HTTP\s*\d+|SSL|timeout|超时/i.test(String(text || ''));
         }
 
+        function hasSavedShotDirectorOutput(outputs = {}, state = {}) {
+            return Boolean(
+                outputs.shot_director ||
+                outputs.shot_director_final ||
+                state.shot_director_approved_by_segment ||
+                state.shot_director_original_by_segment
+            );
+        }
+
         function renderCompiledSegments(outputs, state = {}) {
             const entries = compiledSegmentEntries(outputs);
             const entryMap = new Map(entries.map(item => [item.index, item]));
@@ -1997,11 +2006,16 @@
             const currentIndex = Number(state.active_segment_index || state.current_segment_index || 0);
             const status = state.status || '';
             const isRunning = status.startsWith('running');
+            const hasShotDirectorForRecompile = hasSavedShotDirectorOutput(outputs, state);
 
             const cards = [];
             for (let i = 1; i <= totalSegments; i++) {
                 const entry = entryMap.get(i);
                 const hasContent = !!entry;
+                const canRecompile = !isRunning && (
+                    hasContent ||
+                    (hasShotDirectorForRecompile && (!currentIndex || i === currentIndex))
+                );
 
                 // 片段状态判定：
                 //   - 已生成 Prompt → '已生成'
@@ -2033,12 +2047,12 @@
                        </div>`
                     : `<div class="segment-empty">该段尚未生成 Prompt。</div>`;
 
-                // 只有已生成的片段才显示操作按钮（避免空段点了没意义）
+                // 复制只对已有 Prompt 有意义；重编译可复用已保存的三段式镜头输出。
                 const copyBtn = hasContent
                     ? `<button class="btn-small segment-copy-btn" type="button" data-copy-segment="${i}"
                                onclick="event.stopPropagation(); copySegmentPrompt(${i}, this); return false;">复制本段</button>`
                     : '';
-                const rerunBtn = hasContent
+                const rerunBtn = canRecompile
                     ? `<button class="btn-small segment-rerun-btn" type="button" data-recompile-segment="${i}"
                                onclick="event.stopPropagation(); recompilePrompt(${i}, this); return false;">重新编译</button>`
                     : '';

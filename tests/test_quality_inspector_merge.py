@@ -271,6 +271,106 @@ def test_compiler_guard_rejects_overfragmented_life_pressure_prompt():
     assert "1秒以下碎镜过多" in report
 
 
+def test_compiler_guard_rejects_untested_seedance_coverage_template():
+    prompt = """片段1｜办公室｜压迫｜约5秒｜9:16
+
+【画面基底】
+办公室内，A和B面对面站定。
+
+【镜头序列】
+镜头1【5秒】【A、B】双人半身关系景，固定机位。A停住看向B，B没有移动。
+
+尾帧：两人仍面对面站定。
+
+【约束】
+禁止字幕。
+"""
+    planner = """- fragment_id: F01
+  generation_unit: "core_visible_event=A confronts B; reaction_bridge=B holds; emotion_landing=B remains silent"
+  model_complexity_score: 2
+  required_reference_role: "identity_reference + scene_reference"
+"""
+    director = """fragment_id: F01
+schema_version: shot_director_coverage_v3
+coverage_plan:
+  dramatic_task: pressure
+template_plan:
+  shots:
+    - shot_id: F01-S01
+      template_id: COV-CANDIDATE-001
+      template_status: candidate
+      duration: "5秒"
+      task: pressure beat
+      subject: A, B
+      shot: 双人半身关系景
+      action: A looks at B.
+      dialogue: ""
+      must_carry: pressure
+      cut_point: tail state holds
+      continuity: same room
+"""
+
+    report = _compiler_guard_report(prompt, "", planner, director)
+
+    assert "SEEDANCE-COVERAGE-TEMPLATE-GATE-001" in report
+    assert "candidate/untested" in report
+
+
+def test_quality_inspector_rejects_r1_template_without_reference(monkeypatch):
+    monkeypatch.setattr(qi, "_persist_update", lambda state, update: update)
+
+    prompt = """片段1｜走廊｜追逐｜约6秒｜9:16
+
+【画面基底】
+走廊内，A在画面中央。
+
+【镜头序列】
+镜头1【6秒】【A】单人中景，固定机位。A向前快步停住。
+
+尾帧：A停在走廊中。
+
+【约束】
+禁止字幕。
+"""
+    planner = """- fragment_id: F01
+  generation_unit: "core_visible_event=A moves fast; reaction_bridge=A stops; emotion_landing=A looks ahead"
+  model_complexity_score: 3
+  required_reference_role: "identity_reference + scene_reference"
+"""
+    director = """fragment_id: F01
+schema_version: shot_director_coverage_v3
+template_plan:
+  shots:
+    - shot_id: F01-S01
+      template_id: COV-SD20-R1-FAST-CHASE
+      template_status: R1
+      duration: "6秒"
+      task: fast chase
+      subject: A
+      shot: 单人中景
+      action: A moves fast.
+      dialogue: ""
+      must_carry: fast movement
+      cut_point: A stops
+      continuity: same hallway
+"""
+
+    update = quality_inspector_node(
+        {
+            "active_segment_index": 1,
+            "agent_outputs": {
+                "compiled_segment_1": prompt,
+                "story_planner": planner,
+                "shot_director": director,
+            },
+        }
+    )
+
+    report = update["agent_outputs"]["quality_inspector"]
+    assert "总体评级：fail" in report
+    assert "R1 模板缺少视频参考" in report
+
+
 def test_quality_inspector_rejects_overfragmented_life_pressure_prompt(monkeypatch):
     monkeypatch.setattr(qi, "_persist_update", lambda state, update: update)
 

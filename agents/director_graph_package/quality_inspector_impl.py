@@ -22,6 +22,7 @@ from .helpers import (
     _segment_block_by_fragment_id,
     _yaml_line_field,
 )
+from .seedance_contracts import seedance_qc_issues
 
 
 # ---------------------------------------------------------------------------
@@ -76,6 +77,69 @@ def _planner_has_reaction_handoff(planner_segment: str) -> bool:
         _has_yaml_field(planner_segment, "reaction_plan")
         or re.search(r"(?m)^\s*(?:承接要求|镜头导演交接)\s*[:：]", planner_segment or "")
     )
+
+
+def _seedance_contract_is_explicit(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?im)^\s*(?:template_id|coverage_template_id|template_level)\s*[:=]|Seedance\s*2\.0|全能参考模式",
+            text or "",
+        )
+    )
+
+
+def _seedance_issue_to_qc_message(issue: str) -> str:
+    if "seedance_template_id_missing" in issue or "seedance_template_level_missing" in issue:
+        return "- [SEEDANCE-CONTRACT-GATE-001] COVERAGE_TEMPLATE_REQUIRED target=shot_director：Seedance 2.0 片段缺少 coverage template_id/template_level。"
+    if "seedance_template_x_forbidden" in issue:
+        return "- [SEEDANCE-COVERAGE-TEMPLATE-GATE-001] X_TEMPLATE_BLOCKED target=shot_director：命中 X 禁用 coverage 模板，不得进入生成。"
+    if "seedance_template_candidate" in issue:
+        return "- [SEEDANCE-COVERAGE-TEMPLATE-GATE-001] CANDIDATE_TEMPLATE_BLOCKED target=shot_director：coverage 模板仍是 candidate/untested，必须先测试或降级为 W1/W2。"
+    if "seedance_r1_reference_missing" in issue:
+        return "- [SEEDANCE-COVERAGE-TEMPLATE-GATE-001] R1_REFERENCE_REQUIRED target=shot_director：R1 模板缺少视频参考/关键帧/动作参考绑定，需要 video_reference/motion_reference/keyframe_sequence。"
+    if "seedance_complexity_score" in issue:
+        return "- [SEEDANCE-COMPLEXITY-GATE-001] SD20_COMPLEXITY_BUDGET target=story_planner：model_complexity_score 超过当前单段生产边界，必须拆分、降级或改用视频参考。"
+    if "seedance_actor_limit" in issue:
+        return "- [SEEDANCE-COMPLEXITY-GATE-001] SD20_MULTI_ACTOR_ACTION_BUDGET target=story_planner：三名以上主要角色动作必须静态化或拆分。"
+    if "seedance_tail_state_missing" in issue:
+        return "- [SEEDANCE-TAIL-STATE-GATE-001] TAILFRAME_STATE_REQUIRED target=shot_director：tail_state 必须明确且可继承。"
+    if "seedance_text_dependency" in issue:
+        return "- [SEEDANCE-NO-TEXT-DEPENDENCY-001] NO_SUBTITLE_SCREEN_TEXT target=prompt_compiler：不得依赖字幕/屏幕文字/文件文字传达剧情。"
+    return f"- [SEEDANCE-CONTRACT-GATE-001] {issue}"
+
+
+def _coverage_state_contract_text(state: DirectorState, fragment_id: str | None) -> str:
+    contracts = state.get("coverage_contracts_by_segment") or {}
+    if not isinstance(contracts, dict):
+        return ""
+    keys = [fragment_id, str(state.get("active_segment_index") or ""), str(state.get("current_segment_index") or "")]
+    contract = next((contracts.get(key) for key in keys if key in contracts), None)
+    if not isinstance(contract, dict):
+        return ""
+    return "\n".join(f"{key}: {value}" for key, value in contract.items())
+
+
+def _seedance_contract_qc_issues(
+    prompt: str,
+    planner_segment: str,
+    director_segment: str,
+    state: DirectorState | None = None,
+    fragment_id: str | None = None,
+) -> list[str]:
+    state_contract = _coverage_state_contract_text(state or {}, fragment_id)
+    combined = "\n".join([prompt or "", planner_segment or "", director_segment or "", state_contract])
+    if not _seedance_contract_is_explicit(combined):
+        return []
+    issues = [_seedance_issue_to_qc_message(issue) for issue in seedance_qc_issues(combined)]
+    if re.search(r"action_budget_used\s*:[\s\S]{0,80}over_budget\s*:\s*true", combined, re.IGNORECASE):
+        issues.append("- [SEEDANCE-COMPLEXITY-GATE-001] SD20_MULTI_ACTOR_ACTION_BUDGET target=shot_director：action_budget_used.over_budget=true，必须拆分或降级。")
+    if re.search(r"main_character_count\s*:\s*[3-9]", combined) and re.search(r"同时|各自|争抢|冲向|伸手", combined):
+        issues.append("- [SEEDANCE-COMPLEXITY-GATE-001] SD20_MULTI_ACTOR_ACTION_BUDGET target=story_planner：三名以上主要角色同时动作，必须静态化或拆分。")
+    if re.search(r"尾帧[:：].{0,40}(压迫感|张力|氛围|情绪|黑场|留白)|tail_state\s*:\s*(?:不清|未知|待定|压迫感|black)", combined, re.IGNORECASE):
+        issues.append("- [SEEDANCE-TAIL-STATE-GATE-001] TAILFRAME_STATE_REQUIRED target=shot_director：尾帧不能只写抽象情绪，必须写人物位置、视线、道具和门/空间状态。")
+    if re.search(r"尾帧[:：].{0,40}(压迫感|张力|氛围|情绪)", combined):
+        issues.append("- [PROMPT-VISIBLE-BODY-LANGUAGE-001] VISIBLE_EMOTION_ANCHOR_REQUIRED target=prompt_compiler：抽象情绪必须翻译为视线、肩背、下颌、手部、距离或道具状态。")
+    return issues
 
 
 _SHOT_DENSITY_LIFE_PRESSURE_RE = re.compile(
@@ -147,6 +211,204 @@ def _prompt_shot_density_issues(
     return issues
 
 
+_SEEDANCE_STRICT_CONTEXT_RE = re.compile(
+    r"Seedance|seedance|全能参考|白名单|coverage_contract|coverage template|template_level|template_id|"
+    r"coverage_template_id|COV-SD20|model_complexity_score|compiled_prompt_metadata"
+)
+_SEEDANCE_TEXT_DEPENDENCY_RE = re.compile(
+    r"依赖(?:字幕|屏幕文字|文件文字|手机文字|可读文字)|"
+    r"(?:字幕|屏幕文字|英文字幕|文字浮层|文件文字|手机屏幕文字|可读标牌|可读文字).{0,18}"
+    r"(?:传递|说明|显示|展示|写着|读出|看清|揭示|证明|关键|证据)"
+)
+_SEEDANCE_VISIBLE_EMOTION_RE = re.compile(
+    r"压迫感|张力|炸点|钩子|气口|留白|情绪顶点|情绪拉满|崩溃|震惊|高级感|电影感|爽感"
+)
+_SEEDANCE_VISIBLE_ACTION_ANCHOR_RE = re.compile(
+    r"下颌|眼神|视线|呼吸|肩|手指|嘴唇|停顿|后退|前半步|转身|低头|抬眼|攥|松开|僵住|看向"
+)
+_SEEDANCE_COMPLEX_MULTI_ACTION_RE = re.compile(
+    r"(?:三人|3人|四人|4人|多人|人群).{0,24}(?:同时|一起|各自|分别|集体).{0,24}"
+    r"(?:动作|移动|冲|跑|抢|推|拉|打|摔|争抢|闯入|散开|围上|伸手)"
+)
+_SEEDANCE_R1_REFERENCE_RE = re.compile(
+    r"motion_reference|video_reference|keyframe(?:_sequence)?|关键帧|视频参考|动作参考|首尾帧|尾帧参考",
+    re.IGNORECASE,
+)
+_SEEDANCE_TAIL_FIELD_RE = re.compile(r"tail_state|tailframe|tail_frame|尾帧|尾帧状态|tail_state_card")
+_SEEDANCE_WEAK_TAIL_RE = re.compile(r"尾帧[：:][^\n]*(?:眼神|手部|黑场|空镜|情绪|氛围)[^\n]*(?:停住|收束|结束)?")
+
+
+def _state_lookup_by_segment(mapping: Any, segment_index: int, fragment_id: str) -> Any:
+    if not isinstance(mapping, dict):
+        return None
+    keys = (
+        fragment_id,
+        str(fragment_id),
+        f"F{segment_index:02d}",
+        f"F{segment_index}",
+        str(segment_index),
+        segment_index,
+    )
+    for key in keys:
+        if key in mapping:
+            return mapping[key]
+    return None
+
+
+def _flatten_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return "\n".join(f"{key}: {_flatten_text(item)}" for key, item in value.items())
+    if isinstance(value, (list, tuple, set)):
+        return "\n".join(_flatten_text(item) for item in value)
+    return str(value)
+
+
+def _seedance_context_is_strict(state: DirectorState, prompt: str, planner_segment: str, director_segment: str) -> bool:
+    context = "\n".join(
+        [
+            prompt or "",
+            planner_segment or "",
+            director_segment or "",
+            _flatten_text(state.get("seedance_profile")),
+            _flatten_text(state.get("coverage_contracts_by_segment")),
+            _flatten_text(state.get("coverage_template_id_by_segment")),
+            _flatten_text(state.get("model_complexity_score_by_segment")),
+            _flatten_text(state.get("reference_bindings")),
+        ]
+    )
+    return bool(_SEEDANCE_STRICT_CONTEXT_RE.search(context))
+
+
+def _first_int_field(context: str, field_names: tuple[str, ...]) -> int | None:
+    for field_name in field_names:
+        match = re.search(rf"(?im)^\s*{re.escape(field_name)}\s*:\s*['\"]?(\d+)", context or "")
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _seedance_gate_issues(
+    state: DirectorState,
+    prompt: str,
+    planner_segment: str,
+    director_segment: str,
+    segment_index: int,
+    fragment_id: str,
+) -> list[str]:
+    strict_context = _seedance_context_is_strict(state, prompt, planner_segment, director_segment)
+    coverage_contract = _state_lookup_by_segment(state.get("coverage_contracts_by_segment"), segment_index, fragment_id)
+    generation_unit = None
+    for unit in state.get("generation_units") or []:
+        if isinstance(unit, dict) and unit.get("fragment_id") in {fragment_id, f"F{segment_index:02d}", f"F{segment_index}", str(segment_index)}:
+            generation_unit = unit
+            break
+
+    coverage_text = _flatten_text(coverage_contract)
+    generation_text = _flatten_text(generation_unit)
+    reference_text = _flatten_text(state.get("reference_bindings")) + "\n" + _flatten_text(state.get("asset_selection"))
+    context = "\n".join([prompt or "", planner_segment or "", director_segment or "", coverage_text, generation_text])
+
+    template_id = _state_lookup_by_segment(state.get("coverage_template_id_by_segment"), segment_index, fragment_id)
+    if not template_id and isinstance(coverage_contract, dict):
+        template_id = coverage_contract.get("template_id") or coverage_contract.get("coverage_template_id")
+    if not template_id:
+        template_match = re.search(r"(?im)^\s*(?:template_id|coverage_template_id|compiled_from_template_id)\s*:\s*['\"]?([A-Za-z0-9_-]+)", context)
+        template_id = template_match.group(1) if template_match else ""
+    template_id_text = str(template_id or "")
+
+    level = ""
+    if isinstance(coverage_contract, dict):
+        level = str(
+            coverage_contract.get("template_level") or coverage_contract.get("template_status") or ""
+        )
+    if not level:
+        level_match = re.search(r"(?im)^\s*(?:template_level|template_status)\s*:\s*['\"]?([A-Za-z0-9_-]+)", context)
+        level = level_match.group(1) if level_match else ""
+    level = level.upper()
+
+    complexity = _state_lookup_by_segment(state.get("model_complexity_score_by_segment"), segment_index, fragment_id)
+    if complexity is None and isinstance(generation_unit, dict):
+        complexity = generation_unit.get("model_complexity_score")
+    if complexity is None:
+        complexity = _first_int_field(context, ("model_complexity_score",))
+    try:
+        complexity_score = int(complexity) if complexity is not None and str(complexity) != "" else None
+    except (TypeError, ValueError):
+        complexity_score = None
+
+    issues: list[str] = []
+    prefix = "- [SEEDANCE-QC]"
+
+    if template_id_text.upper().startswith("COV-SD20-X") or level == "X":
+        issues.append(
+            f"{prefix} target=shot_director rule=X_TEMPLATE_BLOCKED issue=命中 Seedance 2.0 禁用 coverage 模板。"
+            " repair_route=shot_director：将 X 手法拆成 W1/W2 小单元；每个单元保留一个核心可见事件、一个主动作和清楚尾帧，不得交给 prompt_compiler 直接生成。"
+        )
+
+    if not template_id_text and strict_context:
+        issues.append(
+            f"{prefix} target=shot_director rule=COVERAGE_TEMPLATE_REQUIRED issue=缺少可生产白名单 template_id。"
+            " repair_route=shot_director：从 COV-SD20-W1/W2/R1 白名单选择 template_id，并补齐 duration_s、main_subject、action_budget、reference_need、tail_state、compiler_guard。"
+        )
+    elif re.search(r"candidate|untested|自由文本", template_id_text, re.IGNORECASE) or level in {"CANDIDATE", "UNTESTED"}:
+        issues.append(
+            f"{prefix} target=shot_director rule=COVERAGE_TEMPLATE_REQUIRED issue=template_id 仍是 candidate/untested，不能作为生产模板。"
+            " repair_route=shot_director：降级到已测试 W1/W2，或补测后再交给 prompt_compiler。"
+        )
+
+    if (level == "R1" or template_id_text.upper().startswith("COV-SD20-R1")) and not _SEEDANCE_R1_REFERENCE_RE.search(
+        context + "\n" + reference_text
+    ):
+        issues.append(
+            f"{prefix} target=shot_director rule=R1_REFERENCE_REQUIRED issue=R1 参考驱动模板缺少 video_reference/motion_reference/keyframe_sequence。"
+            " repair_route=shot_director：补充动作/视频/关键帧参考并绑定 target_id 与 scope，或降级为 W1/W2 小单元。"
+        )
+
+    if complexity_score is not None and complexity_score >= 5:
+        issues.append(
+            f"{prefix} target=story_planner/shot_director rule=SD20_COMPLEXITY_BUDGET issue=model_complexity_score={complexity_score} 超出单段生成边界。"
+            " repair_route=story_planner/shot_director：拆成 2 个以上生成单元；每个单元只保留 1 个核心可见事件、1 个主动作链和 1 个尾帧状态。"
+        )
+
+    character_count = _first_int_field(context, ("main_character_count", "primary_actor_count", "visible_character_count"))
+    if (character_count is not None and character_count >= 3 and re.search(r"over_budget\s*:\s*true|各自|同时|一起", context, re.IGNORECASE)) or _SEEDANCE_COMPLEX_MULTI_ACTION_RE.search(context):
+        issues.append(
+            f"{prefix} target=story_planner/shot_director rule=SD20_MULTI_ACTOR_ACTION_BUDGET issue=3人以上同动或多人复杂动作超出可控预算。"
+            " repair_route=story_planner/shot_director：拆分为单一行动主体的小单元；其余角色只保留静态反应/画外反应，复杂动作改 R1 并补动作参考。"
+        )
+
+    if strict_context and not _SEEDANCE_TAIL_FIELD_RE.search(context):
+        issues.append(
+            f"{prefix} target=prompt_compiler rule=TAILFRAME_STATE_REQUIRED issue=缺少可继承 tail_state/tailframe。"
+            " repair_route=prompt_compiler：在最后 0.5-1.0 秒写清人物位置、朝向/视线、道具/门/车门状态和下一段承接点，不新增动作或新事件。"
+        )
+    elif _SEEDANCE_WEAK_TAIL_RE.search(context):
+        issues.append(
+            f"{prefix} target=prompt_compiler rule=TAILFRAME_STATE_REQUIRED issue=尾帧停在眼神/手部/黑场/抽象空镜，下一段不可继承。"
+            " repair_route=prompt_compiler：改为关系景或主体半身景尾帧，写清人物位置、视线、道具与门/车门状态。"
+        )
+
+    if _SEEDANCE_TEXT_DEPENDENCY_RE.search(context):
+        issues.append(
+            f"{prefix} target=prompt_compiler rule=NO_SUBTITLE_SCREEN_TEXT issue=prompt 依赖或诱发字幕/屏幕/文件可读文字传递剧情。"
+            " repair_route=prompt_compiler：集中写明禁止字幕、屏幕文字、英文字幕、文字浮层；把证据改为道具来源、递出动作、识别反应和停顿落点。"
+        )
+
+    for line in re.split(r"[\n。；;]", prompt or ""):
+        if _SEEDANCE_VISIBLE_EMOTION_RE.search(line) and not _SEEDANCE_VISIBLE_ACTION_ANCHOR_RE.search(line):
+            issues.append(
+                f"{prefix} target=prompt_compiler rule=VISIBLE_EMOTION_ANCHOR_REQUIRED issue=抽象情绪/精品感词未落到可见动作：{line.strip()[:80]}。"
+                " repair_route=prompt_compiler：保留戏剧含义，改为 1 个可见身体/表情锚点，如下颌收紧、眼神停住、手指松开、呼吸停顿或肩背僵住。"
+            )
+            break
+
+    return issues
+
+
 # ---------------------------------------------------------------------------
 # Graph nodes
 # ---------------------------------------------------------------------------
@@ -211,9 +473,7 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                 ):
                     if not _has_yaml_field(shot_body, field):
                         qc_issues.append(f"- {shot_id} 缺少字段 {field}。")
-                has_merged_shot = _has_yaml_field(shot_body, "shot")
-                has_legacy_camera_size = _has_yaml_field(shot_body, "camera") and _has_yaml_field(shot_body, "size")
-                if not (has_merged_shot or has_legacy_camera_size):
+                if not _has_yaml_field(shot_body, "shot"):
                     qc_issues.append(f"- {shot_id} 缺少镜头字段。")
 
                 duration = _yaml_line_field(shot_body, "duration")
@@ -231,12 +491,6 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                         "必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。"
                     )
 
-    has_legacy_structure = re.search(
-        r"【风格锚点】[\s\S]*【画幅锚点】[\s\S]*"
-        r"(?:【空间与首帧总控】|【连续性状态契约】)[\s\S]*"
-        r"【时间轴】[\s\S]*(?:【约束】|【全段硬约束】)",
-        prompt,
-    )
     has_shot_sequence_structure = re.search(
         r"【风格锚点】[\s\S]*【画幅锚点】[\s\S]*"
         r"(?:【空间与首帧总控】|【连续性状态契约】)[\s\S]*"
@@ -247,14 +501,16 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
         r"【画面基底】[\s\S]*【镜头序列】[\s\S]*【约束】",
         prompt,
     )
-    if not (has_compact_seedance_structure or has_shot_sequence_structure or has_legacy_structure):
+    if not (has_compact_seedance_structure or has_shot_sequence_structure):
         qc_issues.append(
-            "- prompt 缺少规定结构，应包含新版【画面基底】【镜头序列】【约束】，或兼容旧版完整结构。"
+            "- prompt 缺少规定结构，应包含【画面基底】【镜头序列】【约束】，或【风格锚点】【画幅锚点】【人物】【镜头序列】【约束】。"
         )
     if planner_segment and re.search(r"reaction_plan\s*:\s*.*片段内", planner_segment) and not re.search(
         r"受击|反应|表情|眼神|嘴唇|下颌|呼吸|停顿", prompt
     ):
         qc_issues.append("- 当前片段规划要求片段内承受到击/反应，但 prompt 未写出可见落点。")
+
+    qc_issues.extend(_seedance_contract_qc_issues(prompt, planner_segment, director_segment, state, current_fragment_id))
 
     if "同一机位继续" in prompt:
         qc_issues.append(
@@ -273,6 +529,9 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
 
     timeline_blocks = _timeline_blocks(prompt)
     qc_issues.extend(_prompt_shot_density_issues(prompt, planner_segment, director_segment, timeline_blocks))
+    qc_issues.extend(
+        _seedance_gate_issues(state, prompt, planner_segment, director_segment, segment_index, current_fragment_id)
+    )
     if not uses_shot_sequence:
         for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(timeline_blocks[1:], start=2):
             prefix = blk_body[:120]

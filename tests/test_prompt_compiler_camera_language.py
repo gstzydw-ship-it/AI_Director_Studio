@@ -232,3 +232,72 @@ def test_compiler_guard_rejects_left_and_right_axis_in_one_timeline_block():
 
     assert "PROMPT-AXIS-LOCK-PER-SEGMENT-001" in report
     assert "左前方" in report and "右前方" in report
+
+
+def test_compiler_guard_rejects_pseudo_relation_viewpoint_language():
+    prompt = """片段1｜乔熙公寓客厅｜晨间赶时间｜~12秒
+
+【画面基底】
+清晨客厅，沙发、地毯和茶几在同一空间。
+
+【镜头序列】
+镜头1【5秒】【乔熙、小豆丁】双人中景，沙发与地毯之间的关系视角。乔熙蹲在地毯旁给小豆丁套衣服，小豆丁缩手躲开。（切镜时机：小豆丁继续缩手后切至镜头2）
+镜头2【3.5秒】【乔熙、小豆丁】双人半身关系景，空间关系视角。乔熙把手机放在沙发上，小豆丁说出"I don't want to go to school!"。（切镜时机：拒绝台词落下后切至镜头3）
+镜头3【3.5秒】【乔熙、小豆丁】双人中景，尾帧承接视角。乔熙整理好衣服并拿起书包，尾帧：手机仍在沙发上，小豆丁站在地毯旁。
+
+【约束】
+主体锁定乔熙和小豆丁；严禁字幕、水印、logo和可读文字。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "伪镜头视角" in report
+    assert "沙发与地毯之间的关系视角" in report
+    assert "真实可拍的观看位置" in report
+
+
+def test_compiler_guard_rejects_overloaded_short_drama_shot_line():
+    prompt = """片段1｜乔熙公寓客厅｜晨间赶时间｜~12秒
+
+【画面基底】
+清晨客厅，沙发、地毯和茶几在同一空间。
+
+【镜头序列】
+镜头1【5秒】【乔熙、小豆丁】双人中景，客厅侧面平视。乔熙俯身在地毯旁，手机贴在耳边，另一只手拉小豆丁的衣摆，小豆丁手臂缩回、身体扭开，乔熙看向茶几闹钟，急声说出"Kiki, cover for me. I'll be right there!"，说完把手机从耳边移开，衣服仍卡在手臂处。（切镜时机：手机刚离耳时切至镜头2）
+镜头2【3.5秒】【乔熙、小豆丁】双人半身关系景，沙发旁固定视角。乔熙把手机放到沙发坐垫上，小豆丁说出"I don't want to go to school!"。（切镜时机：拒绝台词落下后切至镜头3）
+镜头3【3.5秒】【乔熙、小豆丁】双人中景，地毯旁固定视角。乔熙整理好衣服，尾帧：手机仍在沙发上，小豆丁站在地毯旁。
+
+【约束】
+主体锁定乔熙和小豆丁；严禁字幕、水印、logo和可读文字。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "动作过载" in report
+    assert "一个主动作、一个辅助状态和一句台词" in report
+
+
+def test_compiler_guard_accepts_concise_short_drama_shot_language():
+    prompt = """片段1｜乔熙公寓客厅｜晨间赶时间｜~12秒
+
+【画面基底】
+清晨日光照进客厅，沙发、地毯和茶几保持稳定；乔熙和小豆丁同在客厅，Kiki只作为电话声音存在。
+
+【镜头序列】
+镜头1【5秒】【乔熙、小豆丁】双人中景，客厅侧面平视。乔熙蹲在地毯旁，一边夹着电话一边给小豆丁套衣服；小豆丁缩着手臂扭开，衣服卡在胳膊上。（切镜时机：乔熙说完电话后切至镜头2）
+镜头2【3.5秒】【乔熙、小豆丁】双人半身关系景，沙发旁固定视角。乔熙把手机放到沙发坐垫上，空出双手继续拉好衣摆；小豆丁后退半步，说出"I don't want to go to school!"（切镜时机：拒绝台词落下后切至镜头3）
+镜头3【3.5秒】【乔熙、小豆丁】双人中景，地毯旁固定视角。乔熙低身整理好衣服，放软语气安抚小豆丁；小豆丁停住扭动。尾帧：乔熙抓起旁边书包，手机仍留在沙发上，二人准备出门。
+
+【约束】
+主体锁定乔熙和小豆丁；空间锁定客厅；手机留在沙发坐垫上；严禁字幕、水印、logo和可读文字。
+"""
+
+    report = _compiler_guard_report(
+        prompt,
+        "乔熙给小豆丁穿衣服。小豆丁说：I don't want to go to school!",
+        "",
+        "main_shots:\n- shot_id: F01-S01",
+    )
+
+    assert "伪镜头视角" not in report
+    assert "动作过载" not in report

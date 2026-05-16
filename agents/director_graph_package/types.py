@@ -95,6 +95,64 @@ class TailStateCard(TypedDict, total=False):
     distance_relations: list[str]
 
 
+class SeedanceProfile(TypedDict, total=False):
+    model: str
+    mode: str
+    max_duration_s: float
+    preferred_duration_s: str
+    max_reference_assets: int
+    max_effective_shots: int
+    complexity_policy: str
+
+
+class SceneLock(TypedDict, total=False):
+    scene_type: str
+    fixed_space: str
+    entrances_exits: list[str]
+    fixed_anchors: list[str]
+    key_props: list[str]
+    character_positions: list[str]
+    eyeline_relations: list[str]
+
+
+class ReferenceBinding(TypedDict, total=False):
+    label: str
+    role: Literal[
+        "identity_reference",
+        "scene_reference",
+        "prop_reference",
+        "motion_reference",
+        "camera_reference",
+        "audio_reference",
+    ]
+    subject: str
+    source: str
+    notes: str
+
+
+class GenerationUnitContract(TypedDict, total=False):
+    fragment_id: str
+    core_visible_event: str
+    reaction_bridge: str
+    emotion_landing: str
+    source_script_events: list[str]
+    exact_dialogue_units: list[str]
+    entry_state: str
+    exit_state: str
+    reference_needs: list[str]
+    model_complexity_score: int
+
+
+class CoverageTemplateContract(TypedDict, total=False):
+    fragment_id: str
+    template_id: str
+    template_status: Literal["W1", "W2", "R1", "X", "candidate", "untested"]
+    coverage_role: str
+    action_budget: str
+    reference_need: list[str]
+    tail_state_card: TailStateCard
+
+
 class StructuredShotContract(TypedDict, total=False):
     subject_id: str
     space_anchor: str
@@ -134,6 +192,16 @@ class DirectorState(TypedDict, total=False):
     reference_image_count: int
     reference_image_manifest: list[dict[str, str]]
     model_profile_snapshot: dict[str, Any]
+    seedance_profile: SeedanceProfile
+    scene_input_card: dict[str, Any]
+    scene_lock: SceneLock
+    reference_bindings: list[ReferenceBinding]
+    generation_units: list[GenerationUnitContract]
+    model_complexity_score_by_segment: dict[str, int]
+    coverage_template_id_by_segment: dict[str, str]
+    coverage_contracts_by_segment: dict[str, CoverageTemplateContract]
+    tail_state_cards: dict[str, TailStateCard]
+    repair_route: str
     asset_selection: dict[str, Any]
     director_review_required: bool
     director_edits_by_segment: dict[str, Any]

@@ -1,0 +1,166 @@
+registry_id: SHORT_DRAMA_SCENE_STORYBOARD_CANDIDATES_V1
+status: candidate_only
+runtime_retrieval: false
+created_at: "2026-05-16"
+source_sample_dir: H:\样片
+analysis_dir: output/short_drama_analysis_full_20260516_105744
+promotion_flow:
+  - candidate
+  - seedance_test
+  - whitelist
+  - runtime_rule
+note: "These candidates are not production whitelist entries until Seedance 2.0 all-in-one reference tests pass."
+
+candidates:
+  - template_id: SCN-SD20-W1-DOMESTIC-BED-REACTION
+    scene_or_method: 卧室/床边单人受击停顿
+    applies_to_signals: [reaction_hold, misunderstanding, pressure]
+    seedance_grade_candidate: W1
+    complexity_score_default: 1
+    reference_needs: [identity_reference, scene_reference]
+    tail_state: 人物仍在床或床边，视线方向明确，手部状态可继承。
+    source_evidence: [ep10, ep11, ep12]
+
+  - template_id: SCN-SD20-W1-DOORWAY-INTERRUPT
+    scene_or_method: 门口入场并停住
+    applies_to_signals: [hook, pressure, tail_hook]
+    seedance_grade_candidate: W1
+    complexity_score_default: 2
+    reference_needs: [identity_reference, scene_reference]
+    tail_state: 门状态、入场者站位、场内人朝向清楚。
+    source_evidence: [ep12, ep20, ep32, ep92]
+
+  - template_id: SCN-SD20-W1-TWO-SHOT-PRESSURE
+    scene_or_method: 双人固定半身压迫
+    applies_to_signals: [pressure, misunderstanding, identity_reveal]
+    seedance_grade_candidate: W1
+    complexity_score_default: 2
+    reference_needs: [identity_reference, scene_reference]
+    tail_state: 双方距离和轴线不变，下一镜可反打或接反应。
+    source_evidence: [ep4, ep30, ep39]
+
+  - template_id: SCN-SD20-W1-PROP-REVEAL-STOP
+    scene_or_method: 道具揭示后人物停住
+    applies_to_signals: [prop_reveal, identity_reveal, tail_hook]
+    seedance_grade_candidate: W1
+    complexity_score_default: 2
+    reference_needs: [prop_reference, identity_reference, scene_reference]
+    tail_state: 道具落点或持有人清楚，人物反应稳定。
+    source_evidence: [ep5, ep21, ep47, ep91]
+
+  - template_id: SCN-SD20-W1-REACTION-HOLD-CHEST
+    scene_or_method: 胸部以上反应停顿
+    applies_to_signals: [reaction_hold, pressure, identity_reveal]
+    seedance_grade_candidate: W1
+    complexity_score_default: 1
+    reference_needs: [identity_reference]
+    tail_state: 表情和视线锁住，不新增动作。
+    source_evidence: [ep13, ep73, ep91]
+
+  - template_id: SCN-SD20-W2-MEETING-TABLE-PRESSURE
+    scene_or_method: 茶桌/会议桌对峙
+    applies_to_signals: [pressure, identity_reveal, prop_reveal]
+    seedance_grade_candidate: W2
+    complexity_score_default: 3
+    reference_needs: [scene_reference, prop_reference, identity_reference]
+    tail_state: 桌面道具归属清楚，旁听者静态化。
+    source_evidence: [ep50, ep51, ep52, ep64]
+
+  - template_id: SCN-SD20-W2-BANQUET-PUBLIC-REVEAL
+    scene_or_method: 宴会厅公开揭示
+    applies_to_signals: [pressure, identity_reveal, tail_hook]
+    seedance_grade_candidate: W2
+    complexity_score_default: 3
+    reference_needs: [scene_reference, identity_reference]
+    tail_state: 主角和压力源站位清楚，群演只做背景。
+    source_evidence: [ep20, ep21, ep36, ep81]
+
+  - template_id: SCN-SD20-W2-STAGE-ANNOUNCEMENT
+    scene_or_method: 舞台/发布会宣布
+    applies_to_signals: [hook, pressure, identity_reveal]
+    seedance_grade_candidate: W2
+    complexity_score_default: 3
+    reference_needs: [scene_reference, identity_reference, camera_reference]
+    tail_state: 台上/台下层级明确，尾帧回关系景。
+    source_evidence: [ep20, ep21, ep36, ep89]
+
+  - template_id: SCN-SD20-W2-VEHICLE-ARRIVAL-REVEAL
+    scene_or_method: 车门旁到场揭示
+    applies_to_signals: [hook, identity_reveal, pressure]
+    seedance_grade_candidate: W2
+    complexity_score_default: 3
+    reference_needs: [scene_reference, prop_reference, identity_reference]
+    tail_state: 车门开合状态和人物站位可继承。
+    source_evidence: [ep43, ep44, ep45]
+
+  - template_id: SCN-SD20-W2-CORRIDOR-SLOW-FOLLOW
+    scene_or_method: 走廊单人慢跟
+    applies_to_signals: [pressure, tail_hook, hook]
+    seedance_grade_candidate: W2
+    complexity_score_default: 3
+    reference_needs: [scene_reference, identity_reference, motion_reference]
+    tail_state: 人物停在明确门或走廊锚点前。
+    source_evidence: [ep60, ep61, ep92]
+
+  - template_id: SCN-SD20-W2-ELEVATOR-CLOSE-PRESSURE
+    scene_or_method: 电梯/封闭空间近距对峙
+    applies_to_signals: [pressure, misunderstanding, reaction_hold]
+    seedance_grade_candidate: W2
+    complexity_score_default: 3
+    reference_needs: [scene_reference, identity_reference]
+    tail_state: 人物距离与门状态清楚，避免贴身接触。
+    source_evidence: [ep32, ep61, ep62]
+
+  - template_id: SCN-SD20-W2-OUTDOOR-CEREMONY-WITNESS
+    scene_or_method: 户外仪式/墓地静态见证
+    applies_to_signals: [pressure, identity_reveal, tail_hook]
+    seedance_grade_candidate: W2_R1
+    complexity_score_default: 4
+    reference_needs: [scene_reference, identity_reference, keyframe_sequence]
+    tail_state: 主体与见证者层级清楚，群体不运动。
+    source_evidence: [ep15, ep16, ep19]
+
+  - template_id: SCN-SD20-R1-FIGHT-FALL-BEAT
+    scene_or_method: 打斗/摔倒动作顶点
+    applies_to_signals: [pressure, action_apex]
+    seedance_grade_candidate: R1
+    complexity_score_default: 5
+    reference_needs: [video_reference_required, motion_reference]
+    tail_state: 只承接动作后状态，不能继续打斗。
+    source_evidence: [ep23, ep26, ep37, ep58, ep62]
+
+  - template_id: SCN-SD20-R1-PROP-SCRAMBLE
+    scene_or_method: 多手抢夺道具
+    applies_to_signals: [prop_reveal, pressure]
+    seedance_grade_candidate: R1
+    complexity_score_default: 5
+    reference_needs: [motion_reference, prop_reference, keyframe_sequence]
+    tail_state: 道具最终归属明确，手部不再纠缠。
+    source_evidence: [ep21, ep56, ep67]
+
+  - template_id: SCN-SD20-R1-NIGHT-BACKLIGHT-DANGER
+    scene_or_method: 夜景车灯/危险道具
+    applies_to_signals: [hook, pressure, tail_hook]
+    seedance_grade_candidate: R1
+    complexity_score_default: 5
+    reference_needs: [scene_reference, motion_reference, prop_reference, video_reference_required]
+    tail_state: 倒地或扶住状态明确，光源不再变化。
+    source_evidence: [ep73, ep94]
+
+  - template_id: SCN-SD20-R1-FANTASY-EFFECT-POSE
+    scene_or_method: 法术/强光/舞台特效定帧
+    applies_to_signals: [hook, identity_reveal, tail_hook]
+    seedance_grade_candidate: R1_X
+    complexity_score_default: 5
+    reference_needs: [video_reference_required, post_production]
+    tail_state: 只锁主体姿态，特效建议后期。
+    source_evidence: [ep2, ep4, ep40, ep61, ep67]
+
+  - template_id: SCN-SD20-X-CROWD-CROSS-SPACE-ONE-SHOT
+    scene_or_method: 多人跨空间一镜到底
+    applies_to_signals: [pressure, public_reveal, action_apex]
+    seedance_grade_candidate: X
+    complexity_score_default: 6
+    reference_needs: [not_for_pure_seedance_prompt]
+    tail_state: 必须拆为 W1/W2 小单元。
+    source_evidence: [ep20, ep33, ep81, ep89]

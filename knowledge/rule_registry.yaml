@@ -2438,3 +2438,42 @@ rules:
       - "knowledge/30_画幅镜头映射与竖屏专用镜头规则.md"
     source_rules:
       - "30:五"
+  - id: "RHYTHM-SAMPLE-TEMPLATE-MINING-004"
+    title: "94集样片节奏档位模板"
+    owner_agent: "rhythm_rewrite_director"
+    agent_scope:
+      - "rhythm_rewrite_director"
+      - "story_planner"
+      - "shot_director"
+      - "quality_inspector"
+    priority: "P0"
+    applies_when: "94集样片、真人短剧样片、节奏档位、生活动作压力、身份揭示、封闭空间对峙、道具触发情绪、每5秒镜头密度、目标ASL、尾帧承接。"
+    instruction: "先判节奏档位，再输出目标时长、ASL范围、每5秒镜头密度、可压缩弱拍、不可省略落点和尾帧要求；不得写具体机位，不得把快节奏理解为随机加切镜或连续特写。"
+    avoid_when: "用户明确要求单镜到底；当前任务只做文本润色且不进入镜头生产。"
+    source_files:
+      - "knowledge/rules/rhythm_rewrite_director/RHYTHM-SAMPLE-TEMPLATE-MINING-004.md"
+      - "knowledge/external_sources/short_drama_samples/rhythm_control_template_library_v1.yaml"
+      - "knowledge/external_sources/short_drama_samples/README.md"
+    source_rules:
+      - "RHYTHM-SAMPLE-TEMPLATE-MINING-004"
+
+  - id: "SHOT-SAMPLE-COVERAGE-TEMPLATE-032"
+    title: "94集样片 coverage 镜头模板"
+    owner_agent: "shot_director"
+    agent_scope:
+      - "shot_director"
+      - "shot_director_layout"
+      - "shot_director_blocking"
+      - "shot_director_guard"
+      - "prompt_compiler"
+      - "quality_inspector"
+    priority: "P0"
+    applies_when: "94集样片、真人短剧样片、coverage role、关系景、台词压力、受击反应、动作顶点、信息揭示、关系恢复、尾帧承接、伪视角禁止。"
+    instruction: "每个镜头先标注coverage任务，再选择自然可拍视角；关系景建立位置，半身景承载对话和动作，局部近景只用于状态变化或信息爆点；禁止伪视角和过载镜头。"
+    avoid_when: "用户明确要求实验性长镜头或非短剧风格；当前阶段只做节奏拆片。"
+    source_files:
+      - "knowledge/rules/shot_director/SHOT-SAMPLE-COVERAGE-TEMPLATE-032.md"
+      - "knowledge/external_sources/short_drama_samples/shot_coverage_template_library_v1.yaml"
+      - "knowledge/external_sources/short_drama_samples/README.md"
+    source_rules:
+      - "SHOT-SAMPLE-COVERAGE-TEMPLATE-032"

@@ -123,3 +123,61 @@ def test_retry_shot_director_can_explicitly_restart_phase1_for_script_update(mon
     assert called["target"] == "_run_pipeline_in_thread"
     assert task_state["status"] == "running_phase_1"
     assert task_state["step"] == "step_1_rhythm"
+
+
+def test_recompile_prompt_can_start_after_compile_failure_without_prompt(monkeypatch, tmp_path):
+    import ui.app as web_app
+
+    session_id = "recompile_after_compile_failure"
+    task_state = web_app._task_state(session_id)
+    task_state.clear()
+    task_state.update(
+        {
+            "status": "error",
+            "step": "error",
+            "message": "Prompt compiler failed",
+            "error": "LLM gateway timeout",
+            "agent_outputs": {
+                "story_planner": "plan ok",
+                "shot_director": "three stage shot yaml",
+            },
+            "current_segment_index": 2,
+            "active_segment_index": 2,
+            "total_segments": 3,
+        }
+    )
+
+    called = {}
+
+    class InlineThread:
+        def __init__(self, target, args=(), daemon=None):
+            self.target = target
+            self.args = args
+            self.daemon = daemon
+
+        def start(self):
+            called["target"] = self.target.__name__
+            called["args"] = self.args
+
+    monkeypatch.setattr(web_app, "OUTPUT_DIR", str(tmp_path))
+    monkeypatch.setattr(web_app, "_refresh_task_state_from_disk", lambda _session_id: None)
+    monkeypatch.setattr(web_app, "_has_live_task", lambda _session_id: False)
+    monkeypatch.setattr(web_app.threading, "Thread", InlineThread)
+    monkeypatch.setattr(web_app, "_register_task_thread", lambda _session_id, _thread: None)
+    monkeypatch.setattr(web_app, "_bump_task_generation", lambda _session_id: 42)
+
+    response = asyncio.run(
+        web_app.api_recompile_prompt(
+            session_id=session_id,
+            segment_index=2,
+        )
+    )
+    payload = json.loads(response.body.decode("utf-8"))
+
+    assert payload["success"] is True
+    assert called["target"] == "_recompile_prompt_in_thread"
+    assert called["args"] == (2, 42, session_id)
+    assert task_state["status"] == "running_phase_2"
+    assert task_state["step"] == "step_5_compile"
+    assert task_state["current_segment_index"] == 2
+    assert "compiled_segment_2" not in task_state["agent_outputs"]

@@ -1,4 +1,4 @@
-"""Story planner implementation extracted from legacy_impl.
+﻿"""Story planner implementation extracted from legacy_impl.
 
 Owns story planning, schema repair, validation, and planner segment parsing.
 """
@@ -98,7 +98,6 @@ def _story_planner_rhythm_boundary_rules() -> str:
         "4. 承接要求只能写结构判断，例如\"反应留在本段\"\"下一段承接\"\"尾帧停在照片仍在手中\"；不得新增动作、道具、龙套反应或人物调度。\n"
         "5. 只定义\"这一段从哪到哪\"和\"交给下个 agent 时需要怎样承接\"；不定义镜头语言、不定义机位、不定义具体运镜。\n"
     )
-
 def _story_planner_granularity_rules() -> str:
     return (
         "【结构规划师拆片指南（Seedance 2.0 15秒剧情任务版）】\n"
@@ -113,7 +112,6 @@ def _story_planner_granularity_rules() -> str:
         "9. 片段时长按功能规划：纯短动作/短位移 2-5秒；短动作群但无完整对白/反应 5-8秒；急促生活动作 + 完整台词/拒绝/安抚/反应 8-12秒；完整情绪揭示或长对白单元 10-15秒。\n"
         "10. 文戏/情绪戏/对白戏优先保持可延长的连续段；武戏/高动作冲突戏优先拆成可拼接的短段。\n"
     )
-
 def _extract_yaml_sections(yaml_text: str) -> list[str]:
     sections: list[str] = []
     current: list[str] = []
@@ -162,7 +160,7 @@ def _has_planner_field_any(section: str, fields: tuple[str, ...]) -> bool:
 def _field_value(section: str, field: str) -> str:
     fields = {
         "dramatic_unit": ("dramatic_unit", "片段任务", "戏剧单元"),
-        "duration_target": ("duration_target", "目标时长"),
+        "duration_target": ("duration_target", "目标时长", "鐩爣鏃堕暱"),
         "reaction_plan": ("reaction_plan", "承接要求"),
         "director_brief": ("director_brief", "导演交接", "镜头导演交接", "shot_director_handoff"),
         "intra_fragment_rhythm": ("片段内节奏分配", "段内节奏分配", "内部节拍预算", "intra_fragment_rhythm", "internal_beat_budget"),
@@ -230,7 +228,6 @@ def _infer_reaction_plan(section: str) -> str:
         f"{dramatic_unit} 不涉及独立受击反应，保持片段内动作/对白连续承接，"
         "无需升级为独立片段。"
     )
-
 def _infer_fragment_task(section: str) -> str:
     events = _source_script_events(section)
     duration = _field_value(section, "duration_target")
@@ -271,6 +268,176 @@ def _infer_intra_fragment_rhythm(section: str) -> str:
     if has_fast_action:
         return f"全段按{duration}紧凑执行，短动作连续完成，不为单个动作另起片段。"
     return f"按整体目标时长{duration}执行；若内部出现停顿或反应，由镜头导演在片段内处理。"
+
+_GENERATION_UNIT_COMPLEXITY_RULES: tuple[tuple[str, re.Pattern[str]], ...] = (
+    ("超过2名主要角色", re.compile(r"出现人物|cast|active_cast")),
+    ("身体接触/抢夺/推搡/碰撞", re.compile(r"接触|抓|抢|推|搡|抱|撞|摔|扶住|拉住|按住|扇|打")),
+    ("快速移动/大幅转身", re.compile(r"快步|小跑|奔跑|冲|追|跌倒|转身|猛地|踉跄")),
+    ("运镜变化", re.compile(r"推镜|拉镜|跟拍|横移|环绕|反打|切至|切到")),
+    ("多个情绪转折", re.compile(r"反转|受击|震惊|回神|崩溃|忍住|眼眶|停住|僵住")),
+    ("嘴型/强音画同步", re.compile(r"嘴型|口型|唱|方言|音画同步|台词|对白|：|:")),
+    ("场景/道具状态变化", re.compile(r"开门|关门|滑落|掉落|破碎|灯光|人群|散开|聚拢")),
+)
+
+
+def _estimate_generation_unit_complexity(section: str) -> int:
+    score = 0
+    text = section or ""
+    cast_block = _field_value(text, "出现人物") or _field_value(text, "cast") or _field_value(text, "active_cast")
+    if cast_block:
+        names = [item for item in re.split(r"[、,，;；\[\]\s]+", cast_block) if item.strip()]
+        if len(set(names)) > 2:
+            score += 1
+    for label, pattern in _GENERATION_UNIT_COMPLEXITY_RULES[1:]:
+        _ = label
+        if pattern.search(text):
+            score += 1
+    upper_seconds = _duration_upper_seconds(_field_value(text, "duration_target"))
+    if upper_seconds and upper_seconds > 8:
+        score += 1
+    return min(score, 9)
+
+
+def _infer_reference_needs(section: str) -> str:
+    text = section or ""
+    roles = ["identity_reference", "scene_reference"]
+    if re.search(r"照片|手机|文件|戒指|病历|酒杯|钥匙|书包|闹钟|道具", text):
+        roles.append("prop_reference")
+    if re.search(r"奔跑|追逐|打斗|推搡|抢夺|跌倒|转身|下跪|递|推门", text):
+        roles.append("motion_reference")
+    return " + ".join(dict.fromkeys(roles))
+
+
+_SEEDANCE_GENERATION_UNIT_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
+    "generation_unit_id": ("generation_unit_id",),
+    "signal_type": ("signal_type",),
+    "duration_target": ("duration_target",),
+    "event_atom": ("event_atom",),
+    "emotion_delta": ("emotion_delta",),
+    "reaction_handoff": ("reaction_handoff",),
+    "model_complexity_score": ("model_complexity_score",),
+    "split_required": ("split_required",),
+    "reference_needs": ("reference_needs",),
+    "tail_state_required": ("tail_state_required",),
+}
+
+
+def _has_seedance_generation_unit_signal(section: str) -> bool:
+    signal_fields = (
+        "generation_unit_id",
+        "signal_type",
+        "event_atom",
+        "emotion_delta",
+        "model_complexity_score",
+        "split_required",
+        "reference_needs",
+        "tail_state_required",
+    )
+    return any(_has_planner_field_alias(section, _SEEDANCE_GENERATION_UNIT_FIELD_ALIASES[field]) for field in signal_fields)
+
+
+def _missing_seedance_generation_unit_fields(section: str) -> list[str]:
+    missing: list[str] = []
+    for field, aliases in _SEEDANCE_GENERATION_UNIT_FIELD_ALIASES.items():
+        if field == "duration_target":
+            if not (_has_planner_field_alias(section, aliases) or _field_value(section, "duration_target")):
+                missing.append(field)
+            continue
+        if _is_missing_planner_field(section, field):
+            missing.append(field)
+    return missing
+
+
+def _infer_generation_unit_id(section: str) -> str:
+    fragment_id = _extract_fragment_id(section) or "F01"
+    unit_number = re.sub(r"\D+", "", fragment_id) or "01"
+    return f"U{int(unit_number):02d}" if unit_number.isdigit() else fragment_id
+
+
+def _infer_signal_type(section: str) -> str:
+    text = section or ""
+    signal_patterns = (
+        ("identity_reveal", r"韬唤|鐪熺浉|璁ゅ嚭|鐐瑰悕|identity"),
+        ("prop_reveal", r"鐓х墖|鏂囦欢|璇佹嵁|鎴掓寚|鎵嬫満|prop"),
+        ("reaction_hold", r"鍙嶅簲|鍋滀綇|娌夐粯|闇囨儕|reaction"),
+        ("tail_hook", r"灏鹃挬|鏈畬鎴?|悬念|hook"),
+        ("pressure", r"鍘嬪姏|閫艰繎|璐ㄩ棶|pressure"),
+        ("misunderstanding", r"璇細|误会|misunderstanding"),
+        ("hook", r"寮€鍦?|hook"),
+    )
+    for signal_type, pattern in signal_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            return signal_type
+    return "other"
+
+
+def _infer_event_atom(section: str) -> str:
+    task = _field_value(section, "dramatic_unit")
+    if task:
+        return task
+    events = _source_script_events(section)
+    if events:
+        return events[0]
+    return _infer_fragment_task(section)
+
+
+def _infer_emotion_delta(section: str) -> str:
+    reaction = _field_value(section, "reaction_plan") or _infer_reaction_plan(section)
+    if re.search(r"闇囨儕|鍙楀嚮|shocked|alert", reaction, re.IGNORECASE):
+        return "stable -> alerted"
+    if re.search(r"鍘嬪姏|pressure|璐ㄩ棶", reaction, re.IGNORECASE):
+        return "controlled -> pressured"
+    return "current_emotion -> next_visible_landing"
+
+
+def _infer_split_required(section: str) -> str:
+    score = _estimate_generation_unit_complexity(section)
+    events = _source_script_events(section)
+    upper_seconds = _duration_upper_seconds(_field_value(section, "duration_target"))
+    return "true" if score >= 3 or len(events) > 8 or (upper_seconds and upper_seconds > 12) else "false"
+
+
+def _infer_tail_state_required(section: str) -> str:
+    return (
+        _field_value(section, "出场状态")
+        or _field_value(section, "exit_state")
+        or _field_value(section, "reaction_plan")
+        or _infer_reaction_plan(section)
+    )
+def _ensure_seedance_generation_unit_fields(section: str) -> str:
+    lines = section.splitlines()
+    current = "\n".join(lines)
+    inferred_values = {
+        "generation_unit_id": _infer_generation_unit_id(current),
+        "signal_type": _infer_signal_type(current),
+        "duration_target": _field_value(current, "duration_target") or _field_value(current, "目标时长") or "5-8秒",
+        "event_atom": _infer_event_atom(current),
+        "emotion_delta": _infer_emotion_delta(current),
+        "reaction_handoff": _field_value(current, "reaction_plan") or _infer_reaction_plan(current),
+        "model_complexity_score": str(_estimate_generation_unit_complexity(current)),
+        "split_required": _infer_split_required(current),
+        "reference_needs": _infer_reference_needs(current),
+        "tail_state_required": _infer_tail_state_required(current),
+    }
+    before = ("source_script_events",)
+    for field in (
+        "generation_unit_id",
+        "signal_type",
+        "duration_target",
+        "event_atom",
+        "emotion_delta",
+        "reaction_handoff",
+        "model_complexity_score",
+        "split_required",
+        "reference_needs",
+        "tail_state_required",
+    ):
+        if not _is_missing_planner_field(current, field):
+            continue
+        _insert_planner_field_before(lines, field=field, value=inferred_values[field], before_fields=before)
+        current = "\n".join(lines)
+    return current
+
 
 def _planner_field_indent(lines: list[str]) -> str:
     indent = "  " if re.match(r"^\s*-\s*(?:fragment_id|片段编号)\s*:", lines[0] if lines else "") else ""
@@ -721,9 +888,19 @@ def _normalise_story_planner_output(planner_output: str, source_script: str = ""
                 value=_infer_shot_director_handoff(section_after_boundary),
                 before_fields=("director_brief", "beat_design", "shots"),
             )
-        section_text = "\n".join(lines).strip()
+            section_after_boundary = "\n".join(lines)
+        if not _has_planner_field_alias(section_after_boundary, ("model_complexity_score",)):
+            _insert_planner_field_before(
+                lines,
+                field="model_complexity_score",
+                value=str(_estimate_generation_unit_complexity(section_after_boundary)),
+                before_fields=("source_script_events",),
+            )
+            section_after_boundary = "\n".join(lines)
+        section_text = _ensure_seedance_generation_unit_fields("\n".join(lines)).strip()
         if source_script:
             section_text = _repair_story_planner_source_events(section_text, source_script)
+        section_text = _ensure_seedance_generation_unit_fields(section_text)
         normalised_sections.append(section_text)
 
     normalised_sections = _auto_merge_overfragmented_story_planner_sections(normalised_sections, source_script)
@@ -1507,6 +1684,7 @@ def _validate_story_planner_output(
     script: str = "",
     *,
     require_rhythm_fields: bool = False,
+    require_generation_unit_fields: bool = False,
 ) -> list[str]:
     issues: list[str] = []
     sections = _extract_yaml_sections(planner_output)
@@ -1530,6 +1708,23 @@ def _validate_story_planner_output(
         for display_name, aliases in required_field_groups:
             if not _has_planner_field_alias(section, aliases):
                 issues.append(f"{fragment_id} 缺少字段 {display_name}。")
+        if require_generation_unit_fields and not _has_seedance_generation_unit_signal(section):
+            issues.append(
+                f"{fragment_id} missing Seedance generation_unit contract fields: "
+                "generation_unit_id, signal_type, event_atom, emotion_delta, reaction_handoff, "
+                "model_complexity_score, split_required, reference_needs, tail_state_required."
+            )
+        if require_generation_unit_fields or _has_seedance_generation_unit_signal(section):
+            missing = _missing_seedance_generation_unit_fields(section)
+            if missing:
+                issues.append(f"{fragment_id} missing Seedance generation_unit fields: {', '.join(missing)}.")
+            score_text = _field_value(section, "model_complexity_score")
+            score_match = re.search(r"\d+", score_text or "")
+            if score_match and int(score_match.group(0)) >= 5:
+                issues.append(
+                    f"{fragment_id} model_complexity_score={score_match.group(0)}；"
+                    "Seedance 单段复杂度过高，必须拆分、降级或改用视频参考。"
+                )
 
     issues.extend(_story_planner_fragment_granularity_issues(planner_output))
     issues.extend(_story_planner_coarse_fragment_issues(planner_output))
@@ -1578,7 +1773,10 @@ def _story_planner_repair_prompt(
         "11. 急促动作、短位移、冲入、小跑聚拢、开门入场、上下车或电梯进出，若没有完整台词、信息揭示或明确反应落点，目标时长必须压到 2-5秒；不要为了凑长让人物慢慢走、慢慢停、慢慢看。\n"
         "12. 闹钟/手机/外套/孩子抗拒这类同一生活动作群，如果共同服务于“乔熙赶时间但孩子拒绝上学”同一个观众注意力问题，应合并为 8-12秒完整片段；前段压缩急促动作，后段留给拒绝、安抚和情绪落点。\n"
         "13. 合并相邻片段时不要丢失节奏差异；把差异写进片段内节奏分配，例如“0-4秒：急促动作链；4-8秒：孩子拒绝；8-12秒：乔熙应对和情绪落点”。\n"
-        "14. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本重建完整 YAML。\n\n"
+        "14. 每段必须补齐 Seedance generation_unit 合同字段：generation_unit_id、signal_type、duration_target、event_atom、emotion_delta、reaction_handoff、model_complexity_score、split_required、reference_needs、tail_state_required。\n"
+        "14A. 只输出上述固定英文合同键；event_atom 只写一个可见事件原子，不写机位、景别或运镜。\n"
+        "15. model_complexity_score 按 Seedance 能力矩阵保守估算；3-4 分要写 split_required 或降级/拆分建议，5 分及以上不得作为单段交付。\n"
+        "16. 如果上一轮输出太短、截断或不是 YAML，请忽略它，直接根据当前施工剧本重建完整 YAML。\n\n"
         f"【节奏总控施工指令】\n{_truncate_for_prompt(rhythm_guidance or 'none', 2400)}\n\n"
         f"【当前施工剧本】\n{original_script}\n\n"
         f"【上一轮无效输出】\n{_truncate_for_prompt(previous_output, 9000)}\n\n"
@@ -1646,6 +1844,7 @@ def _run_story_planner_with_schema_repair(
             output,
             original_script,
             require_rhythm_fields=require_rhythm_fields,
+            require_generation_unit_fields=True,
         )
         soft_issues = _story_planner_soft_validation_issues(output) if not planner_issues else []
         agent_validation: dict[str, Any] = {"status": "skip", "issues": []}
@@ -1818,6 +2017,7 @@ def _rhythm_story_planner_system_prompt() -> str:
         "但合并不是粗拆：一旦同一片段同时跨越入场/离场、完整对白、信息揭示、道具状态变化、反应落点或冲突转折中的三类以上，"
         "且观众注意力问题已经改变，应拆成相邻片段，让每段只承担一个核心剧情任务。\n"
         "人物动作节奏必须写清：急急忙忙、动作叠压、正常承接、停住观察、慢处理或犹豫拖延。\n"
+        "每个片段必须同时是 Seedance 可生成单元，输出 generation_unit_id、signal_type、event_atom、emotion_delta、reaction_handoff、model_complexity_score、split_required、reference_needs、tail_state_required。\n"
         "镜头导演交接只提供情绪曲线、节奏意图、必须保留的戏剧落点、可压缩弱拍和尾帧承接；"
         "不得规定镜头数、景别、机位、运镜或切镜方案。"
     )
@@ -1844,7 +2044,7 @@ def _rhythm_story_planner_user_prompt(
         f"{slim_rules or '无额外规则；按下方分段规则执行。'}\n\n"
         f"{fragment_count_instruction}"
         "【输出格式】\n"
-        "只输出 YAML 列表。每个片段只允许中文字段；不要 Markdown 代码围栏。\n"
+        "只输出 YAML 列表。每个片段必须包含固定英文 Seedance 合同键 generation_unit_id / signal_type / duration_target / event_atom / emotion_delta / reaction_handoff / model_complexity_score / split_required / reference_needs / tail_state_required；不要 Markdown 代码围栏。\n"
         "每个片段必须包含：\n"
         "- 片段编号：必须从 F01 开始顺序递增。\n"
         "- 片段任务：一句话说明本段要完成的剧情施工任务，只概括原文事件，不写镜头、机位、景别或运镜。\n"
@@ -1854,6 +2054,15 @@ def _rhythm_story_planner_user_prompt(
         "- 片段内节奏分配：按内部小节拍写时间预算和戏剧功能，例如“0-4秒：闹钟/电话/穿衣动作链急促完成；4-8秒：孩子拒绝；8-12秒：乔熙应对落地”。\n"
         "- 动作节奏指导：明确人物动作应急急忙忙、动作叠压、正常承接、停住观察、慢处理或犹豫拖延；这是给动作调度导演和镜头导演的节奏约束。\n"
         "- 动作覆盖预算：高密度片段必须写 必拍动作、可压缩动作、可省略动作，并说明每5秒镜头数建议；不要逐动作全拍。\n"
+        "- generation_unit_id：固定英文合同键，建议用 U01/U02 或 EPxx_Uxx，必须能追踪到本片段。\n"
+        "- signal_type：hook / pressure / misunderstanding / identity_reveal / prop_reveal / reaction_hold / tail_hook / other。\n"
+        "- event_atom：固定英文合同键，只写一个可见事件原子，不写镜头、机位、景别。\n"
+        "- emotion_delta：固定英文合同键，只写一个情绪变化，例如 calm -> shocked_alert。\n"
+        "- reaction_handoff：固定英文合同键，写下一单元由谁接、接什么状态。\n"
+        "- model_complexity_score：固定英文合同键，按 Seedance 复杂度矩阵给 0-9 整数；3-4 分需写降级/压缩，5 分以上必须拆段。\n"
+        "- split_required：固定英文合同键，true/false；超复杂或超过能力边界时必须 true。\n"
+        "- reference_needs：固定英文合同键，列出 identity_reference / scene_reference / prop_reference / motion_reference 等需要的职责。\n"
+        "- tail_state_required：固定英文合同键，写人物位置、视线/注意力、道具状态和未解决问题。\n"
         "- 施工剧本原文事件：数组，逐条照抄当前施工剧本里的动作或台词原文。\n"
         "- 出现人物：只写本片段出现或被明确听见的人物。\n"
         "- 入场状态：本片段开始时，人物、道具、门、电梯、空间等必要状态。\n"
@@ -1896,13 +2105,19 @@ def rhythm_story_planner_node(state: DirectorState) -> DirectorState:
         rhythm_guidance="节奏与拆片已合并到同一次推理；修复时继续遵守：纯短动作 2-5秒，短动作群无完整反应 5-8秒，完整情绪注意力单元 8-12秒或10-15秒。",
         require_rhythm_fields=True,
     )
+    output = _normalise_story_planner_output(output, state.get("script", ""))
     knowledge_metadata = _record_knowledge_metadata(state, "story_planner", planner_hint, retrieval_meta)
     knowledge_metadata.setdefault("story_planner", {})["runtime"] = planner_attempts[-1] if planner_attempts else {}
     knowledge_metadata["story_planner"]["attempts"] = planner_attempts
     knowledge_metadata["story_planner"]["merged_from_agents"] = ["rhythm_rewrite_director", "story_planner"]
     knowledge_metadata.setdefault("rhythm_rewrite_director", {})["merged_into"] = "story_planner"
     knowledge_metadata["rhythm_rewrite_director"]["runtime"] = planner_attempts[-1] if planner_attempts else {}
-    planner_issues = _validate_story_planner_output(output, state.get("script", ""), require_rhythm_fields=True)
+    planner_issues = _validate_story_planner_output(
+        output,
+        state.get("script", ""),
+        require_rhythm_fields=True,
+        require_generation_unit_fields=True,
+    )
     total_segments, segment_names = _extract_segments(output)
     if planner_issues:
         raise RuntimeError("rhythm_story_planner 输出未满足知识驱动结构要求：\n" + "\n".join(f"- {issue}" for issue in planner_issues))
@@ -1924,7 +2139,6 @@ def rhythm_story_planner_node(state: DirectorState) -> DirectorState:
             "current_segment_index": 1,
         },
     )
-
 def story_planner_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
     rhythm_guidance_full = state.get("atmosphere_strategy", "") or outputs.get("rhythm_rewrite_director", "")
@@ -1937,6 +2151,7 @@ def story_planner_node(state: DirectorState) -> DirectorState:
     system_prompt = (
         "你是纯拆片 agent。你的唯一工作是把当前施工剧本拆成片段清单。\n"
         "只做分段，不做分镜；只判断每段从哪里到哪里、约几秒、交给下游时要接住什么状态。\n"
+        "每个片段必须同时是 Seedance generation_unit 合同单元，写清 generation_unit_id、signal_type、event_atom、emotion_delta、reaction_handoff、model_complexity_score、split_required、reference_needs、tail_state_required。\n"
         "不要设计镜头、机位、景别、运镜、子分镜；不要写剧情解释；不要新增动作、台词、人物、道具或场景。\n"
         "直接输出 YAML，不要寒暄，不要 Markdown 代码围栏。"
     )
@@ -1950,11 +2165,20 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         f"{slim_rules or '无额外规则；按下方分段规则执行。'}\n\n"
         f"{_story_planner_fragment_count_instruction(str(state.get('script') or truncated_script))}"
         "【输出格式】\n"
-        "只输出 YAML 列表。每个片段只允许这些中文字段：\n"
+        "只输出 YAML 列表。每个片段必须包含固定英文 Seedance 合同键 generation_unit_id / signal_type / duration_target / event_atom / emotion_delta / reaction_handoff / model_complexity_score / split_required / reference_needs / tail_state_required：\n"
         "- 片段编号：必须从 F01 开始顺序递增。\n"
         "- 片段任务：一句话说明本段要完成的剧情施工任务，只概括原文事件，不写镜头、机位、景别或运镜。\n"
         "- 目标时长：通常 15 秒以内；纯短动作/短位移 2-5秒，短动作群无完整反应 5-8秒，完整生活冲突/对白/情绪单元 8-12秒或10-15秒。\n"
         "- 片段内节奏分配：当一个片段内含快慢变化时，写清内部小节拍的时间预算和戏剧功能；没有快慢变化可写“按整体目标时长执行”。\n"
+        "- generation_unit_id：固定英文合同键，建议用 U01/U02 或 EPxx_Uxx，必须能追踪到本片段。\n"
+        "- signal_type：hook / pressure / misunderstanding / identity_reveal / prop_reveal / reaction_hold / tail_hook / other。\n"
+        "- event_atom：固定英文合同键，只写一个可见事件原子，不写镜头、机位、景别。\n"
+        "- emotion_delta：固定英文合同键，只写一个情绪变化，例如 calm -> shocked_alert。\n"
+        "- reaction_handoff：固定英文合同键，写下一单元由谁接、接什么状态。\n"
+        "- model_complexity_score：固定英文合同键，按 Seedance 复杂度矩阵给 0-9 整数；3-4 分需写降级/压缩，5 分以上必须拆段。\n"
+        "- split_required：固定英文合同键，true/false；超复杂或超过能力边界时必须 true。\n"
+        "- reference_needs：固定英文合同键，列出 identity_reference / scene_reference / prop_reference / motion_reference 等需要的职责。\n"
+        "- tail_state_required：固定英文合同键，写人物位置、视线/注意力、道具状态和未解决问题。\n"
         "- 施工剧本原文事件：数组，逐条照抄当前施工剧本里的动作或台词原文。\n"
         "- 出现人物：只写本片段出现或被明确听见的人物。\n"
         "- 入场状态：本片段开始时，人物、道具、门、电梯、空间等必要状态。\n"
@@ -1980,10 +2204,15 @@ def story_planner_node(state: DirectorState) -> DirectorState:
         scene_output="",
         rhythm_guidance=rhythm_guidance,
     )
+    output = _normalise_story_planner_output(output, state.get("script", ""))
     knowledge_metadata = _record_knowledge_metadata(state, "story_planner", planner_hint, retrieval_meta)
     knowledge_metadata.setdefault("story_planner", {})["runtime"] = planner_attempts[-1] if planner_attempts else {}
     knowledge_metadata["story_planner"]["attempts"] = planner_attempts
-    planner_issues = _validate_story_planner_output(output, state.get("script", ""))
+    planner_issues = _validate_story_planner_output(
+        output,
+        state.get("script", ""),
+        require_generation_unit_fields=True,
+    )
     total_segments, segment_names = _extract_segments(output)
     if planner_issues:
         raise RuntimeError("story_planner 输出未满足知识驱动结构要求：\n" + "\n".join(f"- {issue}" for issue in planner_issues))

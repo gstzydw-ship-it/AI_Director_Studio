@@ -1,4 +1,4 @@
-"""Shot director implementation split from the legacy director graph module."""
+﻿"""Shot director implementation split from the legacy director graph module."""
 from __future__ import annotations  
   
 import re  
@@ -8,6 +8,7 @@ from typing import Any, Callable
   
 from ..knowledge_base import get_agent_knowledge_files  
 from .helpers import _primary_script_character_names  
+from .seedance_contracts import seedance_qc_issues
 from .state_store import _persist_update, load_state  
 from .story_planner_impl import _extract_segments  
 from .types import DirectorState  
@@ -60,6 +61,16 @@ _DIALOGUE_COVERAGE_TERMS_RE = re.compile(
 # shot_director v1 schema contract — 镜头导演字段
 # =============================================================================
 _SHOT_CONSTRUCTION_FRAGMENT_FIELDS: tuple[str, ...] = ("fragment_task", "rhythm", "continuity_context", "shots")
+_SHOT_COVERAGE_V3_FRAGMENT_FIELDS: tuple[str, ...] = ("coverage_plan", "template_plan", "guard_result")
+_SHOT_COVERAGE_V3_PLAN_FIELDS: tuple[str, ...] = (
+    "dramatic_task",
+    "rhythm_intent",
+    "space_contract",
+    "shot_budget",
+    "required_beats",
+)
+_SHOT_COVERAGE_V3_TEMPLATE_FIELDS: tuple[str, ...] = ("shots",)
+_SHOT_COVERAGE_V3_GUARD_FIELDS: tuple[str, ...] = ("status", "final_shots")
 _SHOT_CONSTRUCTION_REQUIRED_FIELDS: tuple[str, ...] = (
     "shot_id",
     "duration",
@@ -93,12 +104,39 @@ _SHOT_YAML_FIELD_ALIASES: dict[str, tuple[str, ...]] = {
     "type": ("type", "类型"),
     "audio": ("audio", "声音"),
 }
+_SHOT_YAML_FIELD_ALIASES.update(
+    {
+        "schema_version": ("schema_version", "schema"),
+        "coverage_plan": ("coverage_plan",),
+        "dramatic_task": ("dramatic_task",),
+        "rhythm_intent": ("rhythm_intent",),
+        "space_contract": ("space_contract",),
+        "shot_budget": ("shot_budget",),
+        "required_beats": ("required_beats",),
+        "template_plan": ("template_plan",),
+        "guard_result": ("guard_result",),
+        "status": ("status",),
+        "final_shots": ("final_shots",),
+        "template_id": ("template_id", "coverage_template_id", "shot_template_id"),
+        "template_level": ("template_level", "template_status"),
+        "reference_need": ("reference_need", "reference_needs"),
+        "model_complexity_score": ("model_complexity_score",),
+        "tail_state": ("tail_state", "tail_state_card", "tail_state_required"),
+    }
+)
 _SHOT_COVERAGE_CONTRACT_FIELDS: tuple[str, ...] = (
     "coverage_role",
     "cut_reason",
     "companion_visibility",
     "state_delta",
     "tailframe_role",
+)
+_SHOT_SEEDANCE_TEMPLATE_CONTRACT_FIELDS: tuple[str, ...] = (
+    "template_id",
+    "template_level",
+    "reference_need",
+    "model_complexity_score",
+    "tail_state",
 )
 _SHOT_DIRECTOR_WORKFLOW_STAGES: tuple[str, ...] = (
     "layout_task_space",
@@ -107,7 +145,9 @@ _SHOT_DIRECTOR_WORKFLOW_STAGES: tuple[str, ...] = (
 )
 _SHOT_DURATION_RE = re.compile(r"^\s*[\"']?(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*秒[\"']?\s*$")
 _SHOT_CUT_TRIGGER_RE = re.compile(
-    r"(动作顶点|台词(?:断点|落下|结束)?|反应(?:出现|落点)?|信息(?:看清|揭示)|看清|停住|完成|命中|落桌|撞上|尾帧|切出|切至|切到|状态(?:稳定|完成)|片段结束|→)"
+    r"(鍔ㄤ綔椤剁偣|鍙拌瘝(?:鏂偣|钀戒笅|缁撴潫)?|鍙嶅簲(?:鍑虹幇|钀界偣)?|淇℃伅(?:鐪嬫竻|鎻ず)|鐪嬫竻|鍋滀綇|瀹屾垚|鍛戒腑|钀芥|鎾炰笂|灏惧抚|鍒囧嚭|鍒囪嚦|鍒囧埌|鐘舵€??:绋冲畾|瀹屾垚)|鐗囨缁撴潫|鈫?"
+    r"|action apex|dialogue break|dialogue lands|readable information|information readable|reaction appears|tailframe|tail frame|state is readable|distance relation is readable|cut after reaction",
+    re.IGNORECASE,
 )
 _SHOT_DENSITY_LIFE_PRESSURE_RE = re.compile(
     r"生活|赶时间|穿衣|上学|孩子|小豆丁|闹钟|电话|手机|草莓|安抚|哄|抗拒|乱蹬|缩手|踢开|书包|紧凑生活",
@@ -164,6 +204,15 @@ def _shot_director_workflow_contract() -> str:
 
 def _shot_director_coverage_contract_prompt() -> str:
     return (
+        "【coverage v3 输出结构】\n"
+        "最终交付必须采用 schema_version: shot_director_coverage_v3。每个 fragment 必须包含 coverage_plan、template_plan、guard_result 三段。\n"
+        "- coverage_plan：只做覆盖规划，包含 dramatic_task、rhythm_intent、space_contract、shot_budget、required_beats；这里不写具体机位。\n"
+        "- template_plan：只写 shots 镜头表；每个 shot 必须有 shot_id、duration、task、subject、shot、action、dialogue、must_carry、cut_point、continuity。\n"
+        "- 每个 shot 还必须补齐 Seedance 白名单合同字段：template_id、template_level、reference_need、model_complexity_score、tail_state；template_level 只能是 W1/W2/R1/X/candidate。\n"
+        "- 默认假设没有参考视频；reference_need 只表示需要，不表示已经有。R1 只有在上游真实提供 reference_bindings/reference_asset/video_path/keyframe_path 等绑定时才允许通过，否则必须拆成 W1/W2 或标记不可生成。\n"
+        "- X 禁止交给下游生成；candidate 不准当生产白名单；R1 不得靠文字声明 motion_reference/keyframe_sequence/video_reference 冒充真实参考资产。\n"
+        "- guard_result：只写 status、repairs、final_shots；final_shots 用 shot_id 列表引用 template_plan.shots，不重复整段镜头表。\n"
+        "template_plan.shots 是下游 prompt_compiler 的主镜头表，必须保持旧字段可读；不要把镜头表只放进 guard_result。\n\n"
         "【每个 shot 需要补齐的镜头职责字段】\n"
         "- 覆盖职责：这镜负责什么覆盖任务，例如建立关系、承载对白、听者反应、道具信息、尾帧承接。\n"
         "- 切镜原因：为什么必须在这里切，必须绑定动作顶点前、台词断点、信息看清、反应出现或尾帧完成。\n"
@@ -1099,6 +1148,102 @@ def _shot_yaml_field_pattern(field: str) -> str:
 def _has_shot_yaml_field(block: str, field: str) -> bool:
     return bool(re.search(rf"(?m)^\s*-?\s*(?:{_shot_yaml_field_pattern(field)})\s*:", block or ""))
 
+def _yaml_parent_block_text(section: str, field: str) -> str:
+    pattern = _shot_yaml_field_pattern(field)
+    match = re.search(rf"(?m)^(\s*)(?:{pattern})\s*:\s*(?:#.*)?$", section or "")
+    if not match:
+        return ""
+    parent_indent = len(match.group(1))
+    start = match.end()
+    following = (section or "")[start:]
+    end_match = re.search(rf"(?m)^\s{{0,{parent_indent}}}\S.*$", following)
+    end = start + end_match.start() if end_match else len(section or "")
+    return (section or "")[start:end]
+
+def _has_nested_shot_yaml_field(section: str, parent: str, field: str) -> bool:
+    return _has_shot_yaml_field(_yaml_parent_block_text(section, parent), field)
+
+def _uses_coverage_v3_schema(output: str) -> bool:
+    text = output or ""
+    return bool(
+        re.search(r"shot_director_coverage_v3", text)
+        or (
+            _has_shot_yaml_field(text, "coverage_plan")
+            and _has_shot_yaml_field(text, "template_plan")
+            and _has_shot_yaml_field(text, "guard_result")
+        )
+    )
+
+
+def _validate_shot_seedance_template_contract(shot_id: str, shot_block: str) -> list[str]:
+    issues: list[str] = []
+    for field in _SHOT_SEEDANCE_TEMPLATE_CONTRACT_FIELDS:
+        if not _has_shot_yaml_field(shot_block, field):
+            issues.append(f"{shot_id} missing Seedance coverage template field {field}.")
+    for issue in seedance_qc_issues(shot_block):
+        issues.append(f"{shot_id} {issue}")
+    return issues
+
+
+def _validate_shot_director_coverage_v3(director_output: str, expected_segments: list[str]) -> list[str]:
+    issues: list[str] = []
+    for segment_name in expected_segments:
+        segment_num = re.sub(r"\D", "", segment_name)
+        fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
+        block_match = re.search(
+            rf"(?m)(^\s*-?\s*(?:fragment_id|鐗囨缂栧彿)\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+            rf"(?=\n\s*-?\s*(?:fragment_id|鐗囨缂栧彿)\s*:\s*[\"']?F\d+|\Z)",
+            director_output,
+        )
+        if not block_match:
+            issues.append(f"shot_director missing {fragment_id} coverage v3 design.")
+            continue
+        block = block_match.group(1)
+
+        for field in _SHOT_COVERAGE_V3_FRAGMENT_FIELDS:
+            if not _has_shot_yaml_field(block, field):
+                issues.append(f"{fragment_id} coverage v3 missing section {field}.")
+        for field in _SHOT_COVERAGE_V3_PLAN_FIELDS:
+            if not _has_nested_shot_yaml_field(block, "coverage_plan", field):
+                issues.append(f"{fragment_id} coverage_plan missing field {field}.")
+        for field in _SHOT_COVERAGE_V3_TEMPLATE_FIELDS:
+            if not _has_nested_shot_yaml_field(block, "template_plan", field):
+                issues.append(f"{fragment_id} template_plan missing field {field}.")
+        for field in _SHOT_COVERAGE_V3_GUARD_FIELDS:
+            if not _has_nested_shot_yaml_field(block, "guard_result", field):
+                issues.append(f"{fragment_id} guard_result missing field {field}.")
+
+        shot_blocks = _main_shot_blocks(_yaml_parent_block_text(block, "template_plan") or block)
+        if not shot_blocks:
+            issues.append(f"{fragment_id} template_plan.shots has no shot_id entries.")
+            continue
+        issues.extend(_validate_shot_director_density(fragment_id, block, shot_blocks))
+        issues.extend(_shot_tailframe_carry_issues(fragment_id, shot_blocks))
+
+        for shot_id, shot_block in shot_blocks:
+            for field in _SHOT_CONSTRUCTION_REQUIRED_FIELDS:
+                if not _has_shot_yaml_field(shot_block, field):
+                    issues.append(f"{shot_id} missing required field {field}.")
+            for field in ("coverage_role", "cut_reason", "companion_visibility", "state_delta", "tailframe_role"):
+                if not _has_shot_yaml_field(shot_block, field):
+                    issues.append(f"{shot_id} coverage v3 missing field {field}.")
+            issues.extend(_validate_shot_seedance_template_contract(shot_id, shot_block))
+            shot_text = _yaml_line_field(shot_block, "shot")
+            if _shot_field_has_untranslated_camera_jargon(shot_text):
+                issues.append(
+                    f"{shot_id} shot field still has untranslated camera jargon: {shot_text}. "
+                    f"{_SHOT_VIEWPOINT_TRANSLATION_HINT}"
+                )
+            cut_point = _yaml_line_field(shot_block, "cut_point")
+            if cut_point and (
+                _GENERIC_CUT_REASON_RE.search(cut_point)
+                or not _SHOT_CUT_TRIGGER_RE.search(cut_point)
+            ):
+                issues.append(f"{shot_id} cut_point must bind to action apex, dialogue break, readable information, reaction, or tailframe state.")
+            issues.extend(_shot_subject_ownership_issues(shot_id, shot_block))
+
+    return issues
+
 
 def _fragment_ids_from_validation_issues(issues: list[str], expected_segments: list[str]) -> list[str]:
     """Return only fragment ids implicated by validation issues.
@@ -1349,6 +1494,9 @@ def _validate_shot_director_output(director_output: str, expected_segments: list
     3. 可选字段 type、audio 只在需要时写
     4. 首镜头不能用特写类景别建立空间
     """
+    if _uses_coverage_v3_schema(director_output):
+        return _validate_shot_director_coverage_v3(director_output, expected_segments)
+
     if _uses_construction_sheet_schema(director_output):
         return _validate_shot_director_construction_sheet(director_output, expected_segments)
 
@@ -2913,8 +3061,15 @@ def _build_shot_director_signal_retrieval_profile(
             "editing_ellipsis",
             "shot_variety",
             "rhythm_alignment",
+            "short_drama_samples",
+            "coverage_role",
+            "viewpoint_language",
+            "reaction_coverage",
+            "tailframe",
         ]
     )
+    events.extend(["reaction", "reveal", "prop_reveal"])
+    risks.extend(["pseudo_viewpoint", "overloaded_shot", "too_many_cuts", "fake_fast_pacing"])
 
     return {
         "scene_types": _unique_preserve_order(scene_types),
@@ -2922,6 +3077,7 @@ def _build_shot_director_signal_retrieval_profile(
         "risks": _unique_preserve_order(risks),
         "dialogue_types": _unique_preserve_order(dialogue_types),
         "signals": _unique_preserve_order(signals),
+        "rule_type": ["shot_coverage", "camera_language", "rhythm"],
         "aspect_ratio": aspect_ratio,
         "tags": _unique_preserve_order(
             [
@@ -2933,6 +3089,14 @@ def _build_shot_director_signal_retrieval_profile(
                 "节奏联动",
                 "上游导演约束",
                 "故事节奏控制",
+                "94集样片",
+                "真人短剧样片",
+                "coverage_role",
+                "coverage模板",
+                "关系景",
+                "反应镜头",
+                "尾帧承接",
+                "伪视角禁止",
                 *task_keys,
                 *knowledge_hints,
             ]
@@ -3099,7 +3263,7 @@ def _run_shot_director_single_pass_impl(
             "节奏总控只提供片段边界、情绪曲线、节奏意图、必须保留落点、可压缩弱拍和尾帧承接，不是镜头硬模板；"
             "你负责自行决定镜头数、景别、机位、运镜、镜头时长和切镜点。\n\n"
             "【输出语言硬规则】\n"
-            "最终 YAML 必须使用中文字段名，不要输出任何旧版英文字段名。\n\n"
+            "最终 YAML 必须使用 schema_version: shot_director_coverage_v3；schema键使用约定英文键，镜头内容使用中文。\n\n"
             "【每个片段必须交付】\n"
             "1. 片段任务 — 本片段的剧情施工任务，例如建立关系、冲突升级、信息揭示、反应落点、权力反转、喜剧泄压、尾帧钩子。\n"
             "2. 节奏 — 继承节奏总控给镜头导演的情绪曲线和节奏意图，写清哪些戏剧落点必须保留、哪些弱拍可以压缩、哪里需要停顿；镜头数和切镜方案由本阶段规划。\n\n"
@@ -3166,7 +3330,7 @@ def _run_shot_director_single_pass_impl(
             "5. 台词只能使用原剧本文字、原剧本画外音或写 ~；不得新增台词。\n"
             "6. 只有剧本已有信息载体才能成为拍摄主体；不要新增空镜、道具或环境信息。\n"
             "7. 每个镜头的时间段必须连续，前后衔接。\n"
-            "8. 不要输出任何英文字段名；字段名必须使用上面的中文写法。\n\n"
+            "8. 必须输出 coverage_plan、template_plan、guard_result；template_plan.shots 是下游主镜头表。\n\n"
             "9. 每个片段必须在镜头列表前输出【空间连续性总控】，供 prompt_compiler 写入【空间与首帧总控】；它必须明确“同一空间、同一人物组、单人镜不等于其他人物消失”。\n\n"
             "10. 每个片段必须执行【镜头库调用任务单】里的镜头库任务：先判断剧情信号，再决定镜头结构和切点；"
             "如果任务单与原剧本事件冲突，以原剧本事件和拆片边界为准。\n\n"
@@ -3190,11 +3354,12 @@ def _run_shot_director_single_pass_impl(
                     f"{workflow_contract}\n"
                     f"{_shot_director_coverage_contract_prompt()}\n"
                     f"{rhythm_shot_notes_prompt}"
-                    "【输出 YAML 字段，必须全中文】\n"
-                    "- 片段编号\n"
-                    "- 片段任务\n"
-                    "- 节奏\n"
-                    "- 镜头列表\n"
+                    "【输出 YAML 字段】\n"
+                    "- schema_version: shot_director_coverage_v3\n"
+                    "- coverage_plan\n"
+                    "- template_plan\n"
+                    "- guard_result\n"
+                    "- template_plan.shots\n"
                     "- 镜头编号\n"
                     "- 时长\n"
                     "- 镜头任务\n"
@@ -3610,7 +3775,8 @@ def _run_shot_director_three_stage_impl(
         "【阶段二输出】\n"
         f"{blocking_output}\n\n"
         f"{guard_rules}\n"
-        "请输出最终可交给 prompt_compiler 的完整中文 YAML；不要输出分析、不要输出英文字段名。"
+        f"{_shot_director_coverage_contract_prompt()}\n"
+        "请输出最终可交给 prompt_compiler 的完整 coverage v3 YAML；schema字段名使用约定英文键，镜头内容用中文。不要输出分析。"
     )
     final_output = run_stage(
         stage_name="final",
@@ -3624,6 +3790,7 @@ def _run_shot_director_three_stage_impl(
             "只处理当前片段的阶段三守门和最终交付。\n\n"
             f"{fragment_context}\n"
             f"【阶段二当前片段输出】\n{fragment_contract}\n\n{guard_rules}\n"
+            f"{_shot_director_coverage_contract_prompt()}\n"
             "请只输出该片段最终中文 YAML。"
         ),
         images=_shot_director_stage_images("shot_director_guard", images_base64),
@@ -3651,6 +3818,7 @@ def _run_shot_director_three_stage_impl(
             + "\n\n【待修正 YAML】\n"
             f"{repair_target_output}\n\n"
             f"{guard_rules}\n"
+            f"{_shot_director_coverage_contract_prompt()}\n"
             "请只输出修正后的 YAML。"
         )
         repaired_fragment_output, repair_runtime = _call_shot_director_stage(
@@ -4862,9 +5030,4 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             "shot_director_approved_by_segment": dict(state.get("shot_director_approved_by_segment") or {}),
         },
     )
-
-
-
-
-
 

@@ -13,7 +13,6 @@ from . import legacy_impl as _legacy
 # V1 schema contract: shot_director outputs fragment_task/rhythm/shots
 # with shot fields: duration, task, subject, shot, action, dialogue, must_carry, cut_point, continuity
 # Chinese aliases such as 片段任务/镜头列表/切镜点 are accepted for user-facing output.
-# Legacy camera+size assets are still accepted at the compiler gate.
 # Optional: type, audio
 from .helpers import (
     _truncate_for_prompt,
@@ -35,6 +34,11 @@ from .helpers import (
 )
 from .llm import call_llm
 from .prompting import build_system_prompt
+from .seedance_contracts import (
+    extract_seedance_contract_flags,
+    format_seedance_contract_block,
+    seedance_qc_issues,
+)
 from .state_store import _agent_outputs, _persist_update
 
 _LOCAL_FALLBACK_INPUT_MARKERS = (
@@ -153,6 +157,24 @@ _UNSTABLE_FRAME_COMPOSITION_RE = re.compile(
     r"(?:门框|窗框).{0,8}(?:形成|构成).{0,8}(?:前景|压线|框景)|"
     r"前景压线|框住人物|被(?:门框|窗框|框架)框住|框景压迫"
     r")"
+)
+_PSEUDO_RELATION_VIEWPOINT_RE = re.compile(
+    r"("
+    r"[\u4e00-\u9fff]{1,8}(?:与|和|及)[\u4e00-\u9fff]{1,8}之间的关系视角|"
+    r"(?:沙发|地毯|茶几|书包|门口|桌边|窗边|客厅|卧室|办公室|空间|场景|前景|后景|人物|双人|同场).{0,10}"
+    r"(?:关系|复位|承接).{0,6}(?:视角|观看位置|机位)|"
+    r"(?:空间关系|前后景关系|关系复位|尾帧承接|覆盖职责|动作主链|状态单向推进).{0,6}(?:视角|观看位置|机位)"
+    r")"
+)
+_SHOT_ACTION_OVERLOAD_RE = re.compile(
+    r"(?:放下|放到|拿起|抓起|拎起|拉|扯|按住|按下|看向|瞥向|说出|急声|移开|松开|伸向|接触|缩回|扭开|后退|扒|整理|扣好|起身|停住)"
+)
+_SHOT_PROP_OR_BODY_RE = re.compile(
+    r"(?:手机|闹钟|书包|衣服|衣摆|衣袖|手臂|手指|肩膀|脚|茶几|沙发|地毯|坐垫)"
+)
+_NATURAL_VIEWPOINT_RE = re.compile(
+    r"(?:正面|侧面|背后|肩后|客厅一侧|客厅侧面|沙发旁|地毯旁|茶几旁|门口|桌边|走廊侧面|电梯口)"
+    r".{0,8}(?:平视|视角|固定视角|观察视角|中景|半身景|关系景|双人中景|看向)"
 )
 
 
@@ -661,6 +683,68 @@ def _prompt_shot_density_issues(
     return issues
 
 
+def _seedance_contract_card(planner_segment: str, director_segment: str) -> str:
+    text = "\n".join([planner_segment or "", director_segment or ""])
+    flags = extract_seedance_contract_flags(text)
+    if not any(
+        flags.get(key)
+        for key in ("template_id", "template_level", "reference_need", "tail_state", "model_complexity_score")
+    ):
+        return "未检测到 Seedance 2.0 合同字段；必须由上游补齐 template_id、template_level、reference_need、tail_state、model_complexity_score 后再编译。"
+    return format_seedance_contract_block(
+        template_id=flags.get("template_id"),
+        template_level=flags.get("template_level"),
+        reference_need=flags.get("reference_need"),
+        tail_state=flags.get("tail_state"),
+        complexity_score=flags.get("model_complexity_score"),
+    )
+
+
+def _seedance_contract_is_explicit(planner_segment: str, director_segment: str) -> bool:
+    text = "\n".join([planner_segment or "", director_segment or ""])
+    return bool(
+        re.search(
+            r"(?im)^\s*(?:template_id|coverage_template_id|template_level)\s*[:=]",
+            text,
+        )
+    )
+
+
+def _seedance_issue_to_compiler_message(issue: str) -> str:
+    if "seedance_template_id_missing" in issue or "seedance_template_level_missing" in issue:
+        return "- [SEEDANCE-CONTRACT-GATE-001] Seedance 合同字段不完整：缺少 template_id/template_level。prompt_compiler 必须先拿到 coverage 白名单边界再编译。"
+    if "seedance_template_x_forbidden" in issue:
+        return "- [SEEDANCE-COVERAGE-TEMPLATE-GATE-001] shot_director 选择了 X 禁用 coverage 模板，不能交给 prompt_compiler 生成。"
+    if "seedance_template_candidate" in issue:
+        return "- [SEEDANCE-COVERAGE-TEMPLATE-GATE-001] coverage 模板仍是 candidate/untested，必须先通过 Seedance 测试或降级到 W1/W2。"
+    if "seedance_r1_reference_missing" in issue:
+        return "- [SEEDANCE-COVERAGE-TEMPLATE-GATE-001] R1 参考驱动模板缺少视频参考/关键帧/动作参考绑定，必须拆分或降级。"
+    if "seedance_complexity_score>=5" in issue:
+        match = re.search(r"score=(\d+)", issue)
+        score = match.group(1) if match else "5+"
+        return f"- [SEEDANCE-COMPLEXITY-GATE-001] model_complexity_score={score}：Seedance 2.0 生产边界禁止单段直接生成，必须拆分、降级或改用视频参考。"
+    if "seedance_complexity_score=3-4" in issue:
+        match = re.search(r"score=(\d+)", issue)
+        score = match.group(1) if match else "3-4"
+        return f"- [SEEDANCE-COMPLEXITY-GATE-001] model_complexity_score={score}：中复杂度片段必须写明降级、压缩、白名单模板或参考驱动策略。"
+    if "seedance_tail_state_missing" in issue:
+        return "- [SEEDANCE-TAIL-STATE-GATE-001] tail_state 不清，必须返修为可继承的角色位置、视线/注意力、道具/门状态和未解决问题。"
+    if "seedance_text_dependency" in issue:
+        return "- [SEEDANCE-NO-TEXT-DEPENDENCY-001] 输入依赖字幕/屏幕文字/文件文字传达剧情；必须改成演员动作、视线、道具状态或对白声音信息。"
+    return f"- [SEEDANCE-CONTRACT-GATE-001] {issue}"
+
+
+def _seedance_contract_guard_issues(
+    prompt: str,
+    planner_segment: str,
+    director_segment: str,
+) -> list[str]:
+    if not _seedance_contract_is_explicit(planner_segment, director_segment):
+        return []
+    combined = "\n".join([planner_segment or "", director_segment or "", prompt or ""])
+    return [_seedance_issue_to_compiler_message(issue) for issue in seedance_qc_issues(combined)]
+
+
 def _compiler_guard_report(prompt: str, script: str, planner_segment: str, director_segment: str) -> str:
     issues: list[str] = []
     execution_text = _prompt_execution_text(prompt)
@@ -773,6 +857,14 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             + "。请改成自然可执行表达，例如\"从乔熙肩后看向门口，小豆丁站在门口等她\"；"
             "门、窗、桌等只作为空间边界或阻隔物，不写成框住人物的构图术语。"
         )
+    pseudo_viewpoint_terms = sorted(set(match.group(0) for match in _PSEUDO_RELATION_VIEWPOINT_RE.finditer(execution_text)))
+    if pseudo_viewpoint_terms:
+        issues.append(
+            "- Prompt 包含伪镜头视角："
+            + "、".join(pseudo_viewpoint_terms[:5])
+            + "。最终镜头只能写真实可拍的观看位置，例如“客厅侧面平视”“沙发旁固定半身景”“地毯旁双人中景”或“从乔熙肩后看向小豆丁”；"
+            "不要把空间关系、尾帧承接、覆盖职责或道具之间的关系写成视角。"
+        )
 
     space_section = _prompt_base_section(prompt)
     if space_section:
@@ -804,8 +896,8 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         if not _EMPLOYEE_FACE_LOCK_RE.search(prompt):
             issues.append("- 群演身份锁缺失：众员工/群演不得与命名人物相似、重复或同脸，应写成匿名差异化面孔/侧脸/背影/轻虚。")
 
-    if not _SAFE_CAMERA_POSITION_RE.search(prompt):
-        issues.append('- Prompt 缺少可执行视角/观看位置：至少一个时间段应明确简洁视角，例如"从对方肩后看向人物/同侧固定视角/正面微侧视角/办公桌侧面固定视角/背后跟随视角"。')
+    if not (_SAFE_CAMERA_POSITION_RE.search(prompt) or _NATURAL_VIEWPOINT_RE.search(prompt)):
+        issues.append('- Prompt 缺少可执行摄影机位置/视角/观看位置：至少一个时间段应明确简洁视角，例如"从对方肩后看向人物/同侧固定视角/正面微侧视角/办公桌侧面固定视角/背后跟随视角"。')
 
     unsafe_action_terms = [term for term in _UNSAFE_ACTION_TERMS if term in prompt]
     if unsafe_action_terms:
@@ -838,6 +930,15 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             if re.match(r"^镜头\s*\d+\s*【", line.strip())
         ]
         for index, line in enumerate(shot_lines):
+            action_count = len(_SHOT_ACTION_OVERLOAD_RE.findall(line))
+            prop_or_body_count = len(set(_SHOT_PROP_OR_BODY_RE.findall(line)))
+            has_dialogue = bool(_quoted_dialogues(line) or re.search(r"说[：:]", line))
+            if action_count >= 7 or (action_count >= 5 and prop_or_body_count >= 4 and has_dialogue):
+                issues.append(
+                    f"- 镜头{index + 1}动作过载：3-5秒镜头最多承载一个主动作、一个辅助状态和一句台词；"
+                    "请把道具移动、穿衣整理、孩子反应和尾帧状态压成自然动作句，必要时切成相邻镜头。"
+                )
+                break
             is_last = index == len(shot_lines) - 1
             if is_last:
                 if not re.search(r"尾帧|最后|结尾|保持|仍在|停住|不切|收束", line):
@@ -1081,6 +1182,8 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
 
     if director_segment and not _has_yaml_field(director_segment, "shots"):
         issues.append("- 当前片段镜头资产缺少 shots 骨架。")
+
+    issues.extend(_seedance_contract_guard_issues(prompt, planner_segment, director_segment))
 
     reaction_text = ""
     if planner_segment and re.search(r"reaction_plan\s*:", planner_segment):
@@ -1423,6 +1526,13 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "末尾镜头必须写清“尾帧：人物位置、视线、道具、门/车/电梯状态如何保持”，不写切到下一镜。\n\n"
         "每一行都必须来自上游 shot 的 duration、subject、shot、action、dialogue、must_carry、cut_point、continuity；"
         "如果上游有 coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role，也必须翻译进自然镜头句；不得泄漏这些字段名。\n\n"
+        "【Seedance 2.0 合同编译 gate】\n"
+        "如果当前片段资产包含 template_id、template_level、reference_need、tail_state、model_complexity_score，必须先按这些字段决定是否可编译，再写 prompt。\n"
+        "1. template_id/template_level 是 coverage 白名单边界：W1 可直接编译；W2 必须压动作和切点；R1 必须有真实绑定的视频参考、关键帧或动作/运镜参考；X 禁止继续编译，只能要求拆分、后期或人工处理。\n"
+        "2. 默认假设没有参考视频；reference_need 只表示需要，不表示已经有。identity_reference 锁人物，scene_reference 锁空间，prop_reference 锁道具；motion_reference/camera_reference 必须有 reference_bindings/reference_asset/video_path/keyframe_path 等真实绑定才可用，不得编造不存在的参考。\n"
+        "3. model_complexity_score 为 3-4 时必须降级或拆分；5 及以上不得单段生成。\n"
+        "4. tail_state 必须落实为末尾镜头的可继承尾帧：角色位置、视线/注意力、道具/门/车状态和未解决问题必须清楚。\n"
+        "5. 禁止依赖字幕、屏幕文字、手机/文件可读文字传达剧情；改用演员动作、视线、道具状态或已有对白。compiler 只返修/降级上游资产，不新增剧情或镜头事件。\n\n"
         "【约束】\n"
         "主体锁定、空间锁定、道具连续性、禁止项。必须包含：严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌。简洁列出。\n\n"
         "片段N prompt 已输出。\n"
@@ -1443,6 +1553,12 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "3. 内部机位术语必须翻译为最终视角语言：写“侧面视角、固定视角、从谁肩后看向谁、谁的主观视角”，不要在最终 Prompt 中写“固定机位/侧面机位/摄影机位于”。\n"
         "4. 一句一个动作，句子简短有力，不在一句中塞多个并列描写。\n"
         "5. 台词直接嵌入动作描述中，不单独列出。\n\n"
+        "【Seedance 2.0 优质短剧 Prompt 框架】\n"
+        "1. 每个镜头按“景别 + 主体 + 一个主动作 + 场景锚点 + 真实可拍视角/观看位置 + 切镜触发”写，不按空间几何说明书写。\n"
+        "2. 真实可拍视角只允许这类表达：正面平视、侧面平视、略低视角、略高视角、客厅一侧固定观察视角、沙发旁固定半身景、地毯旁双人中景、从A肩后看向B。\n"
+        "3. 禁止伪视角：不要写“沙发与地毯之间的关系视角”“空间关系视角”“关系复位视角”“尾帧承接视角”“覆盖职责视角”“前后景关系视角”。这些是内部 blocking 语言，不是视频模型能拍的镜头。\n"
+        "4. 镜头运动只保留一种：固定镜头、缓慢推近、轻微拉开、侧向跟拍、轻微手持感或插入特写；不要把推近、横移、摇摄、回到主位塞进同一镜头。\n"
+        "5. 生活短剧优先“关系景 -> 必要切近 -> 回关系景”的稳定组合；不要为手机、衣角、脚、手指等微动作连续切碎，除非该物件承载剧情信息。\n\n"
         "【动作粒度上限】\n"
         "1. 最终镜头句只保留：主体、一个主要动作变化、必要情绪/视线落点；不要把每根手指、衣角、呼吸、肩颈、眼角连续写成动作流水账。\n"
         "2. 生活动作只写模型容易稳定生成的大动作：拿起、放下、后退、停住、看向、递出、推开、进入、离开；微动作只在承载线索、受击结果或动作前摇时保留一次。\n"
@@ -1525,6 +1641,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
             "已拒绝继续编译。请先重跑三段式镜头导演并确保大模型调用成功。"
         )
     current_director_segment = _compress_director_for_compiler(current_director_segment_raw)
+    current_seedance_contract = _seedance_contract_card(current_planner_segment, current_director_segment_raw)
     scene_memory = _scene_memory_card(outputs.get("scene_analyst", ""), 1400)
     current_source_events = _current_segment_event_card(current_planner_segment, 1600)
     current_script_context = "\n\n".join(
@@ -1588,10 +1705,8 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
             for field in ("duration", "task", "subject", "action", "dialogue", "must_carry", "cut_point", "continuity"):
                 if not _has_yaml_field(shot_body, field):
                     v1_issues.append(f"{shot_id} 缺少必要字段 {field}。")
-            has_merged_shot = _has_yaml_field(shot_body, "shot")
-            has_legacy_camera_size = _has_yaml_field(shot_body, "camera") and _has_yaml_field(shot_body, "size")
-            if not (has_merged_shot or has_legacy_camera_size):
-                v1_issues.append(f"{shot_id} 缺少必要字段 shot（或旧版 camera+size）。")
+            if not _has_yaml_field(shot_body, "shot"):
+                v1_issues.append(f"{shot_id} 缺少必要字段 shot。")
     else:
         v1_issues.append("当前片段缺少镜头资产，无法编译。")
 
@@ -1608,6 +1723,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"【场景空间记忆卡】\n{scene_memory}\n\n"
         f"【当前片段原文事件】\n{current_source_events}\n\n"
         f"【当前片段规划资产】\n{current_planner_segment}\n\n"
+        f"【Seedance 2.0 合同字段卡（必须保留并用于编译决策，不得作为最终字段名输出）】\n{current_seedance_contract}\n\n"
         f"【当前片段镜头资产】\n{current_director_segment}\n\n"
         f"【上一段人物最终姿势/视频分析（最高优先级空间参考）】\n{tail_frame_memory}\n\n"
         f"⚠️ 【画面基底的核心规则】\n"
@@ -1630,7 +1746,8 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "2. 当前片段的 sub_shots / reaction_plan 决定炸点、受击、表情重音落在哪里；不得把这些落点随意抹平成背景附带。\n"
         "3. 若上游要求受击在片段内承接，时间轴必须真正写出该受击/反应的可见落点。\n"
         "4. 若上游要求完整发言单元保持连续，意思是语义和声音连续，不是单镜头吃完整段台词；必须保留上游给出的听者反应、同侧过肩、画外音或景别变化；若上游写了反打，单段内改写为同侧听者反应，真反打必须拆段。\n"
-        "5. source_script_events 必须全部覆盖，不得遗漏。\n\n"
+        "5. source_script_events 必须全部覆盖，不得遗漏。\n"
+        "6. 若合同字段卡出现 template_id、template_level、reference_need、tail_state、model_complexity_score，必须逐项使用：X/candidate/R1无参考/复杂度超限/尾帧不清/文字依赖都要输出明确返修或降级内容，不得直接扩写生成。\n\n"
         "【镜头覆盖字段翻译规则】\n"
         "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，以及三号守门字段 coverage_role / cut_reason / companion_visibility / state_delta / tailframe_role，必须按下面方式编译成【镜头序列】：\n"
         "0. 空间连续性总控 必须转译进【画面基底】开头：说明本片段戏剧任务、同一空间、同一人物组和单人镜不代表其他人物离场；不要泄漏字段名。\n"
@@ -1647,8 +1764,12 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "11. state_delta / 状态变化 必须写成本镜相对上一镜新增的可见变化：视线转向谁、身体退开或停住、道具归属如何变化、门缝变宽或变窄；不能只写“情绪变化”“状态变化发生”。\n"
         "12. tailframe_role / 尾帧职责 必须落实到末尾镜头的“尾帧：...”或【约束】中，写清下一镜/下一段可继承的人物位置、视线、道具、门/车/电梯状态；不要写“尾帧承接”“抗拒位置”这种内部标签。\n"
         "13. 若三号守门字段与基础字段重复，保留一次自然表达即可；若三号指出硬伤修复，以三号字段为准。\n"
-        "14. 如果上游旧版 shot 字段仍混有动作，必须拆开处理：摄影信息放镜头行开头，人物动作和表情并入 action 的自然句，避免最终 prompt 一句里同时塞摄影和动作导致模型误画。\n"
+        "14. 如果上游 shot 字段混有动作，必须拆开处理：摄影信息放镜头行开头，人物动作和表情并入 action 的自然句，避免最终 prompt 一句里同时塞摄影和动作导致模型误画。\n"
         "15. 最终 prompt 禁止出现 fragment_task、must_carry、cut_point、continuity、coverage_role、cut_reason、companion_visibility、state_delta、tailframe_role、shot_id、fragment_id 等内部字段名。\n\n"
+        "【伪镜头语言降级规则】\n"
+        "1. 如果上游 shot 写成“X与Y之间的关系视角”“空间关系视角”“关系复位视角”，必须改成真实观看位置：例如“客厅侧面平视”“沙发旁固定半身景”“地毯旁双人中景”。\n"
+        "2. 如果上游 action 写得过细，优先合并为一个主动作；例如“手机从耳侧移向沙发坐垫、底部接触、手指松开、不滑走”改成“乔熙把手机放到沙发坐垫上，空出双手继续给孩子整理衣服”。\n"
+        "3. 如果约束里禁止屏幕文字，就不要要求闹钟、手机或文件上的数字/文字清楚可读；改为“闹钟响着，乔熙看向闹钟，表现快迟到”。\n\n"
         "【Seedance 2.0 场景简写与表演优先规则】\n"
         "1. 最终 Prompt 不要把场景空间写成说明书；空间只服务连续性，不承担戏剧表达。\n"
         "2. 【画面基底】最多2-3句，只写不可变硬锚点：场景类型、入口/门/电梯/桌边等关键节点、人物首帧站位、人物身份服装、光线。\n"

@@ -1,0 +1,401 @@
+﻿pack,episode,shot_index,start_s,end_s,duration_s,keyframe,mean_motion,face_count,inferred_scale,inferred_motion
+high_motion,73,13,111.36,111.84,0.48,keyframes/73/shot_013_111.36s.jpg,0.9549,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,60,19,144.48,144.96,0.48,keyframes/60/shot_019_144.48s.jpg,0.9206,1,MS half-body,high_cut_or_handheld_motion
+high_motion,85,30,120.96,121.44,0.48,keyframes/85/shot_030_120.96s.jpg,0.8818,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,52,42,143.52,144.0,0.48,keyframes/52/shot_042_143.52s.jpg,0.874,1,MS half-body,high_cut_or_handheld_motion
+high_motion,21,29,97.44,97.92,0.48,keyframes/21/shot_029_097.44s.jpg,0.8514,1,MCU chest-up,high_cut_or_handheld_motion
+high_motion,91,56,104.64,105.12,0.48,keyframes/91/shot_056_104.64s.jpg,0.8509,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,21,30,97.92,98.4,0.48,keyframes/21/shot_030_097.92s.jpg,0.849,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,62,13,27.36,27.84,0.48,keyframes/62/shot_013_027.36s.jpg,0.8479,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,26,35,116.16,116.64,0.48,keyframes/26/shot_035_116.16s.jpg,0.8436,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,14,68,112.8,113.28,0.48,keyframes/14/shot_068_112.80s.jpg,0.8431,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,6,53,116.64,117.12,0.48,keyframes/6/shot_053_116.64s.jpg,0.8421,2,MS half-body,high_cut_or_handheld_motion
+high_motion,14,59,99.36,99.84,0.48,keyframes/14/shot_059_099.36s.jpg,0.8411,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,26,34,115.68,116.16,0.48,keyframes/26/shot_034_115.68s.jpg,0.8404,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,3,39,88.8,89.28,0.48,keyframes/3/shot_039_088.80s.jpg,0.8383,1,MCU chest-up,high_cut_or_handheld_motion
+high_motion,60,20,144.96,145.44,0.48,keyframes/60/shot_020_144.96s.jpg,0.8366,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,3,40,89.28,89.76,0.48,keyframes/3/shot_040_089.28s.jpg,0.8338,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,11,49,100.8,101.28,0.48,keyframes/11/shot_049_100.80s.jpg,0.8329,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,46,15,90.24,90.72,0.48,keyframes/46/shot_015_090.24s.jpg,0.8284,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,64,22,92.16,92.64,0.48,keyframes/64/shot_022_092.16s.jpg,0.8272,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,13,64,125.76,126.24,0.48,keyframes/13/shot_064_125.76s.jpg,0.8253,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,5,33,73.44,73.92,0.48,keyframes/5/shot_033_073.44s.jpg,0.822,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,17,18,45.12,45.6,0.48,keyframes/17/shot_018_045.12s.jpg,0.8184,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,9,50,116.64,117.12,0.48,keyframes/9/shot_050_116.64s.jpg,0.8183,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,27,34,105.6,106.08,0.48,keyframes/27/shot_034_105.60s.jpg,0.8171,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,52,43,144.0,144.48,0.48,keyframes/52/shot_043_144.00s.jpg,0.8147,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,11,41,88.32,88.8,0.48,keyframes/11/shot_041_088.32s.jpg,0.8139,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,13,63,125.28,125.76,0.48,keyframes/13/shot_063_125.28s.jpg,0.8077,1,MCU chest-up,high_cut_or_handheld_motion
+high_motion,18,10,20.64,21.12,0.48,keyframes/18/shot_010_020.64s.jpg,0.7984,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,25,1,0.0,0.48,0.48,keyframes/25/shot_001_000.00s.jpg,0.7973,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,62,14,27.84,28.32,0.48,keyframes/62/shot_014_027.84s.jpg,0.793,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,24,42,122.88,123.36,0.48,keyframes/24/shot_042_122.88s.jpg,0.7909,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,75,2,2.4,2.88,0.48,keyframes/75/shot_002_002.40s.jpg,0.7724,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,41,37,100.32,100.8,0.48,keyframes/41/shot_037_100.32s.jpg,0.7568,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,72,21,65.28,65.76,0.48,keyframes/72/shot_021_065.28s.jpg,0.7557,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,94,48,240.96,241.44,0.48,keyframes/94/shot_048_240.96s.jpg,0.7516,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,94,42,230.88,231.36,0.48,keyframes/94/shot_042_230.88s.jpg,0.7495,1,LS/MLS relation,high_cut_or_handheld_motion
+high_motion,94,41,230.4,230.88,0.48,keyframes/94/shot_041_230.40s.jpg,0.7485,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,13,66,126.72,127.2,0.48,keyframes/13/shot_066_126.72s.jpg,0.7432,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,12,14,17.28,17.76,0.48,keyframes/12/shot_014_017.28s.jpg,0.7426,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,31,27,109.92,110.4,0.48,keyframes/31/shot_027_109.92s.jpg,0.7425,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,33,1,0.0,0.48,0.48,keyframes/33/shot_001_000.00s.jpg,0.7398,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,28,6,10.08,10.56,0.48,keyframes/28/shot_006_010.08s.jpg,0.7394,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,48,18,113.28,113.76,0.48,keyframes/48/shot_018_113.28s.jpg,0.7371,1,CU shoulder-up,high_cut_or_handheld_motion
+high_motion,53,32,123.36,123.84,0.48,keyframes/53/shot_032_123.36s.jpg,0.7362,2,MS half-body,high_cut_or_handheld_motion
+high_motion,8,18,51.36,51.84,0.48,keyframes/8/shot_018_051.36s.jpg,0.7351,1,LS/MLS relation,high_cut_or_handheld_motion
+high_motion,29,27,103.2,103.68,0.48,keyframes/29/shot_027_103.20s.jpg,0.7351,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,91,37,79.68,80.16,0.48,keyframes/91/shot_037_079.68s.jpg,0.7308,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,41,43,104.64,105.12,0.48,keyframes/41/shot_043_104.64s.jpg,0.7238,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,28,8,12.0,12.48,0.48,keyframes/28/shot_008_012.00s.jpg,0.7218,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,93,8,17.28,17.76,0.48,keyframes/93/shot_008_017.28s.jpg,0.7172,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,74,10,48.96,49.44,0.48,keyframes/74/shot_010_048.96s.jpg,0.7169,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,7,23,55.2,55.68,0.48,keyframes/7/shot_023_055.20s.jpg,0.7106,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,15,20,60.96,61.44,0.48,keyframes/15/shot_020_060.96s.jpg,0.706,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,29,28,103.68,104.16,0.48,keyframes/29/shot_028_103.68s.jpg,0.7036,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,89,45,132.48,132.96,0.48,keyframes/89/shot_045_132.48s.jpg,0.7033,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,25,32,105.6,106.08,0.48,keyframes/25/shot_032_105.60s.jpg,0.7025,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,89,33,105.6,106.08,0.48,keyframes/89/shot_033_105.60s.jpg,0.6965,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,41,44,105.12,105.6,0.48,keyframes/41/shot_044_105.12s.jpg,0.6963,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,29,26,102.72,103.2,0.48,keyframes/29/shot_026_102.72s.jpg,0.6907,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,18,11,21.12,21.6,0.48,keyframes/18/shot_011_021.12s.jpg,0.6898,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,91,42,82.56,83.04,0.48,keyframes/91/shot_042_082.56s.jpg,0.6875,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,91,39,81.12,81.6,0.48,keyframes/91/shot_039_081.12s.jpg,0.6873,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,19,3,3.36,3.84,0.48,keyframes/19/shot_003_003.36s.jpg,0.6869,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,73,14,111.84,112.32,0.48,keyframes/73/shot_014_111.84s.jpg,0.6821,1,MCU chest-up,high_cut_or_handheld_motion
+high_motion,24,43,123.36,123.84,0.48,keyframes/24/shot_043_123.36s.jpg,0.6756,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,25,26,80.16,80.64,0.48,keyframes/25/shot_026_080.16s.jpg,0.6732,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,1,5,3.84,4.32,0.48,keyframes/1/shot_005_003.84s.jpg,0.6724,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,7,43,105.6,106.08,0.48,keyframes/7/shot_043_105.60s.jpg,0.6702,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,42,39,98.88,99.36,0.48,keyframes/42/shot_039_098.88s.jpg,0.6692,1,MS half-body,high_cut_or_handheld_motion
+high_motion,93,57,147.36,147.84,0.48,keyframes/93/shot_057_147.36s.jpg,0.6676,1,LS/MLS relation,high_cut_or_handheld_motion
+high_motion,4,54,109.44,109.92,0.48,keyframes/4/shot_054_109.44s.jpg,0.6651,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,21,28,96.96,97.44,0.48,keyframes/21/shot_028_096.96s.jpg,0.6628,1,MCU chest-up,high_cut_or_handheld_motion
+high_motion,92,53,135.84,136.32,0.48,keyframes/92/shot_053_135.84s.jpg,0.661,1,MCU chest-up,high_cut_or_handheld_motion
+high_motion,23,25,52.32,52.8,0.48,keyframes/23/shot_025_052.32s.jpg,0.6594,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,1,2,0.96,1.44,0.48,keyframes/1/shot_002_000.96s.jpg,0.6577,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,61,14,30.24,30.72,0.48,keyframes/61/shot_014_030.24s.jpg,0.6514,1,CU shoulder-up,high_cut_or_handheld_motion
+high_motion,17,32,65.28,65.76,0.48,keyframes/17/shot_032_065.28s.jpg,0.6512,1,MCU chest-up,high_cut_or_handheld_motion
+high_motion,89,43,131.04,131.52,0.48,keyframes/89/shot_043_131.04s.jpg,0.6481,1,MCU chest-up,high_cut_or_handheld_motion
+high_motion,60,16,137.28,137.76,0.48,keyframes/60/shot_016_137.28s.jpg,0.6479,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+high_motion,31,26,109.44,109.92,0.48,keyframes/31/shot_026_109.44s.jpg,0.6474,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+long_holds,60,10,48.0,122.4,74.4,keyframes/60/shot_010_048.00s.jpg,0.1804,1,MCU chest-up,active_motion_or_reframe
+long_holds,94,21,83.52,150.24,66.72,keyframes/94/shot_021_083.52s.jpg,0.1491,1,LS/MLS relation,active_motion_or_reframe
+long_holds,86,1,0.0,48.48,48.48,keyframes/86/shot_001_000.00s.jpg,0.1799,2,MS half-body,active_motion_or_reframe
+long_holds,28,42,95.04,132.48,37.44,keyframes/28/shot_042_095.04s.jpg,0.1772,2,MS half-body,active_motion_or_reframe
+long_holds,54,5,21.6,58.56,36.96,keyframes/54/shot_005_021.60s.jpg,0.191,1,LS/MLS relation,active_motion_or_reframe
+long_holds,71,9,46.08,83.04,36.96,keyframes/71/shot_009_046.08s.jpg,0.1822,2,MCU chest-up,active_motion_or_reframe
+long_holds,80,9,76.32,113.28,36.96,keyframes/80/shot_009_076.32s.jpg,0.1745,1,MS half-body,active_motion_or_reframe
+long_holds,22,1,0.0,35.52,35.52,keyframes/22/shot_001_000.00s.jpg,0.1407,2,LS/MLS relation,active_motion_or_reframe
+long_holds,73,12,77.76,111.36,33.6,keyframes/73/shot_012_077.76s.jpg,0.1792,1,MCU chest-up,active_motion_or_reframe
+long_holds,55,2,1.92,35.04,33.12,keyframes/55/shot_002_001.92s.jpg,0.1864,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,36,28,72.96,104.16,31.2,keyframes/36/shot_028_072.96s.jpg,0.1506,3,MS half-body,active_motion_or_reframe
+long_holds,58,19,76.32,107.52,31.2,keyframes/58/shot_019_076.32s.jpg,0.1806,2,MS half-body,active_motion_or_reframe
+long_holds,82,1,0.0,30.72,30.72,keyframes/82/shot_001_000.00s.jpg,0.1587,3,MS half-body,active_motion_or_reframe
+long_holds,39,37,77.76,108.0,30.24,keyframes/39/shot_037_077.76s.jpg,0.195,1,MCU chest-up,active_motion_or_reframe
+long_holds,62,27,57.12,86.88,29.76,keyframes/62/shot_027_057.12s.jpg,0.2027,1,MCU chest-up,active_motion_or_reframe
+long_holds,79,4,22.56,52.32,29.76,keyframes/79/shot_004_022.56s.jpg,0.1846,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,89,14,29.76,59.04,29.28,keyframes/89/shot_014_029.76s.jpg,0.1654,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,70,11,72.96,101.76,28.8,keyframes/70/shot_011_072.96s.jpg,0.1626,1,MS half-body,active_motion_or_reframe
+long_holds,33,11,26.88,53.28,26.4,keyframes/33/shot_011_026.88s.jpg,0.2068,2,MS half-body,active_motion_or_reframe
+long_holds,71,11,89.28,115.68,26.4,keyframes/71/shot_011_089.28s.jpg,0.1863,1,MCU chest-up,active_motion_or_reframe
+long_holds,85,18,60.96,86.4,25.44,keyframes/85/shot_018_060.96s.jpg,0.1784,2,LS/MLS relation,active_motion_or_reframe
+long_holds,46,8,36.48,60.96,24.48,keyframes/46/shot_008_036.48s.jpg,0.1967,1,MCU chest-up,active_motion_or_reframe
+long_holds,19,23,96.96,120.96,24.0,keyframes/19/shot_023_096.96s.jpg,0.1796,2,MCU chest-up,active_motion_or_reframe
+long_holds,84,5,15.36,39.36,24.0,keyframes/84/shot_005_015.36s.jpg,0.1725,2,LS/MLS relation,active_motion_or_reframe
+long_holds,37,2,1.44,24.96,23.52,keyframes/37/shot_002_001.44s.jpg,0.2012,3,LS/MLS relation,active_motion_or_reframe
+long_holds,69,3,37.92,61.4,23.48,keyframes/69/shot_003_037.92s.jpg,0.1988,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,69,1,0.0,23.04,23.04,keyframes/69/shot_001_000.00s.jpg,0.195,1,MCU chest-up,active_motion_or_reframe
+long_holds,94,26,161.28,184.32,23.04,keyframes/94/shot_026_161.28s.jpg,0.2408,1,LS/MLS relation,high_cut_or_handheld_motion
+long_holds,55,5,38.88,61.44,22.56,keyframes/55/shot_005_038.88s.jpg,0.1708,1,MS half-body,active_motion_or_reframe
+long_holds,79,10,68.64,91.2,22.56,keyframes/79/shot_010_068.64s.jpg,0.1581,1,LS/MLS relation,active_motion_or_reframe
+long_holds,15,27,75.36,97.44,22.08,keyframes/15/shot_027_075.36s.jpg,0.1772,4,LS/MLS relation,active_motion_or_reframe
+long_holds,84,18,77.76,99.84,22.08,keyframes/84/shot_018_077.76s.jpg,0.1707,1,LS/MLS relation,active_motion_or_reframe
+long_holds,19,21,72.0,93.12,21.12,keyframes/19/shot_021_072.00s.jpg,0.1773,1,MS half-body,active_motion_or_reframe
+long_holds,77,6,10.08,31.2,21.12,keyframes/77/shot_006_010.08s.jpg,0.1848,1,MS half-body,active_motion_or_reframe
+long_holds,70,6,29.76,50.4,20.64,keyframes/70/shot_006_029.76s.jpg,0.1938,1,LS/MLS relation,active_motion_or_reframe
+long_holds,1,26,34.56,54.72,20.16,keyframes/1/shot_026_034.56s.jpg,0.178,1,MS half-body,active_motion_or_reframe
+long_holds,60,3,8.64,28.8,20.16,keyframes/60/shot_003_008.64s.jpg,0.1966,1,MS half-body,active_motion_or_reframe
+long_holds,24,32,78.72,98.4,19.68,keyframes/24/shot_032_078.72s.jpg,0.1902,1,LS/MLS relation,active_motion_or_reframe
+long_holds,79,3,2.88,22.56,19.68,keyframes/79/shot_003_002.88s.jpg,0.2094,2,MS half-body,active_motion_or_reframe
+long_holds,9,37,72.48,91.68,19.2,keyframes/9/shot_037_072.48s.jpg,0.1952,1,MS half-body,active_motion_or_reframe
+long_holds,21,6,12.96,31.68,18.72,keyframes/21/shot_006_012.96s.jpg,0.1634,1,LS/MLS relation,active_motion_or_reframe
+long_holds,80,3,20.64,39.36,18.72,keyframes/80/shot_003_020.64s.jpg,0.1865,1,LS/MLS relation,active_motion_or_reframe
+long_holds,32,3,6.24,24.48,18.24,keyframes/32/shot_003_006.24s.jpg,0.1981,4,MCU chest-up,active_motion_or_reframe
+long_holds,47,2,5.28,23.04,17.76,keyframes/47/shot_002_005.28s.jpg,0.1724,1,LS/MLS relation,active_motion_or_reframe
+long_holds,57,17,30.24,48.0,17.76,keyframes/57/shot_017_030.24s.jpg,0.1717,1,MCU chest-up,active_motion_or_reframe
+long_holds,34,18,59.04,76.32,17.28,keyframes/34/shot_018_059.04s.jpg,0.194,1,MCU chest-up,active_motion_or_reframe
+long_holds,47,15,69.12,86.4,17.28,keyframes/47/shot_015_069.12s.jpg,0.1986,1,LS/MLS relation,active_motion_or_reframe
+long_holds,82,2,30.72,48.0,17.28,keyframes/82/shot_002_030.72s.jpg,0.166,4,LS/MLS relation,active_motion_or_reframe
+long_holds,55,6,61.44,78.24,16.8,keyframes/55/shot_006_061.44s.jpg,0.169,1,MS half-body,active_motion_or_reframe
+long_holds,71,5,8.64,25.44,16.8,keyframes/71/shot_005_008.64s.jpg,0.1663,1,MS half-body,active_motion_or_reframe
+long_holds,73,3,17.76,34.56,16.8,keyframes/73/shot_003_017.76s.jpg,0.1996,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,76,6,26.4,43.2,16.8,keyframes/76/shot_006_026.40s.jpg,0.2126,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,85,11,27.84,44.64,16.8,keyframes/85/shot_011_027.84s.jpg,0.167,1,MS half-body,active_motion_or_reframe
+long_holds,93,54,118.08,134.88,16.8,keyframes/93/shot_054_118.08s.jpg,0.1568,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,25,8,24.48,40.8,16.32,keyframes/25/shot_008_024.48s.jpg,0.1649,2,MCU chest-up,active_motion_or_reframe
+long_holds,32,6,32.64,48.96,16.32,keyframes/32/shot_006_032.64s.jpg,0.1761,1,LS/MLS relation,active_motion_or_reframe
+long_holds,38,7,47.52,63.84,16.32,keyframes/38/shot_007_047.52s.jpg,0.1841,2,MS half-body,active_motion_or_reframe
+long_holds,48,9,33.12,49.44,16.32,keyframes/48/shot_009_033.12s.jpg,0.1471,1,LS/MLS relation,active_motion_or_reframe
+long_holds,73,1,0.0,16.32,16.32,keyframes/73/shot_001_000.00s.jpg,0.1744,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,80,2,4.32,20.64,16.32,keyframes/80/shot_002_004.32s.jpg,0.2,2,LS/MLS relation,active_motion_or_reframe
+long_holds,83,6,15.84,32.16,16.32,keyframes/83/shot_006_015.84s.jpg,0.1653,2,MS half-body,active_motion_or_reframe
+long_holds,30,38,93.12,108.96,15.84,keyframes/30/shot_038_093.12s.jpg,0.1984,2,LS/MLS relation,active_motion_or_reframe
+long_holds,35,12,36.0,51.84,15.84,keyframes/35/shot_012_036.00s.jpg,0.155,1,MCU chest-up,active_motion_or_reframe
+long_holds,57,40,115.68,131.48,15.8,keyframes/57/shot_040_115.68s.jpg,0.2124,1,MS half-body,active_motion_or_reframe
+long_holds,25,28,88.32,103.68,15.36,keyframes/25/shot_028_088.32s.jpg,0.1923,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,36,29,104.16,119.52,15.36,keyframes/36/shot_029_104.16s.jpg,0.1757,3,LS/MLS relation,active_motion_or_reframe
+long_holds,44,21,58.08,73.44,15.36,keyframes/44/shot_021_058.08s.jpg,0.196,1,MS half-body,active_motion_or_reframe
+long_holds,48,15,88.8,104.16,15.36,keyframes/48/shot_015_088.80s.jpg,0.1623,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,64,15,44.64,60.0,15.36,keyframes/64/shot_015_044.64s.jpg,0.1777,1,MS half-body,active_motion_or_reframe
+long_holds,65,5,10.56,25.92,15.36,keyframes/65/shot_005_010.56s.jpg,0.1732,1,LS/MLS relation,active_motion_or_reframe
+long_holds,42,36,75.36,90.24,14.88,keyframes/42/shot_036_075.36s.jpg,0.1539,1,MCU chest-up,active_motion_or_reframe
+long_holds,45,10,34.08,48.96,14.88,keyframes/45/shot_010_034.08s.jpg,0.1742,1,MS half-body,active_motion_or_reframe
+long_holds,46,3,4.8,19.68,14.88,keyframes/46/shot_003_004.80s.jpg,0.1798,1,MS half-body,active_motion_or_reframe
+long_holds,48,11,60.96,75.84,14.88,keyframes/48/shot_011_060.96s.jpg,0.125,2,LS/MLS relation,active_motion_or_reframe
+long_holds,58,11,45.12,60.0,14.88,keyframes/58/shot_011_045.12s.jpg,0.187,0,relation_or_environment_unknown,active_motion_or_reframe
+long_holds,63,25,63.84,78.72,14.88,keyframes/63/shot_025_063.84s.jpg,0.1885,3,MS half-body,active_motion_or_reframe
+long_holds,69,2,23.04,37.92,14.88,keyframes/69/shot_002_023.04s.jpg,0.2152,1,MS half-body,active_motion_or_reframe
+long_holds,75,25,74.88,89.76,14.88,keyframes/75/shot_025_074.88s.jpg,0.1637,1,LS/MLS relation,active_motion_or_reframe
+long_holds,80,8,61.44,76.32,14.88,keyframes/80/shot_008_061.44s.jpg,0.1781,1,MCU chest-up,active_motion_or_reframe
+long_holds,87,21,63.36,78.24,14.88,keyframes/87/shot_021_063.36s.jpg,0.1914,1,MS half-body,active_motion_or_reframe
+face_close,2,4,8.64,9.6,0.96,keyframes/2/shot_004_008.64s.jpg,0.3043,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,2,5,9.6,17.76,8.16,keyframes/2/shot_005_009.60s.jpg,0.2054,1,MCU chest-up,active_motion_or_reframe
+face_close,2,7,19.2,20.64,1.44,keyframes/2/shot_007_019.20s.jpg,0.2698,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,2,13,37.44,38.88,1.44,keyframes/2/shot_013_037.44s.jpg,0.2439,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,2,42,111.84,114.24,2.4,keyframes/2/shot_042_111.84s.jpg,0.1967,1,MCU chest-up,active_motion_or_reframe
+face_close,3,13,28.32,28.8,0.48,keyframes/3/shot_013_028.32s.jpg,0.4637,2,MCU chest-up,high_cut_or_handheld_motion
+face_close,3,24,50.88,52.8,1.92,keyframes/3/shot_024_050.88s.jpg,0.2038,1,MCU chest-up,active_motion_or_reframe
+face_close,3,26,55.68,57.6,1.92,keyframes/3/shot_026_055.68s.jpg,0.1897,1,MCU chest-up,active_motion_or_reframe
+face_close,3,29,63.36,70.08,6.72,keyframes/3/shot_029_063.36s.jpg,0.163,1,MCU chest-up,active_motion_or_reframe
+face_close,3,37,86.88,88.32,1.44,keyframes/3/shot_037_086.88s.jpg,0.2708,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,3,38,88.32,88.8,0.48,keyframes/3/shot_038_088.32s.jpg,0.5829,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,3,39,88.8,89.28,0.48,keyframes/3/shot_039_088.80s.jpg,0.8383,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,4,3,4.32,4.8,0.48,keyframes/4/shot_003_004.32s.jpg,0.6333,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,4,6,9.12,10.08,0.96,keyframes/4/shot_006_009.12s.jpg,0.3235,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,4,19,45.6,46.56,0.96,keyframes/4/shot_019_045.60s.jpg,0.3626,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,4,21,48.0,48.48,0.48,keyframes/4/shot_021_048.00s.jpg,0.5715,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,4,25,53.28,54.24,0.96,keyframes/4/shot_025_053.28s.jpg,0.3612,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,4,26,54.24,55.68,1.44,keyframes/4/shot_026_054.24s.jpg,0.3114,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,4,34,72.96,73.92,0.96,keyframes/4/shot_034_072.96s.jpg,0.2794,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,4,38,85.92,88.32,2.4,keyframes/4/shot_038_085.92s.jpg,0.2452,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,4,46,103.2,103.68,0.48,keyframes/4/shot_046_103.20s.jpg,0.5013,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,4,57,112.32,115.68,3.36,keyframes/4/shot_057_112.32s.jpg,0.1906,1,MCU chest-up,active_motion_or_reframe
+face_close,5,3,3.84,11.04,7.2,keyframes/5/shot_003_003.84s.jpg,0.2002,1,MCU chest-up,active_motion_or_reframe
+face_close,5,7,20.64,22.08,1.44,keyframes/5/shot_007_020.64s.jpg,0.2568,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,5,9,25.44,27.84,2.4,keyframes/5/shot_009_025.44s.jpg,0.2059,1,MCU chest-up,active_motion_or_reframe
+face_close,5,17,46.08,47.52,1.44,keyframes/5/shot_017_046.08s.jpg,0.3086,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,5,20,52.32,53.76,1.44,keyframes/5/shot_020_052.32s.jpg,0.3169,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,5,30,68.16,69.12,0.96,keyframes/5/shot_030_068.16s.jpg,0.3436,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,6,4,5.28,9.12,3.84,keyframes/6/shot_004_005.28s.jpg,0.1292,1,MCU chest-up,active_motion_or_reframe
+face_close,6,6,10.56,12.96,2.4,keyframes/6/shot_006_010.56s.jpg,0.1878,1,MCU chest-up,active_motion_or_reframe
+face_close,6,10,20.64,21.12,0.48,keyframes/6/shot_010_020.64s.jpg,0.5564,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,6,12,22.56,23.52,0.96,keyframes/6/shot_012_022.56s.jpg,0.3449,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,6,13,23.52,26.4,2.88,keyframes/6/shot_013_023.52s.jpg,0.2436,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,6,14,26.4,30.72,4.32,keyframes/6/shot_014_026.40s.jpg,0.22,1,MCU chest-up,active_motion_or_reframe
+face_close,6,15,30.72,32.64,1.92,keyframes/6/shot_015_030.72s.jpg,0.2416,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,6,16,32.64,34.56,1.92,keyframes/6/shot_016_032.64s.jpg,0.2234,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,6,18,36.48,37.92,1.44,keyframes/6/shot_018_036.48s.jpg,0.2494,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,6,19,37.92,41.28,3.36,keyframes/6/shot_019_037.92s.jpg,0.1647,1,MCU chest-up,active_motion_or_reframe
+face_close,6,21,43.2,45.6,2.4,keyframes/6/shot_021_043.20s.jpg,0.1895,2,MCU chest-up,active_motion_or_reframe
+face_close,6,23,47.52,48.96,1.44,keyframes/6/shot_023_047.52s.jpg,0.3079,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,6,36,77.76,79.68,1.92,keyframes/6/shot_036_077.76s.jpg,0.2434,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,6,38,83.04,84.96,1.92,keyframes/6/shot_038_083.04s.jpg,0.2025,1,MCU chest-up,active_motion_or_reframe
+face_close,6,43,96.96,101.76,4.8,keyframes/6/shot_043_096.96s.jpg,0.1611,1,MCU chest-up,active_motion_or_reframe
+face_close,6,45,103.68,107.04,3.36,keyframes/6/shot_045_103.68s.jpg,0.1606,1,MCU chest-up,active_motion_or_reframe
+face_close,6,46,107.04,108.48,1.44,keyframes/6/shot_046_107.04s.jpg,0.2748,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,2,1.92,9.6,7.68,keyframes/7/shot_002_001.92s.jpg,0.2215,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,10,27.84,29.28,1.44,keyframes/7/shot_010_027.84s.jpg,0.2576,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,12,31.68,34.08,2.4,keyframes/7/shot_012_031.68s.jpg,0.1791,2,MCU chest-up,active_motion_or_reframe
+face_close,7,13,34.08,36.96,2.88,keyframes/7/shot_013_034.08s.jpg,0.1731,2,MCU chest-up,active_motion_or_reframe
+face_close,7,14,36.96,38.88,1.92,keyframes/7/shot_014_036.96s.jpg,0.2292,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,15,38.88,40.32,1.44,keyframes/7/shot_015_038.88s.jpg,0.2534,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,17,41.76,43.2,1.44,keyframes/7/shot_017_041.76s.jpg,0.2733,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,19,44.16,50.88,6.72,keyframes/7/shot_019_044.16s.jpg,0.1771,1,MCU chest-up,active_motion_or_reframe
+face_close,7,24,55.68,57.12,1.44,keyframes/7/shot_024_055.68s.jpg,0.232,2,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,25,57.12,58.56,1.44,keyframes/7/shot_025_057.12s.jpg,0.268,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,7,27,60.0,61.92,1.92,keyframes/7/shot_027_060.00s.jpg,0.2224,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,28,61.92,63.36,1.44,keyframes/7/shot_028_061.92s.jpg,0.2377,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,30,64.8,66.24,1.44,keyframes/7/shot_030_064.80s.jpg,0.2413,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,7,33,69.6,72.0,2.4,keyframes/7/shot_033_069.60s.jpg,0.1751,2,MCU chest-up,active_motion_or_reframe
+face_close,7,35,76.32,77.76,1.44,keyframes/7/shot_035_076.32s.jpg,0.2529,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,8,13,41.76,44.64,2.88,keyframes/8/shot_013_041.76s.jpg,0.1704,1,MCU chest-up,active_motion_or_reframe
+face_close,8,16,48.0,49.92,1.92,keyframes/8/shot_016_048.00s.jpg,0.3121,4,MCU chest-up,high_cut_or_handheld_motion
+face_close,8,46,105.12,108.48,3.36,keyframes/8/shot_046_105.12s.jpg,0.2899,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,9,5,4.32,5.76,1.44,keyframes/9/shot_005_004.32s.jpg,0.2367,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,9,11,18.24,19.68,1.44,keyframes/9/shot_011_018.24s.jpg,0.2282,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,9,13,20.64,22.08,1.44,keyframes/9/shot_013_020.64s.jpg,0.235,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,10,19,42.72,45.12,2.4,keyframes/10/shot_019_042.72s.jpg,0.1823,1,MCU chest-up,active_motion_or_reframe
+face_close,10,31,63.84,66.72,2.88,keyframes/10/shot_031_063.84s.jpg,0.24,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,11,6,16.32,18.24,1.92,keyframes/11/shot_006_016.32s.jpg,0.27,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,11,8,19.68,21.12,1.44,keyframes/11/shot_008_019.68s.jpg,0.2802,2,MCU chest-up,high_cut_or_handheld_motion
+face_close,11,19,35.52,36.48,0.96,keyframes/11/shot_019_035.52s.jpg,0.4555,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,11,21,44.16,45.12,0.96,keyframes/11/shot_021_044.16s.jpg,0.3421,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,11,29,60.0,61.44,1.44,keyframes/11/shot_029_060.00s.jpg,0.3385,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,11,30,61.44,63.84,2.4,keyframes/11/shot_030_061.44s.jpg,0.2274,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,11,47,96.0,99.36,3.36,keyframes/11/shot_047_096.00s.jpg,0.2079,1,CU shoulder-up,active_motion_or_reframe
+face_close,11,53,111.36,112.32,0.96,keyframes/11/shot_053_111.36s.jpg,0.414,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,11,57,116.64,119.52,2.88,keyframes/11/shot_057_116.64s.jpg,0.2043,1,MCU chest-up,active_motion_or_reframe
+face_close,11,59,120.48,121.44,0.96,keyframes/11/shot_059_120.48s.jpg,0.4252,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,11,63,140.16,142.08,1.92,keyframes/11/shot_063_140.16s.jpg,0.201,2,ECU/CU face-dominant,active_motion_or_reframe
+face_close,12,1,0.0,1.92,1.92,keyframes/12/shot_001_000.00s.jpg,0.1994,2,ECU/CU face-dominant,active_motion_or_reframe
+face_close,12,22,26.4,27.36,0.96,keyframes/12/shot_022_026.40s.jpg,0.3256,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,12,23,27.36,27.84,0.48,keyframes/12/shot_023_027.36s.jpg,0.572,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,12,27,31.68,33.6,1.92,keyframes/12/shot_027_031.68s.jpg,0.2146,1,MCU chest-up,active_motion_or_reframe
+face_close,12,30,40.32,41.28,0.96,keyframes/12/shot_030_040.32s.jpg,0.3156,2,MCU chest-up,high_cut_or_handheld_motion
+face_close,12,31,41.28,43.68,2.4,keyframes/12/shot_031_041.28s.jpg,0.1767,1,MCU chest-up,active_motion_or_reframe
+face_close,12,33,44.64,46.56,1.92,keyframes/12/shot_033_044.64s.jpg,0.2386,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,12,41,60.0,60.48,0.48,keyframes/12/shot_041_060.00s.jpg,0.6011,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,12,43,61.44,62.4,0.96,keyframes/12/shot_043_061.44s.jpg,0.3819,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,12,56,76.32,80.16,3.84,keyframes/12/shot_056_076.32s.jpg,0.2388,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,12,59,84.48,85.92,1.44,keyframes/12/shot_059_084.48s.jpg,0.2602,2,ECU/CU face-dominant,high_cut_or_handheld_motion
+face_close,12,67,106.08,108.0,1.92,keyframes/12/shot_067_106.08s.jpg,0.2107,2,CU shoulder-up,active_motion_or_reframe
+face_close,12,73,119.52,121.44,1.92,keyframes/12/shot_073_119.52s.jpg,0.2982,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,5,4.8,6.72,1.92,keyframes/13/shot_005_004.80s.jpg,0.2477,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,13,9,11.52,16.32,4.8,keyframes/13/shot_009_011.52s.jpg,0.1605,1,CU shoulder-up,active_motion_or_reframe
+face_close,13,11,17.28,18.24,0.96,keyframes/13/shot_011_017.28s.jpg,0.3057,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,13,19.68,21.12,1.44,keyframes/13/shot_013_019.68s.jpg,0.2416,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,16,25.92,26.88,0.96,keyframes/13/shot_016_025.92s.jpg,0.2948,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,13,17,26.88,27.36,0.48,keyframes/13/shot_017_026.88s.jpg,0.5755,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,19,28.8,33.12,4.32,keyframes/13/shot_019_028.80s.jpg,0.2046,1,CU shoulder-up,active_motion_or_reframe
+face_close,13,21,35.52,36.48,0.96,keyframes/13/shot_021_035.52s.jpg,0.3184,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,25,42.72,44.64,1.92,keyframes/13/shot_025_042.72s.jpg,0.3204,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,27,47.04,48.48,1.44,keyframes/13/shot_027_047.04s.jpg,0.2393,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,29,50.88,53.76,2.88,keyframes/13/shot_029_050.88s.jpg,0.2596,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,30,53.76,55.2,1.44,keyframes/13/shot_030_053.76s.jpg,0.3616,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,31,55.2,55.68,0.48,keyframes/13/shot_031_055.20s.jpg,0.5949,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,13,32,55.68,58.08,2.4,keyframes/13/shot_032_055.68s.jpg,0.2002,1,CU shoulder-up,active_motion_or_reframe
+face_close,13,33,58.08,60.96,2.88,keyframes/13/shot_033_058.08s.jpg,0.202,1,MCU chest-up,active_motion_or_reframe
+face_close,13,36,64.8,66.24,1.44,keyframes/13/shot_036_064.80s.jpg,0.2572,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,38,69.6,72.48,2.88,keyframes/13/shot_038_069.60s.jpg,0.2421,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,13,40,74.4,75.36,0.96,keyframes/13/shot_040_074.40s.jpg,0.3733,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,43,79.68,81.6,1.92,keyframes/13/shot_043_079.68s.jpg,0.2398,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,45,84.0,85.44,1.44,keyframes/13/shot_045_084.00s.jpg,0.3563,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,13,47,89.28,93.12,3.84,keyframes/13/shot_047_089.28s.jpg,0.1834,1,MCU chest-up,active_motion_or_reframe
+face_close,13,48,93.12,95.04,1.92,keyframes/13/shot_048_093.12s.jpg,0.2303,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,13,52,101.28,103.68,2.4,keyframes/13/shot_052_101.28s.jpg,0.1712,1,CU shoulder-up,active_motion_or_reframe
+face_close,13,54,104.16,105.12,0.96,keyframes/13/shot_054_104.16s.jpg,0.3539,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,58,115.2,116.16,0.96,keyframes/13/shot_058_115.20s.jpg,0.3389,1,CU shoulder-up,high_cut_or_handheld_motion
+face_close,13,60,118.08,120.0,1.92,keyframes/13/shot_060_118.08s.jpg,0.2259,1,MCU chest-up,high_cut_or_handheld_motion
+face_close,13,61,120.0,123.84,3.84,keyframes/13/shot_061_120.00s.jpg,0.192,1,CU shoulder-up,active_motion_or_reframe
+face_close,13,63,125.28,125.76,0.48,keyframes/13/shot_063_125.28s.jpg,0.8077,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,1,1,0.0,0.96,0.96,keyframes/1/shot_001_000.00s.jpg,0.3162,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,1,2,0.96,1.44,0.48,keyframes/1/shot_002_000.96s.jpg,0.6577,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,4,2.88,3.84,0.96,keyframes/1/shot_004_002.88s.jpg,0.5298,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,5,3.84,4.32,0.48,keyframes/1/shot_005_003.84s.jpg,0.6724,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,7,5.76,6.72,0.96,keyframes/1/shot_007_005.76s.jpg,0.4445,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,8,6.72,7.68,0.96,keyframes/1/shot_008_006.72s.jpg,0.4277,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,13,16.32,16.8,0.48,keyframes/1/shot_013_016.32s.jpg,0.5571,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,15,18.24,18.72,0.48,keyframes/1/shot_015_018.24s.jpg,0.502,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,17,21.6,22.08,0.48,keyframes/1/shot_017_021.60s.jpg,0.548,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,20,26.88,27.84,0.96,keyframes/1/shot_020_026.88s.jpg,0.5096,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,21,27.84,28.32,0.48,keyframes/1/shot_021_027.84s.jpg,0.4749,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,22,28.32,29.28,0.96,keyframes/1/shot_022_028.32s.jpg,0.4791,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,27,54.72,55.68,0.96,keyframes/1/shot_027_054.72s.jpg,0.298,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,32,83.52,84.0,0.48,keyframes/1/shot_032_083.52s.jpg,0.6125,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,35,88.8,89.76,0.96,keyframes/1/shot_035_088.80s.jpg,0.3707,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,1,41,103.68,104.64,0.96,keyframes/1/shot_041_103.68s.jpg,0.3187,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,1,43,108.48,109.44,0.96,keyframes/1/shot_043_108.48s.jpg,0.3566,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,1,46,113.28,114.24,0.96,keyframes/1/shot_046_113.28s.jpg,0.3344,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,1,47,114.24,115.2,0.96,keyframes/1/shot_047_114.24s.jpg,0.2888,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,1,55,133.92,134.52,0.6,keyframes/1/shot_055_133.92s.jpg,0.1021,1,MS half-body,gentle_motion
+short_cuts,2,4,8.64,9.6,0.96,keyframes/2/shot_004_008.64s.jpg,0.3043,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,2,16,46.56,47.52,0.96,keyframes/2/shot_016_046.56s.jpg,0.3373,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,2,19,50.4,51.36,0.96,keyframes/2/shot_019_050.40s.jpg,0.318,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,2,23,59.52,60.48,0.96,keyframes/2/shot_023_059.52s.jpg,0.2959,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,2,31,80.64,81.6,0.96,keyframes/2/shot_031_080.64s.jpg,0.3047,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,2,46,123.36,124.08,0.72,keyframes/2/shot_046_123.36s.jpg,0.0246,1,LS/MLS relation,mostly_static
+short_cuts,3,13,28.32,28.8,0.48,keyframes/3/shot_013_028.32s.jpg,0.4637,2,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,3,18,37.44,38.4,0.96,keyframes/3/shot_018_037.44s.jpg,0.3908,2,MS half-body,high_cut_or_handheld_motion
+short_cuts,3,23,49.92,50.88,0.96,keyframes/3/shot_023_049.92s.jpg,0.2957,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,3,30,70.08,70.56,0.48,keyframes/3/shot_030_070.08s.jpg,0.51,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,3,31,70.56,71.52,0.96,keyframes/3/shot_031_070.56s.jpg,0.303,2,MS half-body,high_cut_or_handheld_motion
+short_cuts,3,32,71.52,72.48,0.96,keyframes/3/shot_032_071.52s.jpg,0.2957,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,3,38,88.32,88.8,0.48,keyframes/3/shot_038_088.32s.jpg,0.5829,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,3,39,88.8,89.28,0.48,keyframes/3/shot_039_088.80s.jpg,0.8383,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,3,40,89.28,89.76,0.48,keyframes/3/shot_040_089.28s.jpg,0.8338,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,3,41,89.76,90.32,0.56,keyframes/3/shot_041_089.76s.jpg,0.1036,1,LS/MLS relation,gentle_motion
+short_cuts,4,3,4.32,4.8,0.48,keyframes/4/shot_003_004.32s.jpg,0.6333,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,4,4,4.8,5.76,0.96,keyframes/4/shot_004_004.80s.jpg,0.2732,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,4,6,9.12,10.08,0.96,keyframes/4/shot_006_009.12s.jpg,0.3235,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,4,14,30.24,31.2,0.96,keyframes/4/shot_014_030.24s.jpg,0.3476,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,4,18,44.64,45.6,0.96,keyframes/4/shot_018_044.64s.jpg,0.4123,2,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,4,19,45.6,46.56,0.96,keyframes/4/shot_019_045.60s.jpg,0.3626,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,4,21,48.0,48.48,0.48,keyframes/4/shot_021_048.00s.jpg,0.5715,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,4,23,50.4,51.36,0.96,keyframes/4/shot_023_050.40s.jpg,0.4592,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,4,25,53.28,54.24,0.96,keyframes/4/shot_025_053.28s.jpg,0.3612,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,4,27,55.68,56.64,0.96,keyframes/4/shot_027_055.68s.jpg,0.3184,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,4,31,64.8,65.76,0.96,keyframes/4/shot_031_064.80s.jpg,0.4993,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,4,32,65.76,66.72,0.96,keyframes/4/shot_032_065.76s.jpg,0.3971,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,4,34,72.96,73.92,0.96,keyframes/4/shot_034_072.96s.jpg,0.2794,1,CU shoulder-up,high_cut_or_handheld_motion
+short_cuts,4,40,93.12,94.08,0.96,keyframes/4/shot_040_093.12s.jpg,0.4482,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,4,42,96.96,97.92,0.96,keyframes/4/shot_042_096.96s.jpg,0.4187,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,4,43,97.92,98.88,0.96,keyframes/4/shot_043_097.92s.jpg,0.3788,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,4,46,103.2,103.68,0.48,keyframes/4/shot_046_103.20s.jpg,0.5013,1,CU shoulder-up,high_cut_or_handheld_motion
+short_cuts,4,47,103.68,104.16,0.48,keyframes/4/shot_047_103.68s.jpg,0.4957,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,4,49,105.6,106.08,0.48,keyframes/4/shot_049_105.60s.jpg,0.6024,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,4,50,106.08,106.56,0.48,keyframes/4/shot_050_106.08s.jpg,0.4813,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,4,51,106.56,107.52,0.96,keyframes/4/shot_051_106.56s.jpg,0.4042,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,4,53,108.96,109.44,0.48,keyframes/4/shot_053_108.96s.jpg,0.5989,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,4,54,109.44,109.92,0.48,keyframes/4/shot_054_109.44s.jpg,0.6651,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,4,55,109.92,110.88,0.96,keyframes/4/shot_055_109.92s.jpg,0.4497,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,4,59,120.48,121.28,0.8,keyframes/4/shot_059_120.48s.jpg,0.434,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,5,2,2.88,3.84,0.96,keyframes/5/shot_002_002.88s.jpg,0.2757,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,5,4,11.04,12.0,0.96,keyframes/5/shot_004_011.04s.jpg,0.331,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,5,13,41.76,42.72,0.96,keyframes/5/shot_013_041.76s.jpg,0.4703,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,5,14,42.72,43.68,0.96,keyframes/5/shot_014_042.72s.jpg,0.4956,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,5,15,43.68,44.64,0.96,keyframes/5/shot_015_043.68s.jpg,0.3822,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,5,19,51.36,52.32,0.96,keyframes/5/shot_019_051.36s.jpg,0.3034,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,5,21,53.76,54.24,0.48,keyframes/5/shot_021_053.76s.jpg,0.5106,3,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,5,24,59.52,60.48,0.96,keyframes/5/shot_024_059.52s.jpg,0.3006,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,5,30,68.16,69.12,0.96,keyframes/5/shot_030_068.16s.jpg,0.3436,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,5,33,73.44,73.92,0.48,keyframes/5/shot_033_073.44s.jpg,0.822,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,5,34,73.92,74.4,0.48,keyframes/5/shot_034_073.92s.jpg,0.6245,2,MS half-body,high_cut_or_handheld_motion
+short_cuts,5,35,74.4,74.88,0.48,keyframes/5/shot_035_074.40s.jpg,0.4708,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,5,36,74.88,75.44,0.56,keyframes/5/shot_036_074.88s.jpg,0.0295,0,relation_or_environment_unknown,mostly_static
+short_cuts,6,10,20.64,21.12,0.48,keyframes/6/shot_010_020.64s.jpg,0.5564,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,6,12,22.56,23.52,0.96,keyframes/6/shot_012_022.56s.jpg,0.3449,1,MCU chest-up,high_cut_or_handheld_motion
+short_cuts,6,30,65.76,66.72,0.96,keyframes/6/shot_030_065.76s.jpg,0.4113,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,6,39,84.96,85.92,0.96,keyframes/6/shot_039_084.96s.jpg,0.3791,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,6,47,108.48,109.44,0.96,keyframes/6/shot_047_108.48s.jpg,0.3905,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,6,49,111.84,112.32,0.48,keyframes/6/shot_049_111.84s.jpg,0.5007,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,6,51,115.2,116.16,0.96,keyframes/6/shot_051_115.20s.jpg,0.375,2,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,6,52,116.16,116.64,0.48,keyframes/6/shot_052_116.16s.jpg,0.5699,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,6,53,116.64,117.12,0.48,keyframes/6/shot_053_116.64s.jpg,0.8421,2,MS half-body,high_cut_or_handheld_motion
+short_cuts,6,54,117.12,117.8,0.68,keyframes/6/shot_054_117.12s.jpg,0.4458,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,7,5,19.68,20.16,0.48,keyframes/7/shot_005_019.68s.jpg,0.46,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,7,18,43.2,44.16,0.96,keyframes/7/shot_018_043.20s.jpg,0.3545,2,MS half-body,high_cut_or_handheld_motion
+short_cuts,7,21,53.76,54.72,0.96,keyframes/7/shot_021_053.76s.jpg,0.4279,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,7,22,54.72,55.2,0.48,keyframes/7/shot_022_054.72s.jpg,0.6143,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,7,23,55.2,55.68,0.48,keyframes/7/shot_023_055.20s.jpg,0.7106,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,7,32,68.64,69.6,0.96,keyframes/7/shot_032_068.64s.jpg,0.3349,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,7,43,105.6,106.08,0.48,keyframes/7/shot_043_105.60s.jpg,0.6702,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,7,44,106.08,106.6,0.52,keyframes/7/shot_044_106.08s.jpg,0.1051,1,MS half-body,gentle_motion
+short_cuts,8,9,31.68,32.64,0.96,keyframes/8/shot_009_031.68s.jpg,0.2913,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,8,12,40.8,41.76,0.96,keyframes/8/shot_012_040.80s.jpg,0.2993,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,8,18,51.36,51.84,0.48,keyframes/8/shot_018_051.36s.jpg,0.7351,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,8,21,57.6,58.56,0.96,keyframes/8/shot_021_057.60s.jpg,0.3353,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,8,24,64.32,65.28,0.96,keyframes/8/shot_024_064.32s.jpg,0.3256,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,8,25,65.28,66.24,0.96,keyframes/8/shot_025_065.28s.jpg,0.327,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,8,32,77.76,78.72,0.96,keyframes/8/shot_032_077.76s.jpg,0.2993,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,8,34,80.64,81.12,0.48,keyframes/8/shot_034_080.64s.jpg,0.6421,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,8,41,91.2,92.16,0.96,keyframes/8/shot_041_091.20s.jpg,0.3434,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,8,43,93.6,94.56,0.96,keyframes/8/shot_043_093.60s.jpg,0.2919,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,8,47,108.48,108.84,0.36,keyframes/8/shot_047_108.48s.jpg,0.0,1,LS/MLS relation,mostly_static
+short_cuts,9,1,0.0,0.96,0.96,keyframes/9/shot_001_000.00s.jpg,0.3038,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,9,2,0.96,1.92,0.96,keyframes/9/shot_002_000.96s.jpg,0.2734,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,9,3,1.92,2.88,0.96,keyframes/9/shot_003_001.92s.jpg,0.3113,2,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,9,9,16.32,17.28,0.96,keyframes/9/shot_009_016.32s.jpg,0.3954,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,9,10,17.28,18.24,0.96,keyframes/9/shot_010_017.28s.jpg,0.33,2,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,9,12,19.68,20.64,0.96,keyframes/9/shot_012_019.68s.jpg,0.2874,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,9,16,32.16,33.12,0.96,keyframes/9/shot_016_032.16s.jpg,0.33,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,9,17,33.12,34.08,0.96,keyframes/9/shot_017_033.12s.jpg,0.3661,1,MS half-body,high_cut_or_handheld_motion
+short_cuts,9,23,48.0,48.48,0.48,keyframes/9/shot_023_048.00s.jpg,0.4635,1,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,9,27,54.72,55.68,0.96,keyframes/9/shot_027_054.72s.jpg,0.5903,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,9,28,55.68,56.64,0.96,keyframes/9/shot_028_055.68s.jpg,0.4083,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,9,29,56.64,57.6,0.96,keyframes/9/shot_029_056.64s.jpg,0.3509,2,LS/MLS relation,high_cut_or_handheld_motion
+short_cuts,9,30,57.6,58.56,0.96,keyframes/9/shot_030_057.60s.jpg,0.3752,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,9,38,91.68,92.16,0.48,keyframes/9/shot_038_091.68s.jpg,0.6361,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,9,43,106.56,107.52,0.96,keyframes/9/shot_043_106.56s.jpg,0.4003,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,9,48,114.24,115.2,0.96,keyframes/9/shot_048_114.24s.jpg,0.2878,0,relation_or_environment_unknown,high_cut_or_handheld_motion
+short_cuts,9,50,116.64,117.12,0.48,keyframes/9/shot_050_116.64s.jpg,0.8183,0,relation_or_environment_unknown,high_cut_or_handheld_motion
