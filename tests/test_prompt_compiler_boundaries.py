@@ -11,6 +11,73 @@ from agents.director_graph_package import prompt_compiler_impl
 from agents.director_graph_package import state_store
 
 
+def _planner_contract(fragment_id: str = "F01", event: str = "Alex opens the door.") -> str:
+    return (
+        f"- fragment_id: {fragment_id}\n"
+        f"  generation_unit_id: GU-{fragment_id}-01\n"
+        "  source_script_events:\n"
+        f"    - {event}\n"
+        f"  event_atom: {event}\n"
+        "  duration_target: 3s\n"
+        "  model_complexity_score: 1\n"
+        "  reference_needs: [identity_reference, scene_reference]\n"
+        "  tail_state_required: subject remains at the door.\n"
+        f"  rhythm_operation_sheet_ref: {fragment_id}\n"
+        "  shot_director_handoff: keep one visible event and inheritable tail state.\n"
+    )
+
+
+def _director_v3_contract(fragment_id: str = "F01", event: str = "Alex opens the door.") -> str:
+    return (
+        f"- fragment_id: {fragment_id}\n"
+        "  schema_version: shot_director_coverage_v3\n"
+        "  coverage_plan:\n"
+        "    template_id: COV-SD20-W1-RELATION-HOLD\n"
+        "    template_level: W1\n"
+        "    reference_need: identity_reference + scene_reference\n"
+        "  template_plan:\n"
+        "    shots:\n"
+        f"      - shot_id: {fragment_id}-S01\n"
+        "        duration: 3s\n"
+        "        coverage_role: event_atom\n"
+        "        task: carry the visible event\n"
+        "        subject: Alex\n"
+        "        shot: medium shot, eye-level, fixed view\n"
+        f"        action: {event}\n"
+        "        dialogue: \"\"\n"
+        f"        must_carry: {event}\n"
+        "        cut_reason: event completes\n"
+        "        cut_point: after the event completes\n"
+        "        continuity: keep screen direction\n"
+        "        tailframe_role: bridge\n"
+        "        template_id: COV-SD20-W1-RELATION-HOLD\n"
+        "        template_level: W1\n"
+        "        model_complexity_score: 1\n"
+        "        reference_need: identity_reference + scene_reference\n"
+        "        tail_state: subject remains at the door.\n"
+        "  guard_result: pass\n"
+        "  tail_state: subject remains at the door.\n"
+    )
+
+
+def _rhythm_contract(fragment_id: str = "F01") -> str:
+    return (
+        "rhythm_operation_sheet:\n"
+        f"  segment_id: {fragment_id}\n"
+        "  rhythm_mode: simple_event\n"
+        "  target_duration: 3s\n"
+        "  pressure_curve: steady\n"
+        "  beat_plan: [event, tail]\n"
+        "  beat_budget: one event\n"
+        "  pause_points: []\n"
+        "  reaction_ownership: subject\n"
+        "  compression_policy: no expansion\n"
+        "  tail_state_required: inheritable state\n"
+        "  shot_budget_hint: 1 shot\n"
+        "  hard_constraint: 禁止字幕、屏幕文字、英文字幕、文字浮层、水印、logo、可读标牌、手机屏幕文字、文件可读字\n"
+    )
+
+
 def test_prompt_compiler_uses_package_state_store_helpers() -> None:
     assert prompt_compiler_impl._agent_outputs is state_store._agent_outputs
     assert prompt_compiler_impl._persist_update is state_store._persist_update
@@ -144,27 +211,10 @@ def test_prompt_compiler_uses_segment_names_for_non_f01_fragment(monkeypatch) ->
         "script": "Alex opens the door.",
         "aspect_ratio": "16:9",
         "agent_outputs": {
-            "story_planner": (
-                "- fragment_id: F05\n"
-                "  source_script_events:\n"
-                "    - Alex opens the door.\n"
-            ),
-            "shot_director": (
-                "- fragment_id: F05\n"
-                "  fragment_task: opening beat\n"
-                "  rhythm: readable action\n"
-                "  shots:\n"
-                "    - shot_id: F05-S01\n"
-                "      duration: 0-3s\n"
-                "      task: carry the opening beat\n"
-                "      subject: Alex\n"
-                "      shot: stable medium shot\n"
-                "      action: Alex opens the door.\n"
-                "      dialogue: \"\"\n"
-                "      must_carry: Alex opens the door.\n"
-                "      cut_point: after the door opens\n"
-                "      continuity: keep screen direction\n"
-            ),
+            "rhythm_rewrite_director": _rhythm_contract("F05"),
+            "story_planner": _planner_contract("F05", "Alex opens the door."),
+            "shot_director": _director_v3_contract("F05", "Alex opens the door."),
+            "frame_control_contract_seg01": "frame_control_contract:\n  tailframe_state: subject remains at the door.\n",
         },
     }
 
@@ -202,28 +252,10 @@ def test_prompt_compiler_uses_llm_shot_director_handoff(monkeypatch) -> None:
         "script": "Alex: Stay here.\nBlair steps back.",
         "aspect_ratio": "9:16",
         "agent_outputs": {
-            "story_planner": (
-                "- fragment_id: F01\n"
-                "  source_script_events:\n"
-                "    - Alex says stay here.\n"
-                "    - Blair steps back.\n"
-            ),
-            "shot_director": (
-                "- fragment_id: F01\n"
-                "  fragment_task: pressure beat\n"
-                "  rhythm: dialogue then reaction\n"
-                "  shots:\n"
-                "    - shot_id: F01-S01\n"
-                "      duration: 0-3s\n"
-                "      task: carry the command beat\n"
-                "      subject: Alex\n"
-                "      shot: stable medium shot\n"
-                "      action: Alex looks at Blair and gives the order.\n"
-                "      dialogue: Stay here.\n"
-                "      must_carry: Alex gives the order.\n"
-                "      cut_point: after the order lands\n"
-                "      continuity: keep the same eyeline\n"
-            ),
+            "rhythm_rewrite_director": _rhythm_contract("F01"),
+            "story_planner": _planner_contract("F01", "Alex says stay here and Blair steps back."),
+            "shot_director": _director_v3_contract("F01", "Alex looks at Blair and gives the order."),
+            "frame_control_contract_seg01": "frame_control_contract:\n  tailframe_state: Blair remains in Alex's eyeline.\n",
         },
     }
 
@@ -334,27 +366,10 @@ def test_prompt_compiler_propagates_llm_failure_with_valid_shot_director_input(m
                 "script": "Alex opens the door.",
                 "aspect_ratio": "9:16",
                 "agent_outputs": {
-                    "story_planner": (
-                        "- fragment_id: F01\n"
-                        "  source_script_events:\n"
-                        "    - Alex opens the door.\n"
-                    ),
-                    "shot_director": (
-                        "- fragment_id: F01\n"
-                        "  fragment_task: opening beat\n"
-                        "  rhythm: readable action\n"
-                        "  shots:\n"
-                        "    - shot_id: F01-S01\n"
-                        "      duration: 0-3s\n"
-                        "      task: carry the opening beat\n"
-                        "      subject: Alex\n"
-                        "      shot: stable medium shot\n"
-                        "      action: Alex opens the door.\n"
-                        "      dialogue: \"\"\n"
-                        "      must_carry: Alex opens the door.\n"
-                        "      cut_point: after the door opens\n"
-                        "      continuity: keep screen direction\n"
-                    ),
+                    "rhythm_rewrite_director": _rhythm_contract("F01"),
+                    "story_planner": _planner_contract("F01", "Alex opens the door."),
+                    "shot_director": _director_v3_contract("F01", "Alex opens the door."),
+                    "frame_control_contract_seg01": "frame_control_contract:\n  tailframe_state: subject remains at the door.\n",
                 },
             }
         )

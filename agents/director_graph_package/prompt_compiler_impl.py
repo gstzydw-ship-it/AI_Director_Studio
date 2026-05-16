@@ -10,10 +10,9 @@ from typing import Any
 from .types import DirectorState
 from . import legacy_impl as _legacy
 
-# V1 schema contract: shot_director outputs fragment_task/rhythm/shots
-# with shot fields: duration, task, subject, shot, action, dialogue, must_carry, cut_point, continuity
-# Chinese aliases such as 片段任务/镜头列表/切镜点 are accepted for user-facing output.
-# Optional: type, audio
+# Runtime schema contract: shot_director outputs shot_director_coverage_v3 with
+# coverage_plan, template_plan.shots, guard_result, and per-shot fields consumed
+# by the final Seedance prompt compiler.
 from .helpers import (
     _truncate_for_prompt,
     _runtime_context_contract_card,
@@ -1583,7 +1582,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"{_director_jargon_translation_rules()}\n"
         "【片段连续性规则——替代旧的单主体僵化规则】\n"
         "1. 单个片段必须有清晰的主导主体与稳定空间轴线，但不等于全程只能看一个人。\n"
-        "2. 如果上游资产明确给出 shots / sub_shots / reaction_plan，你可以在同一片段内自然承接炸点命中、受击落点、双人关系变化；但必须写出连续过渡，不能伪造剪辑软件式瞬切。\n"
+        "2. 如果上游资产明确给出 shot_director_coverage_v3.template_plan.shots，你可以在同一片段内自然承接炸点命中、受击落点、双人关系变化；但必须写出连续过渡，不能伪造剪辑软件式瞬切。\n"
         "3. 不得无动机跳轴、跳空间、跳主体。主体重心变化必须来自上游主分镜骨架，并在时间轴中写出动作或视线过渡。\n"
         "4. 若上游明确要求受击落点留在片段内，不能为了省事把受击者降成背景虚化。\n"
         "5. 若上游明确要求下一独立片段再承接受击，则当前片段也不得提前偷跑完整反应。\n\n"
@@ -1591,7 +1590,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "1. 整个片段仍是连续视频流，所以每个时间段的画面必须从上一个时间段自然演变。\n"
         "2. 禁止180度视角翻转，展示背影必须靠人物自然转身。\n"
         "3. 景别变化必须通过动作、视线、调度或运镜自然过渡。\n"
-        "4. 如果时间轴出现第二人物的反应，必须保证它来自当前空间关系与上游主分镜/子分镜骨架，而不是凭空切去另一个场景。\n"
+        "4. 如果时间轴出现第二人物的反应，必须保证它来自当前空间关系与上游 coverage_plan/template_plan，而不是凭空切去另一个场景。\n"
         "5. 近景里不要描述超出当前画面可见范围的大量背景动作。\n"
         "6. 原则：把每个时间段想象成同一段导演编排在连续视频里自然展开。\n\n"
         "【Seedance 2.0 空间极简策略——最重要规则】\n"
@@ -1600,7 +1599,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "3. 遇到上游提供的复杂 `geom:` 字段，**必须大幅裁剪**。只提取能说明机位和人物朝向的最少词汇，其余一律丢弃，绝不能逐字翻译。\n"
         "4. 【画面基底】最多 2-3 句，极简点明场景、人物锁定、光线和不可变硬锚点，禁止写出详细的建筑结构或人物的精确坐标。\n"
         "5. 空间简写不等于剪辑省略；镜头序列必须把切镜时机写成括号触发句；单段内禁止写\"反打至/反打镜头\"。\n"
-        "6. compiler 不重新设计教学视频里的拍摄技巧，只忠实保留上游镜头资产已有的动作匹配、视线引导、同侧过肩、听者反应、景别递进、出画入画等设计；若上游写了反打，必须改写成同侧听者反应或提示拆段。\n"
+        "6. compiler 不重新设计教学视频里的拍摄技巧，只忠实保留上游镜头资产已有的动作匹配、视线引导、听者反应、景别递进、出画入画等设计；若上游写了反打，必须提示拆段或打回 shot_director。\n"
         "7. 每个镜头行必须至少有一个人物动作或表情/视线落点；如果空间锚点和表演落点冲突，优先保留表演落点。\n"
         "8. 背后、侧后方、180度必须绑定人物，不绑定场景。正确写法是\"商北琛背后中景/商北琛侧后方中景\"；禁止写\"电梯门外背后180度\"\"电梯口背后\"\"大堂中轴背后\"。\n"
         "9. 表现人物与电梯关系时，从人物背后或侧后方看他走向/进入电梯，不要让文字暗示从电梯里面向外拍。\n"
@@ -1609,7 +1608,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "【成功案例镜头链条】\n"
         "遇到职场权威入场、冷处理问候、平静下令、群体退让这类片段时，优先学习这种结构：\n"
         "1. 用一个局部动作或人物半身建立节奏，例如皮鞋落地、手部动作、人物稳定步速；不要先写大段空间说明。\n"
-        "2. 问候/对峙用过肩或双人关系景，前景肩线只一句带过，重点写谁说话、谁不回应、视线如何移开。\n"
+        "2. 问候/对峙用双人关系景、听者反应或从一人肩后看向另一人的可拍视角，重点写谁说话、谁不回应、视线如何移开。\n"
         "3. 命令句用半身景承载，必要时插入一次眼神/表情局部特写，再切回半身收完整句。\n"
         "4. 命令生效用群体关系景收束，写主管/员工如何停步、让路、四散、退回边线；不要补复杂南北东西或远近层级。\n"
         "5. 最终时间轴应读起来像\"镜头视角变化 + 人物动作表情 + 台词落点\"，而不是空间坐标说明书。\n\n"
@@ -1694,8 +1693,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         if reference_context.strip()
         else "本次未提供参考图；最终 Prompt 中严禁编造 @图片1、@图片2、@图片3 或任何参考图占位。\n\n"
     )
-    # --- v1 schema validation ---
-    v1_issues: list[str] = []
+    # --- final Seedance prompt contract validation ---
     minimum_contract_issues: list[str] = []
     if "rhythm_operation_sheet_ref" not in current_planner_segment and "rhythm_operation_sheet" not in str(outputs.get("rhythm_rewrite_director", "")):
         minimum_contract_issues.append("missing rhythm_operation_sheet handoff")
@@ -1724,41 +1722,6 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
             + "\n".join(f"  - {issue}" for issue in minimum_contract_issues)
             + "\nrepair_route=story_planner/shot_director/storyboard_designer before prompt_compiler."
         )
-    if current_director_segment_raw and "shot_director_coverage_v3" not in current_director_segment_raw:
-        for field in ("fragment_task", "rhythm", "shots"):
-            if not _has_yaml_field(current_director_segment_raw, field):
-                v1_issues.append(f"shot_director 缺少 fragment 字段 {field}。")
-        for v2_field in ("schema_version", "fragment_intent", "reaction_coverage", "continuity_anchor"):
-            if re.search(rf"(?m)^\s*{re.escape(v2_field)}\s*:", current_director_segment_raw):
-                if (
-                    v2_field == "schema_version"
-                    and re.search(
-                        r"(?m)^\s*schema_version\s*:\s*shot_director_local_fallback_v1\s*$",
-                        current_director_segment_raw,
-                    )
-                ):
-                    continue
-                v1_issues.append(f"shot_director 残留 v2 字段 {v2_field}，必须用 v1 字段。")
-        shot_blocks = _MAIN_SHOT_BLOCK_RE.findall(current_director_segment_raw)
-        if not shot_blocks:
-            v1_issues.append("shot_director 当前片段没有任何合法 shot_id，无法编译。")
-        for shot_id_raw, shot_body in shot_blocks:
-            shot_id = shot_id_raw.strip()
-            for field in ("duration", "task", "subject", "action", "dialogue", "must_carry", "cut_point", "continuity"):
-                if not _has_yaml_field(shot_body, field):
-                    v1_issues.append(f"{shot_id} 缺少必要字段 {field}。")
-            if not _has_yaml_field(shot_body, "shot"):
-                v1_issues.append(f"{shot_id} 缺少必要字段 shot。")
-    elif not current_director_segment_raw:
-        v1_issues.append("当前片段缺少镜头资产，无法编译。")
-
-    if v1_issues:
-        raise RuntimeError(
-            "[PROMPT-COMPILER-V1-GATE] prompt_compiler 发现 shot_director 输出不符合 v1 schema。\n"
-            + "\n".join(f"  - {issue}" for issue in v1_issues)
-            + "\n请确保 shot_director 输出 v1 合同镜头资产（fragment_task/rhythm/duration/task/subject/shot/action/dialogue/must_carry/cut_point/continuity）。"
-        )
-
     user_prompt = (
         f"=== 当前片段压缩上下文 ===\n\n"
         f"{_runtime_context_contract_card()}\n\n"
@@ -1786,10 +1749,10 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         f"【当前任务】\n"
         f"请专门为【片段 {segment_index}】编译最终 Seedance Prompt。\n\n"
         "你必须严格服从【当前片段规划资产】与【当前片段镜头资产】：\n"
-        "1. 当前片段的 shots 决定戏剧骨架，不得随意删掉其中的动作单元。\n"
-        "2. 当前片段的 sub_shots / reaction_plan 决定炸点、受击、表情重音落在哪里；不得把这些落点随意抹平成背景附带。\n"
+        "1. 当前片段的 shot_director_coverage_v3.template_plan.shots 决定戏剧骨架，不得随意删掉其中的动作单元。\n"
+        "2. coverage_role、cut_reason、must_carry、cut_point、tailframe_role 决定炸点、受击、表情重音和尾帧落点；不得把这些落点随意抹平成背景附带。\n"
         "3. 若上游要求受击在片段内承接，时间轴必须真正写出该受击/反应的可见落点。\n"
-        "4. 若上游要求完整发言单元保持连续，意思是语义和声音连续，不是单镜头吃完整段台词；必须保留上游给出的听者反应、同侧过肩、画外音或景别变化；若上游写了反打，单段内改写为同侧听者反应，真反打必须拆段。\n"
+        "4. 若上游要求完整发言单元保持连续，意思是语义和声音连续，不是单镜头吃完整段台词；必须保留上游给出的听者反应、关系景、画外音或景别变化；若上游写了反打，单段内改写为同侧听者反应，真反打必须拆段。\n"
         "5. source_script_events 必须全部覆盖，不得遗漏。\n"
         "6. 若合同字段卡出现 template_id、template_level、reference_need、tail_state、model_complexity_score，必须逐项使用：X/candidate/R1无参考/复杂度超限/尾帧不清/文字依赖都要输出明确返修或降级内容，不得直接扩写生成。\n\n"
         "【镜头覆盖字段翻译规则】\n"
@@ -1802,9 +1765,9 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "5. must_carry 必须转译成画面里看得见的信息、道具状态、人物距离变化或反应结果，不能只放到约束里，也不能写成抽象戏剧效果。\n"
         "6. cut_point 必须放进括号，统一写成（切镜时机：动作顶点前切至镜头2）、（切镜时机：台词断点时切至乔熙反应镜头）、（切镜时机：文件内容看清后切至镜头3）这类自然中文触发句；禁止使用箭头式表达。\n"
         "7. continuity 必须落实到镜头行或【约束】里，写清上一镜结束状态如何被下一镜继承：人物站位、道具在谁手里、手停在哪里、距离是否变化；不要只写“状态单向推进”“不得回弹”这类抽象约束。\n"
-        "8. coverage_role / 覆盖职责 决定这一镜的信息任务，但最终不得写“本镜负责建立关系/承载对白/尾帧承接”。必须改成可见画面：人物A和人物B同框站在空间锚点两侧、道具X仍在人物A手里、道具Y停在已改变或未完成状态。\n"
+        "8. coverage_role 决定这一镜的信息任务，但最终不得写“本镜负责建立关系/承载对白/尾帧承接”。必须改成可见画面：人物A和人物B同框站在空间锚点两侧、道具X仍在人物A手里、道具Y停在已改变或未完成状态。\n"
         "9. cut_reason / 切镜原因 必须和 cut_point 合并成括号里的切镜触发，绑定动作顶点、台词断点、信息看清、反应出现或尾帧完成；不能写成“更有电影感”。\n"
-        "10. companion_visibility / 同场人物位置 必须转译为镜头行里的同场关系保留：前景肩线、画面边缘、画外左/右侧、同框、过肩或明确出画/入画原因；避免单人镜让其他人物像消失。\n"
+        "10. companion_visibility 必须转译为镜头行里的同场关系保留：画面边缘、画外左/右侧、同框或明确出画/入画原因；避免单人镜让其他人物像消失。\n"
         "11. state_delta / 状态变化 必须写成本镜相对上一镜新增的可见变化：视线转向谁、身体退开或停住、道具归属如何变化、门缝变宽或变窄；不能只写“情绪变化”“状态变化发生”。\n"
         "12. tailframe_role / 尾帧职责 必须落实到末尾镜头的“尾帧：...”或【约束】中，写清下一镜/下一段可继承的人物位置、视线、道具、门/车/电梯状态；不要写“尾帧承接”“抗拒位置”这种内部标签。\n"
         "13. 若三号守门字段与基础字段重复，保留一次自然表达即可；若三号指出硬伤修复，以三号字段为准。\n"
@@ -1820,7 +1783,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "3. 每个镜头行优先写：景别/视角、谁做什么、视线看向谁、表情怎样变化、结束时停在哪里；不要写起点/路径/终点说明书。\n"
         "4. 每个镜头行的空间锚点最多0-1个短语，且必须是当前镜头确实需要看见的节点；不要反复堆叠前景/中景/后景/左右/远近/边缘。\n"
         "5. 空间信息可以少，但切镜时机不能省；每个非末尾镜头都必须写“（切镜时机：...切至镜头N）”，禁止单段内写\"反打至\"。\n"
-        "6. compiler 只翻译上游导演输出，不新增拍摄技巧；但如果上游写了动作匹配、视线引导、同侧过肩、听者反应、出画入画、景别递进等设计，必须保留成可执行时间轴语言。\n"
+        "6. compiler 只翻译上游导演输出，不新增拍摄技巧；但如果上游写了动作匹配、视线引导、听者反应、出画入画、景别递进等设计，必须保留成可执行时间轴语言。\n"
         "7. 背后、侧后方、180度是人物相对机位，不是场景相对机位；只写\"商北琛背后中景/商北琛侧后方中景\"，不要写\"电梯门外背后180度\"。\n"
         "8. 电梯开门/入电梯时只需写\"封闭金属轿厢\"，必要时加\"控制面板\"；并在约束中禁止\"办公区、会议区、走廊、窗户、另一片大堂\"。\n"
         "9. 有众员工/群演时，必须在约束中写明：员工不得与命名人物相似、重复或同脸，优先用匿名差异化面孔、侧脸、背影、轻虚。\n\n"
@@ -1873,7 +1836,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "9. 拆片方案中当前片段的 source_script_events 是否全部被覆盖？有无遗漏事件（尤其是片段末尾的悬点/收束动作）？\n"
         "10. 节奏是否合理——建立段是否简洁、炸点/受击段是否留足空间？是否存在表情堆砌导致剧情推进过慢的问题？\n"
         "11. 【空间连续性】每个时间段的画面是否从上一时间段自然演变？是否存在空间跳变或视角翻转？\n"
-        "12. 【主体递进而非硬切】主体重心变化是否严格来自上游 shots/sub_shots/reaction_plan，且通过动作/视线/调度自然过渡？\n"
+        "12. 【主体递进而非硬切】主体重心变化是否严格来自上游 template_plan.shots、coverage_role、cut_point 和 tailframe_role，且通过动作/视线/调度自然过渡？\n"
         "13. 【画面基底无动作】画面基底中是否包含了动作动词（走进、迈入、冲来、转身等）？\n"
         "    如果有，必须改为纯静态描述（站在、位于、面朝），动作只能出现在镜头序列中。\n"
         "14. 是否还存在三分之四角度、侧前方、轻微前推跟随、沉默就是回应、权力关系锁住、空气收紧等模糊或抽象描述？如有必须改成明确左右机位、角度、运镜和可见动作。\n"
@@ -1884,7 +1847,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "19. 【表演优先】每个镜头行是否至少有一个人物动作、视线或表情落点？如果没有，不要继续补空间，改补人物调度。\n"
         "20. 【电梯硬锁】电梯门后是否被写成办公区/会议区/走廊/窗户/另一片大堂？如果是，改为封闭金属轿厢，并加入禁止项。\n"
         "21. 【群演同脸】有众员工/群演时，是否明确禁止与命名人物同脸、相似或重复？如果没有，必须加入约束。\n"
-        "22. 【对白覆盖】长台词、高压命令、质问或揭晓句是否被一个固定机位从头吃到尾？如果是，必须保留/恢复同侧听者反应、过肩、画外音或景别变化；真反打必须拆到相邻片段。\n"
+        "22. 【对白覆盖】长台词、高压命令、质问或揭晓句是否被一个固定视角从头吃到尾？如果是，必须保留/恢复听者反应、关系景、画外音或景别变化；真反打必须拆到相邻片段。\n"
         "23. 【摄影机后退可行性】如果某个时间段写了'正前方0度+同速后退'且人物面朝电梯/门口，检查摄影机后退方向是否会退进电梯/撞墙？如果会，改用侧面跟拍或场景固定机位。\n"
         "24. 【近侧/远端一致性】'近侧侧边''远端''前景''后景'是否与当前摄影机位置和人物朝向的实际几何关系一致？人物面朝电梯+摄影机拍正面时，电梯门框只能在前景/侧边，不能在后景/远端。\n"
         "25. 【空间方位词密度】每个时间段的空间方位词（前景/中景/后景/远端/近侧/边缘/侧边/画面左/画面右/前方/后方/左侧/右侧）是否超过3个？如果超过，只保留最必要的0-1个锚点。\n"

@@ -132,50 +132,77 @@ def test_quality_inspector_accepts_chinese_contract_and_compact_seedance_prompt(
     prompt = """片段1｜乔熙公寓客厅｜赶时间+安抚｜约5秒｜9:16
 
 【画面基底】
-清晨公寓客厅，乔熙和小豆丁在沙发与茶几之间，手机和闹钟停在茶几上。
+风格锚点：真人短剧，清晨自然光。连续性状态契约：乔熙和小豆丁在沙发与茶几之间，手机和闹钟停在茶几上。参考素材只锁人物身份和客厅空间。
 
 【镜头序列】
 镜头1【2.5秒】【乔熙、小豆丁】双人半身关系景，茶几侧面固定视角。乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁和衣服。（切镜时机：手机落稳后切至镜头2）
-镜头2【2.5秒】【乔熙、小豆丁】中近景，从乔熙肩后看向小豆丁。乔熙蹲近小豆丁，说出"Sweetie. I'll get you some strawberry cake later, okay?"，小豆丁伸脚配合，画面停住。
+镜头2【2.5秒】【乔熙、小豆丁】中近景，从乔熙肩后看向小豆丁。乔熙蹲近小豆丁，说出"Sweetie. I'll get you some strawberry cake later, okay?"，小豆丁表情从抗拒变软，停顿后伸脚配合，反应落稳。
 
-尾帧：乔熙蹲在沙发边，小豆丁伸脚配合，手机仍在茶几边缘。
+尾帧：乔熙蹲在沙发边，小豆丁伸脚配合，表情已经缓和，手机仍在茶几边缘。
 
 【约束】
-严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌；Kiki不出镜。
+禁止字幕、屏幕文字、英文字幕、文字浮层、水印、logo、可读标牌、手机屏幕文字、文件可读字；Kiki不出镜。
 """
-    planner = """- 片段编号: "F01"
-  片段任务: 完成乔熙赶时间和安抚小豆丁。
-  承接要求: 孩子拒绝上学的反应在本段闭合。
-  施工剧本原文事件:
+    planner = """- fragment_id: F01
+  generation_unit_id: GU-F01-01
+  source_script_events:
     - 乔熙按停闹钟，把手机放回茶几。
     - "乔熙：Sweetie. I'll get you some strawberry cake later, okay?"
     - 小豆丁伸脚配合。
+  event_atom: 乔熙安抚小豆丁并让她伸脚配合。
+  duration_target: 5s
+  model_complexity_score: 1
+  reference_needs: [identity_reference, scene_reference]
+  tail_state_required: 乔熙蹲在沙发边，小豆丁伸脚配合，手机仍在茶几边缘。
+  rhythm_operation_sheet_ref: F01
+  shot_director_handoff: 孩子拒绝上学的反应在本段闭合。
 """
-    director = """片段编号: F01
-片段任务: 完成乔熙赶时间和安抚小豆丁。
-节奏:
-  节奏档位: 紧凑生活动作压力
-镜头列表:
-  - 镜头编号: F01-S01
-    时长: 2.5秒
-    镜头任务: 建立手机、闹钟和亲子穿衣关系。
-    拍摄主体: 乔熙、小豆丁
-    镜头: 双人半身关系景，茶几侧面固定视角
-    画面动作: 乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁。
-    台词: ~
-    必须承载: 手机和闹钟停在茶几上。
-    切镜点: 手机落稳后切出。
-    连续性: 手机仍在茶几边缘，小豆丁仍在沙发边。
-  - 镜头编号: F01-S02
-    时长: 2.5秒
-    镜头任务: 完成草莓蛋糕安抚。
-    拍摄主体: 乔熙、小豆丁
-    镜头: 中近景，从乔熙肩后看向小豆丁
-    画面动作: 乔熙蹲近小豆丁，小豆丁伸脚配合。
-    台词: "Sweetie. I'll get you some strawberry cake later, okay?"
-    必须承载: 小豆丁从拒绝转为配合。
-    切镜点: 小豆丁伸脚后收束。
-    连续性: 两人仍在沙发边，手机仍在茶几上。
+    director = """fragment_id: F01
+schema_version: shot_director_coverage_v3
+coverage_plan:
+  template_id: COV-SD20-W1-RELATION-HOLD
+  template_level: W1
+  reference_need: identity_reference + scene_reference
+template_plan:
+  shots:
+    - shot_id: F01-S01
+      duration: 2.5秒
+      coverage_role: relation_setup
+      task: 建立手机、闹钟和亲子穿衣关系。
+      subject: 乔熙、小豆丁
+      shot: 双人半身关系景，茶几侧面固定视角
+      action: 乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁。
+      dialogue: ''
+      must_carry: 手机和闹钟停在茶几上。
+      cut_reason: 手机状态落稳
+      cut_point: 手机落稳后切出。
+      continuity: 手机仍在茶几边缘，小豆丁仍在沙发边。
+      tailframe_role: setup
+      template_id: COV-SD20-W1-RELATION-HOLD
+      template_level: W1
+      model_complexity_score: 1
+      reference_need: identity_reference + scene_reference
+      tail_state: 手机仍在茶几边缘，小豆丁仍在沙发边。
+    - shot_id: F01-S02
+      duration: 2.5秒
+      coverage_role: reaction_landing
+      task: 完成草莓蛋糕安抚。
+      subject: 乔熙、小豆丁
+      shot: 中近景，从乔熙肩后看向小豆丁
+      action: 乔熙蹲近小豆丁，小豆丁伸脚配合。
+      dialogue: "Sweetie. I'll get you some strawberry cake later, okay?"
+      must_carry: 小豆丁从拒绝转为配合。
+      cut_reason: 反应闭合
+      cut_point: 小豆丁伸脚后收束。
+      continuity: 两人仍在沙发边，手机仍在茶几上。
+      tailframe_role: bridge
+      template_id: COV-SD20-W1-RELATION-HOLD
+      template_level: W1
+      model_complexity_score: 1
+      reference_need: identity_reference + scene_reference
+      tail_state: 乔熙蹲在沙发边，小豆丁伸脚配合，手机仍在茶几边缘。
+guard_result: pass
+tail_state: 乔熙蹲在沙发边，小豆丁伸脚配合，手机仍在茶几边缘。
 """
 
     update = quality_inspector_node(
@@ -198,7 +225,7 @@ def test_compiler_guard_accepts_compact_prompt_with_chinese_shot_assets():
     prompt = """片段1｜乔熙公寓客厅｜赶时间+安抚｜约5秒｜9:16
 
 【画面基底】
-清晨公寓客厅，乔熙和小豆丁在沙发与茶几之间，手机和闹钟停在茶几上。
+风格锚点：真人短剧，清晨自然光。连续性状态契约：乔熙和小豆丁在沙发与茶几之间，手机和闹钟停在茶几上。参考素材只锁人物身份和客厅空间。
 
 【镜头序列】
 镜头1【2.5秒】【乔熙、小豆丁】双人半身关系景，茶几侧面固定视角。乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁和衣服。（切镜时机：手机落稳后切至镜头2）
@@ -207,28 +234,48 @@ def test_compiler_guard_accepts_compact_prompt_with_chinese_shot_assets():
 尾帧：乔熙蹲在沙发边，小豆丁伸脚配合，手机仍在茶几边缘。
 
 【约束】
-严禁出现任何文字、字幕、水印、logo、屏幕文字或可读标牌；Kiki不出镜。
+禁止字幕、屏幕文字、英文字幕、文字浮层、水印、logo、可读标牌、手机屏幕文字、文件可读字；Kiki不出镜。
 """
-    planner = """- 片段编号: "F01"
-  承接要求: 孩子拒绝上学的反应在本段闭合。
-  施工剧本原文事件:
+    planner = """- fragment_id: F01
+  generation_unit_id: GU-F01-01
+  source_script_events:
     - "乔熙：Sweetie. I'll get you some strawberry cake later, okay?"
+  event_atom: 乔熙安抚小豆丁。
+  duration_target: 5s
+  model_complexity_score: 1
+  reference_needs: [identity_reference, scene_reference]
+  tail_state_required: 小豆丁伸脚配合。
+  rhythm_operation_sheet_ref: F01
+  shot_director_handoff: 孩子拒绝上学的反应在本段闭合。
 """
-    director = """片段编号: F01
-片段任务: 完成乔熙赶时间和安抚小豆丁。
-节奏:
-  节奏档位: 紧凑生活动作压力
-镜头列表:
-  - 镜头编号: F01-S01
-    时长: 2.5秒
-    镜头任务: 建立手机、闹钟和亲子穿衣关系。
-    拍摄主体: 乔熙、小豆丁
-    镜头: 双人半身关系景，茶几侧面固定视角
-    画面动作: 乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁。
-    台词: ~
-    必须承载: 手机和闹钟停在茶几上。
-    切镜点: 手机落稳后切出。
-    连续性: 手机仍在茶几边缘，小豆丁仍在沙发边。
+    director = """fragment_id: F01
+schema_version: shot_director_coverage_v3
+coverage_plan:
+  template_id: COV-SD20-W1-RELATION-HOLD
+  template_level: W1
+  reference_need: identity_reference + scene_reference
+template_plan:
+  shots:
+    - shot_id: F01-S01
+      duration: 2.5秒
+      coverage_role: relation_setup
+      task: 建立手机、闹钟和亲子穿衣关系。
+      subject: 乔熙、小豆丁
+      shot: 双人半身关系景，茶几侧面固定视角
+      action: 乔熙按停闹钟，把手机放回茶几边缘，转向小豆丁。
+      dialogue: ''
+      must_carry: 手机和闹钟停在茶几上。
+      cut_reason: 手机状态落稳
+      cut_point: 手机落稳后切出。
+      continuity: 手机仍在茶几边缘，小豆丁仍在沙发边。
+      tailframe_role: bridge
+      template_id: COV-SD20-W1-RELATION-HOLD
+      template_level: W1
+      model_complexity_score: 1
+      reference_need: identity_reference + scene_reference
+      tail_state: 手机仍在茶几边缘，小豆丁仍在沙发边。
+guard_result: pass
+tail_state: 手机仍在茶几边缘，小豆丁仍在沙发边。
 """
 
     assert _compiler_guard_report(prompt, planner, planner, director) == ""

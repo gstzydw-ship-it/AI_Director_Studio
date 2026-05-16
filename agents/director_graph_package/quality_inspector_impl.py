@@ -74,8 +74,9 @@ def _prompt_uses_shot_sequence(prompt: str) -> bool:
 
 def _planner_has_reaction_handoff(planner_segment: str) -> bool:
     return bool(
-        _has_yaml_field(planner_segment, "reaction_plan")
-        or re.search(r"(?m)^\s*(?:承接要求|镜头导演交接)\s*[:：]", planner_segment or "")
+        _has_yaml_field(planner_segment, "shot_director_handoff")
+        or _has_yaml_field(planner_segment, "tail_state_required")
+        or _has_yaml_field(planner_segment, "rhythm_operation_sheet_ref")
     )
 
 
@@ -457,21 +458,21 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                 "- story_planner 似乎把完整发言/动作单元压成单条笼统事件，需更清楚标出片段覆盖事件。"
             )
 
-    # === shot_director schema validation ===
+    # === shot_director coverage_v3 schema validation ===
     if director_segment:
-        # English v1 fields and the current Chinese contract are both valid.
-        if not _has_yaml_field(director_segment, "fragment_task"):
-            qc_issues.append("- shot_director 缺少片段任务字段。")
-        if not _has_yaml_field(director_segment, "rhythm"):
-            qc_issues.append("- shot_director 缺少节奏字段。")
         if re.search(r"(?m)^\s*schema_version\s*:\s*shot_director_local_fallback_v1\s*$", director_segment):
             qc_issues.append("- shot_director 输出来自旧本地兜底，必须重跑镜头导演并确保大模型连接成功。")
-        if not _has_yaml_field(director_segment, "shots"):
-            qc_issues.append("- shot_director 未给出当前片段的镜头列表。")
-        if _has_yaml_field(director_segment, "shots"):
+        if "shot_director_coverage_v3" not in director_segment:
+            qc_issues.append("- shot_director 必须输出 schema_version: shot_director_coverage_v3；旧 v1/v2 镜头表不得进入 prompt_compiler。")
+        for field in ("coverage_plan", "template_plan", "guard_result"):
+            if not _has_yaml_field(director_segment, field):
+                qc_issues.append(f"- shot_director_coverage_v3 缺少 {field}。")
+        if not re.search(r"(?m)^\s*shots\s*:", director_segment):
+            qc_issues.append("- shot_director_coverage_v3.template_plan 缺少 shots 列表。")
+        if re.search(r"(?m)^\s*shots\s*:", director_segment):
             shot_blocks = _MAIN_SHOT_BLOCK_RE.findall(director_segment)
             if not shot_blocks:
-                qc_issues.append("- shot_director 镜头列表中没有合法镜头编号。")
+                qc_issues.append("- shot_director_coverage_v3.template_plan.shots 中没有合法 shot_id。")
             for shot_id_raw, shot_body in shot_blocks:
                 shot_id = shot_id_raw.strip()
                 for field in (
@@ -481,8 +482,15 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                     "action",
                     "dialogue",
                     "must_carry",
+                    "cut_reason",
                     "cut_point",
                     "continuity",
+                    "tailframe_role",
+                    "template_id",
+                    "template_level",
+                    "model_complexity_score",
+                    "reference_need",
+                    "tail_state",
                 ):
                     if not _has_yaml_field(shot_body, field):
                         qc_issues.append(f"- {shot_id} 缺少字段 {field}。")
@@ -518,7 +526,7 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
         qc_issues.append(
             "- prompt 缺少规定结构，应包含【画面基底】【镜头序列】【约束】，或【风格锚点】【画幅锚点】【人物】【镜头序列】【约束】。"
         )
-    if planner_segment and re.search(r"reaction_plan\s*:\s*.*片段内", planner_segment) and not re.search(
+    if planner_segment and re.search(r"(shot_director_handoff|tail_state_required)\s*:\s*.*(?:反应|受击|停住|僵住|承接)", planner_segment) and not re.search(
         r"受击|反应|表情|眼神|嘴唇|下颌|呼吸|停顿", prompt
     ):
         qc_issues.append("- 当前片段规划要求片段内承受到击/反应，但 prompt 未写出可见落点。")
@@ -527,7 +535,7 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
 
     if "同一机位继续" in prompt:
         qc_issues.append(
-            '- [PROMPT-NO-SAME-CAMERA-ABUSE-001] prompt 仍使用"同一机位继续"：应改成"镜头保持在A身上"、"固定机位保持在某空间锚点"、"镜头切至B"或"镜头切近至/拉开至A"。'
+            '- [PROMPT-NO-SAME-CAMERA-ABUSE-001] prompt 仍使用"同一机位继续"：应改成"镜头保持在A身上"、"固定视角保持在某空间锚点"、"镜头切至B"或"镜头切近至/拉开至A"。'
         )
 
     if re.search(r"压迫感|张力|炸点|钩子|气口|留白|情绪顶点|受压反应|空气收紧|前慢后碎|稳慢压", prompt):
@@ -537,7 +545,7 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     if re.search(r"站在(?:门框|窗框|框架)里|(?:门框|窗框).{0,8}(?:形成|构成).{0,8}(?:前景|压线|框景)|前景压线|框住人物|被(?:门框|窗框|框架)框住|框景压迫", prompt):
         qc_issues.append(
             "- [PROMPT-SHOT-EXPRESSION-CORE-001] prompt 仍残留不稳定构图表达：门、窗、桌等只能作为空间边界或阻隔物，"
-            "不要写成框住人物的构图术语；改成同侧过肩机位、门口/门边站位和具体人物动作。"
+            "不要写成框住人物的构图术语；改成门口/门边站位、双人关系景和具体人物动作。"
         )
 
     timeline_blocks = _timeline_blocks(prompt)
@@ -548,9 +556,9 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     if not uses_shot_sequence:
         for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(timeline_blocks[1:], start=2):
             prefix = blk_body[:120]
-            if not re.search(r"镜头保持在|固定机位保持|镜头切至|镜头切到|镜头切近至|镜头拉开至|切至|切到|切近至|拉开至", prefix):
+            if not re.search(r"镜头保持在|固定视角保持|镜头切至|镜头切到|镜头切近至|镜头拉开至|切至|切到|切近至|拉开至", prefix):
                 qc_issues.append(
-                    f"- [PROMPT-SHOT-TRANSITION-VERB-001] 时间轴第 {block_idx} 个时间段缺少精确衔接词：必须明确写同主体保持、固定机位保持、主体切镜或同主体景别变化。"
+                    f"- [PROMPT-SHOT-TRANSITION-VERB-001] 时间轴第 {block_idx} 个时间段缺少精确衔接词：必须明确写同主体保持、固定视角保持、主体切镜或同主体景别变化。"
                 )
                 break
     elif "切镜时机" not in prompt:
