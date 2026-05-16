@@ -1,0 +1,78 @@
+name: AI Review Guardrails
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  checks: write
+
+jobs:
+  guardrails:
+    name: Mechanical review guardrails
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js for Danger
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Run PR policy checks with Danger
+        if: github.event_name == 'pull_request'
+        env:
+          DANGER_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npx --yes danger@latest ci
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pytest ruff pyyaml
+          if [ -f requirements.txt ]; then
+            python -m pip install -r requirements.txt
+          fi
+
+      - name: Run high-signal Ruff checks
+        run: |
+          ruff check . \
+            --select E9,F63,F7,F82,F401,F841 \
+            --output-format=rdjson \
+            --exit-zero \
+            > ruff.rdjson
+
+      - name: Install reviewdog
+        uses: reviewdog/action-setup@v1
+        with:
+          reviewdog_version: latest
+
+      - name: Comment on Ruff findings
+        if: github.event_name == 'pull_request'
+        env:
+          REVIEWDOG_GITHUB_API_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          reviewdog \
+            -f=rdjson \
+            -name="ruff high-signal checks" \
+            -reporter=github-pr-review \
+            -filter-mode=added \
+            -fail-level=error \
+            < ruff.rdjson
+
+      - name: Run guardrail tests
+        run: |
+          pytest \
+            tests/test_config_secret_hygiene.py \
+            tests/test_knowledge_runtime_policy.py \
+            tests/test_shot_director_guards.py \
+            tests/test_prompt_compiler_boundaries.py

@@ -1,20 +1,41 @@
 ---
+case_title: 视频拆片案例：分镜拍摄_动作衔接与剪辑点设计
+doc_type: case_card
+served_agents:
+- scene_analyst
+- story_planner
+- shot_director
+- shot_director_blocking
+- quality_inspector
+scene_types:
+- 日常动作衔接
+- action
+events:
+- cut
+dialogue_types: []
+visual_constraints:
+- wide_shot
+- closeup
+- over_shoulder
+risks: []
+reusable_pattern: CASE_分镜拍摄_动作衔接与剪辑点设计
+aspect_ratio: unspecified
+runtime_retrieval: false
+source_files: []
 rule_id: CASE-分镜拍摄_动作衔接与剪辑点设计
-title: "视频拆片案例：分镜拍摄_动作衔接与剪辑点设计"
-doc_type: case_library
+title: 视频拆片案例：分镜拍摄_动作衔接与剪辑点设计
 rule_type: shot_sequence_case
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
+- shot_director
+- shot_director_layout
+- shot_director_blocking
 priority: reference
 status: active
-runtime_retrieval: true
-scene_types:
-  - 日常动作衔接
-source_video: "分镜拍摄_动作衔接与剪辑点设计.mp4"
-extraction_date: "2026-04-24"
-extraction_model: "gemini-3.1-pro-preview-thinking-high"
+source_video: 分镜拍摄_动作衔接与剪辑点设计.mp4
+extraction_date: '2026-04-24'
+extraction_model: gemini-3.1-pro-preview-thinking-high
+signals:
+- action_coverage
 ---
 
 # 视频拆片案例：分镜拍摄_动作衔接与剪辑点设计

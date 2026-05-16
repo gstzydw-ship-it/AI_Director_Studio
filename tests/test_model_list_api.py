@@ -1,0 +1,1440 @@
+from __future__ import annotations
+
+import asyncio
+import json
+from types import SimpleNamespace
+
+import httpx
+
+
+class _FakeRequest:
+    def __init__(self, payload: dict):
+        self._payload = payload
+        self.client = SimpleNamespace(host="127.0.0.1")
+
+    async def json(self):
+        return self._payload
+
+
+def _http_response(url: str, **kwargs) -> httpx.Response:
+    kwargs.setdefault("status_code", 200)
+    return httpx.Response(request=httpx.Request("GET", url), **kwargs)
+
+
+def _json_body(response) -> dict:
+    return json.loads(response.body.decode("utf-8"))
+
+
+def test_model_list_api_normalises_root_base_url_to_v1(monkeypatch):
+    import ui.app as web_app
+
+    calls: list[str] = []
+    trust_env_values: list[bool] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.trust_env = kwargs.get("trust_env")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, headers):
+            trust_env_values.append(self.trust_env)
+            calls.append(url)
+            if url.endswith("/v1/models"):
+                return _http_response(url, json={"data": [{"id": "gpt-image-1"}]})
+            return _http_response(url, text="<html>not an api endpoint</html>", headers={"content-type": "text/html"})
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {})
+    monkeypatch.setattr(web_app.httpx, "Client", FakeClient)
+
+    response = asyncio.run(
+        web_app.api_model_list(
+            _FakeRequest({"profile": "image", "base_url": "https://ai.comfly.chat", "api_key": "test-key"})
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert data["models"] == ["gpt-image-1"]
+    assert data["proxy_mode"] == "直连/绕开环境代理"
+    assert calls == ["https://ai.comfly.chat/v1/models"]
+    assert trust_env_values == [False]
+
+
+def test_model_list_api_falls_back_to_system_proxy_after_direct_failure(monkeypatch):
+    import ui.app as web_app
+
+    attempts: list[tuple[bool, str]] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.trust_env = kwargs.get("trust_env")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, headers):
+            attempts.append((self.trust_env, url))
+            if self.trust_env is False:
+                request = httpx.Request("GET", url)
+                raise httpx.ConnectError("simulated direct connect failure", request=request)
+            return _http_response(url, json={"data": [{"id": "gpt-5.5"}]})
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {})
+    monkeypatch.setattr(web_app.httpx, "Client", FakeClient)
+
+    response = asyncio.run(
+        web_app.api_model_list(
+            _FakeRequest({"profile": "text", "base_url": "https://www.xkwuai.cn/v1", "api_key": "test-key"})
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert data["models"] == ["gpt-5.5"]
+    assert data["proxy_mode"] == "系统环境代理"
+    assert attempts == [
+        (False, "https://www.xkwuai.cn/v1/models"),
+        (True, "https://www.xkwuai.cn/v1/models"),
+    ]
+
+
+def test_model_list_api_uses_agent_route_base_url_and_matching_key(monkeypatch):
+    import ui.app as web_app
+
+    calls: list[tuple[str, str]] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, headers):
+            calls.append((url, headers.get("Authorization", "")))
+            return _http_response(url, json={"data": [{"id": "kimi-k2.6"}]})
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "text-key", "base_url": "https://www.xkwuai.cn/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "base_url": "https://ai.comfly.chat/v1",
+                "api_key": "director-key",
+                "fallback_routes": [{"base_url": "https://www.xkwuai.cn/v1", "api_key": "fallback-key"}],
+            },
+        },
+    })
+    monkeypatch.setattr(web_app.httpx, "Client", FakeClient)
+
+    response = asyncio.run(
+        web_app.api_model_list(
+            _FakeRequest({
+                "profile": "text",
+                "agent_name": "director_showrunner",
+                "route_preset": "primary",
+                "base_url": "https://ai.comfly.chat/v1",
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["models"] == ["kimi-k2.6"]
+    assert calls == [("https://ai.comfly.chat/v1/models", "Bearer director-key")]
+
+
+def test_model_list_api_treats_star_mask_as_saved_key(monkeypatch):
+    import ui.app as web_app
+
+    calls: list[tuple[str, str]] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, headers):
+            calls.append((url, headers.get("Authorization", "")))
+            return _http_response(url, json={"data": [{"id": "gpt-5.5"}]})
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "saved-text-key", "base_url": "https://text.example/v1"},
+        "agent_models": {},
+    })
+    monkeypatch.setattr(web_app.httpx, "Client", FakeClient)
+
+    response = asyncio.run(
+        web_app.api_model_list(
+            _FakeRequest({"profile": "text", "base_url": "https://text.example/v1", "api_key": "********"})
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["models"] == ["gpt-5.5"]
+    assert calls == [("https://text.example/v1/models", "Bearer saved-text-key")]
+
+
+def test_model_list_api_resolves_saved_key_for_selected_global_route(monkeypatch):
+    import ui.app as web_app
+
+    calls: list[tuple[str, str]] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, headers):
+            calls.append((url, headers.get("Authorization", "")))
+            return _http_response(url, json={"data": [{"id": "claude-opus-4-7"}]})
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "image-key", "base_url": "https://image.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "base_url": "https://text.example/v1",
+                "api_key": "text-key",
+            },
+        },
+    })
+    monkeypatch.setattr(web_app.httpx, "Client", FakeClient)
+
+    response = asyncio.run(
+        web_app.api_model_list(
+            _FakeRequest({
+                "profile": "text",
+                "agent_name": "director_showrunner",
+                "route_preset": "custom",
+                "base_url": "https://image.example/v1",
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["models"] == ["claude-opus-4-7"]
+    assert calls == [("https://image.example/v1/models", "Bearer image-key")]
+
+
+def test_model_list_api_does_not_reuse_agent_custom_key_for_unmatched_global_route(monkeypatch):
+    import ui.app as web_app
+
+    calls: list[tuple[str, str]] = []
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, headers):
+            calls.append((url, headers.get("Authorization", "")))
+            return _http_response(url, json={"data": [{"id": "gpt-image-2-all"}]})
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "image-key", "base_url": "https://image.example"},
+        "agent_models": {
+            "director_showrunner": {
+                "base_url": "https://agent-custom.example/v1",
+                "api_key": "agent-custom-key",
+                "route_preset": "custom",
+                "custom_route": {
+                    "base_url": "https://agent-custom.example/v1",
+                    "api_key": "agent-custom-key",
+                },
+            },
+        },
+    })
+    monkeypatch.setattr(web_app.httpx, "Client", FakeClient)
+
+    response = asyncio.run(
+        web_app.api_model_list(
+            _FakeRequest({
+                "profile": "text",
+                "agent_name": "director_showrunner",
+                "route_preset": "custom",
+                "base_url": "https://image.example",
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["models"] == ["gpt-image-2-all"]
+    assert calls == [("https://image.example/v1/models", "Bearer image-key")]
+
+
+def test_model_list_api_reports_mihomo_fake_ip_hint(monkeypatch):
+    import ui.app as web_app
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            self.trust_env = kwargs.get("trust_env")
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, headers):
+            request = httpx.Request("GET", url)
+            raise httpx.ConnectError("simulated tls eof", request=request)
+
+    def fake_getaddrinfo(*args, **kwargs):
+        return [(None, None, None, None, ("198.18.0.16", 443))]
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {})
+    monkeypatch.setattr(web_app.httpx, "Client", FakeClient)
+    monkeypatch.setattr(web_app.socket, "getaddrinfo", fake_getaddrinfo)
+
+    response = asyncio.run(
+        web_app.api_model_list(
+            _FakeRequest({"profile": "text", "base_url": "https://www.xkwuai.cn/v1", "api_key": "test-key"})
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 502
+    assert data["success"] is False
+    assert "Mihomo/Clash fake-ip" in data["error"]
+    assert "198.18.0.16" in data["error"]
+
+
+def test_model_list_api_reports_non_json_without_raw_jsondecodeerror(monkeypatch):
+    import ui.app as web_app
+
+    class FakeClient:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *args):
+            return None
+
+        def get(self, url, headers):
+            return _http_response(url, text="", headers={"content-type": "text/html"})
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {})
+    monkeypatch.setattr(web_app.httpx, "Client", FakeClient)
+
+    response = asyncio.run(
+        web_app.api_model_list(
+            _FakeRequest({"profile": "text", "base_url": "https://www.xkwuai.cn/v1", "api_key": "test-key"})
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 502, response.body.decode("utf-8")
+    assert data["success"] is False
+    assert "不是合法 JSON" in data["error"]
+    assert "JSONDecodeError" not in data["error"]
+
+
+def test_agent_connection_test_uses_current_form_profiles(monkeypatch):
+    import ui.app as web_app
+
+    calls: list[dict] = []
+
+    async def fake_probe(**kwargs):
+        calls.append(kwargs)
+        return {
+            "agent": kwargs["agent_name"],
+            "label": kwargs["label"],
+            "category": kwargs["category"],
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+            "latency_ms": 12,
+            "message": "连接正常",
+        }
+
+    monkeypatch.setattr(web_app, "AGENT_LABELS", {
+        "director_showrunner": "剧情增强",
+        "storyboard_designer": "分镜图片生成",
+    })
+    monkeypatch.setattr(web_app, "AGENT_CATEGORIES", {"storyboard_designer": "image"})
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "old-text-key", "base_url": "https://old-text.example/v1"},
+        "image_generation": {"api_key": "old-image-key", "base_url": "https://old-image.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "old-text-model",
+                "base_url": "https://stale-text-agent.example/v1",
+                "api_key": "stale-text-agent-key",
+            },
+            "storyboard_designer": {
+                "model": "old-image-model",
+                "base_url": "https://stale-image-agent.example/v1",
+                "api_key": "stale-image-agent-key",
+            },
+        },
+    })
+    monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
+
+    response = asyncio.run(
+        web_app.api_test_agent_connections(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "image-key",
+                "agent_models": {
+                    "director_showrunner": "gpt-5.5",
+                    "storyboard_designer": "gpt-image-2",
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    by_agent = {call["agent_name"]: call for call in calls}
+    assert by_agent["director_showrunner"]["base_url"] == "https://text.example/v1"
+    assert by_agent["director_showrunner"]["api_key"] == "text-key"
+    assert by_agent["director_showrunner"]["model"] == "gpt-5.5"
+    assert by_agent["storyboard_designer"]["base_url"] == "https://image.example/v1"
+    assert by_agent["storyboard_designer"]["api_key"] == "image-key"
+    assert by_agent["storyboard_designer"]["model"] == "gpt-image-2"
+
+
+def test_agent_connection_test_resolves_custom_route_key_by_base_url(monkeypatch):
+    import ui.app as web_app
+
+    calls: list[dict] = []
+
+    async def fake_probe(**kwargs):
+        calls.append(kwargs)
+        return {
+            "agent": kwargs["agent_name"],
+            "label": kwargs["label"],
+            "category": kwargs["category"],
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+            "latency_ms": 12,
+            "message": "连接正常",
+        }
+
+    monkeypatch.setattr(web_app, "AGENT_LABELS", {"director_showrunner": "剧情增强"})
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "image-key", "base_url": "https://image.example/v1"},
+        "agent_models": {
+            "director_showrunner": {"model": "old-model", "base_url": "https://text.example/v1", "api_key": "text-key"},
+        },
+    })
+    monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
+
+    response = asyncio.run(
+        web_app.api_test_agent_connections(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "image-key",
+                "agent_models": {
+                    "director_showrunner": {
+                        "model": "gpt-5.5",
+                        "route_preset": "custom",
+                        "custom_base_url": "https://image.example/v1",
+                    },
+                },
+                "agent_names": ["director_showrunner"],
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert calls[0]["base_url"] == "https://image.example/v1"
+    assert calls[0]["api_key"] == "image-key"
+
+
+def test_agent_connection_test_passes_saved_timeout_config(monkeypatch):
+    import ui.app as web_app
+
+    captured: dict = {}
+
+    async def fake_probe(**kwargs):
+        captured.update(kwargs)
+        return {
+            "agent": kwargs["agent_name"],
+            "label": kwargs["label"],
+            "category": kwargs["category"],
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+            "latency_ms": 10,
+            "message": "ok",
+        }
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "deepseek-v4-pro-c",
+                "timeout_seconds": 300,
+                "connect_timeout_seconds": 12,
+                "read_timeout_seconds": 240,
+                "write_timeout_seconds": 90,
+            },
+        },
+    })
+    monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
+
+    response = asyncio.run(
+        web_app.api_test_agent_connections(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "agent_names": ["director_showrunner"],
+                "include_embedding": False,
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert captured["timeout_config"]["timeout_seconds"] == 300
+    assert captured["timeout_config"]["read_timeout_seconds"] == 240
+
+
+def test_probe_agent_connection_uses_configured_http_timeouts(monkeypatch):
+    import ui.app as web_app
+
+    captured: dict = {}
+
+    def fake_timeout(total, *, connect, read, write):
+        captured["timeout"] = {
+            "total": total,
+            "connect": connect,
+            "read": read,
+            "write": write,
+        }
+        return captured["timeout"]
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs):
+            captured["client_timeout"] = kwargs.get("timeout")
+            captured["trust_env"] = kwargs.get("trust_env")
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *args):
+            return None
+
+        async def post(self, url, headers, json):
+            return httpx.Response(
+                200,
+                request=httpx.Request("POST", url),
+                json={"choices": [{"message": {"content": "OK"}}]},
+            )
+
+    monkeypatch.setattr(web_app.httpx, "Timeout", fake_timeout)
+    monkeypatch.setattr(web_app.httpx, "AsyncClient", FakeAsyncClient)
+
+    result = asyncio.run(
+        web_app._probe_agent_connection(
+            agent_name="director_showrunner",
+            label="剧情增强",
+            category="text",
+            base_url="https://text.example/v1",
+            api_key="text-key",
+            model="deepseek-v4-pro-c",
+            timeout_config={
+                "timeout_seconds": 300,
+                "connect_timeout_seconds": 12,
+                "read_timeout_seconds": 240,
+                "write_timeout_seconds": 90,
+            },
+        )
+    )
+
+    assert result["success"] is True
+    assert captured["timeout"] == {
+        "total": 300.0,
+        "connect": 12.0,
+        "read": 240.0,
+        "write": 90.0,
+    }
+    assert captured["client_timeout"] == captured["timeout"]
+    assert captured["trust_env"] is False
+
+
+def test_agent_connection_test_can_scope_agents_and_include_embedding(monkeypatch):
+    import ui.app as web_app
+
+    agent_calls: list[dict] = []
+    embedding_calls: list[dict] = []
+
+    async def fake_probe(**kwargs):
+        agent_calls.append(kwargs)
+        return {
+            "agent": kwargs["agent_name"],
+            "label": kwargs["label"],
+            "category": kwargs["category"],
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+            "latency_ms": 9,
+            "message": "ok",
+        }
+
+    async def fake_embedding_probe(**kwargs):
+        embedding_calls.append(kwargs)
+        return {
+            "agent": "embedding",
+            "label": "向量嵌入",
+            "category": "embedding",
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+            "latency_ms": 8,
+            "message": "ok",
+        }
+
+    monkeypatch.setattr(web_app, "AGENT_LABELS", {
+        "director_showrunner": "剧情增强",
+        "story_planner": "拆片规划",
+    })
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "saved-text-key", "base_url": "https://saved-text.example/v1"},
+        "vectordb": {
+            "api_key": "saved-embedding-key",
+            "base_url": "https://saved-embedding.example/v1",
+            "embedding_model": "saved-embedding-model",
+        },
+        "agent_models": {
+            "director_showrunner": {"model": "saved-director-model"},
+            "story_planner": {"model": "saved-story-model"},
+            "quality_inspector_llm_a": {"model": "saved-deep-qc-model"},
+            "shot_director_layout": {"model": "saved-layout-model"},
+        },
+    })
+    monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
+    monkeypatch.setattr(web_app, "_probe_embedding_connection", fake_embedding_probe)
+
+    response = asyncio.run(
+        web_app.api_test_agent_connections(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "embedding_model": "text-embedding-3-large",
+                "agent_models": {
+                    "director_showrunner": "gpt-5.5",
+                    "story_planner": "gpt-5.4",
+                },
+                "agent_names": ["director_showrunner", "quality_inspector_llm_a", "shot_director_layout", "story_planner"],
+                "include_embedding": True,
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert data["summary"] == {"total": 4, "ok": 4, "failed": 0}
+    assert [call["agent_name"] for call in agent_calls] == [
+        "director_showrunner",
+        "story_planner",
+        "shot_director_layout",
+    ]
+    assert agent_calls[0]["model"] == "gpt-5.5"
+    assert agent_calls[1]["model"] == "gpt-5.4"
+    assert agent_calls[2]["model"] == "saved-layout-model"
+    assert embedding_calls == [{
+        "base_url": "https://embedding.example/v1",
+        "api_key": "embedding-key",
+        "model": "text-embedding-3-large",
+    }]
+
+
+def test_agent_connection_test_expands_shot_director_runtime_agents(monkeypatch):
+    import ui.app as web_app
+
+    agent_calls: list[dict] = []
+
+    async def fake_probe(**kwargs):
+        agent_calls.append(kwargs)
+        return {
+            "agent": kwargs["agent_name"],
+            "label": kwargs["label"],
+            "category": kwargs["category"],
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+            "latency_ms": 7,
+            "message": "ok",
+        }
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "saved-text-key", "base_url": "https://saved-text.example/v1"},
+        "agent_models": {
+            "shot_director": {"model": "saved-shot-model"},
+        },
+    })
+    monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
+
+    response = asyncio.run(
+        web_app.api_test_agent_connections(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "agent_models": {
+                    "shot_director": "claude-opus-4-6",
+                },
+                "agent_names": ["shot_director"],
+                "include_embedding": False,
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert data["summary"] == {"total": 5, "ok": 5, "failed": 0}
+    assert [call["agent_name"] for call in agent_calls] == [
+        "shot_director",
+        "shot_director_layout",
+        "shot_director_blocking",
+        "shot_director_guard",
+        "shot_director_logic_reviewer",
+    ]
+    assert {call["model"] for call in agent_calls} == {"claude-opus-4-6"}
+    assert {call["base_url"] for call in agent_calls} == {"https://text.example/v1"}
+    assert {call["api_key"] for call in agent_calls} == {"text-key"}
+
+
+def test_public_model_config_removes_quality_review_agents_only(monkeypatch, tmp_path):
+    import ui.app as web_app
+
+    public_path = tmp_path / "config" / "settings.yaml"
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "text-key"},
+        "agent_models": {
+            "director_showrunner": {"model": "gpt-5.5", "api_key": "text-key"},
+            "story_planner": {"model": "gpt-5.4", "api_key": "text-key"},
+            "quality_inspector_llm_a": {"model": "deep-qc-model", "api_key": "hidden-key"},
+            "shot_director_layout": {"model": "layout-model", "api_key": "hidden-key"},
+        },
+    })
+    monkeypatch.setattr(web_app, "get_public_config_path", lambda: str(public_path))
+    monkeypatch.setattr(web_app, "get_config_path", lambda: str(public_path))
+
+    config = web_app._public_model_config()
+
+    assert set(config["agent_models"]) == {"director_showrunner", "story_planner"}
+    assert config["_agent_order"] == ["director_showrunner", "story_planner"]
+    assert config["agent_models"]["director_showrunner"]["api_key"] == ""
+    assert config["agent_models"]["director_showrunner"]["has_api_key"] is True
+    assert config["agent_models"]["story_planner"]["api_key"] == ""
+    assert config["agent_models"]["story_planner"]["has_api_key"] is True
+
+
+def test_save_config_does_not_recreate_deleted_or_hidden_agents(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "old-text-key", "base_url": "https://old-text.example/v1"},
+        "image_generation": {"api_key": "old-image-key", "base_url": "https://old-image.example/v1"},
+        "vectordb": {"api_key": "old-embedding-key", "base_url": "https://old-embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {"model": "old-director-model", "fallback_models": ["backup-director-model"]},
+            "shot_director_layout": {"model": "hidden-layout-model"},
+        },
+    }
+    saved: dict[str, dict] = {}
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_save_raw_settings", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(web_app, "_public_model_config", lambda: {"agent_models": {}})
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "default_model": "default-text-model",
+                "embedding_model": "text-embedding-3-large",
+                "agent_models": {"director_showrunner": "new-director-model"},
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+
+    agent_models = saved["config"]["agent_models"]
+    assert "quality_inspector_llm_a" not in agent_models
+    assert agent_models["director_showrunner"]["model"] == "new-director-model"
+    assert agent_models["director_showrunner"]["fallback_models"] == ["backup-director-model"]
+    assert "model" not in saved["config"]["llm"]
+    assert agent_models["shot_director_layout"].get("model", "") != "hidden-layout-model"
+    assert agent_models["scene_vision_analyst"].get("model", "") == agent_models["scene_analyst"].get("model", "")
+
+
+def test_save_config_persists_agent_custom_route(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "image-key", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "embedding-key", "base_url": "https://embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "old-model",
+                "base_url": "https://route-one.example/v1",
+                "api_key": "route-one-key",
+                "fallback_routes": [{"base_url": "https://route-two.example/v1", "api_key": "route-two-key"}],
+            },
+        },
+    }
+    saved: dict[str, dict] = {}
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_save_raw_settings", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(web_app, "_public_model_config", lambda: {"agent_models": {}})
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "embedding_model": "text-embedding-3-large",
+                "agent_models": {
+                    "director_showrunner": {
+                        "model": "custom-model",
+                        "route_preset": "custom",
+                        "custom_base_url": "https://custom.example/v1",
+                        "custom_api_key": "custom-key",
+                        "available_models": ["custom-model", "custom-backup"],
+                        "route_model_pools": {
+                            "custom": ["custom-model", "custom-backup"],
+                            "primary": ["old-model"],
+                        },
+                    }
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    director = saved["config"]["agent_models"]["director_showrunner"]
+    assert director["model"] == "custom-model"
+    assert director["route_preset"] == "custom"
+    assert director["base_url"] == "https://custom.example/v1"
+    assert director["api_key"] == "custom-key"
+    assert director["custom_route"]["base_url"] == "https://custom.example/v1"
+    assert director["fallback_routes"][0]["base_url"] == "https://route-two.example/v1"
+    assert director["available_models"] == ["custom-model", "custom-backup"]
+    assert director["route_model_pools"]["custom"] == ["custom-model", "custom-backup"]
+    assert director["route_model_pools"]["primary"] == ["old-model"]
+
+
+def test_save_config_custom_route_reuses_key_for_selected_base_url(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "image-key", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "embedding-key", "base_url": "https://embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "old-model",
+                "base_url": "https://text.example/v1",
+                "api_key": "text-key",
+            },
+        },
+    }
+    saved: dict[str, dict] = {}
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_save_raw_settings", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(web_app, "_public_model_config", lambda: {"agent_models": {}})
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "agent_models": {
+                    "director_showrunner": {
+                        "model": "image-route-model",
+                        "route_preset": "custom",
+                        "custom_base_url": "https://image.example/v1",
+                    }
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    director = saved["config"]["agent_models"]["director_showrunner"]
+    assert director["route_preset"] == "custom"
+    assert director["base_url"] == "https://image.example/v1"
+    assert director["api_key"] == "image-key"
+    assert director["custom_route"]["api_key"] == "image-key"
+
+
+def test_save_config_custom_route_prefers_profile_key_over_stale_agent_key(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "fresh-image-key", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "embedding-key", "base_url": "https://embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "old-model",
+                "base_url": "https://image.example/v1",
+                "api_key": "stale-agent-key",
+                "route_preset": "custom",
+                "custom_route": {
+                    "base_url": "https://image.example/v1",
+                    "api_key": "stale-agent-key",
+                },
+            },
+        },
+    }
+    saved: dict[str, dict] = {}
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_save_raw_settings", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(web_app, "_public_model_config", lambda: {"agent_models": {}})
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "fresh-image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "agent_models": {
+                    "director_showrunner": {
+                        "model": "gpt-5.5",
+                        "route_preset": "custom",
+                        "custom_base_url": "https://image.example/v1",
+                        "custom_api_key": "********",
+                    }
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    director = saved["config"]["agent_models"]["director_showrunner"]
+    assert director["base_url"] == "https://image.example/v1"
+    assert director["api_key"] == "fresh-image-key"
+    assert director["custom_route"]["api_key"] == "fresh-image-key"
+
+
+def test_save_config_custom_route_uses_current_form_key_for_new_profile_url(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "old-image-key", "base_url": "https://old-image.example/v1"},
+        "vectordb": {"api_key": "embedding-key", "base_url": "https://embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "old-model",
+                "base_url": "https://comfly.example/v1",
+                "api_key": "closed-comfly-key",
+                "route_preset": "custom",
+                "custom_route": {
+                    "base_url": "https://comfly.example/v1",
+                    "api_key": "closed-comfly-key",
+                },
+            },
+        },
+    }
+    saved: dict[str, dict] = {}
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_save_raw_settings", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(web_app, "_public_model_config", lambda: {"agent_models": {}})
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://new-image.example/v1",
+                "image_api_key": "fresh-image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "agent_models": {
+                    "director_showrunner": {
+                        "model": "gpt-5.5",
+                        "route_preset": "custom",
+                        "custom_base_url": "https://new-image.example/v1",
+                    }
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    director = saved["config"]["agent_models"]["director_showrunner"]
+    assert director["base_url"] == "https://new-image.example/v1"
+    assert director["api_key"] == "fresh-image-key"
+    assert director["custom_route"]["api_key"] == "fresh-image-key"
+
+
+def test_agent_connection_custom_route_prefers_profile_key_over_stale_agent_key(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "fresh-image-key", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "embedding-key", "base_url": "https://embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "gpt-5.5",
+                "base_url": "https://image.example/v1",
+                "api_key": "stale-agent-key",
+                "route_preset": "custom",
+                "custom_route": {
+                    "base_url": "https://image.example/v1",
+                    "api_key": "stale-agent-key",
+                },
+            },
+        },
+    }
+    captured: dict[str, str] = {}
+
+    async def fake_probe(**kwargs):
+        captured.update(kwargs)
+        return {
+            "agent": kwargs["agent_name"],
+            "label": kwargs["label"],
+            "category": kwargs["category"],
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+        }
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
+
+    response = asyncio.run(
+        web_app.api_test_agent_connections(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "fresh-image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "agent_names": ["director_showrunner"],
+                "include_embedding": False,
+                "agent_models": {
+                    "director_showrunner": {
+                        "model": "gpt-5.5",
+                        "route_preset": "custom",
+                        "custom_base_url": "https://image.example/v1",
+                        "custom_api_key": "********",
+                    }
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert captured["base_url"] == "https://image.example/v1"
+    assert captured["api_key"] == "fresh-image-key"
+
+
+def test_agent_connection_custom_route_uses_current_form_key_for_new_profile_url(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "old-image-key", "base_url": "https://old-image.example/v1"},
+        "vectordb": {"api_key": "embedding-key", "base_url": "https://embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "gpt-5.5",
+                "base_url": "https://comfly.example/v1",
+                "api_key": "closed-comfly-key",
+                "route_preset": "custom",
+                "custom_route": {
+                    "base_url": "https://comfly.example/v1",
+                    "api_key": "closed-comfly-key",
+                },
+            },
+        },
+    }
+    captured: dict[str, str] = {}
+
+    async def fake_probe(**kwargs):
+        captured.update(kwargs)
+        return {
+            "agent": kwargs["agent_name"],
+            "label": kwargs["label"],
+            "category": kwargs["category"],
+            "base_url": kwargs["base_url"],
+            "model": kwargs["model"],
+            "success": True,
+        }
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_probe_agent_connection", fake_probe)
+
+    response = asyncio.run(
+        web_app.api_test_agent_connections(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://new-image.example/v1",
+                "image_api_key": "fresh-image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "agent_names": ["director_showrunner"],
+                "include_embedding": False,
+                "agent_models": {
+                    "director_showrunner": {
+                        "model": "gpt-5.5",
+                        "route_preset": "custom",
+                        "custom_base_url": "https://new-image.example/v1",
+                    }
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert captured["base_url"] == "https://new-image.example/v1"
+    assert captured["api_key"] == "fresh-image-key"
+
+
+def test_save_config_preserves_profile_keys_from_star_masks(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "saved-text-key", "base_url": "https://old-text.example/v1"},
+        "image_generation": {"api_key": "saved-route2-key", "base_url": "https://old-route2.example/v1"},
+        "vectordb": {"api_key": "saved-embedding-key", "base_url": "https://old-embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {"model": "old-model", "base_url": "https://old-text.example/v1", "api_key": "saved-text-key"},
+        },
+    }
+    saved: dict[str, dict] = {}
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_save_raw_settings", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(web_app, "_public_model_config", lambda: {"agent_models": {}})
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "********",
+                "image_base_url": "https://route2.example/v1",
+                "image_api_key": "********",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "********",
+                "agent_models": {"director_showrunner": "gpt-5.5"},
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    assert saved["config"]["llm"]["api_key"] == "saved-text-key"
+    assert saved["config"]["image_generation"]["api_key"] == "saved-route2-key"
+    assert saved["config"]["vectordb"]["api_key"] == "saved-embedding-key"
+
+
+def test_save_config_primary_route_uses_current_text_profile(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "old-text-key", "base_url": "https://old-text.example/v1"},
+        "image_generation": {"api_key": "image-key", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "embedding-key", "base_url": "https://embedding.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "model": "stale-model",
+                "base_url": "https://stale-custom.example/v1",
+                "api_key": "stale-custom-key",
+                "route_preset": "custom",
+                "custom_route": {
+                    "base_url": "https://stale-custom.example/v1",
+                    "api_key": "stale-custom-key",
+                },
+                "available_models": [f"stale-{index}" for index in range(120)],
+            },
+        },
+    }
+    saved: dict[str, dict] = {}
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_save_raw_settings", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(web_app, "_public_model_config", lambda: {"agent_models": {}})
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "agent_models": {
+                    "director_showrunner": {
+                        "model": "gpt-5.5",
+                        "route_preset": "primary",
+                        "available_models": [f"model-{index}" for index in range(120)],
+                    }
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    director = saved["config"]["agent_models"]["director_showrunner"]
+    assert director["route_preset"] == "primary"
+    assert director["base_url"] == "https://text.example/v1"
+    assert director["api_key"] == "text-key"
+    assert director["custom_route"]["api_key"] == "stale-custom-key"
+    assert director["model"] == "gpt-5.5"
+    assert len(director["available_models"]) == 80
+
+
+def test_save_config_normalises_nested_model_payload_and_derived_routes(monkeypatch):
+    import ui.app as web_app
+
+    raw_config = {
+        "llm": {"api_key": "text-key", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "image-key", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "embedding-key", "base_url": "https://embedding.example/v1"},
+        "agent_models": {
+            "scene_analyst": {"model": "old-scene", "base_url": "https://old.example/v1", "api_key": "old-key"},
+            "scene_vision_analyst": {
+                "model": "stale-derived",
+                "base_url": "https://stale-derived.example/v1",
+                "api_key": "stale-derived-key",
+                "route_preset": "custom",
+                "custom_route": {
+                    "base_url": "https://stale-derived.example/v1",
+                    "api_key": "stale-derived-key",
+                },
+            },
+        },
+    }
+    saved: dict[str, dict] = {}
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: raw_config)
+    monkeypatch.setattr(web_app, "_save_raw_settings", lambda config: saved.setdefault("config", config))
+    monkeypatch.setattr(web_app, "_public_model_config", lambda: {"agent_models": {}})
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "text-key",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "image-key",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "embedding-key",
+                "agent_models": {
+                    "scene_analyst": {
+                        "model": {"model": "gpt-scene"},
+                        "route_preset": "custom",
+                        "custom_base_url": "https://scene-router.example/v1",
+                        "custom_api_key": "scene-key",
+                        "available_models": [{"model": "gpt-scene"}, "{'model': 'gpt-scene-backup'}"],
+                        "route_model_pools": {"custom": [{"model": "gpt-scene"}]},
+                    }
+                },
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 200, response.body.decode("utf-8")
+    assert data["success"] is True
+    scene = saved["config"]["agent_models"]["scene_analyst"]
+    derived = saved["config"]["agent_models"]["scene_vision_analyst"]
+    assert scene["model"] == "gpt-scene"
+    assert scene["available_models"] == ["gpt-scene", "gpt-scene-backup"]
+    assert scene["route_model_pools"]["custom"] == ["gpt-scene"]
+    assert derived["model"] == "gpt-scene"
+    assert derived["base_url"] == "https://scene-router.example/v1"
+    assert derived["api_key"] == "scene-key"
+    assert derived["custom_route"]["base_url"] == "https://scene-router.example/v1"
+    assert derived["custom_route"]["api_key"] == "scene-key"
+
+
+def test_save_config_rejects_unresolved_placeholder_api_keys(monkeypatch):
+    import ui.app as web_app
+
+    monkeypatch.delenv("DIRECTOR_LLM_API_KEY", raising=False)
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "${DIRECTOR_LLM_API_KEY}", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "${DIRECTOR_IMAGE_API_KEY}", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "${DIRECTOR_EMBEDDING_API_KEY}", "base_url": "https://embedding.example/v1"},
+        "agent_models": {},
+    })
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "image_base_url": "https://image.example/v1",
+                "embedding_base_url": "https://embedding.example/v1",
+                "default_model": "gpt-5.5",
+                "embedding_model": "text-embedding-3-large",
+                "agent_models": {"director_showrunner": "gpt-5.5"},
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 400
+    assert data["success"] is False
+    assert "API Key" in data["error"]
+
+
+def test_save_config_rejects_masked_api_keys_when_no_real_saved_key(monkeypatch):
+    import ui.app as web_app
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "********", "base_url": "https://text.example/v1"},
+        "image_generation": {"api_key": "********", "base_url": "https://image.example/v1"},
+        "vectordb": {"api_key": "********", "base_url": "https://embedding.example/v1"},
+        "agent_models": {},
+    })
+
+    response = asyncio.run(
+        web_app.api_save_config(
+            _FakeRequest({
+                "text_base_url": "https://text.example/v1",
+                "text_api_key": "********",
+                "image_base_url": "https://image.example/v1",
+                "image_api_key": "********",
+                "embedding_base_url": "https://embedding.example/v1",
+                "embedding_api_key": "********",
+                "embedding_model": "text-embedding-3-large",
+                "agent_models": {"director_showrunner": "gpt-5.5"},
+            })
+        )
+    )
+
+    data = _json_body(response)
+    assert response.status_code == 400
+    assert data["success"] is False
+    assert "API Key" in data["error"]
+
+
+def test_public_model_config_does_not_report_masked_keys_as_saved(monkeypatch):
+    import ui.app as web_app
+
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {
+        "llm": {"api_key": "********", "base_url": "https://text.example/v1"},
+        "vectordb": {"api_key": "********", "base_url": "https://embedding.example/v1"},
+        "image_generation": {"api_key": "real-image-key", "base_url": "https://image.example/v1"},
+        "agent_models": {
+            "director_showrunner": {
+                "api_key": "********",
+                "base_url": "https://text.example/v1",
+                "custom_route": {"api_key": "********", "base_url": "https://custom.example/v1"},
+            },
+        },
+    })
+    monkeypatch.setattr(web_app, "_safe_knowledge_index_status", lambda: {})
+
+    config = web_app._public_model_config()
+
+    assert config["llm"]["has_api_key"] is False
+    assert config["vectordb"]["has_api_key"] is False
+    assert config["image_generation"]["has_api_key"] is True
+    assert config["agent_models"]["director_showrunner"]["has_api_key"] is False
+    assert config["agent_models"]["director_showrunner"]["custom_route"]["has_api_key"] is False
+
+
+def test_public_model_config_reports_public_frontend_source(monkeypatch, tmp_path):
+    import ui.app as web_app
+
+    public_path = tmp_path / "config" / "settings.yaml"
+    monkeypatch.setattr(web_app, "_load_raw_settings", lambda: {})
+    monkeypatch.setattr(web_app, "get_public_config_path", lambda: str(public_path))
+    monkeypatch.setattr(web_app, "get_config_path", lambda: str(public_path))
+
+    config = web_app._public_model_config()
+    source = config["_config_source"]
+
+    assert source["is_private"] is False
+    assert source["active_path"] == str(public_path)
+    assert source["active_display"].endswith("settings.yaml")

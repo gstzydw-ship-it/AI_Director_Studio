@@ -44,37 +44,91 @@ def get_base_dir():
         # Normal execution: return project root (parent of agents/)
         return os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
+
+def _settings_path_for_knowledge_dir() -> str:
+    """Return settings.yaml path without calling get_config_path()."""
+    if getattr(sys, "frozen", False):
+        exe_dir = os.path.dirname(sys.executable)
+        external_config = os.path.join(exe_dir, "config", "settings.yaml")
+        if os.path.exists(external_config):
+            return external_config
+        return os.path.join(get_base_dir(), "config", "settings.yaml")
+    return os.path.join(get_base_dir(), "config", "settings.yaml")
+
+
+def _configured_knowledge_directory(settings_path: str) -> str:
+    if not settings_path or not os.path.exists(settings_path):
+        return ""
+    try:
+        with open(settings_path, "r", encoding="utf-8") as f:
+            expanded = os.path.expandvars(f.read())
+        data = yaml.safe_load(expanded) or {}
+    except (OSError, yaml.YAMLError):
+        return ""
+    data = _drop_unresolved_env_refs(data)
+    if not isinstance(data, dict):
+        return ""
+    knowledge = data.get("knowledge") or {}
+    if not isinstance(knowledge, dict):
+        return ""
+    directory = knowledge.get("directory")
+    return str(directory).strip() if directory else ""
+
+
+def _project_root_for_settings(settings_path: str) -> str:
+    if not getattr(sys, "frozen", False):
+        return get_base_dir()
+    exe_dir = os.path.dirname(sys.executable)
+    external_config_dir = os.path.normcase(os.path.abspath(os.path.join(exe_dir, "config")))
+    settings_dir = os.path.normcase(os.path.abspath(os.path.dirname(settings_path)))
+    return exe_dir if settings_dir == external_config_dir else get_base_dir()
+
+
 def get_knowledge_dir():
-    """Return the path to the knowledge/ directory (bundled)."""
+    """Return the configured knowledge directory.
+
+    Relative paths are resolved from the project root. In PyInstaller builds,
+    an external config next to the executable resolves from the executable
+    directory, with a bundled fallback for the default ./knowledge path.
+    """
+    settings_path = _settings_path_for_knowledge_dir()
+    configured_dir = _configured_knowledge_directory(settings_path)
+    if configured_dir:
+        if os.path.isabs(configured_dir):
+            return os.path.normpath(configured_dir)
+
+        root = _project_root_for_settings(settings_path)
+        candidate = os.path.normpath(os.path.join(root, configured_dir))
+        if getattr(sys, "frozen", False) and not os.path.exists(candidate):
+            bundled_candidate = os.path.normpath(os.path.join(get_base_dir(), configured_dir))
+            if os.path.exists(bundled_candidate):
+                return bundled_candidate
+        return candidate
+
     return os.path.join(get_base_dir(), "knowledge")
+
 
 def get_config_path():
     """
     Returns the active settings path.
     If frozen (PyInstaller .exe), keeps settings.yaml NEXT to the executable so it persists.
     Copies default from bundled data if it doesn't exist.
-    A private settings.local.yaml takes precedence when present so local owners
-    can keep API credentials out of the shareable settings.yaml.
+    The web UI is the single source of truth for runtime model configuration,
+    so the active path is always config/settings.yaml.
     """
     if getattr(sys, 'frozen', False):
         exe_dir = os.path.dirname(sys.executable)
         config_dir = os.path.join(exe_dir, "config")
         config_file = os.path.join(config_dir, "settings.yaml")
-        private_config_file = os.path.join(config_dir, "private", "settings.local.yaml")
         
         if not os.path.exists(config_file):
             meipass_config = os.path.join(sys._MEIPASS, "config", "settings.yaml")
             if os.path.exists(meipass_config):
                 os.makedirs(config_dir, exist_ok=True)
                 shutil.copy2(meipass_config, config_file)
-        if os.path.exists(private_config_file):
-            return private_config_file
         return config_file
     else:
         config_dir = os.path.join(get_base_dir(), "config")
-        private_config_file = os.path.join(config_dir, "private", "settings.local.yaml")
-        if os.path.exists(private_config_file):
-            return private_config_file
         return os.path.join(config_dir, "settings.yaml")
 
 def get_public_config_path():

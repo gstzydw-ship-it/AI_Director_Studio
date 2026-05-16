@@ -1,20 +1,46 @@
 ---
+case_title: 视频拆片案例：拍摄剪辑_动作匹配与连续动作衔接
+doc_type: case_card
+served_agents:
+- scene_analyst
+- story_planner
+- shot_director
+- shot_director_blocking
+- quality_inspector
+scene_types:
+- 动作连贯展示
+- 日常动作连贯
+- 运动位置连贯
+- action
+events:
+- cut
+dialogue_types:
+- argument_escalation
+visual_constraints:
+- wide_shot
+- medium_shot
+- closeup
+- over_shoulder
+risks: []
+reusable_pattern: CASE_拍摄剪辑_动作匹配与连续动作衔接
+aspect_ratio: unspecified
+runtime_retrieval: false
+source_files: []
 rule_id: CASE-拍摄剪辑_动作匹配与连续动作衔接
-title: "视频拆片案例：拍摄剪辑_动作匹配与连续动作衔接"
-doc_type: case_library
+title: 视频拆片案例：拍摄剪辑_动作匹配与连续动作衔接
 rule_type: shot_sequence_case
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
+- shot_director
+- shot_director_layout
+- shot_director_blocking
 priority: reference
 status: active
-runtime_retrieval: true
-scene_types:
-  - 动作连贯展示, 日常动作连贯, 运动位置连贯
-source_video: "拍摄剪辑_动作匹配与连续动作衔接.mp4"
-extraction_date: "2026-04-24"
-extraction_model: "gemini-3.1-pro-preview-thinking-high"
+source_video: 拍摄剪辑_动作匹配与连续动作衔接.mp4
+extraction_date: '2026-04-24'
+extraction_model: gemini-3.1-pro-preview-thinking-high
+signals:
+- action_coverage
+- continuity_lock
 ---
 
 # 视频拆片案例：拍摄剪辑_动作匹配与连续动作衔接

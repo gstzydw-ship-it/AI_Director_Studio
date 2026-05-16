@@ -1,20 +1,47 @@
 ---
+case_title: 视频拆片案例：镜头构图_画框与构图的视觉语言
+doc_type: case_card
+served_agents:
+- scene_analyst
+- story_planner
+- shot_director
+- shot_director_blocking
+- quality_inspector
+scene_types:
+- 权力压制与营救
+- 家庭权力交接
+- 日常压抑处境
+- action
+events:
+- cut
+dialogue_types: []
+visual_constraints:
+- wide_shot
+- medium_shot
+- closeup
+- over_shoulder
+- focus_pull
+risks: []
+reusable_pattern: CASE_镜头构图_画框与构图的视觉语言
+aspect_ratio: unspecified
+runtime_retrieval: false
+source_files: []
 rule_id: CASE-镜头构图_画框与构图的视觉语言
-title: "视频拆片案例：镜头构图_画框与构图的视觉语言"
-doc_type: case_library
+title: 视频拆片案例：镜头构图_画框与构图的视觉语言
 rule_type: shot_sequence_case
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
+- shot_director
+- shot_director_layout
+- shot_director_blocking
 priority: reference
 status: active
-runtime_retrieval: true
-scene_types:
-  - 权力压制与营救, 家庭权力交接, 日常压抑处境
-source_video: "镜头构图_画框与构图的视觉语言.mp4"
-extraction_date: "2026-04-24"
-extraction_model: "gemini-3.1-pro-preview-thinking-high"
+source_video: 镜头构图_画框与构图的视觉语言.mp4
+extraction_date: '2026-04-24'
+extraction_model: gemini-3.1-pro-preview-thinking-high
+signals:
+- vertical_framing
+- action_coverage
+- continuity_lock
 ---
 
 # 视频拆片案例：镜头构图_画框与构图的视觉语言

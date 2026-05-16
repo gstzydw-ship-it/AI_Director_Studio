@@ -25,16 +25,17 @@ from .types import DirectorState, LLMSettings
 # ``prompting`` does not also force-load the graph construction modules,
 # which may still depend on legacy helpers.
 def __getattr__(name: str):
-    if name == "create_director_graph":
-        from .graph_api import create_director_graph
+    if name in {"create_director_graph"}:
+        from . import graph_api as _graph_api
 
-        return create_director_graph
+        return getattr(_graph_api, name)
 
     if name in {
         "rhythm_rewrite_director_node",
         "director_showrunner_node",
         "scene_analyst_node",
         "story_planner_node",
+        "rhythm_story_planner_node",
         "shot_director_node",
         "wait_for_segment_request_node",
         "prompt_compiler_node",
@@ -68,6 +69,7 @@ __all__ = [
     "director_showrunner_node",
     "scene_analyst_node",
     "story_planner_node",
+    "rhythm_story_planner_node",
     "shot_director_node",
     "wait_for_segment_request_node",
     "prompt_compiler_node",

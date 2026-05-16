@@ -11,6 +11,9 @@ import time
 
 import cv2
 import httpx
+import pytest
+
+pytestmark = pytest.mark.skip(reason="manual integration test; requires live Gemini API and local video file")
 
 # ── 代理 ──
 os.environ["HTTP_PROXY"] = "http://127.0.0.1:9674"

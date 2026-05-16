@@ -18,7 +18,8 @@ from agents.director_graph_package.prompt_compiler_impl import (
 def test_camera_execution_rules_ban_ambiguous_camera_language():
     rules = _camera_execution_rules()
 
-    assert "正面、左前方、右前方、左侧、右侧、背后" in rules
+    assert "正面、侧面、侧背、背后、过肩、场景固定机位" in rules
+    assert "禁止用人物相对的左前方/右前方/左后方/右后方当机位" in rules
     assert "不要每段都写数字角度" in rules
     assert "轻微前推跟随" in rules
     assert "纵深中全景到半身中景" in rules
@@ -29,10 +30,10 @@ def test_camera_execution_rules_ban_ambiguous_camera_language():
 def test_camera_task_selection_rules_map_tasks_to_angles():
     rules = _camera_task_selection_rules()
 
-    assert "优先左侧、右侧、左后方、右后方" in rules
-    assert "优先背后、左后方、右后方" in rules
+    assert "优先场景固定机位、门框侧机位、桌边侧机位、走廊侧机位" in rules
+    assert "优先背面跟拍、侧面跟拍、门框侧固定机位" in rules
     assert "单一主机位持续承担整段" in rules
-    assert "同段切换只能发生在选定一侧内部" in rules
+    assert "同段切换只能保持同一场景锚点侧" in rules
     assert "cut_point" in rules
 
 
@@ -91,6 +92,27 @@ def test_compiler_guard_flags_broader_director_jargon_in_execution_text():
     assert "尾帧悬停" in report
 
 
+def test_compiler_guard_flags_abstract_action_chain_terms():
+    prompt = """片段1｜乔熙公寓客厅｜清晨赶时间｜~6秒
+
+【镜头序列】
+镜头1【3秒】【乔熙、小豆丁】双人半身关系景，动作叠压、双人关系主链持续推进；手机和衣袖状态单向推进，小豆丁停在抗拒位置，供尾帧承接。
+镜头2【2秒】【乔熙、小豆丁】关系复位，保留同场关系；穿衣动作链到达情绪落点后尾帧锁定。
+镜头3【1秒】【乔熙、小豆丁】轴线锁定，覆盖职责明确，关系升级后保持继承位置。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "不可生成的抽象情绪判断" in report
+    assert "动作叠压" in report
+    assert "状态单向推进" in report
+    assert "抗拒位置" in report
+    assert "关系复位" in report
+    assert "情绪落点" in report
+    assert "轴线锁定" in report
+    assert "覆盖职责" in report
+
+
 def test_compiler_guard_flags_complex_camera_fields_from_old_shot_director():
     prompt = """片段1｜日/内/天御集团大堂｜入场｜~12秒
 
@@ -103,6 +125,31 @@ def test_compiler_guard_flags_complex_camera_fields_from_old_shot_director():
 
     assert "复杂摄影字段" in report
     assert "truck right" in report
+
+
+def test_compiler_guard_flags_unstable_frame_composition_language():
+    prompt = """片段1｜公寓门口｜出门停顿｜~6秒
+
+【镜头序列】
+镜头1【3秒】【乔熙、小豆丁】同侧过肩机位，从乔熙肩后看向门口，小豆丁站在门框里，门框形成前景压线。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "不稳定构图表达" in report
+    assert "小豆丁站在门口等她" in report
+
+
+def test_compiler_guard_accepts_natural_over_shoulder_doorway_language():
+    prompt = """片段1｜公寓门口｜出门停顿｜~6秒
+
+【镜头序列】
+镜头1【3秒】【乔熙、小豆丁】同侧过肩机位，从乔熙肩后看向门口，小豆丁站在门口等她，乔熙停住半秒。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "不稳定构图表达" not in report
 
 
 def test_compiler_guard_does_not_flag_style_anchor_only_jargon():
@@ -134,6 +181,32 @@ def test_compiler_guard_accepts_explicit_camera_position_language():
     assert "缺少可执行摄影机位置" not in report
 
 
+def test_compiler_guard_rejects_subject_relative_left_right_camera_position():
+    prompt = """片段1｜总裁办公室｜压迫对白｜~10秒
+
+【时间轴】
+0-5秒：乔熙半身中景，摄影机位于乔熙左前方，固定机位。乔熙看向商北琛，商北琛在画面左侧前景虚化。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "PROMPT-AXIS-LOCK-PER-SEGMENT-001" in report
+    assert "人物相对左右机位" in report
+
+
+def test_compiler_guard_accepts_concise_same_side_camera_position():
+    prompt = """片段1｜总裁办公室｜压迫对白｜~10秒
+
+【时间轴】
+0-5秒：乔熙中近景，同侧过肩机位。乔熙看向商北琛，听完后停住半秒。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "人物相对左右机位" not in report
+    assert "缺少可执行摄影机位置" not in report
+
+
 def test_compiler_guard_rejects_single_segment_reverse_shot_language():
     prompt = """片段1｜总裁办公室｜压迫对白｜~10秒
 
@@ -159,3 +232,72 @@ def test_compiler_guard_rejects_left_and_right_axis_in_one_timeline_block():
 
     assert "PROMPT-AXIS-LOCK-PER-SEGMENT-001" in report
     assert "左前方" in report and "右前方" in report
+
+
+def test_compiler_guard_rejects_pseudo_relation_viewpoint_language():
+    prompt = """片段1｜乔熙公寓客厅｜晨间赶时间｜~12秒
+
+【画面基底】
+清晨客厅，沙发、地毯和茶几在同一空间。
+
+【镜头序列】
+镜头1【5秒】【乔熙、小豆丁】双人中景，沙发与地毯之间的关系视角。乔熙蹲在地毯旁给小豆丁套衣服，小豆丁缩手躲开。（切镜时机：小豆丁继续缩手后切至镜头2）
+镜头2【3.5秒】【乔熙、小豆丁】双人半身关系景，空间关系视角。乔熙把手机放在沙发上，小豆丁说出"I don't want to go to school!"。（切镜时机：拒绝台词落下后切至镜头3）
+镜头3【3.5秒】【乔熙、小豆丁】双人中景，尾帧承接视角。乔熙整理好衣服并拿起书包，尾帧：手机仍在沙发上，小豆丁站在地毯旁。
+
+【约束】
+主体锁定乔熙和小豆丁；严禁字幕、水印、logo和可读文字。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "伪镜头视角" in report
+    assert "沙发与地毯之间的关系视角" in report
+    assert "真实可拍的观看位置" in report
+
+
+def test_compiler_guard_rejects_overloaded_short_drama_shot_line():
+    prompt = """片段1｜乔熙公寓客厅｜晨间赶时间｜~12秒
+
+【画面基底】
+清晨客厅，沙发、地毯和茶几在同一空间。
+
+【镜头序列】
+镜头1【5秒】【乔熙、小豆丁】双人中景，客厅侧面平视。乔熙俯身在地毯旁，手机贴在耳边，另一只手拉小豆丁的衣摆，小豆丁手臂缩回、身体扭开，乔熙看向茶几闹钟，急声说出"Kiki, cover for me. I'll be right there!"，说完把手机从耳边移开，衣服仍卡在手臂处。（切镜时机：手机刚离耳时切至镜头2）
+镜头2【3.5秒】【乔熙、小豆丁】双人半身关系景，沙发旁固定视角。乔熙把手机放到沙发坐垫上，小豆丁说出"I don't want to go to school!"。（切镜时机：拒绝台词落下后切至镜头3）
+镜头3【3.5秒】【乔熙、小豆丁】双人中景，地毯旁固定视角。乔熙整理好衣服，尾帧：手机仍在沙发上，小豆丁站在地毯旁。
+
+【约束】
+主体锁定乔熙和小豆丁；严禁字幕、水印、logo和可读文字。
+"""
+
+    report = _compiler_guard_report(prompt, "", "", "main_shots:\n- shot_id: F01-S01")
+
+    assert "动作过载" in report
+    assert "一个主动作、一个辅助状态和一句台词" in report
+
+
+def test_compiler_guard_accepts_concise_short_drama_shot_language():
+    prompt = """片段1｜乔熙公寓客厅｜晨间赶时间｜~12秒
+
+【画面基底】
+清晨日光照进客厅，沙发、地毯和茶几保持稳定；乔熙和小豆丁同在客厅，Kiki只作为电话声音存在。
+
+【镜头序列】
+镜头1【5秒】【乔熙、小豆丁】双人中景，客厅侧面平视。乔熙蹲在地毯旁，一边夹着电话一边给小豆丁套衣服；小豆丁缩着手臂扭开，衣服卡在胳膊上。（切镜时机：乔熙说完电话后切至镜头2）
+镜头2【3.5秒】【乔熙、小豆丁】双人半身关系景，沙发旁固定视角。乔熙把手机放到沙发坐垫上，空出双手继续拉好衣摆；小豆丁后退半步，说出"I don't want to go to school!"（切镜时机：拒绝台词落下后切至镜头3）
+镜头3【3.5秒】【乔熙、小豆丁】双人中景，地毯旁固定视角。乔熙低身整理好衣服，放软语气安抚小豆丁；小豆丁停住扭动。尾帧：乔熙抓起旁边书包，手机仍留在沙发上，二人准备出门。
+
+【约束】
+主体锁定乔熙和小豆丁；空间锁定客厅；手机留在沙发坐垫上；严禁字幕、水印、logo和可读文字。
+"""
+
+    report = _compiler_guard_report(
+        prompt,
+        "乔熙给小豆丁穿衣服。小豆丁说：I don't want to go to school!",
+        "",
+        "main_shots:\n- shot_id: F01-S01",
+    )
+
+    assert "伪镜头视角" not in report
+    assert "动作过载" not in report

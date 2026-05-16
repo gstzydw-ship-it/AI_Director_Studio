@@ -42,7 +42,7 @@ def test_scene_memory_card_keeps_spatial_facts_and_drops_appearance_noise():
 def test_prompt_compiler_uses_current_fragment_compressed_context(monkeypatch):
     captured: dict[str, object] = {}
 
-    def fake_call_llm_with_mcp(system_prompt, user_prompt, **kwargs):
+    def fake_call_llm(system_prompt, user_prompt, **kwargs):
         captured["system_prompt"] = system_prompt
         captured["user_prompt"] = user_prompt
         captured["images_base64"] = kwargs.get("images_base64")
@@ -67,7 +67,7 @@ def test_prompt_compiler_uses_current_fragment_compressed_context(monkeypatch):
         merged.update(update)
         return merged
 
-    monkeypatch.setattr(prompt_compiler_impl, "call_llm_with_mcp", fake_call_llm_with_mcp)
+    monkeypatch.setattr(prompt_compiler_impl, "call_llm", fake_call_llm)
     monkeypatch.setattr(prompt_compiler_impl, "_persist_update", fake_persist_update)
     _patch_fast_prompt_builder(monkeypatch)
 
@@ -89,8 +89,16 @@ def test_prompt_compiler_uses_current_fragment_compressed_context(monkeypatch):
             ),
             "story_planner": (
                 "- fragment_id: F01\n"
+                "  generation_unit_id: U01\n"
                 "  duration_target: \"8秒\"\n"
                 "  dramatic_unit: \"电梯收束\"\n"
+                "  event_atom: \"商北琛进入电梯。\"\n"
+                "  model_complexity_score: 1\n"
+                "  reference_needs:\n"
+                "    - identity_reference\n"
+                "  tail_state_required: \"商北琛位于电梯内。\"\n"
+                "  rhythm_operation_sheet_ref: F01\n"
+                "  shot_director_handoff: \"稳住电梯内站位。\"\n"
                 "  source_script_events:\n"
                 "    - \"CURRENT_EVENT_MARKER：商北琛进入电梯。\"\n"
                 "  cast:\n"
@@ -106,27 +114,39 @@ def test_prompt_compiler_uses_current_fragment_compressed_context(monkeypatch):
             ),
             "shot_director": (
                 "- fragment_id: F01\n"
-                "  fragment_intent: \"CURRENT_DIRECTOR_MARKER\"\n"
-                "  main_shots:\n"
+                "  schema_version: shot_director_coverage_v3\n"
+                "  fragment_task: \"CURRENT_DIRECTOR_MARKER\"\n"
+                "  rhythm: \"稳住电梯内站位\"\n"
+                "  coverage_plan:\n"
+                "    dramatic_task: \"确认商北琛已经进入电梯\"\n"
+                "  template_plan:\n"
+                "    shots:\n"
                 "    - shot_id: \"F01-S01\"\n"
+                "      duration: \"0-8秒\"\n"
+                "      coverage_role: tailframe_hold\n"
+                "      task: \"确认商北琛已经进入电梯\"\n"
                 "      subject: \"商北琛\"\n"
-                "      shot_size: \"半身中景\"\n"
-                "      camera_height: \"平视\"\n"
-                "      angle: \"正面\"\n"
-                "      movement: \"固定\"\n"
-                "      camera_basis: \"scene_fixed\"\n"
-                "      camera_scene_position: \"elevator_threshold_front\"\n"
-                "      camera_looks_toward: \"toward_elevator_interior\"\n"
-                "      subject_position: \"inside_elevator\"\n"
-                "      subject_facing: \"toward_elevator_door\"\n"
-                "      visible_landmarks: \"elevator_frame=foreground_edges\"\n"
-                "      coverage_role: \"tailframe_reset\"\n"
-                "      cut_reason: \"state_completed\"\n"
-                "      companion_visibility: \"none\"\n"
-                "      dialogue_coverage: none\n"
+                "      shot: \"正面半身中景\"\n"
+                "      action: \"商北琛站在电梯轿厢内，面朝门口保持站姿。\"\n"
+                "      dialogue: \"none\"\n"
+                "      must_carry: \"商北琛已在电梯内，电梯门框位于左右侧边缘。\"\n"
+                "      cut_reason: \"尾帧状态清楚\"\n"
+                "      cut_point: \"站位稳定、尾帧状态清楚后切。\"\n"
+                "      continuity: \"商北琛仍在电梯内，面朝门口，电梯内外轴线保持清楚。\"\n"
+                "      companion_visibility: none\n"
+                "      state_delta: \"商北琛进入电梯内并保持站姿。\"\n"
+                "      tailframe_role: tailframe_hold\n"
+                "      template_id: COV-SD20-W1-REACTION-HOLD\n"
+                "      template_level: W1\n"
+                "      model_complexity_score: 1\n"
+                "      reference_need: identity_reference\n"
+                "      tail_state: \"商北琛仍在电梯内，面朝门口。\"\n"
+                "  guard_result:\n"
+                "    status: pass\n"
                 "- fragment_id: F02\n"
-                "  fragment_intent: \"GLOBAL_DIRECTOR_SHOULD_NOT_REACH_COMPILER\"\n"
+                "  fragment_task: \"GLOBAL_DIRECTOR_SHOULD_NOT_REACH_COMPILER\"\n"
             ),
+            "rhythm_rewrite_director": "rhythm_operation_sheet:\n  fragment_id: F01\n",
         },
         "knowledge_metadata": {},
     }

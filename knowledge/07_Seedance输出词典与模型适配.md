@@ -8,7 +8,7 @@ agent_scope:
   - quality_inspector
 priority: hard
 status: active
-runtime_retrieval: true
+runtime_retrieval: false
 conflicts_with: []
 supersedes: []
 applies_to:
@@ -369,7 +369,7 @@ Seedance prompt 中只要嵌入台词，就必须在【约束】段明确写：
 
 要写成：
 - `商北琛中景，平视 3/4 角度，稳定后退跟拍，他迈步走进大堂……`
-- `商北琛中近景，严飞只在右前方边线形成轻虚侧前景，半侧身让出中轴说话，商北琛视线越过他……`
+- `商北琛中近景，严飞只在画面右侧边线形成轻虚侧前景，半侧身让出中轴说话，商北琛视线越过他……`
 
 ---
 

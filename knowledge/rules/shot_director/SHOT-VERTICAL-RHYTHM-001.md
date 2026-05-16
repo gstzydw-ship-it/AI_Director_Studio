@@ -3,24 +3,58 @@ rule_id: SHOT-VERTICAL-RHYTHM-001
 title: 竖屏景别节奏守则
 doc_type: rule_card
 rule_type: vertical_framing
+owner_agent: shot_director
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: vertical_framing_rhythm
 runtime_retrieval: true
+retrieval_key:
+- shot-vertical-rhythm-001
+- signals.vertical_framing
+- signals.action_coverage
+- events.collision
+- risks.vertical_closeup_overuse
+- risks.blood_avoidance
+- scene_types.action
+applies_when:
+- 9:16竖屏
+- 景别节奏
+- 特写限频
+avoid_when:
+- "non_9_16_output"
+- "very_short_single_beat_shot"
+failure_mode:
+- "vertical_closeup_overuse_or_same_scale_repetition"
+output_contract: "For 9:16 use half/body, medium, and relation shots as base; limit face close-up to one motivated beat."
+example_good: "半身中景承载叙事，炸点才切一次面部特写。"
+example_bad: "连续多个时间段都是同主体同角度面部特写。"
+signals:
+- vertical_framing
+- action_coverage
+scene_types:
+- action
+events:
+- collision
+risks:
+- vertical_closeup_overuse
+- blood_avoidance
+aspect_ratios:
+- '9:16'
+applies_to:
+- 9:16竖屏
+- 景别节奏
+- 特写限频
 source_files:
-  - D:/AI 导演系统工程文档规范.md
-  - knowledge/20_镜头库与机位库.md
-  - knowledge/02_焦段景深与景别画幅策略.md
+- D:/AI 导演系统工程文档规范.md
+- knowledge/20_镜头库与机位库.md
+- knowledge/02_焦段景深与景别画幅策略.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 9:16竖屏
-  - 景别节奏
-  - 特写限频
 ---
 
 # 竖屏景别节奏守则

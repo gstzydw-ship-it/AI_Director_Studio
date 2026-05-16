@@ -1,14 +1,12 @@
 """Quality inspector / QC router implementation extracted from legacy_impl.
 
-Owns rule-based QC, optional LLM depth inspection, and graph routing
-after quality control.
+Owns rule-based QC and graph routing after quality control.
 """
 from __future__ import annotations
 
 import re
 from typing import Any
 
-from .llm import call_llm, load_config
 from .types import (
     DirectorState,
     MAX_QC_RETRIES,
@@ -17,31 +15,26 @@ from .types import (
     _REVERSE_SHOT_INSIDE_SEGMENT_RE,
 )
 from .state_store import _agent_outputs, _persist_update
-from .helpers import _yaml_line_field
+from .helpers import (
+    _MAIN_SHOT_BLOCK_RE,
+    _fragment_id_for_segment_index,
+    _has_yaml_field,
+    _segment_block_by_fragment_id,
+    _yaml_line_field,
+)
+from .seedance_contracts import abstract_viewpoint_terms, has_no_text_hard_constraint, prompt_contract_issues, seedance_qc_issues
 
 
 # ---------------------------------------------------------------------------
 # Low-level report parsers / normalisers
 # ---------------------------------------------------------------------------
-def _agent_configured(agent_name: str) -> bool:
-    agent_cfg = (load_config().get("agent_models") or {}).get(agent_name) or {}
-    if not isinstance(agent_cfg, dict):
-        return False
-    return bool(agent_cfg.get("model") or agent_cfg.get("base_url"))
-
-
-def _segment_block(text: str, segment_index: int) -> str:
-    fragment_id = f"F{segment_index:02d}"
-    match = re.search(
-        rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-        rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
-        text,
-    )
-    return match.group(1).strip() if match else ""
+def _segment_block(text: str, segment_index: int, fragment_id: str | None = None) -> str:
+    selected_fragment_id = fragment_id or _fragment_id_for_segment_index([], segment_index)
+    return _segment_block_by_fragment_id(text, selected_fragment_id)
 
 
 def _timeline_blocks(prompt: str) -> list[tuple[float, float, str]]:
-    matches = list(re.finditer(r"(?m)^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)绉掞細", prompt or ""))
+    matches = list(re.finditer(r"(?m)^(\d+(?:\.\d+)?)-(\d+(?:\.\d+)?)秒[:：]", prompt or ""))
     blocks: list[tuple[float, float, str]] = []
     for index, match in enumerate(matches):
         body_start = match.end()
@@ -50,195 +43,371 @@ def _timeline_blocks(prompt: str) -> list[tuple[float, float, str]]:
     if blocks:
         return blocks
 
-    shot_matches = list(re.finditer(r"(?m)^闀滃ご\s*\d+\s*銆怽s*(\d+(?:\.\d+)?)\s*绉抃s*銆?", prompt or ""))
+    shot_matches = list(
+        re.finditer(
+            r"(?m)^镜头\s*\d+\s*【\s*(?:(\d+(?:\.\d+)?)\s*[-~—]\s*)?(\d+(?:\.\d+)?)\s*秒\s*】",
+            prompt or "",
+        )
+    )
     current = 0.0
     for index, match in enumerate(shot_matches):
-        duration = float(match.group(1))
+        if match.group(1) is not None:
+            start = float(match.group(1))
+            end = float(match.group(2))
+        else:
+            duration = float(match.group(2))
+            start = current
+            end = current + duration
         body_start = match.end()
         body_end = shot_matches[index + 1].start() if index + 1 < len(shot_matches) else len(prompt)
-        blocks.append((current, current + duration, prompt[body_start:body_end].strip()))
-        current += duration
+        blocks.append((start, end, prompt[body_start:body_end].strip()))
+        current = end
     return blocks
 
 
-def _quality_report_rating(report: str) -> str | None:
-    match = re.search(
-        r"(?:总体评级|overall\s*rating|rating)\s*[：:]\s*(pass|warn|fail)",
-        report or "",
-        re.IGNORECASE,
+def _prompt_uses_shot_sequence(prompt: str) -> bool:
+    return bool(
+        re.search(r"【画面基底】[\s\S]*【镜头序列】[\s\S]*【约束】", prompt or "")
+        and re.search(r"(?m)^镜头\s*\d+\s*【", prompt or "")
     )
-    return match.group(1).lower() if match else None
 
 
-def _quality_section_body(report: str, keyword: str) -> str:
-    match = re.search(
-        rf"【[^】]*{re.escape(keyword)}[^】]*】([\s\S]*?)(?=\n【|\Z)",
-        report or "",
+def _planner_has_reaction_handoff(planner_segment: str) -> bool:
+    return bool(
+        _has_yaml_field(planner_segment, "shot_director_handoff")
+        or _has_yaml_field(planner_segment, "tail_state_required")
+        or _has_yaml_field(planner_segment, "rhythm_operation_sheet_ref")
     )
-    return match.group(1).strip() if match else ""
 
 
-def _quality_bullets(section: str, *, warn: bool = False) -> list[str]:
-    empty_values = {"无", "none", "None", "NONE", "（无）", "(无)"}
-    issues: list[str] = []
-    for line in (section or "").splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("-"):
-            continue
-        body = stripped.lstrip("-").strip()
-        if not body or body in empty_values:
-            continue
-        if warn and not body.startswith("[warn]"):
-            body = f"[warn] {body}"
-        issues.append(f"- {body}")
+def _seedance_contract_is_explicit(text: str) -> bool:
+    return bool(
+        re.search(
+            r"(?im)^\s*(?:template_id|coverage_template_id|template_level)\s*[:=]|Seedance\s*2\.0|全能参考模式",
+            text or "",
+        )
+    )
+
+
+def _seedance_issue_to_qc_message(issue: str) -> str:
+    if "seedance_template_id_missing" in issue or "seedance_template_level_missing" in issue:
+        return "- [SEEDANCE-CONTRACT-GATE-001] COVERAGE_TEMPLATE_REQUIRED target=shot_director：Seedance 2.0 片段缺少 coverage template_id/template_level。"
+    if "seedance_template_x_forbidden" in issue:
+        return "- [SEEDANCE-COVERAGE-TEMPLATE-GATE-001] X_TEMPLATE_BLOCKED target=shot_director：命中 X 禁用 coverage 模板，不得进入生成。"
+    if "seedance_template_candidate" in issue:
+        return "- [SEEDANCE-COVERAGE-TEMPLATE-GATE-001] CANDIDATE_TEMPLATE_BLOCKED target=shot_director：coverage 模板仍是 candidate/untested，必须先测试或降级为 W1/W2。"
+    if "seedance_r1_reference_missing" in issue:
+        return "- [SEEDANCE-COVERAGE-TEMPLATE-GATE-001] R1_REFERENCE_REQUIRED target=shot_director：R1 模板缺少视频参考/关键帧/动作参考绑定，需要 video_reference/motion_reference/keyframe_sequence。"
+    if "seedance_complexity_score" in issue:
+        return "- [SEEDANCE-COMPLEXITY-GATE-001] SD20_COMPLEXITY_BUDGET target=story_planner：model_complexity_score 超过当前单段生产边界，必须拆分、降级或改用视频参考。"
+    if "seedance_actor_limit" in issue:
+        return "- [SEEDANCE-COMPLEXITY-GATE-001] SD20_MULTI_ACTOR_ACTION_BUDGET target=story_planner：三名以上主要角色动作必须静态化或拆分。"
+    if "seedance_tail_state_missing" in issue:
+        return "- [SEEDANCE-TAIL-STATE-GATE-001] TAILFRAME_STATE_REQUIRED target=shot_director：tail_state 必须明确且可继承。"
+    if "seedance_text_dependency" in issue:
+        return "- [SEEDANCE-NO-TEXT-DEPENDENCY-001] NO_SUBTITLE_SCREEN_TEXT target=prompt_compiler：不得依赖字幕/屏幕文字/文件文字传达剧情。"
+    return f"- [SEEDANCE-CONTRACT-GATE-001] {issue}"
+
+
+def _coverage_state_contract_text(state: DirectorState, fragment_id: str | None) -> str:
+    contracts = state.get("coverage_contracts_by_segment") or {}
+    if not isinstance(contracts, dict):
+        return ""
+    keys = [fragment_id, str(state.get("active_segment_index") or ""), str(state.get("current_segment_index") or "")]
+    contract = next((contracts.get(key) for key in keys if key in contracts), None)
+    if not isinstance(contract, dict):
+        return ""
+    return "\n".join(f"{key}: {value}" for key, value in contract.items())
+
+
+def _seedance_contract_qc_issues(
+    prompt: str,
+    planner_segment: str,
+    director_segment: str,
+    state: DirectorState | None = None,
+    fragment_id: str | None = None,
+) -> list[str]:
+    state_contract = _coverage_state_contract_text(state or {}, fragment_id)
+    combined = "\n".join([prompt or "", planner_segment or "", director_segment or "", state_contract])
+    if not _seedance_contract_is_explicit(combined):
+        return []
+    issues = [_seedance_issue_to_qc_message(issue) for issue in seedance_qc_issues(combined)]
+    if re.search(r"action_budget_used\s*:[\s\S]{0,80}over_budget\s*:\s*true", combined, re.IGNORECASE):
+        issues.append("- [SEEDANCE-COMPLEXITY-GATE-001] SD20_MULTI_ACTOR_ACTION_BUDGET target=shot_director：action_budget_used.over_budget=true，必须拆分或降级。")
+    if re.search(r"main_character_count\s*:\s*[3-9]", combined) and re.search(r"同时|各自|争抢|冲向|伸手", combined):
+        issues.append("- [SEEDANCE-COMPLEXITY-GATE-001] SD20_MULTI_ACTOR_ACTION_BUDGET target=story_planner：三名以上主要角色同时动作，必须静态化或拆分。")
+    if re.search(r"尾帧[:：].{0,40}(压迫感|张力|氛围|情绪|黑场|留白)|tail_state\s*:\s*(?:不清|未知|待定|压迫感|black)", combined, re.IGNORECASE):
+        issues.append("- [SEEDANCE-TAIL-STATE-GATE-001] TAILFRAME_STATE_REQUIRED target=shot_director：尾帧不能只写抽象情绪，必须写人物位置、视线、道具和门/空间状态。")
+    if re.search(r"尾帧[:：].{0,40}(压迫感|张力|氛围|情绪)", combined):
+        issues.append("- [PROMPT-VISIBLE-BODY-LANGUAGE-001] VISIBLE_EMOTION_ANCHOR_REQUIRED target=prompt_compiler：抽象情绪必须翻译为视线、肩背、下颌、手部、距离或道具状态。")
     return issues
 
 
-def _normalise_merged_quality_report(report: str) -> tuple[str, list[str]] | None:
-    rating = _quality_report_rating(report)
-    if not rating:
-        return None
-
-    severe_issues = _quality_bullets(_quality_section_body(report, "严重问题"), warn=False)
-    optional_issues = _quality_bullets(_quality_section_body(report, "次要提示"), warn=True)
-    if rating == "fail":
-        return rating, severe_issues + optional_issues
-    if rating == "warn":
-        return rating, optional_issues or [f"- [warn] {issue.lstrip('-').strip()}" for issue in severe_issues]
-    return rating, []
+_SHOT_DENSITY_LIFE_PRESSURE_RE = re.compile(
+    r"生活|赶时间|穿衣|上学|孩子|小豆丁|闹钟|电话|手机|草莓|安抚|哄|抗拒|乱蹬|缩手|踢开|书包|紧凑生活",
+    re.IGNORECASE,
+)
+_SHOT_DENSITY_HIGH_CUT_RE = re.compile(
+    r"追逐|打斗|抢夺|闯入|冲进|救援|爆炸|车祸|急救|信息揭示|照片|文件|真相|证据|屏幕|监控|"
+    r"亲子鉴定|高压对白|长对白|权力压迫|外部打断|宴会|群体|反转",
+    re.IGNORECASE,
+)
 
 
-def _normalise_llm_quality_issues(status: str, issues: list[str]) -> list[str]:
-    if status == "pass":
+def _shot_density_limit(context: str, total_seconds: float | None) -> int:
+    life_pressure = bool(_SHOT_DENSITY_LIFE_PRESSURE_RE.search(context or ""))
+    high_cut_need = bool(_SHOT_DENSITY_HIGH_CUT_RE.search(context or ""))
+    if total_seconds is None:
+        return 4 if life_pressure and not high_cut_need else 5
+    if total_seconds <= 6:
+        return 3
+    if total_seconds <= 12.5:
+        return 4 if life_pressure and not high_cut_need else 5
+    if total_seconds <= 15.5:
+        return 5
+    return 6
+
+
+def _format_seconds(value: float | None) -> str:
+    if value is None:
+        return "未知时长"
+    rounded = round(value, 1)
+    if rounded.is_integer():
+        return f"{int(rounded)}秒"
+    return f"{rounded:.1f}秒"
+
+
+def _prompt_shot_density_issues(
+    prompt: str,
+    planner_segment: str,
+    director_segment: str,
+    timeline_blocks: list[tuple[float, float, str]],
+) -> list[str]:
+    if not _prompt_uses_shot_sequence(prompt) or not timeline_blocks:
         return []
-    if status != "warn":
-        return issues
-    normalised: list[str] = []
-    for issue in issues:
-        body = issue.lstrip("-").strip()
-        if not body:
-            continue
-        if not body.startswith("[warn]"):
-            body = f"[warn] {body}"
-        normalised.append(f"- {body}")
-    return normalised
+    total_seconds = max((end for _start, end, _body in timeline_blocks), default=0.0)
+    total_seconds = total_seconds if total_seconds > 0 else None
+    context = "\n".join([prompt or "", planner_segment or "", director_segment or ""])
+    limit = _shot_density_limit(context, total_seconds)
+    shot_count = len(timeline_blocks)
+    issues: list[str] = []
+    if shot_count > limit:
+        issues.append(
+            f"- 镜头切分过碎：{_format_seconds(total_seconds)}安排{shot_count}个镜头，"
+            f"当前片段建议不超过{limit}个有效镜头；快节奏应靠人物动作紧张、停顿缩短和情绪压力，不靠碎切。"
+        )
+    short_blocks = [
+        (index, end - start)
+        for index, (start, end, _body) in enumerate(timeline_blocks, start=1)
+        if 0 < end - start < 1.0
+    ]
+    life_pressure = bool(_SHOT_DENSITY_LIFE_PRESSURE_RE.search(context))
+    high_cut_need = bool(_SHOT_DENSITY_HIGH_CUT_RE.search(context))
+    if short_blocks and (len(short_blocks) >= 2 or (life_pressure and not high_cut_need)):
+        short_text = "、".join(f"镜头{index}={seconds:.1f}秒" for index, seconds in short_blocks[:4])
+        issues.append(
+            f"- 1秒以下碎镜过多：{short_text}。生活动作/正常动作段不得把手、手机、脚、衣服等局部动作拆成碎插入；"
+            "请合并进关系镜头，或只保留真正的信息揭示/危险命中短镜。"
+        )
+    return issues
 
 
-# ---------------------------------------------------------------------------
-# Optional LLM depth inspection
-# ---------------------------------------------------------------------------
-def _run_llm_quality_inspector(
-    script: str,
+_SEEDANCE_STRICT_CONTEXT_RE = re.compile(
+    r"Seedance|seedance|全能参考|白名单|coverage_contract|coverage template|template_level|template_id|"
+    r"coverage_template_id|COV-SD20|model_complexity_score|compiled_prompt_metadata"
+)
+_SEEDANCE_TEXT_DEPENDENCY_RE = re.compile(
+    r"依赖(?:字幕|屏幕文字|文件文字|手机文字|可读文字)|"
+    r"(?:字幕|屏幕文字|英文字幕|文字浮层|文件文字|手机屏幕文字|可读标牌|可读文字).{0,18}"
+    r"(?:传递|说明|显示|展示|写着|读出|看清|揭示|证明|关键|证据)"
+)
+_SEEDANCE_VISIBLE_EMOTION_RE = re.compile(
+    r"压迫感|张力|炸点|钩子|气口|留白|情绪顶点|情绪拉满|崩溃|震惊|高级感|电影感|爽感"
+)
+_SEEDANCE_VISIBLE_ACTION_ANCHOR_RE = re.compile(
+    r"下颌|眼神|视线|呼吸|肩|手指|嘴唇|停顿|后退|前半步|转身|低头|抬眼|攥|松开|僵住|看向"
+)
+_SEEDANCE_COMPLEX_MULTI_ACTION_RE = re.compile(
+    r"(?:三人|3人|四人|4人|多人|人群).{0,24}(?:同时|一起|各自|分别|集体).{0,24}"
+    r"(?:动作|移动|冲|跑|抢|推|拉|打|摔|争抢|闯入|散开|围上|伸手)"
+)
+_SEEDANCE_R1_REFERENCE_RE = re.compile(
+    r"motion_reference|video_reference|keyframe(?:_sequence)?|关键帧|视频参考|动作参考|首尾帧|尾帧参考",
+    re.IGNORECASE,
+)
+_SEEDANCE_TAIL_FIELD_RE = re.compile(r"tail_state|tailframe|tail_frame|尾帧|尾帧状态|tail_state_card")
+_SEEDANCE_WEAK_TAIL_RE = re.compile(r"尾帧[：:][^\n]*(?:眼神|手部|黑场|空镜|情绪|氛围)[^\n]*(?:停住|收束|结束)?")
+
+
+def _state_lookup_by_segment(mapping: Any, segment_index: int, fragment_id: str) -> Any:
+    if not isinstance(mapping, dict):
+        return None
+    keys = (
+        fragment_id,
+        str(fragment_id),
+        f"F{segment_index:02d}",
+        f"F{segment_index}",
+        str(segment_index),
+        segment_index,
+    )
+    for key in keys:
+        if key in mapping:
+            return mapping[key]
+    return None
+
+
+def _flatten_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        return "\n".join(f"{key}: {_flatten_text(item)}" for key, item in value.items())
+    if isinstance(value, (list, tuple, set)):
+        return "\n".join(_flatten_text(item) for item in value)
+    return str(value)
+
+
+def _seedance_context_is_strict(state: DirectorState, prompt: str, planner_segment: str, director_segment: str) -> bool:
+    context = "\n".join(
+        [
+            prompt or "",
+            planner_segment or "",
+            director_segment or "",
+            _flatten_text(state.get("seedance_profile")),
+            _flatten_text(state.get("coverage_contracts_by_segment")),
+            _flatten_text(state.get("coverage_template_id_by_segment")),
+            _flatten_text(state.get("model_complexity_score_by_segment")),
+            _flatten_text(state.get("reference_bindings")),
+        ]
+    )
+    return bool(_SEEDANCE_STRICT_CONTEXT_RE.search(context))
+
+
+def _first_int_field(context: str, field_names: tuple[str, ...]) -> int | None:
+    for field_name in field_names:
+        match = re.search(rf"(?im)^\s*{re.escape(field_name)}\s*:\s*['\"]?(\d+)", context or "")
+        if match:
+            return int(match.group(1))
+    return None
+
+
+def _seedance_gate_issues(
+    state: DirectorState,
     prompt: str,
     planner_segment: str,
     director_segment: str,
     segment_index: int,
-    rule_based_issues: list[str],
-) -> tuple[str, list[str], str]:
-    """可选的 LLM 深度质检层：仅在配置了 quality_inspector_llm_a 时启用。
+    fragment_id: str,
+) -> list[str]:
+    strict_context = _seedance_context_is_strict(state, prompt, planner_segment, director_segment)
+    coverage_contract = _state_lookup_by_segment(state.get("coverage_contracts_by_segment"), segment_index, fragment_id)
+    generation_unit = None
+    for unit in state.get("generation_units") or []:
+        if isinstance(unit, dict) and unit.get("fragment_id") in {fragment_id, f"F{segment_index:02d}", f"F{segment_index}", str(segment_index)}:
+            generation_unit = unit
+            break
 
-    返回：(status, additional_issues, merged_report)
-    - status: 'pass' / 'warn' / 'fail'
-    - additional_issues: 新发现的问题（不含 rule_based_issues）
-    - merged_report: 最终合并后的可读报告
+    coverage_text = _flatten_text(coverage_contract)
+    generation_text = _flatten_text(generation_unit)
+    reference_text = _flatten_text(state.get("reference_bindings")) + "\n" + _flatten_text(state.get("asset_selection"))
+    context = "\n".join([prompt or "", planner_segment or "", director_segment or "", coverage_text, generation_text])
 
-    若未配置，返回 ('skip', [], '') 表示调用方继续用规则质检结果。
-    """
-    if not _agent_configured("quality_inspector_llm_a"):
-        return "skip", [], ""
+    template_id = _state_lookup_by_segment(state.get("coverage_template_id_by_segment"), segment_index, fragment_id)
+    if not template_id and isinstance(coverage_contract, dict):
+        template_id = coverage_contract.get("template_id") or coverage_contract.get("coverage_template_id")
+    if not template_id:
+        template_match = re.search(r"(?im)^\s*(?:template_id|coverage_template_id|compiled_from_template_id)\s*:\s*['\"]?([A-Za-z0-9_-]+)", context)
+        template_id = template_match.group(1) if template_match else ""
+    template_id_text = str(template_id or "")
 
-    reviewers = [
-        ("quality_inspector_llm_a", "创意与叙事合理性审视", "检查镜头是否有戏剧张力、人物动机是否成立、节奏是否合理。"),
-        ("quality_inspector_llm_b", "规则与逻辑漏洞审视", "检查 prompt 是否违反知识库规则、是否存在空间不连续、是否编造剧本外内容。"),
-        ("quality_inspector_llm_c", "视觉与连续性审视", "检查画面描述是否可执行、镜头语言是否连贯、受击落点是否具体。"),
-    ]
-
-    review_reports: list[tuple[str, str]] = []
-    for agent_key, role_brief, focus in reviewers:
-        if not _agent_configured(agent_key):
-            continue
-        system_prompt = (
-            f"你是一位专业的短剧质检导演（{role_brief}）。\n"
-            f"{focus}\n"
-            "输出严格遵循以下格式：\n"
-            "总体评级：pass|warn|fail\n"
-            "问题清单：\n"
-            "- 每一条问题必须以\"- \"开头\n"
-            "- 仅列出真实存在的问题，没问题就写\"- 无\"\n"
-            "不要输出任何其他文字。"
+    level = ""
+    if isinstance(coverage_contract, dict):
+        level = str(
+            coverage_contract.get("template_level") or coverage_contract.get("template_status") or ""
         )
-        user_prompt = (
-            f"【原始剧本（节选）】\n{script[:1200]}\n\n"
-            f"【第 {segment_index} 段故事规划】\n{planner_segment[:1200]}\n\n"
-            f"【第 {segment_index} 段分镜方案】\n{director_segment[:1200]}\n\n"
-            f"【第 {segment_index} 段最终 Prompt】\n{prompt}\n\n"
-            f"【规则质检已发现的问题】\n"
-            + ("\n".join(rule_based_issues) if rule_based_issues else "（无）")
-            + "\n\n请基于你的审视角度补充发现，不要重复上述规则质检已有的问题。"
+    if not level:
+        level_match = re.search(r"(?im)^\s*(?:template_level|template_status)\s*:\s*['\"]?([A-Za-z0-9_-]+)", context)
+        level = level_match.group(1) if level_match else ""
+    level = level.upper()
+
+    complexity = _state_lookup_by_segment(state.get("model_complexity_score_by_segment"), segment_index, fragment_id)
+    if complexity is None and isinstance(generation_unit, dict):
+        complexity = generation_unit.get("model_complexity_score")
+    if complexity is None:
+        complexity = _first_int_field(context, ("model_complexity_score",))
+    try:
+        complexity_score = int(complexity) if complexity is not None and str(complexity) != "" else None
+    except (TypeError, ValueError):
+        complexity_score = None
+
+    issues: list[str] = []
+    prefix = "- [SEEDANCE-QC]"
+
+    if template_id_text.upper().startswith("COV-SD20-X") or level == "X":
+        issues.append(
+            f"{prefix} target=shot_director rule=X_TEMPLATE_BLOCKED issue=命中 Seedance 2.0 禁用 coverage 模板。"
+            " repair_route=shot_director：将 X 手法拆成 W1/W2 小单元；每个单元保留一个核心可见事件、一个主动作和清楚尾帧，不得交给 prompt_compiler 直接生成。"
         )
-        try:
-            report = call_llm(system_prompt, user_prompt, agent_name=agent_key)
-        except Exception as exc:
-            print(f"  [quality_inspector] {agent_key} 调用失败：{exc}")
-            continue
-        if report and report.strip():
-            review_reports.append((role_brief, report.strip()))
 
-    if not review_reports:
-        return "skip", [], ""
+    if not template_id_text and strict_context:
+        issues.append(
+            f"{prefix} target=shot_director rule=COVERAGE_TEMPLATE_REQUIRED issue=缺少可生产白名单 template_id。"
+            " repair_route=shot_director：从 COV-SD20-W1/W2/R1 白名单选择 template_id，并补齐 duration_s、main_subject、action_budget、reference_need、tail_state、compiler_guard。"
+        )
+    elif re.search(r"candidate|untested|自由文本", template_id_text, re.IGNORECASE) or level in {"CANDIDATE", "UNTESTED"}:
+        issues.append(
+            f"{prefix} target=shot_director rule=COVERAGE_TEMPLATE_REQUIRED issue=template_id 仍是 candidate/untested，不能作为生产模板。"
+            " repair_route=shot_director：降级到已测试 W1/W2，或补测后再交给 prompt_compiler。"
+        )
 
-    # 解析每份报告的评级 + 问题条目
-    aggregated_issues: list[str] = []
-    any_fail = False
-    any_warn = False
-    for role_brief, report in review_reports:
-        m = re.search(r"总体评级[：:]\s*(pass|warn|fail)", report, re.IGNORECASE)
-        rating = (m.group(1) if m else "warn").lower()
-        if rating == "fail":
-            any_fail = True
-        elif rating == "warn":
-            any_warn = True
-        for line in report.splitlines():
-            line_stripped = line.strip()
-            if not line_stripped.startswith("-"):
-                continue
-            body = line_stripped.lstrip("-").strip()
-            if not body or body in {"无", "none", "None"}:
-                continue
-            aggregated_issues.append(f"- [{role_brief}] {body}")
+    if (level == "R1" or template_id_text.upper().startswith("COV-SD20-R1")) and not _SEEDANCE_R1_REFERENCE_RE.search(
+        context + "\n" + reference_text
+    ):
+        issues.append(
+            f"{prefix} target=shot_director rule=R1_REFERENCE_REQUIRED issue=R1 参考驱动模板缺少 video_reference/motion_reference/keyframe_sequence。"
+            " repair_route=shot_director：补充动作/视频/关键帧参考并绑定 target_id 与 scope，或降级为 W1/W2 小单元。"
+        )
 
-    # 若配置了 merger，再用 merger 做最终去重汇总
-    merged_report = ""
-    if _agent_configured("quality_inspector_merger") and review_reports:
-        try:
-            merger_system = (
-                "你是质检汇总导演。以下是三位独立质检师的审查报告。\n"
-                "任务：去重、按严重度分级，输出一份清晰的最终清单。\n"
-                "输出格式：\n"
-                "总体评级：pass|warn|fail\n"
-                "【严重问题（需返修）】\n- ...\n"
-                "【次要提示（可选优化）】\n- ...\n"
-                '没有的类目直接写"- 无"。不要输出其他解释。'
+    if complexity_score is not None and complexity_score >= 5:
+        issues.append(
+            f"{prefix} target=story_planner/shot_director rule=SD20_COMPLEXITY_BUDGET issue=model_complexity_score={complexity_score} 超出单段生成边界。"
+            " repair_route=story_planner/shot_director：拆成 2 个以上生成单元；每个单元只保留 1 个核心可见事件、1 个主动作链和 1 个尾帧状态。"
+        )
+
+    character_count = _first_int_field(context, ("main_character_count", "primary_actor_count", "visible_character_count"))
+    if (character_count is not None and character_count >= 3 and re.search(r"over_budget\s*:\s*true|各自|同时|一起", context, re.IGNORECASE)) or _SEEDANCE_COMPLEX_MULTI_ACTION_RE.search(context):
+        issues.append(
+            f"{prefix} target=story_planner/shot_director rule=SD20_MULTI_ACTOR_ACTION_BUDGET issue=3人以上同动或多人复杂动作超出可控预算。"
+            " repair_route=story_planner/shot_director：拆分为单一行动主体的小单元；其余角色只保留静态反应/画外反应，复杂动作改 R1 并补动作参考。"
+        )
+
+    if strict_context and not _SEEDANCE_TAIL_FIELD_RE.search(context):
+        issues.append(
+            f"{prefix} target=prompt_compiler rule=TAILFRAME_STATE_REQUIRED issue=缺少可继承 tail_state/tailframe。"
+            " repair_route=prompt_compiler：在最后 0.5-1.0 秒写清人物位置、朝向/视线、道具/门/车门状态和下一段承接点，不新增动作或新事件。"
+        )
+    elif _SEEDANCE_WEAK_TAIL_RE.search(context):
+        issues.append(
+            f"{prefix} target=prompt_compiler rule=TAILFRAME_STATE_REQUIRED issue=尾帧停在眼神/手部/黑场/抽象空镜，下一段不可继承。"
+            " repair_route=prompt_compiler：改为关系景或主体半身景尾帧，写清人物位置、视线、道具与门/车门状态。"
+        )
+
+    if _SEEDANCE_TEXT_DEPENDENCY_RE.search(context):
+        issues.append(
+            f"{prefix} target=prompt_compiler rule=NO_SUBTITLE_SCREEN_TEXT issue=prompt 依赖或诱发字幕/屏幕/文件可读文字传递剧情。"
+            " repair_route=prompt_compiler：集中写明禁止字幕、屏幕文字、英文字幕、文字浮层；把证据改为道具来源、递出动作、识别反应和停顿落点。"
+        )
+
+    for line in re.split(r"[\n。；;]", prompt or ""):
+        if _SEEDANCE_VISIBLE_EMOTION_RE.search(line) and not _SEEDANCE_VISIBLE_ACTION_ANCHOR_RE.search(line):
+            issues.append(
+                f"{prefix} target=prompt_compiler rule=VISIBLE_EMOTION_ANCHOR_REQUIRED issue=抽象情绪/精品感词未落到可见动作：{line.strip()[:80]}。"
+                " repair_route=prompt_compiler：保留戏剧含义，改为 1 个可见身体/表情锚点，如下颌收紧、眼神停住、手指松开、呼吸停顿或肩背僵住。"
             )
-            merger_user = (
-                f"【规则质检已列】\n{(chr(10).join(rule_based_issues)) or '（无）'}\n\n"
-                + "\n\n".join(f"【{role}】\n{rep}" for role, rep in review_reports)
-            )
-            merged_report = call_llm(merger_system, merger_user, agent_name="quality_inspector_merger").strip()
-            normalised_merged = _normalise_merged_quality_report(merged_report)
-            if normalised_merged:
-                return normalised_merged[0], normalised_merged[1], merged_report
-        except Exception as exc:
-            print(f"  [quality_inspector] merger 调用失败，使用原始汇总：{exc}")
+            break
 
-    if any_fail:
-        final_status = "fail"
-    elif any_warn or aggregated_issues:
-        final_status = "warn"
-    else:
-        final_status = "pass"
-
-    return final_status, _normalise_llm_quality_issues(final_status, aggregated_issues), merged_report
+    return issues
 
 
 # ---------------------------------------------------------------------------
@@ -248,19 +417,39 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     outputs = _agent_outputs(state)
     segment_index = int(state.get("active_segment_index") or state.get("current_segment_index") or 1)
     prompt = outputs.get(f"compiled_segment_{segment_index}", "")
-    planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index)
-    director_segment = _segment_block(outputs.get("shot_director", ""), segment_index)
+    current_fragment_id = _fragment_id_for_segment_index(state.get("segment_names") or [], segment_index)
+    planner_segment = _segment_block(outputs.get("story_planner", ""), segment_index, current_fragment_id)
+    director_segment = _segment_block(outputs.get("shot_director", ""), segment_index, current_fragment_id)
+    source_block = re.search(
+        r"source_script_events\s*:([\s\S]*?)(?=\n[a-z_]+\s*:|\Z)",
+        planner_segment,
+    )
+    segment_source = (source_block.group(1).strip() if source_block else planner_segment).strip()
     guard_report = state.get("system_guard_report") or ""
+    uses_shot_sequence = _prompt_uses_shot_sequence(prompt)
 
     qc_issues: list[str] = []
     if guard_report:
         qc_issues.extend([line for line in guard_report.splitlines() if line.strip()])
 
-    if planner_segment and not re.search(r"reaction_plan\s*:", planner_segment):
-        qc_issues.append("- story_planner 未说明当前片段的 reaction_plan。")
-    if planner_segment and re.search(r"source_script_events\s*:", planner_segment):
+    if "rhythm_operation_sheet_ref" not in planner_segment and "rhythm_operation_sheet" not in str(outputs.get("rhythm_rewrite_director", "")):
+        qc_issues.append("- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=story_planner rule=RHYTHM_OPERATION_SHEET_REQUIRED repair_route=rhythm: missing rhythm_operation_sheet handoff.")
+    if "shot_director_coverage_v3" not in director_segment:
+        qc_issues.append("- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=shot_director rule=COVERAGE_V3_REQUIRED repair_route=shot_director: missing shot_director_coverage_v3.")
+    if "tail_state" not in director_segment and "tail_state_required" not in planner_segment and "尾帧" not in prompt:
+        qc_issues.append("- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=prompt_compiler rule=TAILFRAME_CONTRACT_REQUIRED repair_route=storyboard_designer/prompt_compiler: missing inheritable tailframe.")
+    if not has_no_text_hard_constraint(prompt):
+        qc_issues.append("- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=prompt_compiler rule=NO_TEXT_HARD_CONSTRAINT repair_route=prompt_compiler: missing explicit no subtitle/screen text/watermark/logo constraint.")
+    for issue in prompt_contract_issues(prompt):
+        qc_issues.append(f"- [FINAL-SEEDANCE-PROMPT-CONTRACT] target=prompt_compiler rule={issue} repair_route=prompt_compiler.")
+    for term in abstract_viewpoint_terms("\n".join([prompt or "", director_segment or ""])):
+        qc_issues.append(f"- [SEEDANCE-ABSTRACT-VIEWPOINT-GATE] target=shot_director/prompt_compiler rule=ABSTRACT_VIEWPOINT issue={term} repair_route=shot_director.")
+
+    if planner_segment and not _planner_has_reaction_handoff(planner_segment):
+        qc_issues.append("- story_planner 未说明当前片段的承接/反应计划。")
+    if planner_segment and re.search(r"(?:source_script_events|施工剧本原文事件)\s*[:：]", planner_segment):
         source_block = re.search(
-            r"source_script_events\s*:([\s\S]*?)(?=\n[a-z_]+\s*:|\Z)",
+            r"(?:source_script_events|施工剧本原文事件)\s*[:：]([\s\S]*?)(?=\n\s*(?:[a-z_]+|出现人物|入场状态|出场状态|承接要求|镜头导演交接)\s*[:：]|\Z)",
             planner_segment,
         )
         source_items = re.findall(r"-\s*(.+)", source_block.group(1) if source_block else "")
@@ -269,52 +458,51 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                 "- story_planner 似乎把完整发言/动作单元压成单条笼统事件，需更清楚标出片段覆盖事件。"
             )
 
-    # === shot_director v1 schema hard validation ===
+    # === shot_director coverage_v3 schema validation ===
     if director_segment:
-        # v1 fragment 必填字段检查
-        if not re.search(r"fragment_task\s*:", director_segment):
-            qc_issues.append("- shot_director 缺少 fragment_task 字段（v1 片段任务描述）。")
-        if not re.search(r"rhythm\s*:", director_segment):
-            qc_issues.append("- shot_director 缺少 rhythm 字段（v1 节奏指令）。")
-        if re.search(r"schema_version\s*:", director_segment):
-            qc_issues.append("- shot_director 残留 v2 字段 schema_version，必须使用 v1 字段。")
-        if re.search(r"fragment_intent\s*:", director_segment):
-            qc_issues.append("- shot_director 残留 v2 字段 fragment_intent，必须使用 v1 字段。")
-        if re.search(r"reaction_coverage\s*:", director_segment):
-            qc_issues.append("- shot_director 残留 v2 字段 reaction_coverage，必须使用 v1 字段。")
-        if re.search(r"continuity_anchor\s*:", director_segment):
-            qc_issues.append("- shot_director 残留 v2 字段 continuity_anchor，必须使用 v1 字段。")
-        if not re.search(r"shots\s*:", director_segment):
-            qc_issues.append("- shot_director 未给出当前片段的 shots。")
-        # v1 shot 必填字段检查
-        if re.search(r"shots\s*:", director_segment):
-            shot_blocks = re.findall(
-                r"(?ms)^\s*-\s*shot_id\s*:\s*[\"']?([^\"'\n#]+?)[\"']?\s*$([\s\S]*?)(?=^\s*-\s*shot_id\s*:|^\s*[a-z_]+\s*:|\Z)",
-                director_segment,
-            )
+        if re.search(r"(?m)^\s*schema_version\s*:\s*shot_director_local_fallback_v1\s*$", director_segment):
+            qc_issues.append("- shot_director 输出来自旧本地兜底，必须重跑镜头导演并确保大模型连接成功。")
+        if "shot_director_coverage_v3" not in director_segment:
+            qc_issues.append("- shot_director 必须输出 schema_version: shot_director_coverage_v3；旧 v1/v2 镜头表不得进入 prompt_compiler。")
+        for field in ("coverage_plan", "template_plan", "guard_result"):
+            if not _has_yaml_field(director_segment, field):
+                qc_issues.append(f"- shot_director_coverage_v3 缺少 {field}。")
+        if not re.search(r"(?m)^\s*shots\s*:", director_segment):
+            qc_issues.append("- shot_director_coverage_v3.template_plan 缺少 shots 列表。")
+        if re.search(r"(?m)^\s*shots\s*:", director_segment):
+            shot_blocks = _MAIN_SHOT_BLOCK_RE.findall(director_segment)
+            if not shot_blocks:
+                qc_issues.append("- shot_director_coverage_v3.template_plan.shots 中没有合法 shot_id。")
             for shot_id_raw, shot_body in shot_blocks:
                 shot_id = shot_id_raw.strip()
                 for field in (
                     "duration",
                     "task",
                     "subject",
-                    "camera",
-                    "size",
                     "action",
                     "dialogue",
                     "must_carry",
+                    "cut_reason",
                     "cut_point",
                     "continuity",
+                    "tailframe_role",
+                    "template_id",
+                    "template_level",
+                    "model_complexity_score",
+                    "reference_need",
+                    "tail_state",
                 ):
-                    if not re.search(rf"(?m)^\s*-?\s*{re.escape(field)}\s*:", shot_body):
-                        qc_issues.append(f"- {shot_id} 缺少 v1 字段 {field}。")
+                    if not _has_yaml_field(shot_body, field):
+                        qc_issues.append(f"- {shot_id} 缺少字段 {field}。")
+                if not _has_yaml_field(shot_body, "shot"):
+                    qc_issues.append(f"- {shot_id} 缺少镜头字段。")
 
                 duration = _yaml_line_field(shot_body, "duration")
                 if duration:
-                    if not re.search(r"(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*秒", duration):
+                    if not re.search(r"(?:\d+(?:\.\d+)?\s*(?:-|~|–|—)\s*)?\d+(?:\.\d+)?\s*(?:秒|s)", duration):
                         qc_issues.append(
                             f"- {shot_id} 的 duration 格式非法（{duration}）；"
-                            "应为连续时间段格式，例如 0-2秒、2-5秒。"
+                            "应为时长或连续时间段格式，例如 2秒、0-2秒、2-5秒。"
                         )
 
                 cut_point = _yaml_line_field(shot_body, "cut_point")
@@ -323,113 +511,99 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
                         f"- {shot_id} 的 cut_point 过于简短；"
                         "必须绑定动作顶点、台词断点、信息看清、反应出现或尾帧状态。"
                     )
-        # v2 字段残留检查
-        for v2_field in ("coverage_role", "cut_reason", "companion_visibility", "tailframe_role",
-                         "dialogue_coverage", "transition_type", "tail_state_card",
-                         "shot_size", "camera_height", "angle", "movement", "lens", "depth"):
-            if re.search(rf"(?m)^\s*-?\s*{re.escape(v2_field)}\s*:", director_segment):
-                qc_issues.append(f"- shot_director 残留 v2 字段 {v2_field}，必须使用 v1 字段。")
-        # main_shots 旧结构禁用
-        if re.search(r"(?m)^\s*main_shots\s*:", director_segment):
-            qc_issues.append("- shot_director 仍在使用已禁用的 main_shots 旧结构，必须改为 shots。")
 
-    has_legacy_structure = re.search(
-        r"【风格锚点】[\s\S]*【画幅锚点】[\s\S]*"
-        r"(?:【空间与首帧总控】|【连续性状态契约】)[\s\S]*"
-        r"【时间轴】[\s\S]*(?:【约束】|【全段硬约束】)",
-        prompt,
-    )
     has_shot_sequence_structure = re.search(
         r"【风格锚点】[\s\S]*【画幅锚点】[\s\S]*"
         r"(?:【空间与首帧总控】|【连续性状态契约】)[\s\S]*"
         r"【人物】[\s\S]*【镜头序列】[\s\S]*(?:【约束】|【全段硬约束】)",
         prompt,
     )
-    if not (has_shot_sequence_structure or has_legacy_structure):
+    has_compact_seedance_structure = re.search(
+        r"【画面基底】[\s\S]*【镜头序列】[\s\S]*【约束】",
+        prompt,
+    )
+    if not (has_compact_seedance_structure or has_shot_sequence_structure):
         qc_issues.append(
-            "- prompt 缺少规定结构，应包含【风格锚点】【画幅锚点】【空间与首帧总控】【人物】【镜头序列】【约束】。"
+            "- prompt 缺少规定结构，应包含【画面基底】【镜头序列】【约束】，或【风格锚点】【画幅锚点】【人物】【镜头序列】【约束】。"
         )
-    if planner_segment and re.search(r"reaction_plan\s*:\s*.*片段内", planner_segment) and not re.search(
+    if planner_segment and re.search(r"(shot_director_handoff|tail_state_required)\s*:\s*.*(?:反应|受击|停住|僵住|承接)", planner_segment) and not re.search(
         r"受击|反应|表情|眼神|嘴唇|下颌|呼吸|停顿", prompt
     ):
         qc_issues.append("- 当前片段规划要求片段内承受到击/反应，但 prompt 未写出可见落点。")
 
+    qc_issues.extend(_seedance_contract_qc_issues(prompt, planner_segment, director_segment, state, current_fragment_id))
+
     if "同一机位继续" in prompt:
         qc_issues.append(
-            '- [PROMPT-NO-SAME-CAMERA-ABUSE-001] prompt 仍使用"同一机位继续"：应改成"镜头保持在A身上"、"固定机位保持在某空间锚点"、"镜头切至B"或"镜头切近至/拉开至A"。'
+            '- [PROMPT-NO-SAME-CAMERA-ABUSE-001] prompt 仍使用"同一机位继续"：应改成"镜头保持在A身上"、"固定视角保持在某空间锚点"、"镜头切至B"或"镜头切近至/拉开至A"。'
         )
 
     if re.search(r"压迫感|张力|炸点|钩子|气口|留白|情绪顶点|受压反应|空气收紧|前慢后碎|稳慢压", prompt):
         qc_issues.append(
             "- [PROMPT-VISIBLE-BODY-LANGUAGE-001] prompt 仍残留抽象导演词：必须翻译成停顿时长、视线方向、肩膀收紧、下颌收紧、嘴唇停住、身体距离或门/道具状态等可见画面。"
         )
+    if re.search(r"站在(?:门框|窗框|框架)里|(?:门框|窗框).{0,8}(?:形成|构成).{0,8}(?:前景|压线|框景)|前景压线|框住人物|被(?:门框|窗框|框架)框住|框景压迫", prompt):
+        qc_issues.append(
+            "- [PROMPT-SHOT-EXPRESSION-CORE-001] prompt 仍残留不稳定构图表达：门、窗、桌等只能作为空间边界或阻隔物，"
+            "不要写成框住人物的构图术语；改成门口/门边站位、双人关系景和具体人物动作。"
+        )
 
     timeline_blocks = _timeline_blocks(prompt)
-    for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(timeline_blocks[1:], start=2):
-        prefix = blk_body[:120]
-        if not re.search(r"镜头保持在|固定机位保持|镜头切至|镜头切到|镜头切近至|镜头拉开至|切至|切到|切近至|拉开至", prefix):
-            qc_issues.append(
-                f"- [PROMPT-SHOT-TRANSITION-VERB-001] 时间轴第 {block_idx} 个时间段缺少精确衔接词：必须明确写同主体保持、固定机位保持、主体切镜或同主体景别变化。"
-            )
-            break
+    qc_issues.extend(_prompt_shot_density_issues(prompt, planner_segment, director_segment, timeline_blocks))
+    qc_issues.extend(
+        _seedance_gate_issues(state, prompt, planner_segment, director_segment, segment_index, current_fragment_id)
+    )
+    if not uses_shot_sequence:
+        for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(timeline_blocks[1:], start=2):
+            prefix = blk_body[:120]
+            if not re.search(r"镜头保持在|固定视角保持|镜头切至|镜头切到|镜头切近至|镜头拉开至|切至|切到|切近至|拉开至", prefix):
+                qc_issues.append(
+                    f"- [PROMPT-SHOT-TRANSITION-VERB-001] 时间轴第 {block_idx} 个时间段缺少精确衔接词：必须明确写同主体保持、固定视角保持、主体切镜或同主体景别变化。"
+                )
+                break
+    elif "切镜时机" not in prompt:
+        qc_issues.append("- 镜头序列缺少切镜时机：非末尾镜头应写明动作顶点、台词断点、信息看清或反应出现后的切镜触发。")
 
-    # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段反打硬失败 — 检查编译后 prompt ===
+    # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段反打提示（降级为 warn） — 检查编译后 prompt ===
     if _REVERSE_SHOT_INSIDE_SEGMENT_RE.search(prompt):
         qc_issues.append(
-            '- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 出现"反打至"：'
-            "Seedance 是单镜头连续生成模型，单次生成内无法完成跨轴反打，会让人物左右颠倒、背景翻面。"
-            "需要反打的两镜必须拆成相邻两个 segment，并通过转身/越轴中性镜头/场景固定机位过渡。"
+            '- [warn] [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 出现"反打"：'
+            "反打可以在同一片段内通过切镜实现，但需确保每个时间段保持同侧轴线，避免人物左右颠倒。"
+            
         )
 
     # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单时间段轴线锁 — 检查编译后 prompt ===
     compiled_timeline_blocks = _timeline_blocks(prompt)
     for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(compiled_timeline_blocks, start=1):
+        if re.search(
+            r"(?:摄影机|机位|镜头)?(?:位于|在)?"
+            r"(?:商北琛|乔熙|严飞|苏小可|小豆丁|人物|主体|他|她|两人).{0,8}"
+            r"(?:左前方|右前方|左后方|右后方)",
+            blk_body,
+        ):
+            qc_issues.append(
+                f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 的时间轴第 {block_idx} 个时间段"
+                "使用了人物相对左右机位。人物正面、背面或转身后左/右会反，模型无法稳定理解；"
+                "必须改成同侧轴线内的简洁机位。"
+            )
+            break
         if _AXIS_LEFT_RE.search(blk_body) and _AXIS_RIGHT_RE.search(blk_body):
             qc_issues.append(
                 f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 的时间轴第 {block_idx} 个时间段"
                 '同时出现"左前方"和"右前方"机位（跨 180° 轴线）。'
                 "Seedance 单次生成无法跨轴反打，会让人物左右颠倒、背景翻面。"
-                '单段 prompt 只能选一个轴线侧（全部"右前方"或全部"左前方"），拆轴必须拆 segment。'
+                "单段 prompt 必须保持同侧轴线，拆轴必须拆 segment。"
             )
             break
 
     fail_issues = [i for i in qc_issues if not i.strip().startswith("- [warn]")]
     qc_status = "fail" if fail_issues else ("warn" if qc_issues else "pass")
 
-    # 可选：LLM 深度质检（三票会审 + 合并）——配置了 quality_inspector_llm_a 才触发
-    llm_status = "skip"
-    llm_issues: list[str] = []
-    llm_merged = ""
-    try:
-        llm_status, llm_issues, llm_merged = _run_llm_quality_inspector(
-            script=state.get("script", ""),
-            prompt=prompt,
-            planner_segment=planner_segment,
-            director_segment=director_segment,
-            segment_index=segment_index,
-            rule_based_issues=qc_issues,
-        )
-    except Exception as exc:
-        print(f"  [quality_inspector] LLM 深度质检整体异常，使用规则质检：{exc}")
-        llm_status = "skip"
-
-    if llm_status != "skip":
-        # LLM 报告允许把 pass 升级为 warn，把 warn 升级为 fail（不允许降级）
-        severity_rank = {"pass": 0, "warn": 1, "fail": 2}
-        if severity_rank[llm_status] > severity_rank[qc_status]:
-            qc_status = llm_status
-        if llm_issues:
-            qc_issues.extend(_normalise_llm_quality_issues(llm_status, llm_issues))
-        fail_issues = [i for i in qc_issues if not i.strip().startswith("- [warn]")]
-        qc_status = "fail" if fail_issues else ("warn" if qc_issues else "pass")
-
     report_sections = [
         f"总体评级：{qc_status}",
         "【知识驱动质检】",
         ("\n".join(qc_issues) if qc_issues else "无"),
     ]
-    if llm_merged:
-        report_sections.append("\n【LLM 深度质检汇总】\n" + llm_merged)
     output = "\n".join(report_sections)
 
     outputs[f"quality_inspector_segment_{segment_index}"] = output

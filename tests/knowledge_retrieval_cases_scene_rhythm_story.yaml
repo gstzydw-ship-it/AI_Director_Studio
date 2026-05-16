@@ -1,0 +1,230 @@
+cases:
+  - id: scene_input_card_unresolved_layers
+    agent: scene_analyst
+    query: "新剧本进入 scene_analyst 时，不要直接给景别、机位或运镜；先固定任务层、戏剧层、动作层、运镜层、空间层、状态层、光线与风格层、参考资产层和约束层，缺失字段写 null/unknown 并放入 unresolved。"
+    top_k: 10
+    must_match_rules:
+      - SCENE-INPUT-CARD-001
+    must_match_sources:
+      - 11_场景分析输入卡与导演意图提取.md
+
+  - id: scene_ref_image_binding_roles
+    agent: scene_analyst
+    query: "收到主角图、反派图、空间关系图和上一段尾帧图时，每张参考图都要绑定 image_id、role、target_id、first_appearance_segment 和 scope，不能只写用于参考，也不能把 prev_tailframe 跨片段滥用。"
+    top_k: 10
+    must_match_rules:
+      - SCENE-REF-IMAGE-BINDING-001
+    must_match_sources:
+      - 11_场景分析输入卡与导演意图提取.md
+
+  - id: scene_consistency_lock_state_contract
+    agent: scene_analyst
+    query: "场景输入卡需要初始化 state_contract，锁定 wardrobe、props、lighting、time_of_day、axis、gaze_network 六组 scene_lock 字段；无依据的服装道具要标 inferred=true，不能让下游自行改锁。"
+    top_k: 10
+    must_match_rules:
+      - SCENE-CONSISTENCY-LOCK-001
+    must_match_sources:
+      - 06_连续性与安全规则.md
+
+  - id: scene_missing_reference_fallback_identity
+    agent: scene_analyst
+    query: "某个角色没有参考图时，不能让 prompt_compiler 自由脑补身份；需要 no_reference_image、identity_description 六项身份锚点、first_frame_lock、allowed_style、extra_constraints 和 need_supplement 补图清单。"
+    top_k: 10
+    must_match_rules:
+      - SCENE-REF-MISSING-FALLBACK-001
+    must_match_sources:
+      - 11_场景分析输入卡与导演意图提取.md
+
+  - id: scene_new_space_overview_before_shots
+    agent: scene_analyst
+    query: "一个全新场景没有参考图、空间关系或人物站位时，scene_analyst 先建立场面总控：空间、人物位置、关系、光线和关键道具，再交给后续分镜，不要直接进入镜头设计。"
+    top_k: 10
+    must_match_rules:
+      - CONT-SCENE-001
+      - SCENE-INPUT-CARD-001
+    must_match_sources:
+      - 06_连续性与安全规则.md
+      - 11_场景分析输入卡与导演意图提取.md
+
+  - id: scene_required_prop_gap_handoff
+    agent: scene_analyst
+    query: "剧本写乔熙拍停闹钟、拿起书包和看照片，但场景参考图里没有这些关键道具；scene_analyst 要识别关键道具缺口，说明剧本锚点、参考图状态、可补位置和交接要求，不能让下游猜闹钟在哪里。"
+    top_k: 10
+    must_match_rules:
+      - SCENE-REQUIRED-PROP-GAP-002
+    must_match_sources:
+      - 11_场景分析输入卡与导演意图提取.md
+
+  - id: scene_tailframe_reference_scope
+    agent: scene_analyst
+    query: "上一段尾帧作为 prev_tailframe 参考图，只能绑定到紧邻下一段的 shot_id 或 segment_id，并声明 segment scope；它服务首帧继承和状态锁，不允许被当成全局风格图或拿去改写画面内容。"
+    top_k: 10
+    must_match_rules:
+      - SCENE-REF-IMAGE-BINDING-001
+      - SCENE-CONSISTENCY-LOCK-001
+    must_match_sources:
+      - 11_场景分析输入卡与导演意图提取.md
+      - 06_连续性与安全规则.md
+
+  - id: rhythm_conflict_speed_curve_diagnosis
+    agent: rhythm_rewrite_director
+    query: "原剧本只是写气氛紧张和手忙脚乱，节奏总控要先诊断主角目标、阻力、失败代价、时间压力和弱冲突，再给起速点、加速动作、刹车点、再启动点、爆点和钩子落点，不能只说节奏偏平。"
+    top_k: 10
+    must_match_rules:
+      - RHYTHM-CONFLICT-SPEED-CURVE-001
+    must_match_sources:
+      - 09_节奏总控与剧本改写规则.md
+
+  - id: rhythm_cutting_tempo_handoff_tasks
+    agent: rhythm_rewrite_director
+    query: "这里有高密度快切和慢停混合，rhythm_rewrite_director 不能只写快一点慢一点；要输出 segment_duration_policy、story_planner_tasks、shot_director_tasks、quality_check_tasks，写清 4-10 秒短段理由、保留事件、省略事件、切点、反应归属和尾帧状态。"
+    top_k: 12
+    must_match_rules:
+      - RHYTHM-CUTTING-TEMPO-HANDOFF-002
+    must_match_sources:
+      - 15_故事节奏控制规则.md
+
+  - id: rhythm_shot_density_matrix_boundaries
+    agent: rhythm_rewrite_director
+    query: "用户要求节奏紧凑，但不能简单堆切镜；需要给每 5 秒镜头数、目标 ASL、单镜时长范围、允许极短插入和动作密度边界，说明紧凑生活动作和高压动作峰值的差异。"
+    top_k: 12
+    must_match_rules:
+      - RHYTHM-SHOT-DENSITY-MATRIX-003
+      - RHYTHM-ASL-002
+    must_match_sources:
+      - 15_故事节奏控制规则.md
+
+  - id: rhythm_signal_rewrite_atmosphere_strategy
+    agent: rhythm_rewrite_director
+    query: "权力反转和悬念揭晓需要改写 atmosphere_strategy：写谁停住、谁失控、揭示前半拍、可见受击反应和 cliffhanger 阻断；不要新增人物事件道具，不要把它写成特写仰拍或 Crash Zoom 镜头清单。"
+    top_k: 12
+    must_match_rules:
+      - RHYTHM-SIGNAL-REWRITE-001
+      - EMOTION-ANCHOR-001
+    must_match_sources:
+      - 24_戏剧微粒识别与节奏触发规则.md
+
+  - id: rhythm_hook_open_three_seconds
+    agent: rhythm_rewrite_director
+    query: "这一段开头承担高权重钩子，前三秒内必须释放关系压力、动作启动、危险源或明显情绪信号，不能把真正的 hook 拖到第 4 秒以后再出现。"
+    top_k: 10
+    must_match_rules:
+      - RHYTHM-HOOK-OPEN-3S-001
+    must_match_sources:
+      - 24_戏剧微粒识别与节奏触发规则.md
+      - 15_故事节奏控制规则.md
+
+  - id: rhythm_reaction_minimum_stillness
+    agent: rhythm_rewrite_director
+    query: "真相揭示后人物被击中，需要反应镜头至少 1.5 秒到 2.5 秒回味；停顿段通常不动，只拍呼吸、视线、姿态或手部状态变化，不要马上解释完或用运镜抢情绪。"
+    top_k: 10
+    must_match_rules:
+      - RHYTHM-REACTION-MIN-001
+      - RHYTHM-WEIGHT-003
+      - MOTION-RHYTHM-003
+    must_match_sources:
+      - 15_故事节奏控制规则.md
+
+  - id: rhythm_prop_foreshadow_info_frontload
+    agent: rhythm_rewrite_director
+    query: "照片、钥匙或药瓶后续会触发反转，应该在角色发现前用约 1 秒的关键道具预埋或信息前置，让观众先知道目标物，但不能打断对白主线。"
+    top_k: 10
+    must_match_rules:
+      - TEXT-PROP-001
+      - RHYTHM-INFO-001
+    must_match_sources:
+      - 09_节奏总控与剧本改写规则.md
+      - 15_故事节奏控制规则.md
+
+  - id: rhythm_daily_compression_not_full_process
+    agent: rhythm_rewrite_director
+    query: "日常琐事需要完整感但不能占太久，比如收拾、穿戴、找东西；用全景起、三四个特写承、全景合压缩过程，保留节奏，不把每个生活小动作都拍满。"
+    top_k: 10
+    must_match_rules:
+      - TEXT-DAILY-001
+      - RHYTHM-ASL-001
+    must_match_sources:
+      - 09_节奏总控与剧本改写规则.md
+      - 15_故事节奏控制规则.md
+
+  - id: story_signal_boundary_before_seconds
+    agent: story_planner
+    query: "拆片前先判断主戏剧微粒和 Hook 权重，再围绕命中点、受击点、黄金停顿或 cliffhanger 阻断点决定边界；不能先按秒数平均切开再套 rhythm_function。"
+    top_k: 12
+    must_match_rules:
+      - RHYTHM-SIGNAL-TAXONOMY-001
+      - SEGMENT-SIGNAL-BOUNDARY-001
+    must_match_sources:
+      - 24_戏剧微粒识别与节奏触发规则.md
+
+  - id: story_action_density_coverage_buckets
+    agent: story_planner
+    query: "动作很多但 15 秒承载不了时，story_planner 要把动作分成必拍动作、可压缩动作、可省略动作，给动作密度和每五秒镜头数建议，而不是把伸手、转身、低头、整理衣角全部列成必须拍。"
+    top_k: 12
+    must_match_rules:
+      - TIME-ACTION-DENSITY-COVERAGE-004
+    must_match_sources:
+      - 05_剧本拆分与15秒片段规划规则.md
+
+  - id: story_segment_multishot_single_timeline
+    agent: story_planner
+    query: "15 秒导演片段不是单分镜，可以包含主分镜、子分镜和反应镜头，但最终要用单层时间轴顺序排列 0-3 秒、3-5 秒、5-8 秒，不能写外层动作单元嵌套内层子时间轴。"
+    top_k: 12
+    must_match_rules:
+      - TIME-SEGMENT-MULTISHOT-001
+      - SEG-LAYER-001
+      - SEG-ACTION-004
+    must_match_sources:
+      - 05_剧本拆分与15秒片段规划规则.md
+
+  - id: story_threshold_segment_subtract
+    agent: story_planner
+    query: "电梯口或房门口片段同时有到达、门状态变化、新人物冲入和尾帧续接时，要主动做减法，只保留核心动作、门尚未合拢、人物进入、门继续合拢，省掉无戏份人物和多余问候。"
+    top_k: 10
+    must_match_rules:
+      - TIME-THRESHOLD-003
+    must_match_sources:
+      - 05_剧本拆分与15秒片段规划规则.md
+
+  - id: story_utterance_not_equal_split
+    agent: story_planner
+    query: "对白、命令或信息揭示靠近片段边界时，片段不是按秒数或字数均分；完整发言单元不能在句中截断，除非长句有自然语义分层。"
+    top_k: 10
+    must_match_rules:
+      - SEG-NOT-EQUAL-002
+      - SEG-UTTERANCE-003
+    must_match_sources:
+      - 05_剧本拆分与15秒片段规划规则.md
+
+  - id: story_exit_jump_time_compression
+    agent: story_planner
+    query: "角色从 A 点走到 B 点，中间位移没有叙事价值；上一镜出画、下一镜入画并保持方向一致，或只保留动作起点和终点帧，用 jump cut 压缩重复物理过程。"
+    top_k: 10
+    must_match_rules:
+      - TIME-EXIT-001
+      - TIME-JUMP-002
+    must_match_sources:
+      - 05_剧本拆分与15秒片段规划规则.md
+
+  - id: story_tailframe_workflow_no_resplit
+    agent: story_planner
+    query: "逐段生成流程里，上一段尾帧或视频末帧只服务下一段首帧继承和连续性续接，要覆盖人物位置、动作状态、道具、光线、视线和镜头方向；不能反向重算已锁定拆片骨架、主分镜边界或完整发言单元。"
+    top_k: 12
+    must_match_rules:
+      - WORKFLOW-SEGMENT-001
+      - WORKFLOW-TAILFRAME-002
+      - SEG-TAILFRAME-005
+    must_match_sources:
+      - 18_情绪锚点与逐段交互与仰拍限制补丁.md
+      - 05_剧本拆分与15秒片段规划规则.md
+
+  - id: story_cut_hierarchy_trigger
+    agent: story_planner
+    query: "判断是否升级为新的主分镜时，只能因为叙事关系、动作段、事件功能变化、信息落点、关系变化或空间任务变化；单纯换景别、换角度、短反应镜头或为了丰富镜头不应切主分镜。"
+    top_k: 10
+    must_match_rules:
+      - CUT-HIERARCHY-001
+      - CUT-TRIGGER-003
+    must_match_sources:
+      - 03_镜头切换与推进规则.md
+      - 05_剧本拆分与15秒片段规划规则.md

@@ -3,23 +3,76 @@ rule_id: BLOCKING-SUBSHOT-TRIGGER-007
 title: 子镜头必须由信息增量触发
 doc_type: rule_card
 rule_type: subshot_trigger_strategy
+owner_agent: shot_director_blocking
 agent_scope:
-  - shot_director_blocking
-  - shot_director_guard
-  - quality_inspector
-priority: hard
+- shot_director_blocking
+- shot_director_guard
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: blocking
 runtime_retrieval: true
+retrieval_key:
+- blocking-subshot-trigger-007
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.door_state
+- events.reaction
+- events.cut
+- risks.door_state_jump
+- risks.privacy_body
+- risks.blood_avoidance
+- dialogue_types.reaction_beat
+- scene_types.elevator
+- scene_types.dialogue
+- scene_types.action
+- scene_types.suspense
+- scene_types.intimacy_privacy
+applies_when:
+- sub_shots
+- reaction_coverage
+- action_insert_slot
+avoid_when:
+- "当前没有信息增量、动作桥接、受击反应或声音落点"
+- "主镜头已经完整覆盖信息、动作和反应，额外插入会破坏节奏"
+failure_mode:
+- "随机添加无信息子镜头，或过度保守导致关键信息没有可见落点。"
+output_contract: "sub_shots 只能由明确信息增量触发，并含 parent_shot_id、trigger、cut_point、action_phase、duration_hint、state_delta。"
+example_good: "S03-a parent_shot_id=S03，trigger=手机震动暴露信息，duration_hint=0.8s。"
+example_bad: "S03-a 眼神特写，trigger=更有电影感，duration_hint=3s。"
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- dialogue
+- action
+- suspense
+- intimacy_privacy
+events:
+- collision
+- door_state
+- reaction
+- cut
+risks:
+- door_state_jump
+- privacy_body
+- blood_avoidance
+dialogue_types:
+- reaction_beat
+applies_to:
+- sub_shots
+- reaction_coverage
+- action_insert_slot
+- information_reveal
 source_files:
-  - knowledge/28_全场景分镜与转场案例库.md
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- knowledge/28_全场景分镜与转场案例库.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - sub_shots
-  - reaction_coverage
-  - action_insert_slot
-  - information_reveal
 ---
 
 # 子镜头必须由信息增量触发

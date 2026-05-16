@@ -93,15 +93,15 @@ ASSET_TYPES = [
 ]
 
 AGENTS = [
-    ("rhythm_rewrite_director", "节奏改写", "优化节奏、冲突和情绪推进"),
-    ("scene_analyst", "场景分析", "识别人物、地点、动作和视觉元素"),
-    ("story_planner", "结构规划", "拆分片段并规划叙事结构"),
+    ("scene_analyst", "场景预分析", "分析参考图、人物站位姿势和场景信息"),
+    ("director_showrunner", "剧情增强", "增强原剧本内弱冲突，转成可拍动作"),
+    ("story_planner", "节奏拆片导演", "判断快慢、目标时长、动作节奏并拆分片段"),
     ("shot_director", "镜头导演", "设计景别、机位、运镜和画面说明"),
     ("prompt_compiler", "提示词编译", "整理可用于生成的提示词"),
     ("quality_inspector", "质量检查", "检查连续性、完整性和可生成性"),
 ]
 
-STEPS = ["节奏改写", "场景分析", "结构规划", "镜头导演", "提示词编译", "质量检查"]
+STEPS = ["场景预分析", "剧情增强", "节奏拆片", "镜头导演", "提示词编译", "质量检查"]
 ASPECT_OPTIONS = ["9:16", "16:9", "1:1", "4:5", "3:4"]
 STYLE_OPTIONS = ["都市短剧", "都市商战", "悬疑冷调", "情感现实", "古风精致", "喜剧明亮", "赛博霓虹"]
 PROVIDER_OPTIONS = ["火山引擎", "通义千问", "深度求索", "开放接口", "本地模型"]
@@ -453,7 +453,7 @@ class DirectorStudioApp(ctk.CTk if ctk else object):
         flow = self._card(bottom)
         flow.pack(side="left", fill="both", expand=True, padx=(8, 0))
         ctk.CTkLabel(flow, text="流程概览", font=self._font(16, "bold"), text_color=COLORS["text"]).pack(anchor="w", padx=18, pady=(16, 10))
-        ctk.CTkLabel(flow, text="节奏改写 → 场景分析 → 结构规划 → 镜头导演 → 提示词编译 → 质量检查", font=self._font(13), text_color=COLORS["muted"], wraplength=470).pack(anchor="w", padx=18, pady=(0, 20))
+        ctk.CTkLabel(flow, text="场景预分析 → 剧情增强 → 节奏拆片 → 镜头导演 → 提示词编译 → 质量检查", font=self._font(13), text_color=COLORS["muted"], wraplength=470).pack(anchor="w", padx=18, pady=(0, 20))
         self._paint_workspace()
 
     def _page_assets(self):
@@ -1009,7 +1009,8 @@ class DirectorStudioApp(ctk.CTk if ctk else object):
         headers = {"Accept": "application/json"}
         if api_key:
             headers["Authorization"] = f"Bearer {api_key}"
-        response = requests.get(url, headers=headers, timeout=25, verify=False)
+        verify_tls = os.environ.get("DIRECTOR_DISABLE_TLS_VERIFY") != "1"
+        response = requests.get(url, headers=headers, timeout=25, verify=verify_tls)
         response.raise_for_status()
         data = response.json()
         rows = data.get("data", data if isinstance(data, list) else [])

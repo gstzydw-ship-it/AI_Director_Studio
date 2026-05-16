@@ -1,13 +1,72 @@
 ---
-id: SHOT-DIRECTOR-STEPWISE-PIPELINE-001
+rule_id: SHOT-DIRECTOR-STEPWISE-PIPELINE-001
 title: Shot Director stepwise pipeline contract
+doc_type: rule_card
+rule_type: shot_calling
+owner_agent: shot_director
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
-  - shot_director_guard
+- shot_director
+- shot_director_layout
+- shot_director_blocking
+- shot_director_guard
+- prompt_compiler
+- quality_inspector
 priority: P0
+status: active
+pipeline_stage: orchestration_contract
 runtime_retrieval: true
+retrieval_key:
+- shot-director-stepwise-pipeline-001
+- signals.vertical_framing
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.reaction
+- events.cut
+- risks.axis_confusion
+- risks.vertical_closeup_overuse
+- risks.script_invention_risk
+- dialogue_types.argument_escalation
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+- scene_types.suspense
+applies_when:
+- "shot_director_generation"
+- "staged_shot_pipeline"
+- "final_shot_validation"
+avoid_when:
+- "metadata_only_task"
+- "downstream_formatting_only"
+failure_mode:
+- "one_pass_shot_table_without_fact_rhythm_or_validation_steps"
+output_contract: "Run fact extraction, rhythm task, skeleton, fields, action/dialogue, cut rhythm, optional enhancement, final repair."
+example_good: "先提取剧本事实，再定镜头骨架，最后校验越轴、台词和道具连续。"
+example_bad: "直接生成完整镜头表并声称已检查。"
+signals:
+- vertical_framing
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- suspense
+events:
+- reaction
+- cut
+risks:
+- axis_confusion
+- vertical_closeup_overuse
+- script_invention_risk
+dialogue_types:
+- argument_escalation
+- reaction_beat
+aspect_ratios:
+- '9:16'
+conflicts_with: []
+supersedes: []
+id: SHOT-DIRECTOR-STEPWISE-PIPELINE-001
 ---
 
 # SHOT-DIRECTOR-STEPWISE-PIPELINE-001

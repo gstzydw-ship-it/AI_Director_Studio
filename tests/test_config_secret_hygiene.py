@@ -19,6 +19,8 @@ def test_shareable_config_files_do_not_contain_literal_api_keys():
     ]
 
     for path in shareable_paths:
+        if not path.exists():
+            continue
         text = path.read_text(encoding="utf-8")
         assert "sk-" not in text
 

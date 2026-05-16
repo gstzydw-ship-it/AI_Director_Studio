@@ -3,24 +3,56 @@ rule_id: SCENE-REF-MISSING-FALLBACK-001
 title: 参考图缺失时的降级协议
 doc_type: rule_card
 rule_type: scene_analysis
+owner_agent: scene_analyst
 agent_scope:
-  - scene_analyst
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- scene_analyst
+- prompt_compiler
+- quality_inspector
+- story_planner
+priority: P0
 status: active
+pipeline_stage: reference_fallback
 runtime_retrieval: true
+retrieval_key:
+- scene-ref-missing-fallback-001
+- signals.tailframe_lock
+- signals.reference_binding
+- events.collision
+- events.tailframe
+- events.reference_binding
+- risks.reference_misuse
+applies_when:
+- 无参考图
+- 身份描述降级
+- 风格锚点降级
+avoid_when:
+- "已有可靠参考图绑定时，不触发缺图降级。"
+failure_mode:
+- "缺图仍让下游自由生成身份。"
+- "identity_description 少于六项身份锚点。"
+output_contract: "输出 no_reference_image、identity_description、first_frame_lock、allowed_style、extra_constraints、need_supplement。"
+example_good: "无图主体写六项身份锚点并请求补图。"
+example_bad: "只写一名年轻女性，风格自由发挥。"
+signals:
+- tailframe_lock
+- reference_binding
+events:
+- collision
+- tailframe
+- reference_binding
+risks:
+- reference_misuse
+applies_to:
+- 无参考图
+- 身份描述降级
+- 风格锚点降级
+- 首帧锁定
 source_files:
-  - knowledge/11_场景分析输入卡与导演意图提取.md
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/rules/prompt_compiler/REFERENCE-ROLE-STRICT-001.md
+- knowledge/11_场景分析输入卡与导演意图提取.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/rules/prompt_compiler/REFERENCE-ROLE-STRICT-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 无参考图
-  - 身份描述降级
-  - 风格锚点降级
-  - 首帧锁定
 ---
 
 # 参考图缺失时的降级协议

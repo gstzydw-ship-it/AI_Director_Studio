@@ -3,27 +3,56 @@ rule_id: SCENE-CONSISTENCY-LOCK-001
 title: 场景一致性锁写入 state_contract
 doc_type: rule_card
 rule_type: scene_analysis
+owner_agent: scene_analyst
 agent_scope:
-  - scene_analyst
-  - story_planner
-  - shot_director
-  - quality_inspector
-priority: hard
+- scene_analyst
+- story_planner
+- shot_director
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: scene_analysis
 runtime_retrieval: true
+retrieval_key:
+- scene-consistency-lock-001
+- signals.continuity_lock
+- signals.reference_binding
+- events.reference_binding
+- risks.axis_confusion
+- risks.reference_misuse
+applies_when:
+- 服装
+- 道具
+- 光线
+avoid_when:
+- "无剧本或参考图支撑时，不直接生成确定细节。"
+failure_mode:
+- "scene_lock 缺少六组字段。"
+- "服装、光线、时段或轴线互相矛盾。"
+output_contract: "输出 scene_lock，包含 wardrobe、props、lighting、time_of_day、axis、gaze_network。"
+example_good: "未知服装写 null，并标 inferred=true 与推理来源。"
+example_bad: "凭空写红裙、午后阳光和夜景同时存在。"
+signals:
+- continuity_lock
+- reference_binding
+events:
+- reference_binding
+risks:
+- axis_confusion
+- reference_misuse
+applies_to:
+- 服装
+- 道具
+- 光线
+- 时段
+- 轴线
+- 状态快照
 source_files:
-  - knowledge/11_场景分析输入卡与导演意图提取.md
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/rules/shared/CONT-STATE-CONTRACT-001.md
+- knowledge/11_场景分析输入卡与导演意图提取.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/rules/shared/CONT-STATE-CONTRACT-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 服装
-  - 道具
-  - 光线
-  - 时段
-  - 轴线
-  - 状态快照
 ---
 
 # 场景一致性锁写入 state_contract

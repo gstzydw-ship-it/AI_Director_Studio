@@ -1,13 +1,54 @@
 ---
 rule_id: TAILFRAME-RELATIONSHOT-001
-title: "尾帧连续性与空间关系收束规则"
+title: 尾帧连续性与空间关系收束规则
+doc_type: rule_card
+rule_type: prompt_compilation
+owner_agent: prompt_compiler
+agent_scope:
+- prompt_compiler
+- shot_director
+- quality_inspector
 priority: P0
-agent_scope: [prompt_compiler, shot_director]
+status: active
+pipeline_stage: tailframe_closure
 runtime_retrieval: true
-applies_when: "设计当前片段的最后一个镜头（尾帧）"
-instruction: "片段最终尾帧默认必须是双人/多人关系景，局部特写绝对不能作为尾帧，必须为下一片段留下可见的构图和场景锚点。"
-avoid_when: "除非下一段的剧本极其明确地要求从该局部特写（如特定道具、伤口特写）开始接续。"
+retrieval_key:
+- tailframe-relationshot-001
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- events.door_state
+- events.tailframe
+- risks.door_state_jump
+- risks.reference_misuse
+- scene_types.elevator
+- scene_types.action
+applies_when: 设计当前片段的最后一个镜头（尾帧）
+avoid_when:
+- "下一段剧本明确要求从特定局部特写或道具特写开始接续。"
+failure_mode:
+- "以局部特写收尾，下一段失去空间和人物站位锚点。"
+output_contract: "片段最终尾帧默认回到双人/多人关系景或建立镜头，保留位置、朝向、距离与道具状态。"
+example_good: "最后0.5秒切回双人半身关系景收束，电梯门在背景中闭合。"
+example_bad: "片段最后停在乔熙手指拨弄头发的局部特写。"
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- action
+events:
+- door_state
+- tailframe
+risks:
+- door_state_jump
+- reference_misuse
+conflicts_with: []
+supersedes: []
+instruction: 片段最终尾帧默认必须是双人/多人关系景，局部特写绝对不能作为尾帧，必须为下一片段留下可见的构图和场景锚点。
 ---
+
 # 尾帧连续性与空间关系收束规则
 
 ## 核心痛点

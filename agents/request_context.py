@@ -15,6 +15,18 @@ from typing import Any, Iterator
 
 request_session_id: ContextVar[str] = ContextVar("request_session_id", default="local")
 request_stream_callback: ContextVar[Any] = ContextVar("request_stream_callback", default=None)
+request_event_callback: ContextVar[Any] = ContextVar("request_event_callback", default=None)
+
+
+def emit_runtime_event(event: str, **fields: Any) -> None:
+    """Emit a best-effort runtime event for the active WebUI request."""
+    callback = request_event_callback.get(None)
+    if not callable(callback):
+        return
+    try:
+        callback(event, **fields)
+    except Exception:
+        pass
 
 
 @contextmanager
@@ -22,10 +34,12 @@ def request_scope(
     *,
     session_id: str = "local",
     stream_callback: Any = None,
+    event_callback: Any = None,
 ) -> Iterator[None]:
     tokens: list[tuple[ContextVar[Any], Any]] = [
         (request_session_id, request_session_id.set(session_id or "local")),
         (request_stream_callback, request_stream_callback.set(stream_callback)),
+        (request_event_callback, request_event_callback.set(event_callback)),
     ]
     try:
         yield

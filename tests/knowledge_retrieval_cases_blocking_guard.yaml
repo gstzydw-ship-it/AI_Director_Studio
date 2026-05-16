@@ -1,0 +1,135 @@
+cases:
+  - id: blocking_parent_subshot_anchor
+    agent: shot_director_blocking
+    query: "shot_director_blocking sub_shots must not float: every insert shot needs parent_shot_id pointing to an existing main_shot, especially impact or reaction inserts attached to S02 instead of creating C1."
+    top_k: 10
+    expected_rules:
+      - BLOCKING-PARENT-SUBSHOT-001
+    must_match_rules:
+      - BLOCKING-PARENT-SUBSHOT-001
+
+  - id: blocking_reaction_coverage_lands_on_shot
+    agent: shot_director_blocking
+    query: "reaction_coverage cannot say only emotional beat or victim reacts; it must name the exact shot_id or sub_shot where the impact pause lands, or explicitly say no independent reaction shot is needed."
+    top_k: 10
+    expected_rules:
+      - BLOCKING-REACTION-COVERAGE-002
+    must_match_rules:
+      - BLOCKING-REACTION-COVERAGE-002
+
+  - id: blocking_dialogue_fidelity_no_rewrite
+    agent: shot_director_blocking
+    query: "dialogue_coverage must quote only original script dialogue verbatim; do not paraphrase, merge lines, add whispered aside, inner thought, employee comment, or new dialogue not present in source_script_events."
+    top_k: 10
+    expected_rules:
+      - BLOCKING-DIALOGUE-FIDELITY-003
+    must_match_rules:
+      - BLOCKING-DIALOGUE-FIDELITY-003
+
+  - id: blocking_cut_anchor_timing
+    agent: shot_director_blocking
+    query: "When adding sub_shots for a door handle, gaze hit, sound cue, or line ending, the cut_point must bind to an action or information anchor, not after the action is already finished."
+    top_k: 10
+    expected_rules:
+      - BLOCKING-CUT-ANCHOR-TIMING-004
+    must_match_rules:
+      - BLOCKING-CUT-ANCHOR-TIMING-004
+
+  - id: blocking_state_delta_and_cutpoint
+    agent: shot_director_blocking
+    query: "Every main_shot needs state_delta and every sub_shot needs a concrete cut_point; if distance, door state, hand contact, prop position, or gaze does not change, write that it remains unchanged."
+    top_k: 10
+    expected_rules:
+      - BLOCKING-STATE-DELTA-005
+    must_match_rules:
+      - BLOCKING-STATE-DELTA-005
+
+  - id: blocking_action_flow_contract
+    agent: shot_director_blocking
+    query: "The blocking pass must deliver an executable action flow contract: blocking_plan, state_chain, and event_coverage for each fragment, with source_script_events mapped to covered_by main_shot or sub_shot ids."
+    top_k: 10
+    expected_rules:
+      - BLOCKING-ACTION-FLOW-006
+    must_match_rules:
+      - BLOCKING-ACTION-FLOW-006
+
+  - id: blocking_subshot_information_trigger
+    agent: shot_director_blocking
+    query: "Use a sub_shot only when there is information gain: prop reveal, hand contact changing relationship, reaction beat, door state, sound cue, or action bridge; do not add eye or sleeve closeups just for cinematic feeling."
+    top_k: 10
+    expected_rules:
+      - BLOCKING-SUBSHOT-TRIGGER-007
+    must_match_rules:
+      - BLOCKING-SUBSHOT-TRIGGER-007
+
+  - id: blocking_fast_cut_legibility_budget
+    agent: shot_director_blocking
+    query: "Fast cutting in a 6 second fragment must remain legible: keep dialogue, relation, prop state, and action readable; prefer 3 to 4 shots and use sub-1-second cuts only for clear information gain."
+    top_k: 10
+    expected_rules:
+      - BLOCKING-FAST-CUT-LEGIBILITY-008
+    must_match_rules:
+      - BLOCKING-FAST-CUT-LEGIBILITY-008
+
+  - id: guard_minimal_repair_only
+    agent: shot_director_guard
+    query: "shot_director_guard should repair only hard injuries that would break downstream or fail QC; do not rewrite the camera idea, add new shots, reorder creativity, or make changes just because it looks better."
+    top_k: 10
+    expected_rules:
+      - GUARD-MINIMAL-REPAIR-001
+    must_match_rules:
+      - GUARD-MINIMAL-REPAIR-001
+
+  - id: guard_structure_preserve_ids
+    agent: shot_director_guard
+    query: "Guard repair must preserve fragment_id order, shot_id numbering, and existing main_shots; only minimally renumber real duplicate or wrong shot ids, never merge fragments or redesign the shot hierarchy."
+    top_k: 10
+    expected_rules:
+      - GUARD-STRUCTURE-PRESERVE-002
+    must_match_rules:
+      - GUARD-STRUCTURE-PRESERVE-002
+
+  - id: guard_fidelity_vertical_closeup_limit
+    agent: shot_director_guard
+    query: "In 9:16 vertical output, fix script fidelity first by deleting invented dialogue or actions, then limit face closeup main shots to one per fragment and downgrade extra closeups to medium or medium-close shots."
+    top_k: 10
+    expected_rules:
+      - GUARD-FIDELITY-VERTICAL-003
+    must_match_rules:
+      - GUARD-FIDELITY-VERTICAL-003
+
+  - id: guard_spatial_reset_visibility_budget
+    agent: shot_director_guard
+    query: "Repair spatial reset when a same-scene character disappears, axis and left-right relation reset, or 9:16 big-head closeup swallows group reaction time; add visibility notes or downgrade the closeup."
+    top_k: 10
+    expected_rules:
+      - GUARD-SPATIAL-RESET-BUDGET-004
+    must_match_rules:
+      - GUARD-SPATIAL-RESET-BUDGET-004
+
+  - id: guard_coverage_contract_fields
+    agent: shot_director_guard
+    query: "Final shot YAML must have a coverage contract for each existing shot: coverage_role, cut_reason, companion_visibility, state_delta, and tailframe_role so prompt_compiler does not guess continuity."
+    top_k: 10
+    expected_rules:
+      - GUARD-COVERAGE-CONTRACT-005
+    must_match_rules:
+      - GUARD-COVERAGE-CONTRACT-005
+
+  - id: guard_first_frame_prop_cut_budget
+    agent: shot_director_guard
+    query: "Guard must block first-frame missing anchors, invisible required props, and over-fragmented fast cuts: first shot should establish relation and key props, and 6 seconds should not become unreadable micro-cuts."
+    top_k: 10
+    expected_rules:
+      - GUARD-FIRST-FRAME-PROP-CUT-BUDGET-006
+    must_match_rules:
+      - GUARD-FIRST-FRAME-PROP-CUT-BUDGET-006
+
+  - id: guard_emotion_story_rhythm_priority
+    agent: shot_director_guard
+    query: "When judging cuts, prioritize emotion, story, and rhythm before pure spatial continuity; delete or merge cuts that interrupt dialogue, reaction pauses, emotional impact, or story information."
+    top_k: 10
+    expected_rules:
+      - GUARD-EMOTION-STORY-RHYTHM-PRIORITY-007
+    must_match_rules:
+      - GUARD-EMOTION-STORY-RHYTHM-PRIORITY-007

@@ -1,6 +1,10 @@
 ﻿"""测试 Gemini streaming 模式"""
 import os, httpx, time, sys, json
 
+import pytest
+
+pytestmark = pytest.mark.skip(reason="manual integration test; requires live Gemini API")
+
 os.environ["HTTP_PROXY"] = "http://127.0.0.1:9674"
 os.environ["HTTPS_PROXY"] = "http://127.0.0.1:9674"
 
@@ -89,21 +93,26 @@ def test_non_streaming(model):
         return False
 
 
-print("=" * 50)
-print("  Gemini Streaming vs Non-Streaming Test")
-print("=" * 50)
+def main():
+    print("=" * 50)
+    print("  Gemini Streaming vs Non-Streaming Test")
+    print("=" * 50)
 
-# 先测 gpt-4o-mini 作为对照
-test_non_streaming("gpt-4o-mini")
+    # 先测 gpt-4o-mini 作为对照
+    test_non_streaming("gpt-4o-mini")
 
-# 测 Gemini streaming
-ok_stream = test_streaming("gemini-2.5-flash")
+    # 测 Gemini streaming
+    ok_stream = test_streaming("gemini-2.5-flash")
 
-# 测 Gemini non-streaming
-ok_nostream = test_non_streaming("gemini-2.5-flash")
+    # 测 Gemini non-streaming
+    ok_nostream = test_non_streaming("gemini-2.5-flash")
 
-print("\n" + "=" * 50)
-print(f"  Gemini streaming:     {'PASS' if ok_stream else 'FAIL'}")
-print(f"  Gemini non-streaming: {'PASS' if ok_nostream else 'FAIL'}")
-print("=" * 50)
+    print("\n" + "=" * 50)
+    print(f"  Gemini streaming:     {'PASS' if ok_stream else 'FAIL'}")
+    print(f"  Gemini non-streaming: {'PASS' if ok_nostream else 'FAIL'}")
+    print("=" * 50)
+
+
+if __name__ == "__main__":
+    main()
 

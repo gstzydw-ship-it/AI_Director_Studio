@@ -3,20 +3,53 @@ rule_id: PROMPT-CURRENT-SEGMENT-ONLY-001
 title: Prompt只输出当前片段
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: segment_output_scope
 runtime_retrieval: true
+retrieval_key:
+- prompt-current-segment-only-001
+- signals.tailframe_lock
+- signals.action_coverage
+- signals.continuity_lock
+- events.tailframe
+- risks.axis_confusion
+- risks.reference_misuse
+- scene_types.action
+applies_when:
+- 多段流程
+- 当前片段
+- 历史片段污染
+avoid_when:
+- "当前任务需要整批多片段打包说明，而不是单段 prompt。"
+failure_mode:
+- "把历史片段标题、完整 prompt 或时间轴拼接进当前片段输出。"
+output_contract: "最终输出只包含当前片段；历史信息仅用于尾帧、角色、道具和轴线连续性。"
+example_good: "当前片段从上一段尾帧状态继续，只输出本段 0-8 秒。"
+example_bad: "先输出片段1和片段2完整 prompt，再输出片段3。"
+signals:
+- tailframe_lock
+- action_coverage
+- continuity_lock
+scene_types:
+- action
+events:
+- tailframe
+risks:
+- axis_confusion
+- reference_misuse
+applies_to:
+- 多段流程
+- 当前片段
+- 历史片段污染
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 多段流程
-  - 当前片段
-  - 历史片段污染
 ---
 
 # Prompt只输出当前片段

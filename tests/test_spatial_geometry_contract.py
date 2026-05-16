@@ -51,6 +51,9 @@ def test_spatial_geometry_rules_are_part_of_contract():
     assert "scene_fixed" in rules
     assert "visible_landmarks" in rules
     assert "前景/中景/后景" in rules
+    assert "镜头表达句" in rules
+    assert "最终必须翻译成视角" in rules
+    assert "坐标式空间说明" in rules
 
 
 def test_layout_validation_requires_spatial_geometry_fields():

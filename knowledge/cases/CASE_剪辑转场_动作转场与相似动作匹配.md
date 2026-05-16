@@ -1,20 +1,52 @@
 ---
+case_title: 视频拆片案例：剪辑转场_动作转场与相似动作匹配
+doc_type: case_card
+served_agents:
+- scene_analyst
+- story_planner
+- shot_director
+- shot_director_blocking
+- quality_inspector
+scene_types:
+- 动作匹配转场
+- 动作连续转场
+- 因果关联转场
+- 连锁效应转场
+- action
+- intimacy_privacy
+events:
+- door_state
+- cut
+- match_action
+- scene_change
+dialogue_types:
+- argument_escalation
+visual_constraints:
+- wide_shot
+- medium_shot
+- closeup
+- over_shoulder
+risks:
+- privacy_body
+reusable_pattern: CASE_剪辑转场_动作转场与相似动作匹配
+aspect_ratio: unspecified
+runtime_retrieval: false
+source_files: []
 rule_id: CASE-剪辑转场_动作转场与相似动作匹配
-title: "视频拆片案例：剪辑转场_动作转场与相似动作匹配"
-doc_type: case_library
+title: 视频拆片案例：剪辑转场_动作转场与相似动作匹配
 rule_type: shot_sequence_case
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
+- shot_director
+- shot_director_layout
+- shot_director_blocking
 priority: reference
 status: active
-runtime_retrieval: true
-scene_types:
-  - 动作匹配转场, 动作匹配转场, 动作匹配转场, 动作连续转场, 动作连续转场, 动作连续转场, 因果关联转场, 连锁效应转场
-source_video: "剪辑转场_动作转场与相似动作匹配.mp4"
-extraction_date: "2026-04-24"
-extraction_model: "gemini-3.1-pro-preview-thinking-high"
+source_video: 剪辑转场_动作转场与相似动作匹配.mp4
+extraction_date: '2026-04-24'
+extraction_model: gemini-3.1-pro-preview-thinking-high
+signals:
+- action_coverage
+- continuity_lock
 ---
 
 # 视频拆片案例：剪辑转场_动作转场与相似动作匹配

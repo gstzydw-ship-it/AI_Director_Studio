@@ -3,21 +3,63 @@ rule_id: GUARD-SPATIAL-RESET-BUDGET-004
 title: 必须修复空间重置和特写偷时间
 doc_type: rule_card
 rule_type: continuity_guard
+owner_agent: shot_director_guard
 agent_scope:
-  - shot_director_guard
-priority: hard
+- shot_director_guard
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: guard
 runtime_retrieval: true
+retrieval_key:
+- guard-spatial-reset-budget-004
+- signals.vertical_framing
+- signals.dialogue_coverage
+- signals.action_coverage
+- events.reaction
+- risks.axis_confusion
+- risks.vertical_closeup_overuse
+- dialogue_types.long_dialogue_compression
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 空间连续
+- 9:16竖屏
+- 群体调度
+avoid_when:
+- "没有空间跳变、角色消失、轴线重置或特写吞时间问题"
+- "修改需要重新编排整段动作而不是最小补可见性说明"
+failure_mode:
+- "同场角色无解释消失或空间关系重置；9:16 大头特写吞掉反应和动作时间。"
+output_contract: "优先补可见性说明和位置继承；无信息大头特写降级为中近景或关系景。"
+example_good: "补充被切出角色在画面右缘虚化；把 4 秒脸部特写缩为 0.5 秒子分镜。"
+example_bad: "单人特写持续到群体散开后，其他角色无出画说明。"
+signals:
+- vertical_framing
+- dialogue_coverage
+- action_coverage
+scene_types:
+- dialogue
+- action
+events:
+- reaction
+risks:
+- axis_confusion
+- vertical_closeup_overuse
+dialogue_types:
+- long_dialogue_compression
+aspect_ratios:
+- '9:16'
+applies_to:
+- 空间连续
+- 9:16竖屏
+- 群体调度
+- 切镜守门
 source_files:
-  - knowledge/27_规则守门与最小修复规则.md
-  - knowledge/28_全场景分镜与转场案例库.md
+- knowledge/27_规则守门与最小修复规则.md
+- knowledge/28_全场景分镜与转场案例库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 空间连续
-  - 9:16竖屏
-  - 群体调度
-  - 切镜守门
 ---
 
 # 必须修复空间重置和特写偷时间

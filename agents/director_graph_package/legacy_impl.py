@@ -29,8 +29,7 @@ from ..knowledge_base import (
     load_knowledge_documents,
 )
 from ..utils import COMFLY_BASE_URL, get_base_dir, get_output_dir, get_config_path, load_yaml_config
-from ..mcp_llm import call_llm_with_mcp
-from ..request_context import request_session_id
+from ..request_context import emit_runtime_event, request_session_id
 
 ROOT_DIR = get_base_dir()
 OUTPUT_DIR = get_output_dir()
@@ -49,6 +48,11 @@ AGENT_CONFIG_PARENTS = {
     "shot_director_guard": "shot_director",
 }
 DEFAULT_LLM_MODEL = "gpt-5.4"
+
+_BODY_MECHANICS_ACTION_RE = re.compile(
+    r"进入|走进|冲入|冲向|穿过|越过|进电梯|进门|出门|碰撞|撞上|扶住|松开|擦身而过|过阈值|转身|离开|"
+    r"拿起|放下|递给|交给|推开|拉开|关上|打开|下车|上车|起身|坐下|后退|让出|站到|移动|行走|奔跑"
+)
 
 
 @dataclass(frozen=True)
@@ -629,9 +633,16 @@ def _record_knowledge_metadata(
 def build_system_prompt(role_description: str, agent_name: str, context_hint: str = "") -> tuple[str, dict[str, Any]]:
     critical_text = _critical_knowledge_block(agent_name)
     retrieval_meta: dict[str, Any] = {}
+    emit_runtime_event(
+        "knowledge_retrieval_started",
+        agent_name=agent_name,
+        context_hint_preview=(context_hint or "")[:240],
+        retrieval_mode="smart",
+        include_critical_knowledge=True,
+    )
     try:
         kb_text, retrieval_meta = get_smart_knowledge(agent_name, context_hint)
-    except Exception:
+    except Exception as exc:
         kb_text = get_full_knowledge_for_agent(agent_name)
         retrieval_meta = {
             "retrieval_mode": "fallback",
@@ -641,6 +652,24 @@ def build_system_prompt(role_description: str, agent_name: str, context_hint: st
             "result_count": 0,
             "context_hint": context_hint,
         }
+        emit_runtime_event(
+            "knowledge_retrieval_failed",
+            agent_name=agent_name,
+            error_type=type(exc).__name__,
+            fallback_to_full_knowledge=True,
+        )
+
+    emit_runtime_event(
+        "knowledge_retrieval_completed",
+        agent_name=agent_name,
+        retrieval_mode=retrieval_meta.get("retrieval_mode", ""),
+        matched_sources=retrieval_meta.get("matched_sources", []),
+        critical_sources=retrieval_meta.get("critical_sources", []),
+        registry_rule_ids=retrieval_meta.get("registry_rule_ids", []),
+        registry_preferred_sources=retrieval_meta.get("registry_preferred_sources", []),
+        result_count=retrieval_meta.get("result_count", 0),
+        used_wiki_context=bool(retrieval_meta.get("used_wiki_context")),
+    )
 
     knowledge_sections = []
     if critical_text:
@@ -1061,7 +1090,7 @@ def _spatial_geometry_contract_rules() -> str:
 
         "10. compiler 翻译时间轴时必须服从这些字段，不得为了\"保留空间锚点\"临时把不可见锚点塞进后景。\n"
         "11. 摄影机后退路径物理可行性：如果 subject_facing=toward_elevator 且 angle=正前方0度，摄影机在电梯方向；"
-        "此时若运镜=同速后退，摄影机会退进电梯。必须改用 scene_fixed 侧面或背后机位，或改用 angle=左前方45度/右前方45度 让后退路径沿大堂侧面。\n"
+        "此时若运镜=同速后退，摄影机会退进电梯。必须改用 scene_fixed 场景固定机位、门框侧机位、走廊侧机位或人物背面跟拍，让后退路径沿真实空间展开。\n"
         "12. 相邻 main_shot 视角翻转限制：同一 fragment 内相邻两个 main_shot 不得从正面(0度)直接跳到背后(180度)或反之，"
         "除非 state_delta 明确包含转身动作。如需从正面切到背面，必须插入侧面过渡机位(90度)或在 state_delta 写明人物转身。\n"
         "13. visible_landmarks 精简：每个 main_shot 的 visible_landmarks 最多列3个锚点；优先列出当前镜头任务必须看见的锚点，"
@@ -1073,7 +1102,7 @@ def _camera_execution_rules() -> str:
     return (
         "【机位与运镜可执行硬规则】\n"
         "1. 每个时间段第一句必须写清：主体+景别+简洁机位+镜头高度+运镜方式；人物朝向只在动作需要时补一句。\n"
-        "2. 摄影机位置优先使用大模型更稳的短词：正面、左前方、右前方、左侧、右侧、背后、左后方、右后方。只有空间易混淆时才补 0度/45度/90度/180度，不要每段都写数字角度。\n"
+        "2. 摄影机位置优先使用大模型更稳的短词：正面、侧面、侧背、背后、过肩、场景固定机位、门框侧、桌边侧、走廊侧。禁止用人物相对的左前方/右前方/左后方/右后方当机位，因为人物转身后左右会反；不要每段都写数字角度。\n"
         "3. 镜头高度必须写成眼平高度、低机位仰拍、高机位俯拍之一；不要只写\"平视侧前方\"\"平视三分之四角度\"。\n"
         "4. 运镜必须写成固定机位、轨道前推 dolly-in、轨道后拉 dolly-out、稳定器跟拍 tracking shot、稳定器在人物前方同速后退、稳定器在人物背后同速前进、横移 truck left/right、摇镜 pan left/right 之一。\n"
         "5. 如果写\"跟随\"，必须说明摄影机在人物前方/背后/左侧/右侧，以及它是同速后退、同速前进还是平行横移；禁止写\"轻微前推跟随\"。\n"
@@ -1087,13 +1116,13 @@ def _camera_task_selection_rules() -> str:
     return (
         "【镜头任务到机位选择硬规则】\n"
         "1. 先判断当前 main_shot 的任务，再决定 angle 与 camera_basis；不要先挑一个好听的机位，再把动作硬塞进去。\n"
-        "2. 发言承载、正面施压、冷处理对峙：单段只能从 正前方0度、左前方30度/45度、右前方30度/45度 三类中**选一类并贯穿全段**——同段不得同时出现\"左前方\"和\"右前方\"这种 180° 跨轴。前提是人物朝向稳定，且没有转身、穿门、进电梯这类阈值动作。\n"
+        "2. 发言承载、正面施压、冷处理对峙：单段只能从正面、侧面、过肩、桌边侧、门框侧、场景固定机位中选一类并贯穿全段；同段不得使用人物相对的左前方/右前方/左后方/右后方。前提是人物朝向稳定，且没有转身、穿门、进电梯这类阈值动作。\n"
         "3. 听者受击、视线撞上、回神、表情冻结：受击者机位必须落在第 2 条选定的同侧；并保留对手肩线、门框、桌边或人物边缘虚化作为空间锚点。\n"
-        "4. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先 左侧90度、右侧90度、左后方135度、右后方135度，或 scene_fixed；目标是看清起点、路径、接触点和终点。整段保持选定一侧。\n"
-        "5. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先 背后180度、左后方135度、右后方135度，或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
+        "4. 动作路径、身体位移、擦身而过、碰撞、扶住、松手：优先场景固定机位、门框侧机位、桌边侧机位、走廊侧机位、背面跟拍或过肩前景遮挡；目标是看清起点、路径、接触点和终点。整段保持同一场景锚点侧。\n"
+        "5. 目标方向、走向门口、冲向门缝、进入电梯、穿过门框、离开画面：优先背面跟拍、侧面跟拍、门框侧固定机位或 scene_fixed；目标是看清人物前方目标与阈值关系。\n"
         "6. 双人关系复位、群体关系复位、尾帧交接：优先 双人半身关系景 或 scene_fixed 关系景，重新交代距离、站位、轴线和谁仍在画内。\n"
         "7. **机内连续运动不计为切镜**：稳机推近 dolly-in、稳机后拉 dolly-out、上摇 tilt-up、下摇 tilt-down、横移 truck、跟拍 tracking 都属于同一镜头内部的镜头细分；优先用机内运动承担景别变化，而不是硬切。\n"
-        "8. 同段切换只能发生在选定一侧内部（例如全段右前方，可以从右前方半身→右前方过肩→右前方双人关系景）；跨到另一侧本段不得擅自跨。\n"
+        "8. 同段切换只能发生在同一场景锚点侧内部（例如全段桌边侧，可以从桌边侧半身→桌边侧过肩→桌边侧双人关系景）；跨到另一侧本段不得擅自跨。\n"
         "9. 只有在 单一主体 + 单一动作 + 没有说话者切换 + 没有受击反应 + 没有进门/进电梯/过阈值 时，才允许单一主机位持续承担整段。\n"
         "10. 每次硬切都必须由 cut_reason 解释，例如 scene_entry、speaker_to_receiver、action_path_visibility、space_reset、tailframe_reset；禁止 cut_reason 写 axis_flip / reverse_angle / 反打。\n"
         "11. 如果一个 fragment 里有多个 shots，禁止所有 shot 都重复同一套 camera_basis + camera_scene_position + camera_looks_toward + angle 直到片段结束。\n"
@@ -1167,9 +1196,9 @@ def _blocking_camera_task_selection_rules() -> str:
         "【blocking 专属机位决策树】\n"
         "1. 先读 layout 交接的 coverage_role、cut_reason、tailframe_role、shot_intent、dialogue_coverage，再读本轮 blocking_plan、state_chain、event_coverage、reaction_coverage、sub_shots；blocking 的判断目标是\"保留、挂靠、最小修正、补第二个 main_shot\"四选一。\n"
         "2. 只补对白承载、停顿、眼神承接、轻微站位保持时，保留原 main_shot 机位；用 state_delta 与 companion_visibility 补清动作，不为了微表情或短停顿新增主机位。\n"
-        "3. 台词落点后的受击、回神、表情冻结、视线撞上，优先挂 reaction sub_shot 到 receiver_reaction_setup 或 speaker_to_receiver 父镜头；父镜头应面向受击者正前方0度或左/右前方30度/45度，并保留对手肩线、门框、桌边或人物边缘虚化作为空间锚点。\n"
+        "3. 台词落点后的受击、回神、表情冻结、视线撞上，优先挂 reaction sub_shot 到 receiver_reaction_setup 或 speaker_to_receiver 父镜头；父镜头应使用受击者正面、同侧过肩、桌边侧或门框侧，并保留对手肩线、门框、桌边或人物边缘虚化作为空间锚点。\n"
         "4. 如果 reaction_coverage 落在说话者正面机位、动作路径机位或看不见受击者的父镜头上，必须最小修正父镜头 angle、cut_reason、companion_visibility 或改挂到更合适的父镜头；不要把受击反应硬塞回说话者覆盖镜头。\n"
-        "5. blocking_plan 或 state_chain 出现身体位移、擦身而过、碰撞、扶住、松手、转身、穿门、进入电梯/车门/房门时，父 main_shot 必须使用 scene_fixed，或左/右侧90度、左/右后方135度、背后180度；禁止沿用 subject_relative 正面机位承担动作路径。\n"
+        "5. blocking_plan 或 state_chain 出现身体位移、擦身而过、碰撞、扶住、松手、转身、穿门、进入电梯/车门/房门时，父 main_shot 必须使用 scene_fixed、门框侧、桌边侧、走廊侧、侧面跟拍或背后跟拍；禁止沿用 subject_relative 正面机位承担动作路径。\n"
         "6. 动作路径缺机位时，不要用局部 sub_shot 掩盖路径缺口；应补第二个 main_shot，或把已有 action_insert_slot 最小修正为 scene_fixed，并把 cut_reason 写成 action_path_visibility、threshold_crossing、impact_visibility 或 space_reset。\n"
         "7. impact、mid_action、pre_action 类 sub_shot 只能做短重音，必须继承 parent_shot_id 的空间轴线，并在 state_delta 写清起点、路径、接触点、终点；不能把 sub_shot 写成新的独立机位或新事件。\n"
         "8. reset 阶段优先回到 two_shot_relation_reset、scene_fixed 关系景或 tailframe_reset 主镜头；如果尾帧停在局部、单人反应或手部细节，blocking 必须补回可继承的关系景或明确空间状态。\n"
@@ -2142,7 +2171,6 @@ def _run_story_planner_with_schema_repair(
                     error=exc,
                     attempt=attempt_index,
                     path="direct_llm_only",
-                    mcp_enabled=False,
                 )
             )
             if attempt_index == 1:
@@ -2177,7 +2205,6 @@ def _run_story_planner_with_schema_repair(
                 soft_validation_issues=soft_issues[:40],
                 agent_validation=agent_validation,
                 path="direct_llm_only",
-                mcp_enabled=False,
             )
         )
 
@@ -2197,37 +2224,13 @@ def _run_story_planner_with_schema_repair(
 
 
 def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
-    """Simplified validation for lean shot director schema.
-
-    Required fields per fragment: shots
-    Required fields per shot: shot_id, subject, camera, size, action, intent
-    Optional fields per shot: dialogue, type
-    """
-    issues: list[str] = []
-    for segment_name in expected_segments:
-        segment_num = re.sub(r"\D", "", segment_name)
-        fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
-        block_match = re.search(
-            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
-            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
-            director_output,
-        )
-        if not block_match:
-            issues.append(f"shot_director 缺少 {fragment_id} 的镜头设计。")
-            continue
-        block = block_match.group(1)
-
-        # Check for required top-level field: shots
-        if not re.search(r"shots\s*:", block):
-            issues.append(f"{fragment_id} 缺少 shots 字段。")
-            continue
-
-        # Check each shot for required fields
-        for field in ["shot_id", "subject", "camera", "size", "action", "intent"]:
-            if not re.search(rf"^\s*-?\s*{field}\s*:", block, re.MULTILINE):
-                issues.append(f"{fragment_id} 的 shots 缺少字段 {field}。")
-
-    return issues
+    return _collect_shot_director_issues(
+        director_output,
+        expected_segments=expected_segments,
+        script="",
+        planner_output="",
+        aspect_ratio="",
+    )
 
 
 _MAIN_SHOT_BLOCK_RE = re.compile(
@@ -3051,6 +3054,25 @@ _LISTENER_COVERAGE_RE = re.compile(r"(听者|对手|对方|受击|反应|反打|
 # 同一时间段内同时出现 左前方 + 右前方 即为跨轴
 _AXIS_LEFT_RE = re.compile(r"左前方")
 _AXIS_RIGHT_RE = re.compile(r"右前方")
+_SUBJECT_RELATIVE_LEFT_RIGHT_CAMERA_RE = re.compile(
+    r"(?:摄影机|机位|镜头)?(?:位于|在)?"
+    r"(?:商北琛|乔熙|严飞|苏小可|小豆丁|人物|主体|他|她|两人).{0,8}"
+    r"(?:左前方|右前方|左后方|右后方)"
+)
+_SAFE_CAMERA_POSITION_RE = re.compile(
+    r"(?:"
+    r"(?:摄影机|机位|镜头).{0,40}"
+    r"(?:同侧正面微侧|同侧过肩|同侧固定|办公桌侧面|门口侧面|正面|正前方|侧面|侧背|背后|过肩|门框侧|桌边侧|走廊侧|电梯侧|场景固定|固定机位|平稳跟拍|背后跟拍|肩后)"
+    r"|(?:同侧正面微侧机位|同侧过肩机位|同侧固定机位|办公桌侧面固定机位|门口侧面固定机位|正面固定机位|侧面固定机位|背后跟拍|平稳跟拍)"
+    r")"
+)
+_UNSTABLE_FRAME_COMPOSITION_RE = re.compile(
+    r"(?:"
+    r"站在(?:门框|窗框|框架)里|"
+    r"(?:门框|窗框).{0,8}(?:形成|构成).{0,8}(?:前景|压线|框景)|"
+    r"前景压线|框住人物|被(?:门框|窗框|框架)框住|框景压迫"
+    r")"
+)
 # 单段 prompt 内出现"反打"即视为跨轴硬失败
 _REVERSE_SHOT_INSIDE_SEGMENT_RE = re.compile(r"反打(?:至|镜头|过来)")
 
@@ -3176,7 +3198,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         issues.append(
             "- 机位/运镜存在模糊描述："
             + "、".join(ambiguous_camera_terms[:6])
-            + "。请改成摄影机位于人物正前方/左前方/右前方/背后+角度+镜头高度+固定/轨道/稳定器跟拍。"
+            + "。请改成简洁机位，例如同侧过肩机位、同侧固定机位、同侧正面微侧机位、办公桌侧面固定机位、背后跟拍。"
         )
 
     abstract_terms = [term for term in _ABSTRACT_PROMPT_TERMS if term in prompt]
@@ -3185,6 +3207,14 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
             "- Prompt 包含不可生成的抽象情绪判断："
             + "、".join(abstract_terms[:6])
             + "。请改写为停顿时长、视线方向、身体距离、站位变化、让路动作、电梯门状态等可见画面。"
+        )
+    unstable_frame_terms = sorted(set(match.group(0) for match in _UNSTABLE_FRAME_COMPOSITION_RE.finditer(prompt)))
+    if unstable_frame_terms:
+        issues.append(
+            "- Prompt 包含不稳定构图表达："
+            + "、".join(unstable_frame_terms[:5])
+            + "。请改成自然可执行表达，例如\"同侧过肩机位，从乔熙肩后看向门口，小豆丁站在门口等她\"；"
+            "门、窗、桌等只作为空间边界或阻隔物，不写成框住人物的构图术语。"
         )
 
     space_section = _prompt_section(prompt, "空间与首帧总控")
@@ -3217,11 +3247,8 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         if not _EMPLOYEE_FACE_LOCK_RE.search(prompt):
             issues.append("- 群演身份锁缺失：众员工/群演不得与命名人物相似、重复或同脸，应写成匿名差异化面孔/侧脸/背影/轻虚。")
 
-    if not re.search(
-        r"(?:摄影机|机位|镜头).{0,32}(?:正面|正前方|左前方|右前方|左侧|右侧|侧面|背后|左后方|右后方|场景固定|固定机位)",
-        prompt,
-    ):
-        issues.append('- Prompt 缺少可执行摄影机位置：至少一个时间段应明确"正面/左前方/右前方/侧面/背后/场景固定机位"等简洁机位。')
+    if not _SAFE_CAMERA_POSITION_RE.search(prompt):
+        issues.append('- Prompt 缺少可执行摄影机位置：至少一个时间段应明确简洁机位，例如"同侧过肩机位/同侧固定机位/同侧正面微侧机位/办公桌侧面固定机位/背后跟拍"。')
 
     unsafe_action_terms = [term for term in _UNSAFE_ACTION_TERMS if term in prompt]
     if unsafe_action_terms:
@@ -3437,6 +3464,14 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
                 "会让人物左右颠倒、背景翻面。请把这两个机位拆到不同 segment，并通过转身或场景固定机位过渡。"
             )
             break
+    for index, (_start, _end, body) in enumerate(timeline_blocks, start=1):
+        if _SUBJECT_RELATIVE_LEFT_RIGHT_CAMERA_RE.search(body):
+            issues.append(
+                f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 时间轴第 {index} 个时间段使用了人物相对左右机位："
+                "人物正面、背面或转身后左/右会反，视频模型无法稳定理解。请改成同侧轴线内的简洁机位，"
+                '例如"同侧过肩机位""同侧固定机位""同侧正面微侧机位""办公桌侧面固定机位"。'
+            )
+            break
 
     # === [PROMPT-CUT-BUDGET-001] 隐性切镜识别 ===
     # "同一机位继续 / 镜头保持" 后 60 字内若引入 "新主体名 + 新景别"，视为隐性切镜
@@ -3573,7 +3608,7 @@ def _extract_tail_frame_from_video(video_path: str, segment_index: int = 0) -> t
         if not ok:
             return None, None, "尾帧 JPEG 编码失败。"
 
-        output_dir = os.path.join(OUTPUT_DIR, "auto_tail_frames")
+        output_dir = os.path.join(_session_output_dir(), "agents", "segment_flow", "auto_tail_frames")
         os.makedirs(output_dir, exist_ok=True)
         safe_stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", os.path.splitext(os.path.basename(video_path))[0]).strip("._")
         safe_stem = safe_stem or "segment"
@@ -4394,6 +4429,83 @@ def _validate_shot_layout_output(layout_output: str, expected_segments: list[str
     return issues
 
 
+_CONSTRUCTION_SHEET_SHOT_FIELDS = [
+    "shot_id",
+    "subject",
+    "shot_size",
+    "camera_height",
+    "angle",
+    "movement",
+    "lens",
+    "depth",
+    "coverage_role",
+    "cut_reason",
+    "companion_visibility",
+    "tailframe_role",
+    "dialogue_coverage",
+    "transition_type",
+    "tail_state_card",
+]
+
+_CONSTRUCTION_SHEET_TRANSITIONS = {
+    "stay_on_A",
+    "cut_to_B",
+    "cut_back_to_A",
+    "scene_fixed",
+    "insert",
+    "cutaway",
+    "tailframe_reset",
+}
+
+
+def _uses_construction_sheet_schema(output: str) -> bool:
+    return bool(
+        re.search(r"(?m)^\s*schema_version\s*:\s*shot_director_v2\b", output or "")
+        or re.search(r"(?m)^\s*fragment_intent\s*:", output or "")
+        or re.search(r"(?m)^\s*tail_state_card\s*:", output or "")
+        or re.search(r"(?m)^\s*transition_type\s*:", output or "")
+    )
+
+
+def _validate_shot_director_construction_sheet(output: str, expected_segments: list[str]) -> list[str]:
+    issues: list[str] = []
+    vague_cut_reason_re = re.compile(
+        r"更有电影感|更有電影感|cinematic|looks good|more cinematic|高级|好看|氛围更强|情绪更强|杩囦簬绌烘硾|鐢靛奖鎰?",
+        re.IGNORECASE,
+    )
+    for segment_name in expected_segments:
+        segment_num = re.sub(r"\D", "", segment_name)
+        fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
+        block_match = re.search(
+            rf"(?m)(^\s*-?\s*fragment_id\s*:\s*[\"']?{re.escape(fragment_id)}[\"']?[\s\S]*?)"
+            rf"(?=\n\s*-?\s*fragment_id\s*:\s*[\"']?F\d+|\Z)",
+            output or "",
+        )
+        if not block_match:
+            issues.append(f"shot_director 缺少 {fragment_id} 的镜头设计。")
+            continue
+        fragment_block = block_match.group(1)
+        for field in ["fragment_intent", "reaction_coverage", "continuity_anchor", "shots"]:
+            if not re.search(rf"(?m)^\s*{field}\s*:", fragment_block):
+                issues.append(f"{fragment_id} 缺少 construction sheet 字段 {field}。")
+
+        shot_blocks = _main_shot_blocks(fragment_block)
+        if not shot_blocks:
+            issues.append(f"{fragment_id} 缺少 shots 明细。")
+            continue
+        for shot_id, shot_block in shot_blocks:
+            for field in _CONSTRUCTION_SHEET_SHOT_FIELDS:
+                if not re.search(rf"(?m)^\s*{field}\s*:", shot_block):
+                    issues.append(f"{shot_id} 缺少 construction sheet 字段 {field}。")
+            transition_type = _yaml_scalar_field(shot_block, "transition_type").strip().strip('"\'')
+            if transition_type and transition_type not in _CONSTRUCTION_SHEET_TRANSITIONS:
+                issues.append(f"{shot_id} transition_type 非法：{transition_type}。")
+            cut_reason = _yaml_line_field(shot_block, "cut_reason")
+            if vague_cut_reason_re.search(cut_reason or ""):
+                issues.append(f"{shot_id} cut_reason 杩囦簬绌烘硾，必须绑定信息、反应、动作路径、空间复位或尾帧交接。")
+    return issues
+
+
 def _collect_shot_director_issues(
     output: str,
     *,
@@ -4402,18 +4514,16 @@ def _collect_shot_director_issues(
     planner_output: str,
     aspect_ratio: str,
 ) -> list[str]:
-    """Simplified validation for lean schema.
-
-    Checks:
-    1. Basic structure validation (all fragments present, shots have required fields)
-    2. Script fidelity (no new characters/dialogue)
-    3. Source event coverage (dialogue handling)
-    """
-    issues = _validate_shot_director_output(output, expected_segments)
-    # Keep only essential validations - script fidelity and dialogue coverage
+    """Validate staged shot-director construction-sheet output."""
+    issues: list[str] = []
+    if _uses_construction_sheet_schema(output):
+        issues.extend(_validate_shot_director_construction_sheet(output, expected_segments))
+    else:
+        issues.extend(_validate_shot_layout_output(output, expected_segments))
     issues.extend(_validate_shot_director_script_fidelity(output, script))
     issues.extend(_validate_shot_director_dialogue_coverage(output))
-    issues.extend(_validate_shot_director_source_event_coverage(output, planner_output))
+    if planner_output:
+        issues.extend(_validate_shot_director_source_event_coverage(output, planner_output))
     return issues
 
 
@@ -4465,6 +4575,27 @@ def _shot_director_blocking_rule_block(aspect_ratio: str) -> str:
         f"{_blocking_camera_task_selection_rules()}\n"
         f"{_body_mechanics_contract_rules()}\n"
     )
+
+
+def _body_mechanics_contract_rules() -> str:
+    return (
+        "[Body Mechanics Contract]\n"
+        "1. When a shot contains body contact, movement path, entering/exiting, collision, handoff, or threshold crossing, keep the full body path readable.\n"
+        "2. Do not carry body mechanics with face-only, eye-only, hand-only, or prop-only closeups unless they are short sub_shots attached to a readable parent shot.\n"
+        "3. Preserve start point, path, contact point, and end state in action and state_delta fields.\n"
+        "4. Keep camera placement on a safe axis side and include companion_visibility when another character's position matters.\n"
+    )
+
+
+def _run_shot_director_review_board(*args: Any, **kwargs: Any) -> tuple[str, dict[str, Any], str]:
+    """Lazy wrapper for the split shot_director review board.
+
+    Keep this import inside the function so legacy imports do not create a
+    story_planner -> legacy_impl -> shot_director_impl -> story_planner cycle.
+    """
+    from . import shot_director_impl
+
+    return shot_director_impl._run_shot_director_review_board(*args, **kwargs)
 
 
 def _shot_director_layout_rule_block(aspect_ratio: str) -> str:
@@ -4773,6 +4904,122 @@ def _shot_director_stage_images(stage_key: str, images_base64: list[str] | None)
     return images_base64
 
 
+def _run_shot_director_three_stage_legacy(
+    *,
+    script: str,
+    planner_output: str,
+    atmosphere_strategy: str,
+    aspect_ratio: str,
+    expected_segments: list[str],
+    images_base64: list[str] | None,
+    director_hint: str,
+    director_brief: str = "",
+    stage_callback: Callable[[str, str, dict[str, Any], dict[str, dict[str, Any]]], None] | None = None,
+    resume_stage_outputs: dict[str, str] | None = None,
+    resume_stage_runtime: dict[str, dict[str, Any]] | None = None,
+    resume_stage_meta: dict[str, dict[str, Any]] | None = None,
+) -> tuple[str, dict[str, Any], dict[str, dict[str, Any]], dict[str, str]]:
+    """Restored staged shot-director workflow: layout -> blocking -> guard."""
+    resume_stage_outputs = resume_stage_outputs or {}
+    resume_stage_runtime = resume_stage_runtime or {}
+    stage_meta: dict[str, dict[str, Any]] = dict(resume_stage_meta or {})
+    stage_outputs: dict[str, str] = {}
+    runtimes: dict[str, Any] = {}
+
+    shared_context = _shot_director_shared_context(script, planner_output, atmosphere_strategy)
+    downstream_context = _shot_director_downstream_context(planner_output, atmosphere_strategy, aspect_ratio)
+    director_brief_block = _director_brief_prompt_block(director_brief)
+    if director_brief_block:
+        shared_context = director_brief_block + "\n" + shared_context
+        downstream_context = director_brief_block + "\n" + downstream_context
+
+    def persist(stage_name: str, output: str, runtime: dict[str, Any], retrieval_meta: dict[str, Any]) -> None:
+        stage_outputs[stage_name] = output
+        runtimes[stage_name] = runtime
+        stage_meta[stage_name] = retrieval_meta
+        if stage_callback:
+            stage_callback(stage_name, output, runtime, dict(stage_meta))
+
+    def run_stage(
+        stage_name: str,
+        role_description: str,
+        context_hint: str,
+        prompt_builder: Callable[[str], str],
+        contract_output: str,
+    ) -> str:
+        existing = (resume_stage_outputs.get(stage_name) or "").strip()
+        if existing:
+            output = _clean_shot_director_output(existing)
+            runtime = dict(resume_stage_runtime.get(stage_name) or {})
+            runtime.update({"agent_name": f"shot_director_{stage_name}", "mode": "resume", "status": "reused"})
+            retrieval_meta = stage_meta.get(stage_name) or {"retrieval_mode": "reused_from_pipeline_state"}
+            persist(stage_name, output, runtime, retrieval_meta)
+            return output
+
+        system_prompt, retrieval_meta = build_system_prompt(role_description, f"shot_director_{stage_name}", context_hint=context_hint)
+        stage_meta[stage_name] = retrieval_meta
+        if _shot_stage_should_split(expected_segments, contract_output):
+            output, runtime = _call_stage_split_by_fragment(
+                stage_key=f"shot_director_{stage_name}",
+                system_prompt=system_prompt,
+                expected_segments=expected_segments,
+                planner_output=planner_output,
+                aspect_ratio=aspect_ratio,
+                contract_output=contract_output,
+                prompt_builder=lambda fragment_id, fragment_context, fragment_contract: prompt_builder(
+                    f"{fragment_context}\n[Fragment Contract]\n{fragment_contract}\n\n只处理 {fragment_id}。"
+                ),
+            )
+        else:
+            output, runtime = _call_shot_director_stage(
+                stage_key=f"shot_director_{stage_name}",
+                system_prompt=system_prompt,
+                user_prompt=prompt_builder(contract_output),
+                images_base64=_shot_director_stage_images(f"shot_director_{stage_name}", images_base64),
+            )
+        persist(stage_name, output, runtime, retrieval_meta)
+        return output
+
+    layout_output = run_stage(
+        "layout",
+        _shot_director_layout_rule_block(aspect_ratio),
+        f"{director_hint} layout coverage camera skeleton space_rules",
+        lambda contract: (
+            f"{shared_context}\n{_shot_director_layout_context(planner_output, aspect_ratio)}\n\n"
+            "只输出 layout 阶段结果：space_rules + main_shot camera skeleton。"
+        ),
+        planner_output,
+    )
+    layout_output = _repair_shot_layout_output(layout_output)
+    persist("layout", layout_output, runtimes["layout"], stage_meta["layout"])
+
+    blocking_output = run_stage(
+        "blocking",
+        _shot_director_blocking_rule_block(aspect_ratio),
+        f"{director_hint} blocking reaction coverage action path second main shot",
+        lambda contract: (
+            f"{downstream_context}[Layout Output]\n{contract}\n\n"
+            "执行 blocking：补 reaction_coverage、event_coverage、state_chain、sub_shots，必要时补第二个 main_shot。"
+        ),
+        layout_output,
+    )
+
+    final_output = run_stage(
+        "final",
+        _shot_director_rule_block(aspect_ratio),
+        f"{director_hint} final guard continuity cut reasons dialogue coverage",
+        lambda contract: (
+            f"{downstream_context}[Blocking Output]\n{contract}\n\n"
+            "执行最终 guard：只做最小修正，确保空间、对白覆盖、切镜理由、动作路径、tailframe 交接成立。输出最终 YAML。"
+        ),
+        blocking_output,
+    )
+    final_output = _repair_shot_director_output_contracts(final_output, script)
+    persist("final", final_output, runtimes["final"], stage_meta["final"])
+    runtimes["final_source"] = "final"
+    return final_output, runtimes, stage_meta, stage_outputs
+
+
 def _run_shot_director_single_pass(
     *,
     script: str,
@@ -5013,10 +5260,15 @@ def shot_director_node(state: DirectorState) -> DirectorState:
         derived_total, segment_names = _derive_segments_from_planner_output(planner_output)
         if not total_segments:
             total_segments = derived_total
-    # For single-pass schema, check for "final" output instead of layout/blocking/guard
-    resume_stage_outputs = {
-        "final": outputs.get("shot_director", "")
-    } if outputs.get("shot_director") else {}
+    resume_stage_outputs = {}
+    if outputs.get("shot_director_layout"):
+        resume_stage_outputs["layout"] = outputs.get("shot_director_layout", "")
+    if outputs.get("shot_director_blocking"):
+        resume_stage_outputs["blocking"] = outputs.get("shot_director_blocking", "")
+    if outputs.get("shot_director_final"):
+        resume_stage_outputs["final"] = outputs.get("shot_director_final", "")
+    elif outputs.get("shot_director"):
+        resume_stage_outputs["final"] = outputs.get("shot_director", "")
     shot_meta = (state.get("knowledge_metadata") or {}).get("shot_director", {})
     resume_stage_runtime = shot_meta.get("runtime", {}) if isinstance(shot_meta, dict) else {}
     resume_stage_meta = shot_meta.get("stage_retrieval", {}) if isinstance(shot_meta, dict) else {}
@@ -5046,7 +5298,6 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             **stage_runtimes,
             "final_source": stage_name if stage_name == "final" else "in_progress",
             "path": "direct_llm_only",
-            "mcp_enabled": False,
             "total_elapsed_seconds": round(time.perf_counter() - shot_runtime_started, 3),
         }
         knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta_snapshot
@@ -5068,7 +5319,7 @@ def shot_director_node(state: DirectorState) -> DirectorState:
             },
         )
 
-    output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_single_pass(
+    output, shot_runtime, stage_meta, stage_outputs = _run_shot_director_three_stage_legacy(
         script=state.get("script", ""),
         planner_output=planner_output,
         atmosphere_strategy=state.get("atmosphere_strategy", ""),
@@ -5085,7 +5336,6 @@ def shot_director_node(state: DirectorState) -> DirectorState:
     knowledge_metadata = _record_knowledge_metadata(state, "shot_director", director_hint, stage_meta.get("final", {}))
     shot_runtime["total_elapsed_seconds"] = round(time.perf_counter() - shot_runtime_started, 3)
     shot_runtime["path"] = "direct_llm_only"
-    shot_runtime["mcp_enabled"] = False
     knowledge_metadata.setdefault("shot_director", {})["runtime"] = shot_runtime
     knowledge_metadata["shot_director"]["stage_retrieval"] = stage_meta
     print(f"  [shot_director] total elapsed {shot_runtime['total_elapsed_seconds']:.1f}s")
@@ -5423,7 +5673,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "如果镜头资产包含新施工单字段 duration / task / must_carry / cut_point / continuity，必须按下面方式编译成【镜头序列】：\n"
         "1. duration 只进入镜头编号后的秒数，例如 镜头1【4秒】；不要在最终 prompt 里写 duration 字段名。\n"
         "2. task 决定镜头功能，但最终只写成自然镜头动作，不要输出 task 字段名。\n"
-        "3. subject + size + camera 必须合成镜头行开头，例如【乔熙】中近景，右前方同侧过肩固定机位。\n"
+        "3. subject + size + camera 必须合成镜头行开头，例如【乔熙】中近景，桌边侧同侧过肩固定机位。\n"
         "4. action + dialogue 是镜头行主体；台词直接嵌入动作句中，OS/J-cut/L-cut 写成画外音或声音桥。\n"
         "5. must_carry 必须转译成画面里看得见的信息或反应，不能只放到约束里。\n"
         "6. cut_point 必须放进括号，写成（动作顶点前→镜头2）、（台词断点切至乔熙反应→镜头4）、（文件内容看清后→镜头3）这类具体触发。\n"
@@ -5459,11 +5709,11 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "2. camera_basis=subject_relative 时，只能用于人物朝向和位置稳定的说话/反应镜头；人物穿过门框、进入电梯、进入车门时必须改用 scene_fixed。\n"
         "3. visible_landmarks 只允许挑选当前镜头最必要的1-2个可见锚点翻译，不得把全部锚点硬塞进前景/中景/后景说明。\n"
         "4. subject_facing 和 angle 冲突时，优先修正 angle 或 visible_landmarks；不要保留互相打架的\"正面+朝门+后景门框\"。\n"
-        "5. camera_scene_position → 只在必须保持空间连续时翻译成短句；如果会造成歧义，改成人物相对机位，如\"商北琛侧后方中景\"。\n"
+        "5. camera_scene_position → 只在必须保持空间连续时翻译成短句；如果会造成歧义，改成同侧轴线内的简洁机位，如\"同侧过肩中近景\"\"办公桌侧面固定机位\"。\n"
         "6. visible_landmarks → 只挑一个当前镜头必要锚点写成短语，如\"电梯门旁\"；不要翻译成长串前景/中景/后景说明。\n"
         "7. subject_position/subject_facing → 只在必要时翻译成人物站位和朝向，如\"商北琛站在通道中，面朝电梯\"；不要写南侧/远端/近侧/外侧/内侧等多重方位链。\\n"
         "8. 摄影机后退可行性：如果人物面朝电梯/门口且机位在正前方0度，同速后退会让摄影机退进电梯/撞墙；"
-        "必须改用侧面跟拍或场景固定机位，或改用左前方45度/右前方45度。\n"
+        "必须改用侧面跟拍、背后跟拍、门框侧固定机位或场景固定机位，不得改用人物左前方/右前方。\n"
         "9. 视角翻转铺垫：相邻时间段不得从正面突变为背面（或反之），除非文本中明确写出人物转身动作；"
         "如需视角大幅变化，必须插入侧面过渡机位或在时间轴中写明转身动作。\n\n"
         "错误示例（绝对禁止出现在最终输出中）：camera_basis=scene_fixed，camera_scene_position=lobby_axis_between_entrance_and_elevator，visible_landmarks=lobby_entrance=background_center。\n"
@@ -5511,7 +5761,7 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
         "27. 【内部字段泄漏】是否出现 fragment_task、must_carry、cut_point、continuity、shot_id、fragment_id 等字段名？如有必须改写成自然中文镜头语言。\n"
         "全部通过后再输出。"
     )
-    output = call_llm_with_mcp(system_prompt, user_prompt, server_type="filesystem", images_base64=None, agent_name="prompt_compiler")
+    output = call_llm(system_prompt, user_prompt, images_base64=None, agent_name="prompt_compiler")
     output = _normalise_compiled_prompt(output, segment_index, state.get("script", ""))
     knowledge_metadata = _record_knowledge_metadata(state, "prompt_compiler", compiler_hint, retrieval_meta)
     try:
@@ -5537,176 +5787,6 @@ def prompt_compiler_node(state: DirectorState) -> DirectorState:
             "system_guard_report": guard_report,
         },
     )
-
-
-def _quality_report_rating(report: str) -> str | None:
-    match = re.search(r"(?:总体评级|overall\s*rating|rating)\s*[：:]\s*(pass|warn|fail)", report or "", re.IGNORECASE)
-    return match.group(1).lower() if match else None
-
-
-def _quality_section_body(report: str, keyword: str) -> str:
-    match = re.search(rf"【[^】]*{re.escape(keyword)}[^】]*】([\s\S]*?)(?=\n【|\Z)", report or "")
-    return match.group(1).strip() if match else ""
-
-
-def _quality_bullets(section: str, *, warn: bool = False) -> list[str]:
-    empty_values = {"无", "none", "None", "NONE", "（无）", "(无)"}
-    issues: list[str] = []
-    for line in (section or "").splitlines():
-        stripped = line.strip()
-        if not stripped.startswith("-"):
-            continue
-        body = stripped.lstrip("-").strip()
-        if not body or body in empty_values:
-            continue
-        if warn and not body.startswith("[warn]"):
-            body = f"[warn] {body}"
-        issues.append(f"- {body}")
-    return issues
-
-
-def _normalise_merged_quality_report(report: str) -> tuple[str, list[str]] | None:
-    rating = _quality_report_rating(report)
-    if not rating:
-        return None
-
-    severe_issues = _quality_bullets(_quality_section_body(report, "严重问题"), warn=False)
-    optional_issues = _quality_bullets(_quality_section_body(report, "次要提示"), warn=True)
-    if rating == "fail":
-        return rating, severe_issues + optional_issues
-    if rating == "warn":
-        return rating, optional_issues or [f"- [warn] {issue.lstrip('-').strip()}" for issue in severe_issues]
-    return rating, []
-
-
-def _normalise_llm_quality_issues(status: str, issues: list[str]) -> list[str]:
-    if status == "pass":
-        return []
-    if status != "warn":
-        return issues
-    normalised: list[str] = []
-    for issue in issues:
-        body = issue.lstrip("-").strip()
-        if not body:
-            continue
-        if not body.startswith("[warn]"):
-            body = f"[warn] {body}"
-        normalised.append(f"- {body}")
-    return normalised
-
-
-def _run_llm_quality_inspector(
-    script: str,
-    prompt: str,
-    planner_segment: str,
-    director_segment: str,
-    segment_index: int,
-    rule_based_issues: list[str],
-) -> tuple[str, list[str], str]:
-    """可选的 LLM 深度质检层：仅在配置了 quality_inspector_llm_a 时启用。
-
-    返回：(status, additional_issues, merged_report)
-    - status: 'pass' / 'warn' / 'fail'
-    - additional_issues: 新发现的问题（不含 rule_based_issues）
-    - merged_report: 最终合并后的可读报告
-
-    若未配置，返回 ('skip', [], '') 表示调用方继续用规则质检结果。
-    """
-    if not _agent_configured("quality_inspector_llm_a"):
-        return "skip", [], ""
-
-    reviewers = [
-        ("quality_inspector_llm_a", "创意与叙事合理性审视", "检查镜头是否有戏剧张力、人物动机是否成立、节奏是否合理。"),
-        ("quality_inspector_llm_b", "规则与逻辑漏洞审视", "检查 prompt 是否违反知识库规则、是否存在空间不连续、是否编造剧本外内容。"),
-        ("quality_inspector_llm_c", "视觉与连续性审视", "检查画面描述是否可执行、镜头语言是否连贯、受击落点是否具体。"),
-    ]
-
-    review_reports: list[tuple[str, str]] = []
-    for agent_key, role_brief, focus in reviewers:
-        if not _agent_configured(agent_key):
-            continue
-        system_prompt = (
-            f"你是一位专业的短剧质检导演（{role_brief}）。\n"
-            f"{focus}\n"
-            "输出严格遵循以下格式：\n"
-            "总体评级：pass|warn|fail\n"
-            "问题清单：\n"
-            "- 每一条问题必须以\"- \"开头\n"
-            "- 仅列出真实存在的问题，没问题就写\"- 无\"\n"
-            "不要输出任何其他文字。"
-        )
-        user_prompt = (
-            f"【原始剧本（节选）】\n{script[:1200]}\n\n"
-            f"【第 {segment_index} 段故事规划】\n{planner_segment[:1200]}\n\n"
-            f"【第 {segment_index} 段分镜方案】\n{director_segment[:1200]}\n\n"
-            f"【第 {segment_index} 段最终 Prompt】\n{prompt}\n\n"
-            f"【规则质检已发现的问题】\n"
-            + ("\n".join(rule_based_issues) if rule_based_issues else "（无）")
-            + "\n\n请基于你的审视角度补充发现，不要重复上述规则质检已有的问题。"
-        )
-        try:
-            report = call_llm(system_prompt, user_prompt, agent_name=agent_key)
-        except Exception as exc:
-            print(f"  [quality_inspector] {agent_key} 调用失败：{exc}")
-            continue
-        if report and report.strip():
-            review_reports.append((role_brief, report.strip()))
-
-    if not review_reports:
-        return "skip", [], ""
-
-    # 解析每份报告的评级 + 问题条目
-    aggregated_issues: list[str] = []
-    any_fail = False
-    any_warn = False
-    for role_brief, report in review_reports:
-        m = re.search(r"总体评级[：:]\s*(pass|warn|fail)", report, re.IGNORECASE)
-        rating = (m.group(1) if m else "warn").lower()
-        if rating == "fail":
-            any_fail = True
-        elif rating == "warn":
-            any_warn = True
-        for line in report.splitlines():
-            line_stripped = line.strip()
-            if not line_stripped.startswith("-"):
-                continue
-            body = line_stripped.lstrip("-").strip()
-            if not body or body in {"无", "none", "None"}:
-                continue
-            aggregated_issues.append(f"- [{role_brief}] {body}")
-
-    # 若配置了 merger，再用 merger 做最终去重汇总
-    merged_report = ""
-    if _agent_configured("quality_inspector_merger") and review_reports:
-        try:
-            merger_system = (
-                "你是质检汇总导演。以下是三位独立质检师的审查报告。\n"
-                "任务：去重、按严重度分级，输出一份清晰的最终清单。\n"
-                "输出格式：\n"
-                "总体评级：pass|warn|fail\n"
-                "【严重问题（需返修）】\n- ...\n"
-                "【次要提示（可选优化）】\n- ...\n"
-                '没有的类目直接写"- 无"。不要输出其他解释。'
-            )
-            merger_user = (
-                f"【规则质检已列】\n{(chr(10).join(rule_based_issues)) or '（无）'}\n\n"
-                + "\n\n".join(f"【{role}】\n{rep}" for role, rep in review_reports)
-            )
-            merged_report = call_llm(merger_system, merger_user, agent_name="quality_inspector_merger").strip()
-            normalised_merged = _normalise_merged_quality_report(merged_report)
-            if normalised_merged:
-                return normalised_merged[0], normalised_merged[1], merged_report
-        except Exception as exc:
-            print(f"  [quality_inspector] merger 调用失败，使用原始汇总：{exc}")
-
-    if any_fail:
-        final_status = "fail"
-    elif any_warn or aggregated_issues:
-        final_status = "warn"
-    else:
-        final_status = "pass"
-
-    return final_status, _normalise_llm_quality_issues(final_status, aggregated_issues), merged_report
 
 
 def quality_inspector_node(state: DirectorState) -> DirectorState:
@@ -5766,52 +5846,30 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单时间段轴线锁 — 检查编译后 prompt ===
     compiled_timeline_blocks = _timeline_blocks(prompt)
     for block_idx, (_blk_start, _blk_end, blk_body) in enumerate(compiled_timeline_blocks, start=1):
+        if _SUBJECT_RELATIVE_LEFT_RIGHT_CAMERA_RE.search(blk_body):
+            qc_issues.append(
+                f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 的时间轴第 {block_idx} 个时间段"
+                "使用了人物相对左右机位。人物正面、背面或转身后左/右会反，模型无法稳定理解；"
+                "必须改成同侧轴线内的简洁机位。"
+            )
+            break
         if _AXIS_LEFT_RE.search(blk_body) and _AXIS_RIGHT_RE.search(blk_body):
             qc_issues.append(
                 f"- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 的时间轴第 {block_idx} 个时间段"
                 '同时出现"左前方"和"右前方"机位（跨 180° 轴线）。'
                 "Seedance 单次生成无法跨轴反打，会让人物左右颠倒、背景翻面。"
-                "单段 prompt 只能选一个轴线侧（全部\"右前方\"或全部\"左前方\"），拆轴必须拆 segment。"
+                "单段 prompt 必须保持同侧轴线，拆轴必须拆 segment。"
             )
             break
 
     fail_issues = [i for i in qc_issues if not i.strip().startswith("- [warn]")]
     qc_status = "fail" if fail_issues else ("warn" if qc_issues else "pass")
 
-    # 可选：LLM 深度质检（三票会审 + 合并）——配置了 quality_inspector_llm_a 才触发
-    llm_status = "skip"
-    llm_issues: list[str] = []
-    llm_merged = ""
-    try:
-        llm_status, llm_issues, llm_merged = _run_llm_quality_inspector(
-            script=state.get("script", ""),
-            prompt=prompt,
-            planner_segment=planner_segment,
-            director_segment=director_segment,
-            segment_index=segment_index,
-            rule_based_issues=qc_issues,
-        )
-    except Exception as exc:
-        print(f"  [quality_inspector] LLM 深度质检整体异常，使用规则质检：{exc}")
-        llm_status = "skip"
-
-    if llm_status != "skip":
-        # LLM 报告允许把 pass 升级为 warn，把 warn 升级为 fail（不允许降级）
-        severity_rank = {"pass": 0, "warn": 1, "fail": 2}
-        if severity_rank[llm_status] > severity_rank[qc_status]:
-            qc_status = llm_status
-        if llm_issues:
-            qc_issues.extend(_normalise_llm_quality_issues(llm_status, llm_issues))
-        fail_issues = [i for i in qc_issues if not i.strip().startswith("- [warn]")]
-        qc_status = "fail" if fail_issues else ("warn" if qc_issues else "pass")
-
     report_sections = [
         f"总体评级：{qc_status}",
         "【知识驱动质检】",
         ("\n".join(qc_issues) if qc_issues else "无"),
     ]
-    if llm_merged:
-        report_sections.append("\n【LLM 深度质检汇总】\n" + llm_merged)
     output = "\n".join(report_sections)
 
     outputs[f"quality_inspector_segment_{segment_index}"] = output
@@ -6209,21 +6267,21 @@ from .rhythm_rewrite_impl import (  # noqa: E402
     _validate_rhythm_structure_lock,
     _rhythm_insert_continuity_rules,
     _validate_rhythm_insert_continuity,
-    rhythm_rewrite_director_node,
+    rhythm_rewrite_director_node,  # noqa: F811
 )
 
 
 # --- planning_context shim: re-export from planning_context_impl for backward compatibility ---
 from .planning_context_impl import (  # noqa: E402
-    director_showrunner_node,
-    scene_analyst_node,
+    director_showrunner_node,  # noqa: F811
+    scene_analyst_node,  # noqa: F811
 )
 
 
 # --- segment_flow shim: re-export from segment_flow_impl for backward compatibility ---
 from .segment_flow_impl import (  # noqa: E402
-    route_after_segment,
-    segment_complete_node,
-    wait_for_segment_request_node,
+    route_after_segment,  # noqa: F811
+    segment_complete_node,  # noqa: F811
+    wait_for_segment_request_node,  # noqa: F811
 )
 

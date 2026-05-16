@@ -1,0 +1,128 @@
+source_id: SHORT-DRAMA-SAMPLES-94-20260516
+template_type: rhythm_control
+status: draft
+derived_from:
+  sample_dir: H:\样片
+  report: output/short_drama_analysis_full_20260516_105744/short_drama_shot_director_report.md
+  shot_records: output/short_drama_analysis_full_20260516_105744/shot_records.csv
+global_statistics:
+  video_count: 94
+  detected_shots: 3410
+  average_shot_duration_s: 3.21
+  median_shot_duration_s: 1.92
+  p25_shot_duration_s: 0.96
+  p75_shot_duration_s: 3.84
+  short_cut_lte_1_2s_ratio: 0.258
+  regular_1_2_to_3_0s_ratio: 0.440
+  long_gt_3_0s_ratio: 0.302
+core_principles:
+  - 快节奏不等于乱切特写；优先压缩关系景和半身景的时长。
+  - 节奏导演只给时间预算、事件密度、可压缩弱拍、不可省略落点和尾帧要求，不写具体机位。
+  - 同一观众问题未完成前，优先保持为一个片段，在片段内部写快慢变化。
+  - 反应落点、身份揭示、道具爆点必须给最小停留时间，不能被快切吞掉。
+rhythm_bands:
+  compact_domestic_pressure:
+    applies_when:
+      - 赶时间
+      - 穿衣、收拾、拿包、找东西、电话催促
+      - 家庭动作和短台词叠压
+    target_duration_s: 8-14
+    target_asl_s: 1.4-2.6
+    shots_per_5s: 2-3
+    min_reaction_hold_s: 0.4
+    segment_policy: 同一生活动作群保持一段，内部写前急后停。
+    compressible:
+      - 重复整理动作
+      - 无信息走位
+      - 低价值手部微动作
+    non_omittable:
+      - 催促来源
+      - 抗拒动作
+      - 妥协或情绪转折
+      - 尾帧道具/人物状态
+  high_pressure_reveal:
+    applies_when:
+      - 新老板到场
+      - 旧人重逢
+      - 身份揭示
+      - 人群等待或压迫
+    target_duration_s: 10-16
+    target_asl_s: 1.6-3.0
+    shots_per_5s: 2-3
+    min_reaction_hold_s: 0.6
+    segment_policy: 到场动作、揭示主体、主角受击反应应在同一爆点段内完成。
+    compressible:
+      - 群演重复整理
+      - 车辆缓慢移动的中间过程
+      - 无台词等待
+    non_omittable:
+      - 压力源出现
+      - 关键人物露面
+      - 主角识别反应
+      - 尾帧身份冲击状态
+  closed_space_dialogue_pressure:
+    applies_when:
+      - 电梯、车内、走廊角落、办公室近距离对峙
+      - 双人调侃、逼问、沉默、尴尬
+    target_duration_s: 10-16
+    target_asl_s: 2.0-3.5
+    shots_per_5s: 1.5-2.5
+    min_reaction_hold_s: 0.7
+    segment_policy: 问句、受击抬头、二次逼问、尴尬收束按关系-反应-关系-动作-关系闭环。
+    compressible:
+      - 无变化的对视
+      - 过度手部细节
+      - 重复尴尬动作
+    non_omittable:
+      - 说话者关系位置
+      - 被击中反应
+      - 身体状态单向变化
+      - 结束时距离关系
+  prop_reveal_emotional_stop:
+    applies_when:
+      - 照片、戒指、文件、手机内容、亲子物件触发回忆
+      - 人物突然僵住或情绪被击中
+    target_duration_s: 8-13
+    target_asl_s: 2.0-4.0
+    shots_per_5s: 1-2
+    min_reaction_hold_s: 0.8
+    segment_policy: 道具出现和人物识别反应不能拆太远，反应后允许停半拍。
+    compressible:
+      - 道具滑落前的重复动作
+      - 低价值找寻动作
+    non_omittable:
+      - 道具来源
+      - 道具落点
+      - 人物识别动作
+      - 情绪停住
+  low_cut_emotional_hold:
+    applies_when:
+      - 等待、隐忍、压抑、长台词解释、慢性对峙
+      - 场面没有连续新动作，但表情和关系压力在变化
+    target_duration_s: 10-20
+    target_asl_s: 4.0-8.0
+    shots_per_5s: 0.5-1.2
+    min_reaction_hold_s: 1.0
+    segment_policy: 不为制造节奏硬切；用表情、视线、身体停顿和空间压迫撑住。
+    compressible:
+      - 说明性空镜
+      - 重复听反应
+    non_omittable:
+      - 话语压力
+      - 决定性眼神变化
+      - 收束姿态
+handoff_contract:
+  rhythm_control_contract:
+    version: "1"
+    required_fields:
+      - rhythm_diagnosis
+      - segment_duration_policy
+      - shot_rhythm_policy
+      - quality_check_tasks
+      - risks
+    forbidden_fields:
+      - 具体镜头编号
+      - 具体机位
+      - 运镜方案
+      - 新剧情动作
+      - 新台词

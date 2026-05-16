@@ -3,21 +3,60 @@ rule_id: SHOT-CONFLICT-COVERAGE-001
 title: 冲突戏必须覆盖施压与受击
 doc_type: rule_card
 rule_type: shot_calling
+owner_agent: shot_director
 agent_scope:
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: conflict_coverage
 runtime_retrieval: true
+retrieval_key:
+- shot-conflict-coverage-001
+- signals.action_coverage
+- events.collision
+- events.reaction
+- risks.privacy_body
+- risks.blood_avoidance
+- dialogue_types.argument_escalation
+- dialogue_types.reaction_beat
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- 冲突戏
+- 信息炸点
+- 受击反应
+avoid_when:
+- "no_pressure_or_impact_beat"
+- "pure_exposition_without_reaction_need"
+failure_mode:
+- "pressure_only_without_hit_reaction"
+output_contract: "Cover pressure source, visible hit reaction, and short aftermath pause."
+example_good: "施压者说出炸点，切受击者反应，再留半拍停顿。"
+example_bad: "施压者一直说，受击者没有镜头。"
+signals:
+- action_coverage
+scene_types:
+- action
+- intimacy_privacy
+events:
+- collision
+- reaction
+risks:
+- privacy_body
+- blood_avoidance
+dialogue_types:
+- argument_escalation
+- reaction_beat
+applies_to:
+- 冲突戏
+- 信息炸点
+- 受击反应
 source_files:
-  - knowledge/20_镜头库与机位库.md
+- knowledge/20_镜头库与机位库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 冲突戏
-  - 信息炸点
-  - 受击反应
 ---
 
 # 冲突戏必须覆盖施压与受击

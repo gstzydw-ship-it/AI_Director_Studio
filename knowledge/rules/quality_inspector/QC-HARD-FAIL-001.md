@@ -3,20 +3,61 @@ rule_id: QC-HARD-FAIL-001
 title: Hard规则违反必须阻断
 doc_type: rule_card
 rule_type: quality_control
+owner_agent: quality_inspector
 agent_scope:
-  - quality_inspector
-priority: hard
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: quality_gate
 runtime_retrieval: true
+retrieval_key:
+- qc-hard-fail-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.door_state
+- risks.door_state_jump
+- risks.romanticize_collision
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- 质检
+- fail阻断
+- hard规则
+avoid_when:
+- "issue_is_style_preference_not_hard_rule"
+- "upstream_input_missing_enough_context_to_verify"
+- "already_returned_to_upstream_for_schema_repair"
+failure_mode:
+- "blocking_rule_violation_marked_as_complete"
+output_contract: "命中任一 hard 条件必须 status: fail，并给 failed_rule_id、evidence、required_repair。"
+example_good: "status: fail；door_state 从 closed 又 open，required_repair=保持关闭或给触发动作。"
+example_bad: "status: pass；有一点连续性问题但不影响整体生成。"
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- collision
+- door_state
+risks:
+- door_state_jump
+- romanticize_collision
+applies_to:
+- 质检
+- fail阻断
+- hard规则
 source_files:
-  - knowledge/00_知识库优先级与冲突裁决规则.md
-  - knowledge/17_结果质检与回溯修正规则.md
+- knowledge/00_知识库优先级与冲突裁决规则.md
+- knowledge/17_结果质检与回溯修正规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 质检
-  - fail阻断
-  - hard规则
 ---
 
 # Hard规则违反必须阻断

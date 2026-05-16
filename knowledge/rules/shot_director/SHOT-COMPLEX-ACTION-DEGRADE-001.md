@@ -3,25 +3,70 @@ rule_id: SHOT-COMPLEX-ACTION-DEGRADE-001
 title: 复杂物理动作必须蒙太奇降级
 doc_type: rule_card
 rule_type: action_safety
+owner_agent: shot_director
 agent_scope:
-  - shot_director
-  - quality_inspector
-priority: hard
+- shot_director
+- quality_inspector
+- prompt_compiler
+priority: P0
 status: active
+pipeline_stage: action_safety_degrade
 runtime_retrieval: true
-source_files:
-  - knowledge/14_动作描述精细化控制规则.md
-  - knowledge/21_镜头调用规则与多机位模板.md
-conflicts_with:
-  - ACTION-COLLISION-001
-supersedes: []
+retrieval_key:
+- shot-complex-action-degrade-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.reaction
+- risks.romanticize_collision
+- risks.axis_confusion
+- risks.privacy_body
+- risks.blood_avoidance
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- 打脸
+- 推搡
+- 抢夺
+avoid_when:
+- "simple_low_risk_action"
+- "explicit_no_contact_contract"
+failure_mode:
+- "unsafe_full_contact_physics_in_one_shot"
+output_contract: "Degrade complex contact into 2-4 safe montage shots: setup, pre-impact cutout, reaction, result hint."
+example_good: "手部前摇后在接触前切走，再给受击反应和散落道具。"
+example_bad: "一个全景完整展示击打、倒地和多人推搡。"
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- collision
+- reaction
+risks:
+- romanticize_collision
+- axis_confusion
+- privacy_body
+- blood_avoidance
 applies_to:
-  - 打脸
-  - 推搡
-  - 抢夺
-  - 撞击
-  - 群体冲突
-  - 高风险身体接触
+- 打脸
+- 推搡
+- 抢夺
+- 撞击
+- 群体冲突
+- 高风险身体接触
+source_files:
+- knowledge/14_动作描述精细化控制规则.md
+- knowledge/21_镜头调用规则与多机位模板.md
+conflicts_with:
+- ACTION-COLLISION-001
+supersedes: []
 ---
 
 # 复杂物理动作必须蒙太奇降级

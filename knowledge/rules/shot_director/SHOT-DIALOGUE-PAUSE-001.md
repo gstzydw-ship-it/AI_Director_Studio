@@ -1,24 +1,61 @@
-﻿---
+---
 rule_id: SHOT-DIALOGUE-PAUSE-001
 title: 长对白必须切出气口
 doc_type: rule_card
 rule_type: dialogue_rhythm
+owner_agent: shot_director
 agent_scope:
-  - shot_director
-  - quality_inspector
-priority: hard
+- shot_director
+- quality_inspector
+- prompt_compiler
+priority: P0
 status: active
+pipeline_stage: dialogue_rhythm
 runtime_retrieval: true
+retrieval_key:
+- shot-dialogue-pause-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.reaction
+- dialogue_types.long_dialogue_compression
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 长对白
+- 语言对峙
+- 反应镜头
+avoid_when:
+- "short_dialogue_under_4_seconds"
+- "no_safe_phrase_boundary"
+failure_mode:
+- "long_dialogue_overloaded_in_single_shot"
+output_contract: "Split long dialogue only at punctuation or phrase boundary; insert 1.0-2.5s silent reaction or clue."
+example_good: "前半句给说话者，停在听者反应，再回到说话者。"
+example_bad: "删改台词后用无意义走路填气口。"
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+events:
+- reaction
+dialogue_types:
+- long_dialogue_compression
+- reaction_beat
+applies_to:
+- 长对白
+- 语言对峙
+- 反应镜头
+- 微停顿
 source_files:
-  - knowledge/04_对白与表演镜头规则.md
-  - knowledge/15_故事节奏控制规则.md
+- knowledge/04_对白与表演镜头规则.md
+- knowledge/15_故事节奏控制规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 长对白
-  - 语言对峙
-  - 反应镜头
-  - 微停顿
 ---
 
 # 长对白必须切出气口

@@ -190,6 +190,25 @@ def _check_raw_sources(errors: list[str]) -> None:
             errors.append(f"{path.name}: {metadata.get('status')} files must set runtime_retrieval: false")
 
 
+def _check_case_cards_are_not_runtime(errors: list[str]) -> None:
+    for path in sorted((KNOWLEDGE_DIR / "cases").glob("*.md")):
+        metadata = _frontmatter(_read_text(path))
+        if metadata.get("doc_type") == "case_card" and metadata.get("runtime_retrieval") is not False:
+            errors.append(f"cases/{path.name}: case_card files must set runtime_retrieval: false")
+
+
+def _check_reference_docs_are_not_runtime(errors: list[str]) -> None:
+    non_runtime_doc_types = {"casebook", "case_library", "reference_library", "research_report", "raw_source"}
+    for path in sorted(KNOWLEDGE_DIR.rglob("*")):
+        if path.suffix.lower() not in {".md", ".yaml", ".yml"}:
+            continue
+        metadata = _frontmatter(_read_text(path))
+        doc_type = str(metadata.get("doc_type", "")).strip()
+        if doc_type in non_runtime_doc_types and metadata.get("runtime_retrieval") is not False:
+            relpath = path.relative_to(KNOWLEDGE_DIR).as_posix()
+            errors.append(f"{relpath}: {doc_type} files must set runtime_retrieval: false")
+
+
 def _check_duplicate_local_rules(warnings: list[str]) -> None:
     rule_heading = re.compile(r"^###\s*规则\s+(R-\d+)[：:]\s*(.*)$")
 
@@ -238,6 +257,8 @@ def run_checks(strict_duplicates: bool = False) -> tuple[list[str], list[str]]:
         _check_registry(registry, errors, warnings)
     _check_agent_mappings(errors)
     _check_raw_sources(errors)
+    _check_case_cards_are_not_runtime(errors)
+    _check_reference_docs_are_not_runtime(errors)
     _check_duplicate_local_rules(warnings)
     _check_duplicate_h2_sections(warnings)
 

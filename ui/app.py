@@ -11,10 +11,20 @@ import asyncio
 import threading
 import traceback
 import re
+import ast
 import shutil
+import copy
+import ipaddress
+import socket
+import time
 from io import BytesIO
 from datetime import datetime
+from time import perf_counter
+from typing import Any, Iterable
+from urllib.parse import urlparse
 
+import httpx
+import yaml
 from fastapi import FastAPI, Request, UploadFile, File, Form
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -27,9 +37,9 @@ import uvicorn
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 
-from agents.knowledge_base import build_vectordb, load_config
+from agents.knowledge_base import build_vectordb, knowledge_index_status, load_config
 from agents.request_context import request_scope
-from agents.utils import COMFLY_BASE_URL
+from agents.utils import COMFLY_BASE_URL, get_config_path, get_public_config_path
 
 
 app = FastAPI(title="智能导演多Agent团队", version="0.2.0")
@@ -63,6 +73,14 @@ SESSION_ID_RE = re.compile(r"[^A-Za-z0-9_-]")
 task_states: dict[str, dict] = {}
 active_task_generations: dict[str, int] = {}
 active_task_threads: dict[str, threading.Thread] = {}
+vectordb_build_lock = threading.Lock()
+vectordb_build_status: dict[str, str] = {
+    "status": "idle",
+    "message": "向量知识库尚未构建",
+    "error": "",
+    "started_at": "",
+    "finished_at": "",
+}
 
 RUNNING_STATUSES = {"running", "running_phase_1", "running_phase_2"}
 BLOCKING_STATUSES = RUNNING_STATUSES | {"waiting_for_user_input"}
@@ -92,18 +110,37 @@ def _bump_task_generation(session_id: str) -> int:
 
 
 def _has_live_task(session_id: str) -> bool:
-    thread = active_task_threads.get(_normalise_session_id(session_id))
-    return bool(thread and thread.is_alive())
+    session_id = _normalise_session_id(session_id)
+    thread = active_task_threads.get(session_id)
+    if not thread or not thread.is_alive():
+        active_task_threads.pop(session_id, None)
+        return False
+
+    state = task_states.get(session_id) or {}
+    if state.get("status") not in RUNNING_STATUSES:
+        active_task_threads.pop(session_id, None)
+        _append_task_log(
+            session_id,
+            "stale_live_thread_cleared",
+            thread_name=getattr(thread, "name", ""),
+            status=state.get("status"),
+            step=state.get("step"),
+        )
+        return False
+    return True
 
 
 def _register_task_thread(session_id: str, thread: threading.Thread) -> None:
-    active_task_threads[_normalise_session_id(session_id)] = thread
+    session_id = _normalise_session_id(session_id)
+    active_task_threads[session_id] = thread
+    _append_task_log(session_id, "thread_registered", thread_name=thread.name, thread_id=thread.ident)
 
 
 def _unregister_task_thread(session_id: str) -> None:
     session_id = _normalise_session_id(session_id)
     if active_task_threads.get(session_id) is threading.current_thread():
         active_task_threads.pop(session_id, None)
+        _append_task_log(session_id, "thread_unregistered", thread_name=threading.current_thread().name)
 
 
 def _parse_iso_datetime(value: str | None) -> datetime | None:
@@ -117,6 +154,33 @@ def _parse_iso_datetime(value: str | None) -> datetime | None:
 
 def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _append_task_log(session_id: str, event: str, **fields: Any) -> None:
+    session_id = _normalise_session_id(session_id)
+    entry = {
+        "ts": _now_iso(),
+        "session_id": session_id,
+        "event": event,
+        **fields,
+    }
+    try:
+        os.makedirs(_session_output_dir(session_id), exist_ok=True)
+        with open(os.path.join(_session_output_dir(session_id), "task_events.log"), "a", encoding="utf-8") as file:
+            file.write(json.dumps(entry, ensure_ascii=False, default=str) + "\n")
+    except Exception as exc:
+        print(f"  [TaskLog] WARN: unable to write task log for {session_id}: {exc}")
+
+
+def _state_log_summary(state: dict) -> dict:
+    return {
+        "status": state.get("status"),
+        "step": state.get("step"),
+        "message": state.get("message"),
+        "review_agent": state.get("review_agent"),
+        "current_segment_index": state.get("current_segment_index"),
+        "active_segment_index": state.get("active_segment_index"),
+    }
 
 
 def _touch_task_progress(state: dict, now: str | None = None) -> None:
@@ -191,6 +255,10 @@ def _session_output_dir(session_id: str) -> str:
     return os.path.join(OUTPUT_DIR, "sessions", _normalise_session_id(session_id))
 
 
+def _session_subdir(session_id: str, *parts: str) -> str:
+    return os.path.join(_session_output_dir(session_id), *parts)
+
+
 def _migrate_legacy_state_if_needed(session_id: str) -> bool:
     """Move a pre-share-mode global task snapshot into the current session."""
     session_id = _normalise_session_id(session_id)
@@ -224,7 +292,10 @@ def _migrate_legacy_state_if_needed(session_id: str) -> bool:
 
 # Agent 角色名 → 存储 key 的映射
 _AGENT_KEY_MAP = {
+    "剧情增强导演": "director_showrunner",
+    "总导演统筹": "director_showrunner",
     "节奏总控导演": "rhythm_rewrite_director",
+    "节奏拆片导演": "story_planner",
     "场景分析师": "scene_analyst",
     "结构规划师": "story_planner",
     "镜头导演": "shot_director",
@@ -234,19 +305,338 @@ _AGENT_KEY_MAP = {
 }
 
 _AGENT_DISPLAY_NAMES = {
-    "rhythm_rewrite_director": "🎼 节奏改写",
-    "scene_analyst": "📋 场景分析",
-    "story_planner": "🎬 结构规划",
+    "director_showrunner": "📝 剧情增强",
+    "rhythm_rewrite_director": "🎬 节奏拆片摘要",
+    "scene_analyst": "📋 场景预分析",
+    "scene_vision_analyst": "📷 场景视觉分析",
+    "story_planner": "🎬 节奏拆片导演",
     "shot_director": "🎥 镜头设计",
     "storyboard_designer": "🎨 分镜流程图",
     "prompt_compiler": "✍️ Seedance Prompt",
     "quality_inspector": "🔍 质检报告",
 }
 
+RUNTIME_EVENT_NAMES = {
+    "thread_registered",
+    "thread_unregistered",
+    "knowledge_retrieval_started",
+    "knowledge_retrieval_completed",
+    "knowledge_retrieval_failed",
+    "llm_model_selected",
+    "llm_route_fallback",
+    "llm_attempt_started",
+    "llm_attempt_succeeded",
+    "llm_attempt_failed",
+    "llm_retry_wait",
+    "llm_proxy_fallback",
+    "llm_model_fallback",
+    "llm_failed",
+}
+
+
+def _runtime_event_logger(session_id: str):
+    session_id = _normalise_session_id(session_id)
+
+    def _log(event: str, **fields: Any) -> None:
+        _append_task_log(session_id, event, **fields)
+
+    return _log
+
+
+def _safe_list(value: Any, *, limit: int = 5) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        items = [value]
+    elif isinstance(value, dict):
+        items = [f"{key}: {val}" for key, val in value.items()]
+    elif isinstance(value, (list, tuple, set)):
+        items = list(value)
+    else:
+        items = [value]
+    cleaned: list[str] = []
+    for item in items:
+        text = str(item or "").strip()
+        if text:
+            cleaned.append(text[:120])
+        if len(cleaned) >= limit:
+            break
+    return cleaned
+
+
+def _read_task_events(session_id: str, *, limit: int = 120) -> list[dict[str, Any]]:
+    path = os.path.join(_session_output_dir(session_id), "task_events.log")
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as file:
+            lines = file.readlines()[-limit:]
+    except OSError:
+        return []
+    entries: list[dict[str, Any]] = []
+    for line in lines:
+        try:
+            entry = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(entry, dict) and entry.get("event") in RUNTIME_EVENT_NAMES:
+            entries.append(entry)
+    return entries
+
+
+def _runtime_event_view(entry: dict[str, Any]) -> dict[str, Any]:
+    event = str(entry.get("event") or "")
+    agent = str(entry.get("agent_name") or "")
+    label = _AGENT_DISPLAY_NAMES.get(agent, agent or "系统")
+    route_host = str(entry.get("route_host") or "")
+    model = str(entry.get("model") or entry.get("active_model") or "")
+    phase = "system"
+    status = "info"
+    title = event
+    detail = ""
+
+    if event == "thread_registered":
+        title = "后台任务已启动"
+        detail = str(entry.get("thread_name") or "")
+        status = "running"
+    elif event == "thread_unregistered":
+        title = "后台任务已结束"
+        detail = str(entry.get("thread_name") or "")
+        status = "done"
+    elif event == "knowledge_retrieval_started":
+        phase = "knowledge"
+        title = f"{label} 调用知识库"
+        detail = f"检索模式：{entry.get('retrieval_mode') or 'smart'}"
+        if entry.get("context_hint_preview"):
+            detail += f"；检索线索：{entry.get('context_hint_preview')}"
+        status = "running"
+    elif event == "knowledge_retrieval_completed":
+        phase = "knowledge"
+        status = "done"
+        result_count = entry.get("result_count")
+        sources = _safe_list(entry.get("matched_sources"), limit=4)
+        rules = _safe_list(entry.get("registry_rule_ids"), limit=6)
+        title = f"{label} 知识库命中"
+        detail = f"返回 {result_count if result_count is not None else 0} 条"
+        if rules:
+            detail += "；规则：" + "、".join(rules)
+        if sources:
+            detail += "；来源：" + "、".join(sources)
+    elif event == "knowledge_retrieval_failed":
+        phase = "knowledge"
+        status = "error"
+        title = f"{label} 知识库检索失败"
+        detail = f"{entry.get('error_type') or 'Error'}；fallback={bool(entry.get('fallback_to_full_knowledge'))}"
+    elif event == "llm_model_selected":
+        phase = "llm"
+        status = "running"
+        title = f"{label} 选择大模型"
+        detail = f"{model}" + (f" @ {route_host}" if route_host else "")
+        if entry.get("fallback"):
+            detail += "（fallback）"
+        if entry.get("image_count"):
+            detail += f"；参考图 {entry.get('image_count')} 张"
+    elif event == "llm_attempt_started":
+        phase = "llm"
+        status = "running"
+        title = f"{label} 正在连接大模型"
+        detail = f"{model} 第 {entry.get('attempt')}/{entry.get('max_retries')} 次"
+        if route_host:
+            detail += f" @ {route_host}"
+        if entry.get("proxy_mode"):
+            detail += f"；网络：{entry.get('proxy_mode')}"
+    elif event == "llm_attempt_succeeded":
+        phase = "llm"
+        status = "done"
+        title = f"{label} 大模型返回"
+        detail = f"{model}；{entry.get('output_chars') or 0} 字；耗时 {entry.get('elapsed_seconds') or 0}s"
+    elif event == "llm_attempt_failed":
+        phase = "llm"
+        status = "warning" if entry.get("retryable") else "error"
+        title = f"{label} 大模型调用失败"
+        detail = f"{model} 第 {entry.get('attempt')} 次；{entry.get('error_type') or 'Error'}"
+    elif event == "llm_retry_wait":
+        phase = "llm"
+        status = "warning"
+        title = f"{label} 等待重试"
+        detail = f"{entry.get('wait_seconds') or 0}s 后第 {entry.get('next_attempt')} 次尝试"
+    elif event == "llm_proxy_fallback":
+        phase = "llm"
+        status = "warning"
+        title = f"{label} 切换系统代理重试"
+        detail = model
+    elif event == "llm_model_fallback":
+        phase = "llm"
+        status = "warning"
+        title = f"{label} 切换备用模型"
+        detail = f"{entry.get('failed_model') or ''} -> {entry.get('next_model') or ''}"
+    elif event == "llm_route_fallback":
+        phase = "llm"
+        status = "warning"
+        title = f"{label} 切换备用网关"
+        detail = route_host
+    elif event == "llm_failed":
+        phase = "llm"
+        status = "error"
+        title = f"{label} 大模型调用终止"
+        detail = f"{entry.get('error_type') or 'Error'}；模型：" + "、".join(_safe_list(entry.get("attempted_models"), limit=4))
+
+    return {
+        "ts": entry.get("ts") or "",
+        "event": event,
+        "agent": agent,
+        "agent_label": label,
+        "phase": phase,
+        "status": status,
+        "title": title,
+        "detail": detail,
+        "sources": _safe_list(entry.get("matched_sources"), limit=6),
+        "rules": _safe_list(entry.get("registry_rule_ids"), limit=8),
+        "real": True,
+    }
+
+
+def _knowledge_metadata_event_views(state: dict) -> list[dict[str, Any]]:
+    metadata = state.get("knowledge_metadata")
+    if not isinstance(metadata, dict):
+        return []
+    events: list[dict[str, Any]] = []
+    for agent, meta in metadata.items():
+        if not isinstance(meta, dict):
+            continue
+        sources = _safe_list(meta.get("matched_sources"), limit=6)
+        rules = _safe_list(meta.get("registry_rule_ids"), limit=8)
+        if not sources and not rules and not meta.get("runtime"):
+            continue
+        label = _AGENT_DISPLAY_NAMES.get(str(agent), str(agent))
+        detail_parts = []
+        if meta.get("retrieval_mode"):
+            detail_parts.append(f"模式：{meta.get('retrieval_mode')}")
+        if rules:
+            detail_parts.append("规则：" + "、".join(rules))
+        if sources:
+            detail_parts.append("来源：" + "、".join(sources[:4]))
+        events.append(
+            {
+                "ts": "",
+                "event": "knowledge_metadata_snapshot",
+                "agent": str(agent),
+                "agent_label": label,
+                "phase": "knowledge",
+                "status": "done",
+                "title": f"{label} 已记录知识库/规则",
+                "detail": "；".join(detail_parts) or "已记录运行元数据",
+                "sources": sources,
+                "rules": rules,
+                "real": True,
+            }
+        )
+    return events
+
+
+def _agent_process_events(session_id: str, state: dict) -> list[dict[str, Any]]:
+    log_views = [_runtime_event_view(entry) for entry in _read_task_events(session_id)]
+    seen = {
+        (view.get("event"), view.get("agent"), view.get("title"), view.get("detail"))
+        for view in log_views
+    }
+    metadata_views = [
+        view
+        for view in _knowledge_metadata_event_views(state)
+        if (view.get("event"), view.get("agent"), view.get("title"), view.get("detail")) not in seen
+    ]
+    return (log_views + metadata_views)[-120:]
+
+
 MAX_REFERENCE_IMAGES = 12
 REFERENCE_IMAGE_MAX_EDGE = 1280
 REFERENCE_IMAGE_JPEG_QUALITY = 82
+REFERENCE_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+
+AUTO_REFERENCE_SCENE_HINTS = (
+    "场景",
+    "空间",
+    "环境",
+    "地点",
+    "场地",
+    "公寓",
+    "客厅",
+    "卧室",
+    "儿童房",
+    "厨房",
+    "餐厅",
+    "门口",
+    "大堂",
+    "集团",
+    "公司",
+    "总部",
+    "办公区",
+    "办公室",
+    "会议室",
+    "小区",
+    "街道",
+    "走廊",
+    "电梯",
+    "酒店",
+    "医院",
+    "学校",
+    "房间",
+    "庭院",
+    "车库",
+    "停车场",
+)
+
+AUTO_REFERENCE_PROP_HINTS = (
+    "道具",
+    "手机",
+    "手提包",
+    "包",
+    "咖啡",
+    "腕表",
+    "文件",
+    "照片",
+    "车",
+    "钥匙",
+    "合同",
+    "戒指",
+    "项链",
+)
+
+AUTO_REFERENCE_WEAK_TOKENS = {"场景", "空间", "环境", "地点", "场地", "集团", "公司", "总部"}
+AUTO_REFERENCE_SPLIT_RE = re.compile(r"[\s_\-—~·,，、.。:：;；()（）\[\]【】]+")
 SEGMENT_VIDEO_EXTENSIONS = {".mp4", ".mov", ".avi", ".webm"}
+PREVIOUS_SEGMENT_TAIL_FRAME_ROLE = "previous_segment_tail_frame"
+PREVIOUS_SEGMENT_TAIL_FRAME_PURPOSE = (
+    "Carry only the visible ending state of the previous segment into the next segment; "
+    "do not use this as a character, scene, or style master."
+)
+LOCAL_FALLBACK_OUTPUT_MARKERS = (
+    "本地兜底编译",
+    "本地兜底",
+    "镜头导演本地兜底",
+    "shot_director_local_fallback_v1",
+    "local fallback",
+    "deterministic fallback",
+)
+
+
+def _contains_local_fallback_output(value: Any) -> bool:
+    text = str(value or "")
+    lowered = text.lower()
+    return any(marker in text or marker in lowered for marker in LOCAL_FALLBACK_OUTPUT_MARKERS)
+
+
+def _clear_prompt_compile_outputs(task_state: dict, segment_index: int) -> dict:
+    outputs = task_state.setdefault("agent_outputs", {})
+    compiled_key = f"compiled_segment_{segment_index}"
+    quality_key = f"quality_inspector_segment_{segment_index}"
+    outputs.pop(compiled_key, None)
+    outputs.pop(quality_key, None)
+    outputs.pop("prompt_compiler", None)
+    outputs.pop("quality_inspector", None)
+    for key in ("review_mode", "review_agent", "review_title", "review_output"):
+        task_state.pop(key, None)
+    return outputs
 
 def _load_latest_results_on_startup():
     """在服务器启动时，只恢复本机会话的 LangGraph 状态快照。"""
@@ -263,7 +653,10 @@ def _load_latest_results_on_startup():
 from agents.director_graph import (
     clear_state,
     load_state,
+    prompt_compiler_node,
     recover_repairable_pipeline_state,
+    rerun_phase_1_agent,
+    resume_after_human_review,
     run_phase_1_planning,
     run_phase_2_compile_segment,
     run_shot_director_restart_from_story_plan,
@@ -271,6 +664,33 @@ from agents.director_graph import (
     save_state,
     _normalise_compiled_prompt,
 )
+from agents.director_graph_package.storyboard_designer_impl import (
+    generate_storyboard_for_segment,
+    generate_storyboard_image_for_segment,
+)
+from agents.director_graph_package import planning_context_impl as scene_card_impl
+
+
+def _sanitize_director_showrunner_state(state: dict | None) -> bool:
+    """Hide noisy legacy LLM gateway errors from persisted showrunner output."""
+    if not isinstance(state, dict):
+        return False
+    changed = False
+    outputs = state.get("agent_outputs")
+    if isinstance(outputs, dict):
+        output = outputs.get("director_showrunner")
+        if isinstance(output, str):
+            sanitized = scene_card_impl.sanitize_director_showrunner_fallback_output(output)
+            if sanitized != output:
+                outputs["director_showrunner"] = sanitized
+                changed = True
+    director_brief = state.get("director_brief")
+    if isinstance(director_brief, str):
+        sanitized = scene_card_impl.sanitize_director_showrunner_fallback_output(director_brief)
+        if sanitized != director_brief:
+            state["director_brief"] = sanitized
+            changed = True
+    return changed
 
 
 def _save_task_state_for_session(
@@ -279,10 +699,13 @@ def _save_task_state_for_session(
 ) -> bool:
     """Persist a UI task snapshot into the session-owned state file."""
     try:
+        _sanitize_director_showrunner_state(state)
         with request_scope(session_id=_normalise_session_id(session_id)):
             save_state(dict(state))
+        _append_task_log(session_id, "state_saved", **_state_log_summary(state))
         return True
-    except Exception:
+    except Exception as exc:
+        _append_task_log(session_id, "state_save_failed", error=str(exc), traceback=traceback.format_exc())
         return False
 
 
@@ -295,6 +718,7 @@ def _merge_latest_disk_state_for_session(session_id: str, target_state: dict) ->
         return False
     if not isinstance(latest_state, dict) or not latest_state:
         return False
+    _sanitize_director_showrunner_state(latest_state)
     target_state.update(latest_state)
     return True
 
@@ -318,12 +742,13 @@ def _recover_stale_running_state(session_id: str, state: dict) -> bool:
 _load_latest_results_on_startup()
 
 _STEP_LABELS = {
-    "节奏总控导演":  ("step_0_rhythm",  "🎼 节奏总控导演正在改写剧本...（1/6）"),
-    "场景分析师":  ("step_1_analyze",  "📋 场景分析师正在分析剧本...（2/6）"),
-    "结构规划师":  ("step_2_plan",     "🎬 结构规划师正在拆片规划...（3/6）"),
-    "镜头导演":    ("step_3_direct",   "🎥 镜头导演正在设计分镜...（4/6）"),
-    "Seedance编译师": ("step_4_compile", "✍️ Seedance编译师正在生成Prompt...（5/6）"),
-    "质检导演":    ("step_5_inspect",  "🔍 质检导演正在审查产物...（6/6）"),
+    "场景分析师":  ("step_0_scene",    "📋 场景预分析正在读取参考图、人物站位和空间信息...（1/7）"),
+    "剧情增强导演":  ("step_0_enhance", "📝 剧情增强导演正在按场景约束增强剧本...（2/7）"),
+    "节奏总控导演":  ("step_2_plan",    "🎼 节奏拆片导演正在判断快慢、时长和片段边界...（3/7）"),
+    "结构规划师":  ("step_2_plan",     "🎬 节奏拆片导演正在输出片段施工清单...（3/7）"),
+    "镜头导演":    ("step_3_direct",   "🎥 镜头导演正在设计分镜...（4/7）"),
+    "Seedance编译师": ("step_4_compile", "✍️ Seedance编译师正在生成Prompt...（6/7）"),
+    "质检导演":    ("step_5_inspect",  "🔍 质检导演正在审查产物...（7/7）"),
 }
 
 
@@ -377,15 +802,28 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
     previous_progress = _progress_signature(task_state)
     try:
         _migrate_legacy_state_if_needed(session_id)
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             disk_state = load_state()
             if not _has_live_task(session_id):
                 disk_state, _ = recover_repairable_pipeline_state(disk_state)
     except Exception:
         return
     if disk_state:
+        sanitized_disk_state = _sanitize_director_showrunner_state(disk_state)
         has_live_task = _has_live_task(session_id)
         live_status_fields = {}
+        if (
+            not has_live_task
+            and disk_state.get("status") in {"idle", ""}
+            and disk_state.get("review_mode") == "agent_output"
+            and disk_state.get("review_agent")
+            and disk_state.get("review_output") is not None
+        ):
+            title = disk_state.get("review_title") or disk_state.get("review_agent") or "Agent 输出"
+            disk_state["status"] = "waiting_for_user_input"
+            disk_state["message"] = f"{title}已完成，请审核/修改后继续。"
+            disk_state["error"] = ""
+            _save_task_state_for_session(session_id, disk_state)
         if has_live_task and task_state.get("status") in RUNNING_STATUSES:
             # LangGraph persists phase progress directly to disk while the worker is
             # running. Keep disk step/message authoritative so /api/status reflects
@@ -398,7 +836,7 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
                     if task_state.get(key) is not None
                 }
         _recover_stale_running_state(session_id, disk_state)
-        if not has_live_task and not disk_state.get("thread_id") and disk_state.get("status") in BLOCKING_STATUSES:
+        if not has_live_task and not disk_state.get("thread_id") and disk_state.get("status") in RUNNING_STATUSES:
             disk_state["status"] = "idle"
             disk_state["step"] = ""
             disk_state["message"] = "检测到旧状态机残留记录，已切换为可重新启动状态。"
@@ -406,6 +844,8 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
         task_state.update(disk_state)
         if live_status_fields:
             task_state.update(live_status_fields)
+        if sanitized_disk_state and not has_live_task:
+            _save_task_state_for_session(session_id, task_state)
         if has_live_task and _progress_signature(task_state) != previous_progress:
             _touch_task_progress(task_state)
             _save_task_state_for_session(session_id, task_state)
@@ -414,6 +854,7 @@ def _refresh_task_state_from_disk(session_id: str = DEFAULT_SESSION_ID):
 
 def _public_task_state(session_id: str = DEFAULT_SESSION_ID) -> dict:
     state = dict(_task_state(session_id))
+    state["agent_process_events"] = _agent_process_events(session_id, state)
     image_refs = state.get("reference_image_b64s") or []
     if image_refs:
         state["reference_image_b64s"] = f"{len(image_refs)} reference images omitted from status response"
@@ -421,6 +862,130 @@ def _public_task_state(session_id: str = DEFAULT_SESSION_ID) -> dict:
     if isinstance(error, str) and len(error) > 5000:
         state["error"] = error[:5000] + "\n... traceback truncated ..."
     return state
+
+
+def _clamp_annotation_number(value: Any) -> float | None:
+    try:
+        number = float(value)
+    except (TypeError, ValueError):
+        return None
+    if number < 0 or number > 1:
+        return None
+    return round(number, 4)
+
+
+def _normalise_scene_layout_annotation(entry: dict[str, Any]) -> dict[str, Any] | None:
+    annotations = entry.get("annotations") if isinstance(entry.get("annotations"), dict) else {}
+    people: list[dict[str, Any]] = []
+    for index, person in enumerate(annotations.get("people") or []):
+        if not isinstance(person, dict):
+            continue
+        x = _clamp_annotation_number(person.get("x"))
+        y = _clamp_annotation_number(person.get("y"))
+        if x is None or y is None:
+            continue
+        people.append(
+            {
+                "label": str(person.get("label") or f"人{index + 1}")[:40],
+                "x": x,
+                "y": y,
+                "color": str(person.get("color") or "")[:16],
+            }
+        )
+
+    arrows: list[dict[str, float]] = []
+    for arrow in annotations.get("arrows") or []:
+        if not isinstance(arrow, dict):
+            continue
+        x1 = _clamp_annotation_number(arrow.get("x1"))
+        y1 = _clamp_annotation_number(arrow.get("y1"))
+        x2 = _clamp_annotation_number(arrow.get("x2"))
+        y2 = _clamp_annotation_number(arrow.get("y2"))
+        if None in (x1, y1, x2, y2):
+            continue
+        arrows.append({"x1": x1, "y1": y1, "x2": x2, "y2": y2})
+
+    if not people and not arrows:
+        return None
+
+    scene_number = str(entry.get("scene_number") or "").strip() or "1"
+    image_path = str(entry.get("image_path") or "").strip()
+    annotated_image = str(entry.get("annotated_image") or "").strip()
+    if annotated_image and not annotated_image.startswith("data:image/"):
+        annotated_image = ""
+
+    summary_people = ", ".join(f"{item['label']}({item['x']:.2f},{item['y']:.2f})" for item in people)
+    summary_arrows = ", ".join(
+        f"({item['x1']:.2f},{item['y1']:.2f})->({item['x2']:.2f},{item['y2']:.2f})"
+        for item in arrows
+    )
+    summary_parts = []
+    if summary_people:
+        summary_parts.append(f"人物标点: {summary_people}")
+    if summary_arrows:
+        summary_parts.append(f"活动轨迹: {summary_arrows}")
+
+    return {
+        "scene_number": scene_number,
+        "image_path": image_path,
+        "cache_key": str(entry.get("cache_key") or "").strip(),
+        "annotations": {"people": people, "arrows": arrows},
+        "annotated_image": annotated_image,
+        "summary": "；".join(summary_parts),
+    }
+
+
+def _upsert_scene_layout_annotations(state: dict, entries: list[dict[str, Any]]) -> int:
+    normalised = [
+        item
+        for item in (_normalise_scene_layout_annotation(entry) for entry in entries if isinstance(entry, dict))
+        if item
+    ]
+    state["scene_layout_annotations"] = normalised
+
+    outputs = state.setdefault("agent_outputs", {})
+    outputs["scene_layout_annotations"] = json.dumps(
+        [{key: value for key, value in item.items() if key != "annotated_image"} for item in normalised],
+        ensure_ascii=False,
+    )
+
+    images = list(state.get("reference_image_b64s") or [])
+    manifest = [item if isinstance(item, dict) else {} for item in list(state.get("reference_image_manifest") or [])]
+    while len(manifest) < len(images):
+        manifest.append({})
+
+    kept_images: list[str] = []
+    kept_manifest: list[dict[str, Any]] = []
+    for index, image in enumerate(images):
+        item = manifest[index] if index < len(manifest) else {}
+        role_text = " ".join(str(item.get(key) or "") for key in ("role", "type", "purpose")).lower()
+        if "annotated_scene_layout" in role_text or "scene_layout_annotation" in role_text:
+            continue
+        kept_images.append(image)
+        kept_manifest.append(item)
+
+    for item in normalised:
+        annotated_image = item.get("annotated_image")
+        if not annotated_image:
+            continue
+        scene_number = item.get("scene_number") or "1"
+        kept_images.append(str(annotated_image))
+        kept_manifest.append(
+            {
+                "label": f"@图片{len(kept_images)}",
+                "role": "annotated_scene_layout",
+                "type": "scene_layout_annotation",
+                "scene_number": str(scene_number),
+                "source_layout_path": str(item.get("image_path") or ""),
+                "purpose": f"场景{scene_number}用户标注后的俯视布局图：包含人物位置、移动轨迹、空间边界和固定物体。",
+                "annotations_summary": str(item.get("summary") or ""),
+            }
+        )
+
+    state["reference_image_b64s"] = kept_images
+    state["reference_image_manifest"] = kept_manifest
+    state["reference_image_count"] = len(kept_images)
+    return len(normalised)
 
 
 def _state_has_visible_outputs(state: dict) -> bool:
@@ -595,12 +1160,46 @@ def _clear_previous_segment_in_state(state: dict) -> tuple[bool, int, str]:
     return _clear_segment_and_downstream(state, previous_segment)
 
 
-def _infer_reference_purpose(index: int) -> str:
+_SCENE_REFERENCE_NAME_HINTS = (
+    "场景",
+    "空间",
+    "环境",
+    "地点",
+    "场地",
+    "公寓",
+    "客厅",
+    "卧室",
+    "厨房",
+    "餐厅",
+    "门口",
+    "大堂",
+    "公司",
+    "集团",
+    "办公室",
+    "会议室",
+    "小区",
+    "街道",
+    "走廊",
+    "电梯",
+    "酒店",
+    "医院",
+    "学校",
+    "房间",
+    "庭院",
+    "车库",
+    "停车场",
+)
+
+
+def _infer_reference_purpose(index: int, filename: str = "") -> str:
+    base_name = os.path.splitext(filename or "")[0]
+    if any(marker in base_name for marker in _SCENE_REFERENCE_NAME_HINTS):
+        return "场景空间、轴线、光线与首帧环境基底锁定"
     purposes = {
         1: "主角人物身份、五官、发型、身形与服装一致性锁定",
         2: "对手角色/第二核心角色身份、五官、发型、身形与服装一致性锁定",
-        3: "场景空间、轴线、光线与首帧环境基底锁定",
-        4: "多人位置关系、视线方向与调度关系锁定",
+        3: "第三核心人物/补充人物身份、五官、发型、身形与服装一致性锁定",
+        4: "第四核心人物/补充人物身份、五官、发型、身形与服装一致性锁定",
     }
     return purposes.get(index, "补充参考图，仅按用户说明限定用途")
 
@@ -641,6 +1240,157 @@ def _encode_reference_image_for_llm(content: bytes, filename: str) -> tuple[str,
     }
     data_url = f"data:image/jpeg;base64,{base64.b64encode(encoded_bytes).decode('ascii')}"
     return data_url, metadata
+
+
+def _reference_asset_type(filename: str) -> str:
+    base_name = os.path.splitext(filename or "")[0]
+    if any(marker in base_name for marker in AUTO_REFERENCE_SCENE_HINTS):
+        return "scene"
+    if any(marker in base_name for marker in AUTO_REFERENCE_PROP_HINTS):
+        return "prop"
+    return "character"
+
+
+def _reference_name_tokens(filename: str) -> list[str]:
+    base_name = os.path.splitext(filename or "")[0].strip()
+    tokens: set[str] = set()
+    if base_name:
+        tokens.add(base_name)
+    for part in AUTO_REFERENCE_SPLIT_RE.split(base_name):
+        part = part.strip()
+        if len(part) >= 2:
+            tokens.add(part)
+    for hint in AUTO_REFERENCE_SCENE_HINTS + AUTO_REFERENCE_PROP_HINTS:
+        if hint in base_name:
+            tokens.add(hint)
+    return sorted(tokens, key=lambda item: (-len(item), item))
+
+
+def _score_reference_asset(script: str, filename: str) -> tuple[int, int, list[str]]:
+    script_text = script or ""
+    score = 0
+    first_index = len(script_text) + 1
+    matched_tokens: list[str] = []
+    base_name = os.path.splitext(filename or "")[0]
+    for token in _reference_name_tokens(filename):
+        pos = script_text.find(token)
+        if pos < 0:
+            continue
+        matched_tokens.append(token)
+        first_index = min(first_index, pos)
+        if token == base_name:
+            score += 100
+        else:
+            score += min(60, max(12, len(token) * 8))
+    if matched_tokens and base_name not in matched_tokens and all(token in AUTO_REFERENCE_WEAK_TOKENS for token in matched_tokens):
+        return 0, first_index, []
+    return score, first_index, matched_tokens
+
+
+def _auto_reference_purpose(asset_type: str, filename: str, matched_tokens: list[str]) -> str:
+    base_name = os.path.splitext(filename or "")[0]
+    matched = "、".join(matched_tokens[:4]) or base_name
+    if asset_type == "scene":
+        return (
+            f"自动匹配场景参考图：{base_name}；命中：{matched}；"
+            "用于场景预分析生成俯视图和九宫格，并锁定空间、轴线、光线和固定物体。"
+        )
+    if asset_type == "prop":
+        return f"自动匹配道具参考图：{base_name}；命中：{matched}；只锁定道具外观、材质和可见状态。"
+    return f"自动匹配人物参考图：{base_name}；命中：{matched}；只锁定身份、五官、发型、身形和服装。"
+
+
+def _build_auto_reference_matches(
+    script: str,
+    existing_manifest: list[dict[str, str]] | None = None,
+    *,
+    max_images: int = MAX_REFERENCE_IMAGES,
+) -> list[dict[str, Any]]:
+    if not script or not os.path.exists(REFERENCE_IMAGES_DIR):
+        return []
+
+    existing_names = {
+        str(item.get("filename") or "").lower()
+        for item in existing_manifest or []
+        if isinstance(item, dict)
+    }
+    candidates: list[dict[str, Any]] = []
+    for filename in os.listdir(REFERENCE_IMAGES_DIR):
+        if not filename.lower().endswith(REFERENCE_IMAGE_EXTENSIONS):
+            continue
+        if filename.lower() in existing_names:
+            continue
+        file_path = os.path.join(REFERENCE_IMAGES_DIR, filename)
+        if not os.path.isfile(file_path):
+            continue
+        score, first_index, matched_tokens = _score_reference_asset(script, filename)
+        if score <= 0:
+            continue
+        asset_type = _reference_asset_type(filename)
+        candidates.append(
+            {
+                "filename": filename,
+                "path": file_path,
+                "asset_type": asset_type,
+                "score": score,
+                "first_index": first_index,
+                "matched_tokens": matched_tokens,
+                "purpose": _auto_reference_purpose(asset_type, filename, matched_tokens),
+            }
+        )
+
+    type_priority = {"character": 0, "scene": 1, "prop": 2}
+    candidates.sort(
+        key=lambda item: (
+            -int(item["score"]),
+            int(item["first_index"]),
+            type_priority.get(str(item["asset_type"]), 9),
+            str(item["filename"]),
+        )
+    )
+    return candidates[:max_images]
+
+
+def _auto_select_reference_images(
+    script: str,
+    existing_manifest: list[dict[str, str]] | None = None,
+    *,
+    max_images: int = MAX_REFERENCE_IMAGES,
+) -> tuple[list[str], list[dict[str, str]], list[dict[str, Any]]]:
+    existing_count = len(existing_manifest or [])
+    remaining = max(0, max_images - existing_count)
+    matches = _build_auto_reference_matches(script, existing_manifest, max_images=remaining)
+    image_data_urls: list[str] = []
+    manifest: list[dict[str, str]] = []
+    selected: list[dict[str, Any]] = []
+    start_index = existing_count + 1
+    for offset, match in enumerate(matches):
+        try:
+            with open(match["path"], "rb") as file_obj:
+                content = file_obj.read()
+            image_data_url, image_metadata = _encode_reference_image_for_llm(content, match["filename"])
+        except (OSError, ValueError, UnidentifiedImageError) as exc:
+            print(f"  [AutoReference] WARN: skip {match['filename']}: {type(exc).__name__}: {exc}")
+            continue
+        label = f"@图片{start_index + len(image_data_urls)}"
+        image_data_urls.append(image_data_url)
+        manifest.append(
+            {
+                "label": label,
+                "filename": str(match["filename"]),
+                "purpose": str(match["purpose"]),
+                "asset_type": str(match["asset_type"]),
+                "selected_by": "auto_reference_matcher",
+                "matched_tokens": "、".join(match["matched_tokens"]),
+                "match_score": str(match["score"]),
+                "processed_size": image_metadata["processed_size"],
+                "processed_bytes": image_metadata["processed_bytes"],
+                "original_size": image_metadata["original_size"],
+                "original_bytes": image_metadata["original_bytes"],
+            }
+        )
+        selected.append({k: v for k, v in match.items() if k != "path"})
+    return image_data_urls, manifest, selected
 
 
 def _parse_reference_manifest(raw_manifest: str) -> list[dict[str, str]]:
@@ -686,7 +1436,7 @@ async def _read_reference_uploads(
             continue
         index = len(image_data_urls) + 1
         override = manifest_overrides[index - 1] if index - 1 < len(manifest_overrides) else {}
-        purpose = override.get("purpose") or _infer_reference_purpose(index)
+        purpose = override.get("purpose") or _infer_reference_purpose(index, upload.filename)
         note = override.get("note") or ""
         if note:
             purpose = f"{purpose}；补充说明：{note}"
@@ -706,7 +1456,7 @@ async def _read_reference_uploads(
     return image_data_urls, manifest
 
 
-async def _save_segment_video_upload(upload: UploadFile | None) -> str | None:
+async def _save_segment_video_upload(upload: UploadFile | None, session_id: str = DEFAULT_SESSION_ID) -> str | None:
     if not upload or not upload.filename:
         return None
 
@@ -719,7 +1469,7 @@ async def _save_segment_video_upload(upload: UploadFile | None) -> str | None:
     if not content:
         return None
 
-    output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output", "uploaded_segment_videos")
+    output_dir = _session_subdir(session_id, "uploads", "segment_videos")
     os.makedirs(output_dir, exist_ok=True)
     safe_stem = "".join(ch if ch.isalnum() or ch in "._-" else "_" for ch in os.path.splitext(upload.filename)[0]).strip("._") or "segment"
     filename = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{safe_stem}{ext}"
@@ -729,7 +1479,7 @@ async def _save_segment_video_upload(upload: UploadFile | None) -> str | None:
     return path
 
 
-def _extract_tail_frame_b64_from_video(video_path: str) -> str | None:
+def _extract_tail_frame_b64_from_video(video_path: str, session_id: str = DEFAULT_SESSION_ID) -> str | None:
     """Extract the final readable video frame and return it as JPEG base64."""
     if not video_path or not os.path.exists(video_path):
         return None
@@ -768,7 +1518,7 @@ def _extract_tail_frame_b64_from_video(video_path: str) -> str | None:
 
         # tobytes() 数据量可能较大（数百KB），只计算一次
         encoded_bytes = encoded.tobytes()
-        output_dir = os.path.join(OUTPUT_DIR, "auto_tail_frames")
+        output_dir = _session_subdir(session_id, "agents", "segment_flow", "auto_tail_frames")
         os.makedirs(output_dir, exist_ok=True)
         frame_name = f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{os.path.splitext(os.path.basename(video_path))[0]}_tail.jpg"
         with open(os.path.join(output_dir, frame_name), "wb") as f:
@@ -783,6 +1533,258 @@ def _extract_tail_frame_b64_from_video(video_path: str) -> str | None:
                 cap.release()
             except Exception:
                 pass
+
+
+def _tail_frame_data_url(raw_b64: str) -> str:
+    raw_b64 = (raw_b64 or "").strip()
+    if raw_b64.startswith("data:image/"):
+        return raw_b64
+    return f"data:image/jpeg;base64,{raw_b64}"
+
+
+def _tail_frame_raw_b64(image_b64: str) -> str:
+    image_b64 = (image_b64 or "").strip()
+    if "," in image_b64 and image_b64.startswith("data:"):
+        return image_b64.split(",", 1)[1]
+    return image_b64
+
+
+def _previous_tail_frame_manifest(
+    *,
+    filename: str,
+    segment_index: int,
+    source: str,
+    saved_path: str = "",
+    video_path: str = "",
+) -> dict[str, str]:
+    previous_segment = max(int(segment_index or 0) - 1, 0)
+    return {
+        "filename": filename,
+        "role": PREVIOUS_SEGMENT_TAIL_FRAME_ROLE,
+        "type": "continuity_reference",
+        "asset_type": "continuity",
+        "selected_by": "previous_continuity_asset_helper",
+        "source": source,
+        "source_video_path": video_path,
+        "saved_path": saved_path,
+        "previous_segment_index": str(previous_segment),
+        "target_segment_index": str(segment_index or ""),
+        "purpose": PREVIOUS_SEGMENT_TAIL_FRAME_PURPOSE,
+    }
+
+
+def _extract_tail_frame_data_from_video(
+    video_path: str,
+    segment_index: int,
+    session_id: str = DEFAULT_SESSION_ID,
+) -> tuple[str | None, str | None]:
+    if not video_path or not os.path.exists(video_path):
+        return None, None
+    cap = None
+    try:
+        import cv2
+
+        cap = cv2.VideoCapture(video_path)
+        if not cap.isOpened():
+            return None, None
+
+        frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+        candidate_positions = []
+        if frame_count > 0:
+            candidate_positions.extend([
+                max(frame_count - 2, 0),
+                max(frame_count - 6, 0),
+                max(int(frame_count * 0.95), 0),
+                max(int(frame_count * 0.70), 0),
+            ])
+        candidate_positions.append(0)
+
+        frame = None
+        for pos in dict.fromkeys(candidate_positions):
+            cap.set(cv2.CAP_PROP_POS_FRAMES, pos)
+            ok, candidate = cap.read()
+            if ok and candidate is not None:
+                frame = candidate
+                break
+        if frame is None:
+            return None, None
+
+        ok, encoded = cv2.imencode(".jpg", frame, [int(cv2.IMWRITE_JPEG_QUALITY), 86])
+        if not ok:
+            return None, None
+
+        encoded_bytes = encoded.tobytes()
+        output_dir = _session_subdir(session_id, "agents", "segment_flow", "auto_tail_frames")
+        os.makedirs(output_dir, exist_ok=True)
+        safe_stem = "".join(
+            ch if ch.isalnum() or ch in "._-" else "_"
+            for ch in os.path.splitext(os.path.basename(video_path))[0]
+        ).strip("._") or "segment"
+        frame_name = (
+            f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_"
+            f"seg{int(segment_index or 0):02d}_{safe_stem}_tail.jpg"
+        )
+        output_path = os.path.join(output_dir, frame_name)
+        with open(output_path, "wb") as f:
+            f.write(encoded_bytes)
+        return base64.b64encode(encoded_bytes).decode("utf-8"), output_path
+    except Exception as exc:
+        print(f"  [Video] WARN: continuity tail frame extraction failed: {exc}")
+        return None, None
+    finally:
+        if cap is not None:
+            try:
+                cap.release()
+            except Exception:
+                pass
+
+
+def _build_previous_segment_video_tail_frame_asset(
+    video_path: str,
+    segment_index: int,
+    session_id: str = DEFAULT_SESSION_ID,
+) -> dict[str, Any] | None:
+    """Extract and register metadata for the previous segment video tail frame."""
+    raw_b64, saved_path = _extract_tail_frame_data_from_video(video_path, segment_index, session_id)
+    if not raw_b64:
+        return None
+
+    saved_path = saved_path or ""
+    filename = os.path.basename(saved_path or "") or f"seg{int(segment_index or 0):02d}_tail_frame.jpg"
+    return {
+        "source": "previous_segment_video_tail_frame",
+        "raw_b64": raw_b64,
+        "image_data_url": _tail_frame_data_url(raw_b64),
+        "saved_path": saved_path,
+        "filename": filename,
+        "manifest_item": _previous_tail_frame_manifest(
+            filename=filename,
+            segment_index=segment_index,
+            source="previous_segment_video_tail_frame",
+            saved_path=saved_path,
+            video_path=video_path,
+        ),
+    }
+
+
+def _previous_storyboard_tail_placeholder(state: dict, segment_index: int) -> dict[str, Any] | None:
+    previous_segment = int(segment_index or 0) - 1
+    if previous_segment < 1:
+        return None
+    outputs = state.get("agent_outputs") or {}
+    storyboard_images = state.get("storyboard_images_by_segment") or {}
+    image_path = (
+        storyboard_images.get(str(previous_segment))
+        or outputs.get(f"storyboard_image_seg{previous_segment:02d}")
+        or outputs.get(f"storyboard_image_seg{previous_segment}")
+    )
+    if not image_path:
+        return None
+    return {
+        "source": "previous_storyboard_last_panel_placeholder",
+        "previous_segment_index": previous_segment,
+        "target_segment_index": segment_index,
+        "storyboard_image_path": str(image_path),
+        "todo": "Crop the previous storyboard last panel into a real continuity image asset.",
+    }
+
+
+def _previous_out_state_text(state: dict, segment_index: int) -> str:
+    previous_segment = int(segment_index or 0) - 1
+    if previous_segment < 1:
+        return ""
+    outputs = state.get("agent_outputs") or {}
+    text = str(outputs.get(f"compiled_segment_{previous_segment}") or "").strip()
+    if text:
+        return text
+    return str(state.get("tail_frame_analysis") or "").strip()
+
+
+def _select_previous_continuity_asset(
+    state: dict,
+    *,
+    segment_index: int,
+    session_id: str = DEFAULT_SESSION_ID,
+    video_path: str | None = None,
+    tail_frame_b64: str = "",
+) -> dict[str, Any]:
+    if video_path:
+        video_asset = _build_previous_segment_video_tail_frame_asset(video_path, segment_index, session_id)
+        if video_asset:
+            return video_asset
+
+    raw_tail_frame = _tail_frame_raw_b64(tail_frame_b64)
+    if raw_tail_frame:
+        filename = f"seg{int(segment_index or 0):02d}_provided_tail_frame.jpg"
+        return {
+            "source": "provided_tail_frame",
+            "raw_b64": raw_tail_frame,
+            "image_data_url": _tail_frame_data_url(raw_tail_frame),
+            "filename": filename,
+            "manifest_item": _previous_tail_frame_manifest(
+                filename=filename,
+                segment_index=segment_index,
+                source="provided_tail_frame",
+            ),
+        }
+
+    storyboard_placeholder = _previous_storyboard_tail_placeholder(state, segment_index)
+    if storyboard_placeholder:
+        return storyboard_placeholder
+
+    out_state_text = _previous_out_state_text(state, segment_index)
+    if out_state_text:
+        return {
+            "source": "previous_out_state_text",
+            "previous_segment_index": int(segment_index or 0) - 1,
+            "target_segment_index": segment_index,
+            "out_state_text": out_state_text,
+        }
+
+    return {
+        "source": "none",
+        "previous_segment_index": int(segment_index or 0) - 1,
+        "target_segment_index": segment_index,
+    }
+
+
+def _apply_previous_continuity_asset_to_state(state: dict, asset: dict[str, Any] | None) -> None:
+    if not asset:
+        return
+    state["previous_continuity_asset"] = {
+        key: value
+        for key, value in asset.items()
+        if key not in {"image_data_url", "raw_b64", "manifest_item"}
+    }
+
+    image_data_url = str(asset.get("image_data_url") or "")
+    manifest_item = asset.get("manifest_item")
+    if not image_data_url or not isinstance(manifest_item, dict):
+        return
+
+    images = list(state.get("reference_image_b64s") or [])
+    manifest = [item if isinstance(item, dict) else {} for item in list(state.get("reference_image_manifest") or [])]
+    while len(manifest) < len(images):
+        manifest.append({})
+
+    kept_images: list[str] = []
+    kept_manifest: list[dict[str, Any]] = []
+    for index, image in enumerate(images):
+        item = manifest[index] if index < len(manifest) else {}
+        role_text = " ".join(str(item.get(key) or "") for key in ("role", "type", "purpose", "source"))
+        if PREVIOUS_SEGMENT_TAIL_FRAME_ROLE in role_text:
+            continue
+        kept_images.append(image)
+        kept_manifest.append(item)
+
+    new_manifest_item = dict(manifest_item)
+    new_manifest_item["label"] = str(new_manifest_item.get("label") or f"@image{len(kept_images) + 1}")
+    kept_images.append(image_data_url)
+    kept_manifest.append(new_manifest_item)
+
+    state["reference_image_b64s"] = kept_images
+    state["reference_image_manifest"] = kept_manifest
+    state["reference_image_count"] = len(kept_images)
 
 
 def _run_pipeline_in_thread(
@@ -808,7 +1810,11 @@ def _run_pipeline_in_thread(
             _touch_task_progress(task_state)
 
     try:
-        with request_scope(session_id=session_id, stream_callback=_stream_callback):
+        with request_scope(
+            session_id=session_id,
+            stream_callback=_stream_callback,
+            event_callback=_runtime_event_logger(session_id),
+        ):
             if task_generation != _active_task_generation(session_id):
                 return
             # 彻底清空上一轮的输出状态，避免污染
@@ -820,9 +1826,9 @@ def _run_pipeline_in_thread(
             task_state.clear()
             task_state.update(_default_task_state())
             task_state.update(preserved_inputs)
-            task_state["step"] = "step_1_analyze"
+            task_state["step"] = "step_0_scene"
             task_state["status"] = "running_phase_1"
-            task_state["message"] = "🎼 节奏总控导演正在改写剧本...（1/6）"
+            task_state["message"] = "📋 场景预分析正在读取参考图、人物站位和空间信息...（1/8）"
             started_at = datetime.now().isoformat()
             task_state["started_at"] = started_at
             task_state["last_progress_at"] = started_at
@@ -843,9 +1849,27 @@ def _run_pipeline_in_thread(
                 return
             task_state.update(state)
             _touch_task_progress(task_state)
+            if (
+                task_state.get("status") == "waiting_for_user_input"
+                and not task_state.get("review_agent")
+                and not task_state.get("review_mode")
+                and int(task_state.get("current_segment_index") or 1) == 1
+                and int(task_state.get("total_segments") or 0) > 0
+            ):
+                task_state["status"] = "running_phase_2"
+                task_state["step"] = "step_3_direct"
+                task_state["message"] = "Shot director is generating segment 1 camera plan..."
+                task_state["active_segment_index"] = 1
+                _touch_task_progress(task_state)
+                _save_task_state_for_session(session_id, task_state)
+                state = run_phase_2_compile_segment(1)
+                if task_generation != _active_task_generation(session_id):
+                    return
+                task_state.update(state)
+                _touch_task_progress(task_state)
         
         # 保存结果到文件以便审计
-        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
+        output_dir = _session_subdir(session_id, "audit", "agent_outputs")
         try:
             os.makedirs(output_dir, exist_ok=True)
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -884,6 +1908,7 @@ def _resume_pipeline_in_thread(
     video_path: str = None,
     task_generation: int = 0,
     session_id: str = DEFAULT_SESSION_ID,
+    continuity_asset: dict[str, Any] | None = None,
 ):
     """在后台线程中恢复执行流水线阶段二（单段编译）"""
     session_id = _normalise_session_id(session_id)
@@ -898,17 +1923,22 @@ def _resume_pipeline_in_thread(
             _touch_task_progress(task_state)
 
     try:
-        with request_scope(session_id=session_id, stream_callback=_stream_callback):
+        with request_scope(
+            session_id=session_id,
+            stream_callback=_stream_callback,
+            event_callback=_runtime_event_logger(session_id),
+        ):
             if task_generation != _active_task_generation(session_id):
                 return
             task_state["status"] = "running_phase_2"
-            task_state["step"] = "step_4_compile"
-            task_state["message"] = f"✍️ Seedance编译师正在生成片段 {segment_index}..."
+            task_state["step"] = "step_3_direct"
+            task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
             _touch_task_progress(task_state)
             state = run_phase_2_compile_segment(segment_index, tail_frame_b64, video_path)
             if task_generation != _active_task_generation(session_id):
                 return
             task_state.update(state)
+            _apply_previous_continuity_asset_to_state(task_state, continuity_asset)
             _touch_task_progress(task_state)
         
         # 强制用 normalised 版本覆写 task_state 中的流式累积脏数据
@@ -920,7 +1950,7 @@ def _resume_pipeline_in_thread(
             final_outputs[key] = clean_prompt
             final_outputs["prompt_compiler"] = clean_prompt
         
-        output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
+        output_dir = _session_subdir(session_id, "audit", "prompt_compiler")
         os.makedirs(output_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         
@@ -947,21 +1977,25 @@ def _resume_shot_director_in_thread(
     task_generation: int = 0,
     session_id: str = DEFAULT_SESSION_ID,
 ):
-    """Resume Phase 1 shot director from persisted layout/blocking output."""
+    """Legacy entry point: continue through the per-segment pipeline."""
     session_id = _normalise_session_id(session_id)
     task_state = _task_state(session_id)
     try:
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
-            task_state["status"] = "running_phase_1"
+            segment_index = int(task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1)
+            task_state["status"] = "running_phase_2"
             task_state["step"] = "step_3_direct"
             task_state["message"] = "正在复用已完成的镜头摆位骨架，续跑三段镜头导演..."
+            task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
             task_state["error"] = ""
+            task_state["current_segment_index"] = segment_index
+            task_state["active_segment_index"] = segment_index
             _touch_task_progress(task_state)
             _save_task_state_for_session(session_id, task_state)
 
-            state = run_shot_director_resume_from_partial()
+            state = run_phase_2_compile_segment(segment_index)
             if task_generation != _active_task_generation(session_id):
                 return
             task_state.update(state)
@@ -979,25 +2013,379 @@ def _resume_shot_director_in_thread(
         _unregister_task_thread(session_id)
 
 
-def _restart_shot_director_from_planner_in_thread(
+def _recompile_prompt_in_thread(
+    segment_index: int,
     task_generation: int = 0,
     session_id: str = DEFAULT_SESSION_ID,
 ):
-    """Resume Phase 1 by rerunning shot director from the saved story planner."""
+    """Run only prompt_compiler for one segment, reusing saved shot_director output."""
     session_id = _normalise_session_id(session_id)
     task_state = _task_state(session_id)
+
+    def _stream_callback(agent_name: str, chunk: str):
+        if agent_name:
+            out_key = _AGENT_KEY_MAP.get(agent_name, agent_name)
+            outputs = task_state.setdefault("agent_outputs", {})
+            if out_key not in outputs:
+                outputs[out_key] = ""
+            outputs[out_key] += chunk
+            _touch_task_progress(task_state)
+
     try:
-        with request_scope(session_id=session_id):
+        with request_scope(
+            session_id=session_id,
+            stream_callback=_stream_callback,
+            event_callback=_runtime_event_logger(session_id),
+        ):
+            if task_generation != _active_task_generation(session_id):
+                return
+            _merge_latest_disk_state_for_session(session_id, task_state)
+            outputs = task_state.setdefault("agent_outputs", {})
+            segment_index = max(1, int(segment_index or task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1))
+            total_segments = int(task_state.get("total_segments") or segment_index or 1)
+            segment_index = min(segment_index, total_segments)
+            compiled_key = f"compiled_segment_{segment_index}"
+            outputs = _clear_prompt_compile_outputs(task_state, segment_index)
+
+            shot_director_output = outputs.get("shot_director") or outputs.get("shot_director_final") or ""
+            if _contains_local_fallback_output(shot_director_output):
+                raise RuntimeError(
+                    "当前三段式镜头导演输出来自本地兜底，已拒绝重新编译。"
+                    "请先重跑三段式镜头导演并确保大模型调用成功。"
+                )
+
+            task_state["status"] = "running_phase_2"
+            task_state["step"] = "step_5_compile"
+            task_state["message"] = f"Prompt compiler is recompiling segment {segment_index} from saved shot director output..."
+            task_state["error"] = ""
+            task_state["current_segment_index"] = segment_index
+            task_state["active_segment_index"] = segment_index
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+
+            compile_update = prompt_compiler_node(dict(task_state))
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state.update(compile_update)
+
+            final_outputs = task_state.setdefault("agent_outputs", {})
+            raw_prompt = final_outputs.get(compiled_key, "")
+            if raw_prompt:
+                clean_prompt = _normalise_compiled_prompt(raw_prompt, segment_index)
+                final_outputs[compiled_key] = clean_prompt
+                final_outputs["prompt_compiler"] = clean_prompt
+
+                output_dir = _session_subdir(session_id, "audit", "prompt_compiler")
+                os.makedirs(output_dir, exist_ok=True)
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                with open(os.path.join(output_dir, f"{timestamp}_prompt_compiler_seg{segment_index}_recompile.md"), "w", encoding="utf-8") as f:
+                    f.write(clean_prompt)
+
+            task_state["status"] = "waiting_for_user_input"
+            task_state["step"] = "step_5_compile"
+            task_state["review_mode"] = "agent_output"
+            task_state["review_agent"] = "prompt_compiler"
+            task_state["review_title"] = _AGENT_DISPLAY_NAMES.get("prompt_compiler", "prompt_compiler")
+            task_state["review_output"] = final_outputs.get(compiled_key) or final_outputs.get("prompt_compiler") or ""
+            task_state["message"] = f"Prompt compiler recompiled segment {segment_index}. Please review or continue."
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        outputs = task_state.setdefault("agent_outputs", {})
+        segment_index = max(1, int(segment_index or task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1))
+        failure_text = f"片段 {segment_index} Prompt 重新编译失败：{str(e)}"
+        outputs["prompt_compiler"] = failure_text
+        outputs[f"compiled_segment_{segment_index}"] = failure_text
+        task_state["status"] = "error"
+        task_state["step"] = "error"
+        task_state["message"] = failure_text
+        task_state["error"] = traceback.format_exc()
+        task_state["review_mode"] = "agent_output"
+        task_state["review_agent"] = "prompt_compiler"
+        task_state["review_title"] = _AGENT_DISPLAY_NAMES.get("prompt_compiler", "prompt_compiler")
+        task_state["review_output"] = failure_text
+        _save_task_state_for_session(session_id, task_state)
+    finally:
+        _unregister_task_thread(session_id)
+
+
+def _resume_after_human_review_in_thread(
+    edited_output: str,
+    review_agent: str,
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Resume the LangGraph pipeline after the user reviews an agent output."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+    started = time.perf_counter()
+    review_context = {
+        "review_mode": task_state.get("review_mode") or "agent_output",
+        "review_agent": task_state.get("review_agent") or review_agent,
+        "review_title": task_state.get("review_title") or _AGENT_DISPLAY_NAMES.get(review_agent, review_agent),
+        "review_output": task_state.get("review_output") or edited_output,
+    }
+    _append_task_log(
+        session_id,
+        "resume_after_review_started",
+        review_agent=review_agent,
+        task_generation=task_generation,
+        edited_chars=len(edited_output or ""),
+    )
+    try:
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
+            if task_generation != _active_task_generation(session_id):
+                _append_task_log(
+                    session_id,
+                    "resume_after_review_aborted_stale_generation",
+                    task_generation=task_generation,
+                    active_generation=_active_task_generation(session_id),
+                )
+                return
+            task_state["status"] = "running_phase_1"
+            if review_agent in {"prompt_compiler", "quality_inspector"}:
+                task_state["status"] = "running_phase_2"
+            task_state["message"] = "已接收修改内容，正在交给下一个 Agent..."
+            task_state["error"] = ""
+            _touch_task_progress(task_state)
+            _append_task_log(session_id, "resume_after_review_state_running", **_state_log_summary(task_state))
+
+            state = resume_after_human_review(edited_output, review_agent)
+            if task_generation != _active_task_generation(session_id):
+                _append_task_log(
+                    session_id,
+                    "resume_after_review_result_discarded_stale_generation",
+                    task_generation=task_generation,
+                    active_generation=_active_task_generation(session_id),
+                )
+                return
+            for key in ("review_mode", "review_agent", "review_title", "review_output"):
+                if key not in state:
+                    task_state.pop(key, None)
+            task_state.update(state)
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+            _append_task_log(
+                session_id,
+                "resume_after_review_finished",
+                elapsed_seconds=round(time.perf_counter() - started, 3),
+                **_state_log_summary(task_state),
+            )
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            _append_task_log(
+                session_id,
+                "resume_after_review_exception_stale_generation",
+                error=str(e),
+                traceback=traceback.format_exc(),
+            )
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        task_state.update(review_context)
+        task_state["status"] = "error"
+        task_state["message"] = f"人工审核继续失败: {str(e)}"
+        task_state["error"] = traceback.format_exc()
+        failure_text = f"{str(e)}\n{task_state['error']}"
+        failed_step = {
+            "scene_analyst": "step_0_scene",
+            "director_showrunner": "step_0_enhance",
+            "rhythm_rewrite_director": "step_0_rhythm",
+            "story_planner": "step_2_plan",
+            "shot_director": "step_3_direct",
+            "storyboard_designer": "step_4_storyboard",
+            "prompt_compiler": "step_5_compile",
+            "quality_inspector": "step_6_inspect",
+        }
+        for agent_name, step_name in failed_step.items():
+            if agent_name in failure_text:
+                task_state["step"] = step_name
+                break
+        else:
+            task_state["step"] = "error"
+        _save_task_state_for_session(session_id, task_state)
+        _append_task_log(
+            session_id,
+            "resume_after_review_failed",
+            elapsed_seconds=round(time.perf_counter() - started, 3),
+            error=str(e),
+            traceback=task_state["error"],
+            **_state_log_summary(task_state),
+        )
+    finally:
+        _unregister_task_thread(session_id)
+
+
+def _rerun_phase_1_agent_in_thread(
+    agent_name: str,
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Rerun one macro-planning agent while preserving its upstream outputs."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+    label = _AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
+
+    try:
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             if task_generation != _active_task_generation(session_id):
                 return
             task_state["status"] = "running_phase_1"
-            task_state["step"] = "step_3_direct"
-            task_state["message"] = "已复用前三步宏观规划，正在重新启动镜头导演摆位骨架...（4/6）"
+            task_state["step"] = {
+                "director_showrunner": "step_0_enhance",
+                "rhythm_rewrite_director": "step_0_rhythm",
+                "story_planner": "step_2_plan",
+            }.get(agent_name, "step_0_enhance")
+            task_state["message"] = f"正在复用上游结果，重跑 {label}..."
             task_state["error"] = ""
             _touch_task_progress(task_state)
             _save_task_state_for_session(session_id, task_state)
 
-            state = run_shot_director_restart_from_story_plan()
+            state = rerun_phase_1_agent(agent_name)
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state.update(state)
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        task_state["status"] = "error"
+        task_state["step"] = {
+            "director_showrunner": "step_0_enhance",
+            "rhythm_rewrite_director": "step_0_rhythm",
+            "story_planner": "step_2_plan",
+        }.get(agent_name, "error")
+        task_state["message"] = f"{label} 重跑失败: {str(e)}"
+        task_state["error"] = traceback.format_exc()
+        _save_task_state_for_session(session_id, task_state)
+    finally:
+        _unregister_task_thread(session_id)
+
+
+def _generate_storyboard_in_thread(
+    segment_index: int,
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Generate storyboard only for a single segment without compiling prompts."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+    try:
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state["status"] = "running_phase_1"
+            task_state["step"] = "step_4_storyboard"
+            task_state["message"] = f"🎨 正在生成片段 {segment_index} 分镜流程图..."
+            task_state["error"] = ""
+            task_state["active_segment_index"] = segment_index
+            task_state["current_segment_index"] = segment_index
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+
+            latest_state = load_state() or {}
+            merged_state = dict(latest_state)
+            merged_state.update(task_state)
+            result = generate_storyboard_for_segment(merged_state, segment_index=segment_index)
+
+            refreshed = load_state() or {}
+            task_state.update(refreshed)
+            task_state["status"] = "waiting_for_user_input"
+            task_state["step"] = "step_4_storyboard"
+            task_state["message"] = f"🎨 片段 {segment_index} 分镜首帧提示词已生成，请审核后手动生成图片"
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        task_state["status"] = "error"
+        task_state["step"] = "error"
+        task_state["message"] = f"🎨 分镜流程图生成失败: {str(e)}"
+        task_state["error"] = traceback.format_exc()
+        _save_task_state_for_session(session_id, task_state)
+    finally:
+        _unregister_task_thread(session_id)
+
+
+def _generate_storyboard_image_in_thread(
+    segment_index: int,
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Generate the storyboard image after the prompt has been reviewed."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+    try:
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
+            if task_generation != _active_task_generation(session_id):
+                return
+            task_state["status"] = "running_phase_1"
+            task_state["step"] = "step_4_storyboard"
+            task_state["message"] = f"🎨 正在根据片段 {segment_index} 分镜提示词生成图片..."
+            task_state["error"] = ""
+            task_state["active_segment_index"] = segment_index
+            task_state["current_segment_index"] = segment_index
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+
+            latest_state = load_state() or {}
+            merged_state = dict(latest_state)
+            merged_state.update(task_state)
+            result = generate_storyboard_image_for_segment(
+                merged_state,
+                segment_index=segment_index,
+            )
+
+            refreshed = load_state() or {}
+            task_state.update(refreshed)
+            task_state["status"] = "waiting_for_user_input"
+            task_state["step"] = "step_4_storyboard"
+            task_state["message"] = f"🎨 片段 {segment_index} 分镜图片已生成"
+            if result.get("image_path"):
+                task_state["message"] += f"（图片：{result['image_path']}）"
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+    except Exception as e:
+        if task_generation != _active_task_generation(session_id):
+            return
+        _merge_latest_disk_state_for_session(session_id, task_state)
+        task_state["status"] = "error"
+        task_state["step"] = "error"
+        task_state["message"] = f"🎨 分镜图片生成失败: {str(e)}"
+        task_state["error"] = traceback.format_exc()
+        _save_task_state_for_session(session_id, task_state)
+    finally:
+        _unregister_task_thread(session_id)
+
+
+def _restart_shot_director_from_planner_in_thread(
+    task_generation: int = 0,
+    session_id: str = DEFAULT_SESSION_ID,
+):
+    """Legacy entry point: start the current segment from the saved story planner."""
+    session_id = _normalise_session_id(session_id)
+    task_state = _task_state(session_id)
+    try:
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
+            if task_generation != _active_task_generation(session_id):
+                return
+            segment_index = int(task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1)
+            task_state["status"] = "running_phase_2"
+            task_state["step"] = "step_3_direct"
+            task_state["message"] = "已复用前三步宏观规划，正在重新启动镜头导演摆位骨架...（4/6）"
+            task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
+            task_state["error"] = ""
+            task_state["current_segment_index"] = segment_index
+            task_state["active_segment_index"] = segment_index
+            _touch_task_progress(task_state)
+            _save_task_state_for_session(session_id, task_state)
+
+            state = run_phase_2_compile_segment(segment_index)
             if task_generation != _active_task_generation(session_id):
                 return
             task_state.update(state)
@@ -1058,6 +2446,32 @@ async def get_reference_library():
             images.append(f)
     return JSONResponse({"success": True, "images": sorted(images)})
 
+@app.post("/api/reference_library/auto_select")
+async def auto_select_reference_library(
+    script: str = Form(...),
+    reference_image_manifest_json: str = Form(""),
+):
+    try:
+        existing_manifest = _parse_reference_manifest(reference_image_manifest_json)
+    except ValueError as e:
+        return JSONResponse({"success": False, "error": str(e)})
+    matches = _build_auto_reference_matches(script, existing_manifest)
+    return JSONResponse(
+        {
+            "success": True,
+            "images": [
+                {
+                    "filename": item["filename"],
+                    "asset_type": item["asset_type"],
+                    "purpose": item["purpose"],
+                    "matched_tokens": item["matched_tokens"],
+                    "match_score": item["score"],
+                }
+                for item in matches
+            ],
+        }
+    )
+
 @app.get("/api/reference_library/{filename}")
 async def get_reference_image(filename: str):
     """返回本地库中的指定参考图"""
@@ -1085,7 +2499,7 @@ async def api_run(
     # 自动清理：如果已有任务在执行或处于阻塞状态，自动中断并清理前段任务
     if task_state.get("status") in BLOCKING_STATUSES:
         print(f"  [AutoClean] Session {session_id}: 发现前置任务 ({task_state.get('status')})，自动清理并启动新流水线")
-        with request_scope(session_id=session_id):
+        with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
             clear_state()
         task_state.clear()
         task_state.update(_default_task_state())
@@ -1097,6 +2511,17 @@ async def api_run(
             reference_image_files,
             reference_manifest_overrides,
         )
+        auto_b64s, auto_manifest, auto_selected = _auto_select_reference_images(
+            script,
+            reference_image_manifest,
+        )
+        if auto_b64s:
+            reference_image_b64s.extend(auto_b64s)
+            reference_image_manifest.extend(auto_manifest)
+            print(
+                "  [AutoReference] selected "
+                + ", ".join(str(item["filename"]) for item in auto_selected)
+            )
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)})
 
@@ -1191,21 +2616,28 @@ async def api_resume(
         return JSONResponse({"success": False, "error": "当前未处于等待交互状态"})
 
     try:
-        video_path = await _save_segment_video_upload(previous_video_file)
+        video_path = await _save_segment_video_upload(previous_video_file, session_id)
     except ValueError as e:
         return JSONResponse({"success": False, "error": str(e)})
-    if video_path and not tail_frame_b64:
-        tail_frame_b64 = _extract_tail_frame_b64_from_video(video_path) or ""
+    continuity_asset = _select_previous_continuity_asset(
+        task_state,
+        segment_index=segment_index,
+        session_id=session_id,
+        video_path=video_path,
+        tail_frame_b64=tail_frame_b64,
+    )
+    tail_frame_b64 = str(continuity_asset.get("raw_b64") or _tail_frame_raw_b64(tail_frame_b64) or "")
 
     task_generation = _bump_task_generation(session_id)
     now = _now_iso()
     task_state["status"] = "running_phase_2"
-    task_state["step"] = "step_4_compile"
-    task_state["message"] = f"✍️ Seedance编译师正在生成片段 {segment_index}..."
+    task_state["step"] = "step_3_direct"
+    task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
     task_state["error"] = ""
     task_state["current_segment_index"] = segment_index
     task_state["active_segment_index"] = segment_index
     task_state["started_at"] = now
+    _apply_previous_continuity_asset_to_state(task_state, continuity_asset)
     _touch_task_progress(task_state, now)
     _save_task_state_for_session(session_id, task_state)
     thread = threading.Thread(
@@ -1216,6 +2648,7 @@ async def api_resume(
             video_path,
             task_generation,
             session_id,
+            continuity_asset,
         ),
         daemon=True
     )
@@ -1224,16 +2657,318 @@ async def api_resume(
     return JSONResponse({"success": True, "message": "已恢复执行编译步骤"})
 
 
+@app.post("/api/approve_agent_output")
+async def api_approve_agent_output(
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    agent_name: str = Form(""),
+    edited_output: str = Form(""),
+):
+    """Approve or edit the latest paused agent output, then feed it downstream."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    _append_task_log(
+        session_id,
+        "approve_agent_output_request",
+        requested_agent=agent_name,
+        edited_chars=len(edited_output or ""),
+        live_task=_has_live_task(session_id),
+        **_state_log_summary(task_state),
+    )
+
+    if _has_live_task(session_id):
+        _append_task_log(session_id, "approve_agent_output_rejected", reason="live_task")
+        return JSONResponse({"success": False, "error": "已有任务正在执行，请等待当前步骤完成。"})
+    has_review_payload = bool(task_state.get("review_agent") and task_state.get("review_output") is not None)
+    is_agent_review = task_state.get("review_mode") == "agent_output" or has_review_payload
+    can_resume_failed_review = task_state.get("status") == "error" and is_agent_review
+    can_resume_idle_review = task_state.get("status") in {"idle", ""} and is_agent_review
+    if task_state.get("status") != "waiting_for_user_input" and not can_resume_failed_review and not can_resume_idle_review:
+        _append_task_log(session_id, "approve_agent_output_rejected", reason="not_waiting_for_review")
+        return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
+    if not is_agent_review:
+        _append_task_log(session_id, "approve_agent_output_rejected", reason="not_agent_review")
+        return JSONResponse({"success": False, "error": "当前没有等待审核的 Agent 输出。"})
+    if can_resume_failed_review or can_resume_idle_review:
+        task_state["status"] = "waiting_for_user_input"
+        task_state["step"] = task_state.get("step") if task_state.get("step") != "error" else ""
+        task_state["error"] = ""
+        task_state["started_at"] = ""
+        _touch_task_progress(task_state)
+        _save_task_state_for_session(session_id, task_state)
+
+    review_agent = (agent_name or task_state.get("review_agent") or "").strip()
+    if not review_agent:
+        _append_task_log(session_id, "approve_agent_output_rejected", reason="missing_review_agent")
+        return JSONResponse({"success": False, "error": "缺少要审核的 Agent 名称。"})
+    if task_state.get("review_mode") != "agent_output":
+        task_state["review_mode"] = "agent_output"
+        _save_task_state_for_session(session_id, task_state)
+
+    restore_fields = {
+        "status": task_state.get("status"),
+        "step": task_state.get("step"),
+        "message": task_state.get("message"),
+        "error": task_state.get("error"),
+        "started_at": task_state.get("started_at"),
+        "review_mode": task_state.get("review_mode"),
+        "review_agent": task_state.get("review_agent"),
+        "review_title": task_state.get("review_title"),
+        "review_output": task_state.get("review_output"),
+    }
+    try:
+        task_generation = _bump_task_generation(session_id)
+        now = _now_iso()
+        task_state["status"] = "running_phase_1"
+        if review_agent in {"prompt_compiler", "quality_inspector"}:
+            task_state["status"] = "running_phase_2"
+        task_state["message"] = "已收到修改内容，正在继续流水线..."
+        task_state["error"] = ""
+        task_state["started_at"] = now
+        _touch_task_progress(task_state, now)
+        _append_task_log(
+            session_id,
+            "approve_agent_output_accepted",
+            approved_agent=review_agent,
+            task_generation=task_generation,
+            **_state_log_summary(task_state),
+        )
+
+        thread = threading.Thread(
+            target=_resume_after_human_review_in_thread,
+            args=(edited_output, review_agent, task_generation, session_id),
+            daemon=True,
+        )
+        _register_task_thread(session_id, thread)
+        thread.start()
+        return JSONResponse({"success": True, "message": "已确认，正在继续执行。"})
+    except Exception as exc:
+        task_state.update({key: value for key, value in restore_fields.items() if value is not None})
+        task_state["status"] = "waiting_for_user_input"
+        task_state["review_mode"] = "agent_output"
+        task_state["review_agent"] = review_agent
+        task_state["review_output"] = edited_output
+        task_state["message"] = f"确认失败: {type(exc).__name__}: {exc}"
+        task_state["error"] = traceback.format_exc()
+        _touch_task_progress(task_state)
+        _save_task_state_for_session(session_id, task_state)
+        _append_task_log(
+            session_id,
+            "approve_agent_output_failed_before_thread",
+            failed_agent=review_agent,
+            error=str(exc),
+            traceback=task_state["error"],
+            **_state_log_summary(task_state),
+        )
+        return JSONResponse(
+            {"success": False, "error": task_state["message"]},
+            status_code=500,
+        )
+
+
+@app.post("/api/rerun_phase1")
+async def api_rerun_phase1(
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    script: str = Form(""),
+    agent_name: str = Form(""),
+):
+    """Restart the macro planning flow from saved inputs.
+
+    This is intentionally coarse-grained: scene analysis, story enhancement,
+    rhythm rewrite, and story planning are tightly coupled, so the safe rerun
+    path is to restart Phase 1 with the current script and saved references.
+    """
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    disk_state = load_state() or {}
+    source_script = (
+        script.strip()
+        or str(task_state.get("input_script") or "").strip()
+        or str(disk_state.get("script") or "").strip()
+        or str(disk_state.get("original_script") or "").strip()
+    )
+    if not source_script:
+        return JSONResponse({"success": False, "error": "缺少剧本内容，无法重跑规划流程。"})
+
+    aspect_ratio = (
+        str(task_state.get("input_aspect_ratio") or "").strip()
+        or str(disk_state.get("aspect_ratio") or "").strip()
+        or "9:16"
+    )
+    reference_images = str(disk_state.get("reference_images") or task_state.get("reference_images") or "")
+    reference_image_b64s = list(disk_state.get("reference_image_b64s") or task_state.get("reference_image_b64s") or [])
+    reference_image_manifest = list(
+        disk_state.get("reference_image_manifest")
+        or task_state.get("reference_image_manifest")
+        or []
+    )
+    speed_mode = bool(disk_state.get("speed_mode") or task_state.get("speed_mode"))
+
+    task_generation = _bump_task_generation(session_id)
+    task_state["input_script"] = source_script
+    task_state["input_aspect_ratio"] = aspect_ratio
+    task_state["status"] = "running_phase_1"
+    task_state["step"] = "step_0_scene"
+    task_state["message"] = (
+        f"正在从场景预分析重新运行规划流程"
+        f"{f'（由 {agent_name} 重跑触发）' if agent_name else ''}..."
+    )
+    task_state["error"] = ""
+    task_state["started_at"] = _now_iso()
+    _touch_task_progress(task_state, task_state["started_at"])
+    _save_task_state_for_session(session_id, task_state)
+
+    thread = threading.Thread(
+        target=_run_pipeline_in_thread,
+        args=(
+            source_script,
+            aspect_ratio,
+            reference_images,
+            reference_image_b64s,
+            reference_image_manifest,
+            speed_mode,
+            task_generation,
+            session_id,
+        ),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": "已从场景预分析重新启动规划流程。"})
+
+
+@app.post("/api/rerun_phase1_agent")
+async def api_rerun_phase1_agent(
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    agent_name: str = Form(""),
+):
+    """Rerun one Phase 1 agent from its saved upstream context."""
+    session_id = _normalise_session_id(session_id)
+    agent_name = (agent_name or "").strip()
+    if agent_name not in {"director_showrunner", "rhythm_rewrite_director", "story_planner"}:
+        return JSONResponse({"success": False, "error": "当前 Agent 不支持独立重跑。"})
+
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    outputs = task_state.get("agent_outputs") or {}
+    if agent_name == "director_showrunner" and not (outputs.get("scene_analyst") or task_state.get("scene_context_brief")):
+        return JSONResponse({"success": False, "error": "缺少场景预分析结果，无法只重跑剧情增强。"})
+    if agent_name == "rhythm_rewrite_director" and not outputs.get("director_showrunner"):
+        return JSONResponse({"success": False, "error": "缺少剧情增强结果，无法重跑节奏拆片。"})
+    if agent_name == "story_planner" and not outputs.get("director_showrunner"):
+        return JSONResponse({"success": False, "error": "缺少剧情增强结果，无法重跑节奏拆片。"})
+
+    label = _AGENT_DISPLAY_NAMES.get(agent_name, agent_name)
+    task_generation = _bump_task_generation(session_id)
+    task_state["status"] = "running_phase_1"
+    task_state["step"] = {
+        "director_showrunner": "step_0_enhance",
+        "rhythm_rewrite_director": "step_0_rhythm",
+        "story_planner": "step_2_plan",
+    }[agent_name]
+    task_state["message"] = f"正在复用上游结果，重跑 {label}..."
+    task_state["error"] = ""
+    task_state["started_at"] = _now_iso()
+    _touch_task_progress(task_state, task_state["started_at"])
+    _save_task_state_for_session(session_id, task_state)
+
+    thread = threading.Thread(
+        target=_rerun_phase_1_agent_in_thread,
+        args=(agent_name, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": f"已开始重跑 {label}。"})
+
+
+@app.post("/api/recompile_prompt")
+async def api_recompile_prompt(
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    segment_index: int = Form(0),
+):
+    """Re-run only prompt_compiler for one segment from saved shot_director output."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    outputs = task_state.get("agent_outputs") or {}
+    if not outputs.get("story_planner"):
+        return JSONResponse({"success": False, "error": "缺少节奏拆片输出，无法重新编译 Prompt。"})
+    if not (outputs.get("shot_director") or outputs.get("shot_director_final")):
+        return JSONResponse({"success": False, "error": "缺少三段式镜头导演输出，无法单独重新编译。"})
+
+    total_segments = int(task_state.get("total_segments") or 0)
+    if not segment_index:
+        segment_index = int(task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1)
+    if segment_index < 1 or (total_segments and segment_index > total_segments):
+        return JSONResponse({"success": False, "error": f"片段 {segment_index} 超出有效范围。"})
+
+    outputs = _clear_prompt_compile_outputs(task_state, segment_index)
+    shot_director_output = outputs.get("shot_director") or outputs.get("shot_director_final") or ""
+    if _contains_local_fallback_output(shot_director_output):
+        failure_text = (
+            f"片段 {segment_index} Prompt 重新编译失败："
+            "当前三段式镜头导演输出来自本地兜底，已拒绝重新编译。"
+            "请先重跑三段式镜头导演并确保大模型调用成功。"
+        )
+        outputs["prompt_compiler"] = failure_text
+        outputs[f"compiled_segment_{segment_index}"] = failure_text
+        task_state["status"] = "error"
+        task_state["step"] = "error"
+        task_state["message"] = failure_text
+        task_state["error"] = failure_text
+        task_state["current_segment_index"] = segment_index
+        task_state["active_segment_index"] = segment_index
+        task_state["review_mode"] = "agent_output"
+        task_state["review_agent"] = "prompt_compiler"
+        task_state["review_title"] = _AGENT_DISPLAY_NAMES.get("prompt_compiler", "prompt_compiler")
+        task_state["review_output"] = failure_text
+        _touch_task_progress(task_state)
+        _save_task_state_for_session(session_id, task_state)
+        return JSONResponse({"success": False, "error": failure_text, "state": _public_task_state(session_id)})
+
+    task_generation = _bump_task_generation(session_id)
+    task_state["status"] = "running_phase_2"
+    task_state["step"] = "step_5_compile"
+    task_state["message"] = f"Prompt compiler is recompiling segment {segment_index} from saved shot director output..."
+    task_state["error"] = ""
+    task_state["current_segment_index"] = segment_index
+    task_state["active_segment_index"] = segment_index
+    _touch_task_progress(task_state)
+    _save_task_state_for_session(session_id, task_state)
+
+    thread = threading.Thread(
+        target=_recompile_prompt_in_thread,
+        args=(segment_index, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": f"已开始重新编译片段 {segment_index} 的 Seedance Prompt。"})
+
+
 @app.post("/api/retry_shot_director")
 async def api_retry_shot_director(
     session_id: str = Form(DEFAULT_SESSION_ID),
     script: str = Form(""),
+    force_restart: bool = Form(False),
+    allow_script_update: bool = Form(False),
 ):
     """Resume or restart the shot director from the best persisted checkpoint.
     
-    If a new script is provided and differs from the previous one, clear the
-    story_planner output and re-run the full Phase 1 pipeline (rhythm rewrite,
-    scene analysis, story planning) before running shot director.
+    The shot-director retry path reuses the saved story plan by default.  A
+    caller must explicitly opt in to script updates before this endpoint clears
+    story_planner and restarts the full Phase 1 pipeline.
     """
     session_id = _normalise_session_id(session_id)
     _refresh_task_state_from_disk(session_id)
@@ -1243,13 +2978,12 @@ async def api_retry_shot_director(
 
     outputs = task_state.get("agent_outputs") or {}
     if not outputs.get("story_planner"):
-        return JSONResponse({"success": False, "error": "缺少结构规划输出，无法续跑镜头导演。"})
-    if outputs.get("shot_director"):
-        return JSONResponse({"success": False, "error": "镜头导演最终输出已存在，无需续跑。"})
+        return JSONResponse({"success": False, "error": "缺少节奏拆片输出，无法续跑镜头导演。"})
+    force_restart = force_restart or bool(outputs.get("shot_director") or outputs.get("shot_director_final"))
 
     # 检测剧本是否发生变化
     script_changed = False
-    if script and script.strip():
+    if allow_script_update and not force_restart and script and script.strip():
         old_script = task_state.get("input_script", "")
         disk_state = load_state()
         if disk_state:
@@ -1268,6 +3002,7 @@ async def api_retry_shot_director(
         outputs.pop("shot_director_blocking", None)
         outputs.pop("shot_director_guard", None)
         outputs.pop("shot_director_final", None)
+        outputs.pop("shot_director_review", None)
         outputs.pop("shot_director", None)
         task_state["agent_outputs"] = outputs
         task_state["total_segments"] = 0
@@ -1293,8 +3028,10 @@ async def api_retry_shot_director(
         
         # 获取其他必要的输入参数
         aspect_ratio = task_state.get("input_aspect_ratio", "9:16")
-        reference_images = ""
-        ref_manifest = task_state.get("input_ref_manifest", [])
+        reference_images = str(disk_state.get("reference_images") or task_state.get("reference_images") or "")
+        reference_image_b64s = list(disk_state.get("reference_image_b64s") or task_state.get("reference_image_b64s") or [])
+        ref_manifest = list(disk_state.get("reference_image_manifest") or task_state.get("reference_image_manifest") or [])
+        speed_mode = bool(task_state.get("speed_mode"))
         
         thread = threading.Thread(
             target=_run_pipeline_in_thread,
@@ -1302,11 +3039,12 @@ async def api_retry_shot_director(
                 script.strip(),
                 aspect_ratio,
                 reference_images,
-                [],  # reference_image_b64s
+                reference_image_b64s,
+                ref_manifest,
+                speed_mode,
                 task_generation,
                 session_id,
             ),
-            kwargs={"reference_image_manifest": ref_manifest},
             daemon=True,
         )
         _register_task_thread(session_id, thread)
@@ -1318,17 +3056,120 @@ async def api_retry_shot_director(
             }
         )
 
+    if force_restart:
+        for key in (
+            "shot_director_layout",
+            "shot_director_blocking",
+            "shot_director_guard",
+            "shot_director_final",
+            "shot_director_review",
+            "shot_director",
+            "shot_director_error",
+            "storyboard_designer",
+            "prompt_compiler",
+            "quality_inspector",
+        ):
+            outputs.pop(key, None)
+        for key in list(outputs):
+            if re.match(
+                r"^(shot_director_(?:layout|blocking|guard|final|review|segment|fragment|error)(?:_fragment)?_|compiled_segment_|quality_inspector_segment_|storyboard_prompt_seg|storyboard_image_seg)",
+                key,
+            ):
+                outputs.pop(key, None)
+        task_state["agent_outputs"] = outputs
+        task_state["current_segment_index"] = 1
+        task_state.pop("active_segment_index", None)
+        task_state.pop("review_agent", None)
+        task_state.pop("review_output", None)
+        task_state.pop("review_mode", None)
+        knowledge_metadata = task_state.get("knowledge_metadata")
+        if isinstance(knowledge_metadata, dict):
+            for key in (
+                "shot_director",
+                "shot_director_layout",
+                "shot_director_blocking",
+                "shot_director_guard",
+                "storyboard_designer",
+                "prompt_compiler",
+                "quality_inspector",
+            ):
+                knowledge_metadata.pop(key, None)
+
+        disk_state = load_state()
+        if disk_state:
+            disk_outputs = disk_state.get("agent_outputs") if isinstance(disk_state.get("agent_outputs"), dict) else {}
+            for key in list(disk_outputs):
+                if key.startswith("shot_director_") or re.match(
+                    r"^(compiled_segment_|quality_inspector_segment_|storyboard_prompt_seg|storyboard_image_seg)",
+                    key,
+                ):
+                    disk_outputs.pop(key, None)
+            for key in (
+                "shot_director_layout",
+                "shot_director_blocking",
+                "shot_director_guard",
+                "shot_director_final",
+                "shot_director",
+                "shot_director_error",
+                "storyboard_designer",
+                "prompt_compiler",
+                "quality_inspector",
+            ):
+                disk_outputs.pop(key, None)
+            disk_state["agent_outputs"] = {**disk_outputs, **outputs}
+            disk_state["current_segment_index"] = 1
+            disk_state.pop("active_segment_index", None)
+            disk_metadata = disk_state.get("knowledge_metadata")
+            if isinstance(disk_metadata, dict):
+                for key in (
+                    "shot_director",
+                    "shot_director_layout",
+                    "shot_director_blocking",
+                    "shot_director_guard",
+                    "storyboard_designer",
+                    "prompt_compiler",
+                    "quality_inspector",
+                ):
+                    disk_metadata.pop(key, None)
+            save_state(disk_state)
+
     # 剧本未变化，正常续跑shot_director
     has_layout_checkpoint = bool(outputs.get("shot_director_layout"))
+    for key in list(outputs):
+        if key == "shot_director_error" or key.startswith("shot_director_error_"):
+            outputs.pop(key, None)
+    if not has_layout_checkpoint:
+        for key in (
+            "shot_director_layout",
+            "shot_director_blocking",
+                "shot_director_guard",
+                "shot_director_final",
+                "shot_director_review",
+                "shot_director",
+            ):
+                outputs.pop(key, None)
+        for key in list(outputs):
+            if re.match(
+                r"^shot_director_(?:layout|blocking|guard|final|review|segment|fragment|error)",
+                key,
+            ):
+                outputs.pop(key, None)
+    task_state["agent_outputs"] = outputs
     task_generation = _bump_task_generation(session_id)
-    task_state["status"] = "running_phase_1"
+    segment_index = int(task_state.get("active_segment_index") or task_state.get("current_segment_index") or 1)
+    total_segments = int(task_state.get("total_segments") or segment_index or 1)
+    segment_index = max(1, min(segment_index, total_segments))
+    task_state["status"] = "running_phase_2"
     task_state["step"] = "step_3_direct"
     task_state["message"] = (
         "正在复用已完成的镜头摆位骨架，续跑三段镜头导演..."
         if has_layout_checkpoint
         else "已复用前三步宏观规划，正在重新启动镜头导演摆位骨架...（4/6）"
     )
+    task_state["message"] = f"Shot director is generating segment {segment_index} camera plan..."
     task_state["error"] = ""
+    task_state["current_segment_index"] = segment_index
+    task_state["active_segment_index"] = segment_index
     _save_task_state_for_session(session_id, task_state)
 
     thread = threading.Thread(
@@ -1348,10 +3189,134 @@ async def api_retry_shot_director(
             "message": (
                 "已从镜头导演中间产物继续执行"
                 if has_layout_checkpoint
-                else "已从结构规划继续执行镜头导演"
+                else "已从节奏拆片继续执行镜头导演"
             ),
         }
     )
+
+
+@app.post("/api/generate_storyboard")
+async def api_generate_storyboard(
+    segment_index: int = Form(...),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+):
+    """Generate storyboard flowchart for the current segment only."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    outputs = task_state.get("agent_outputs") or {}
+    if not outputs.get("shot_director"):
+        return JSONResponse({"success": False, "error": "镜头导演输出尚未完成，无法生成分镜流程图。"})
+
+    total_segments = int(task_state.get("total_segments") or 0)
+    if segment_index < 1 or (total_segments and segment_index > total_segments):
+        return JSONResponse({"success": False, "error": f"片段 {segment_index} 超出有效范围。"})
+
+    task_generation = _bump_task_generation(session_id)
+    now = _now_iso()
+    task_state["status"] = "running_phase_1"
+    task_state["step"] = "step_4_storyboard"
+    task_state["message"] = f"🎨 正在生成片段 {segment_index} 分镜流程图..."
+    task_state["error"] = ""
+    task_state["active_segment_index"] = segment_index
+    task_state["current_segment_index"] = segment_index
+    task_state["started_at"] = now
+    _touch_task_progress(task_state, now)
+    _save_task_state_for_session(session_id, task_state)
+
+    thread = threading.Thread(
+        target=_generate_storyboard_in_thread,
+        args=(segment_index, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": f"🎨 片段 {segment_index} 分镜流程图已加入队列。"})
+
+
+@app.post("/api/generate_storyboard_image")
+async def api_generate_storyboard_image(
+    segment_index: int = Form(...),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+):
+    """Generate storyboard image from an already-reviewed storyboard prompt."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+
+    outputs = task_state.get("agent_outputs") or {}
+    prompt = (
+        outputs.get(f"storyboard_prompt_seg{segment_index:02d}")
+        or outputs.get(f"storyboard_prompt_seg{segment_index}")
+        or outputs.get("storyboard_designer")
+    )
+    if not prompt:
+        return JSONResponse({"success": False, "error": "请先生成并审核分镜首帧提示词，再生成图片。"})
+
+    total_segments = int(task_state.get("total_segments") or 0)
+    if segment_index < 1 or (total_segments and segment_index > total_segments):
+        return JSONResponse({"success": False, "error": f"片段 {segment_index} 超出有效范围。"})
+
+    task_generation = _bump_task_generation(session_id)
+    now = _now_iso()
+    task_state["status"] = "running_phase_1"
+    task_state["step"] = "step_4_storyboard"
+    task_state["message"] = f"🎨 正在根据片段 {segment_index} 分镜提示词生成图片..."
+    task_state["error"] = ""
+    task_state["active_segment_index"] = segment_index
+    task_state["current_segment_index"] = segment_index
+    task_state["started_at"] = now
+    _touch_task_progress(task_state, now)
+    _save_task_state_for_session(session_id, task_state)
+
+    thread = threading.Thread(
+        target=_generate_storyboard_image_in_thread,
+        args=(segment_index, task_generation, session_id),
+        daemon=True,
+    )
+    _register_task_thread(session_id, thread)
+    thread.start()
+    return JSONResponse({"success": True, "message": f"🎨 片段 {segment_index} 分镜图片已开始生成。"})
+
+
+@app.post("/api/save_storyboard_prompt")
+async def api_save_storyboard_prompt(
+    segment_index: int = Form(...),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+    edited_output: str = Form(""),
+):
+    """Save edited storyboard image prompt without advancing the graph."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    task_state = _task_state(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "已有任务正在执行中，请等待当前步骤完成。"})
+    if segment_index < 1:
+        return JSONResponse({"success": False, "error": "片段编号必须 >= 1。"})
+
+    prompt = (edited_output or "").strip()
+    if not prompt:
+        return JSONResponse({"success": False, "error": "分镜生图提示词不能为空。"})
+
+    outputs = dict(task_state.get("agent_outputs") or {})
+    outputs[f"storyboard_prompt_seg{segment_index:02d}"] = prompt
+    task_state["agent_outputs"] = outputs
+    task_state["review_mode"] = "agent_output"
+    task_state["review_agent"] = "storyboard_designer"
+    task_state["review_title"] = "分镜流程图"
+    task_state["review_output"] = prompt
+    task_state["status"] = "waiting_for_user_input"
+    task_state["step"] = "step_4_storyboard"
+    task_state["message"] = "分镜生图提示词已保存，可以生成图片。"
+    task_state["error"] = ""
+    _touch_task_progress(task_state)
+    _save_task_state_for_session(session_id, task_state)
+    return JSONResponse({"success": True, "message": "分镜生图提示词已保存。"})
 
 
 @app.post("/api/abort")
@@ -1368,7 +3333,7 @@ async def api_abort(session_id: str = Form(DEFAULT_SESSION_ID)):
         _save_task_state_for_session(session_id, task_state)
         # 保存已有的中间输出
         if task_state.get("agent_outputs"):
-            output_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "output")
+            output_dir = _session_subdir(session_id, "audit", "aborted")
             try:
                 os.makedirs(output_dir, exist_ok=True)
                 timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -1397,7 +3362,7 @@ async def api_reset(session_id: str = Form(DEFAULT_SESSION_ID)):
     """一键清空当前任务，允许调试时从空白状态重新启动。"""
     session_id = _normalise_session_id(session_id)
     _bump_task_generation(session_id)
-    with request_scope(session_id=session_id):
+    with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
         clear_state()
     task_state = _task_state(session_id)
     task_state.clear()
@@ -1416,7 +3381,7 @@ async def api_clear_previous_segment(session_id: str = Form(DEFAULT_SESSION_ID))
     if not changed:
         return JSONResponse({"success": False, "error": message})
 
-    with request_scope(session_id=session_id):
+    with request_scope(session_id=session_id, event_callback=_runtime_event_logger(session_id)):
         save_state(task_state)
     return JSONResponse(
         {
@@ -1454,47 +3419,1547 @@ async def api_clear_segment(
     )
 
 
+@app.post("/api/regenerate_scene_card")
+async def api_regenerate_scene_card(
+    scene_number: int = Form(...),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+):
+    """Regenerate one scene layout image and one 3x3 scene grid from its reference image."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "当前流水线正在运行，不能同时重跑场景参考图。"})
+
+    task_state = _task_state(session_id)
+    scene_items = scene_card_impl._scene_reference_items(task_state)
+    if scene_number < 1 or scene_number > len(scene_items):
+        return JSONResponse(
+            {
+                "success": False,
+                "error": f"场景编号 {scene_number} 不存在，当前可重跑 {len(scene_items)} 张场景参考图。",
+            }
+        )
+
+    outputs = task_state.setdefault("agent_outputs", {})
+    scene_output = str(outputs.get("scene_analyst") or task_state.get("scene_context_brief") or "")
+    scene_output = re.split(r"\n\n(?:场景母版图|场景参考图):\s*\|", scene_output, maxsplit=1)[0]
+    scene_item = scene_items[scene_number - 1]
+    total_scenes = len(scene_items)
+    scene_title = scene_card_impl._scene_reference_title(scene_item, scene_number)
+
+    try:
+        overhead_prompt = scene_card_impl._build_scene_card_overhead_prompt(
+            task_state,
+            scene_output,
+            scene_item=scene_item,
+            scene_number=scene_number,
+            total_scenes=total_scenes,
+        )
+        prompt = scene_card_impl._build_scene_card_image_prompt(
+            task_state,
+            scene_output,
+            scene_item=scene_item,
+            scene_number=scene_number,
+            total_scenes=total_scenes,
+        )
+        image_result, overhead_path = scene_card_impl._generate_scene_card_with_overhead(
+            overhead_prompt,
+            prompt,
+            scene_item["image"],
+            session_id,
+            scene_number,
+        )
+        image_path = scene_card_impl._save_scene_card_image(image_result, session_id, scene_number)
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"重跑场景参考图失败：{type(exc).__name__}: {exc}"})
+
+    existing_cards: list[dict[str, str]] = []
+    if outputs.get("scene_card_images"):
+        try:
+            parsed = (
+                json.loads(outputs["scene_card_images"])
+                if isinstance(outputs["scene_card_images"], str)
+                else outputs["scene_card_images"]
+            )
+            if isinstance(parsed, list):
+                existing_cards = [dict(item) for item in parsed if isinstance(item, dict)]
+        except Exception:
+            existing_cards = []
+
+    new_card = {
+        "scene_number": str(scene_number),
+        "scene_title": scene_title,
+        "image_path": image_path,
+        "grid_path": image_path,
+        "layout_path": overhead_path,
+        "layout_prompt": overhead_prompt,
+        "prompt": prompt,
+        "grid_prompt": prompt,
+        "source_index": str(scene_item.get("source_index", scene_number - 1)),
+        "updated_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    card_map = {str(card.get("scene_number") or index + 1): card for index, card in enumerate(existing_cards)}
+    card_map[str(scene_number)] = new_card
+    scene_cards = [card_map[str(index)] for index in range(1, total_scenes + 1) if str(index) in card_map]
+
+    outputs["scene_card_images"] = json.dumps(scene_cards, ensure_ascii=False)
+    if scene_number == 1 or not outputs.get("scene_card_image"):
+        outputs["scene_card_prompt"] = prompt
+        outputs["scene_card_image"] = image_path
+        outputs["scene_layout_prompt"] = overhead_prompt
+        outputs["scene_layout_image"] = overhead_path
+        outputs["scene_grid_prompt"] = prompt
+        outputs["scene_grid_image"] = image_path
+
+    updated_images, updated_manifest = scene_card_impl._append_scene_card_references(task_state, scene_cards)
+    task_state["reference_image_b64s"] = updated_images
+    task_state["reference_image_manifest"] = updated_manifest
+    task_state["reference_image_count"] = len(updated_images)
+    task_state["agent_outputs"] = outputs
+    task_state["message"] = f"场景{scene_number}俯视图和九宫格图已重新生成。"
+    task_state["error"] = ""
+
+    with request_scope(session_id=session_id):
+        save_state(task_state)
+
+    return JSONResponse(
+        {
+            "success": True,
+            "message": task_state["message"],
+            "scene_card": new_card,
+            "state": _public_task_state(session_id),
+        }
+    )
+
+
+@app.post("/api/save_scene_layout_annotations")
+async def api_save_scene_layout_annotations(
+    annotations_json: str = Form("[]"),
+    session_id: str = Form(DEFAULT_SESSION_ID),
+):
+    """Persist user-drawn scene-layout markers/routes for downstream shot direction."""
+    session_id = _normalise_session_id(session_id)
+    _refresh_task_state_from_disk(session_id)
+    if _has_live_task(session_id):
+        return JSONResponse({"success": False, "error": "当前流水线正在运行，不能保存场景标注。"})
+
+    try:
+        parsed = json.loads(annotations_json or "[]")
+    except json.JSONDecodeError:
+        return JSONResponse({"success": False, "error": "场景标注数据不是有效 JSON。"})
+    if not isinstance(parsed, list):
+        return JSONResponse({"success": False, "error": "场景标注数据必须是列表。"})
+
+    task_state = _task_state(session_id)
+    saved_count = _upsert_scene_layout_annotations(task_state, parsed)
+    task_state["message"] = (
+        f"已保存 {saved_count} 张俯视图的人物标点和活动轨迹，镜头导演会作为空间调度参考。"
+        if saved_count
+        else "当前俯视图没有可保存的人物标点或活动轨迹。"
+    )
+    task_state["error"] = ""
+    _touch_task_progress(task_state)
+
+    with request_scope(session_id=session_id):
+        save_state(task_state)
+
+    return JSONResponse(
+        {
+            "success": True,
+            "message": task_state["message"],
+            "saved_count": saved_count,
+            "state": _public_task_state(session_id),
+        }
+    )
+
+
 @app.get("/api/storyboard_image")
 async def api_storyboard_image(path: str = ""):
     """返回分镜流程图图片文件"""
     if not path:
         return JSONResponse({"success": False, "error": "缺少路径参数"}, status_code=400)
-    # 安全检查：只允许访问 output/storyboards 目录下的文件
-    path = os.path.normpath(path)
-    allowed_dir = os.path.join(OUTPUT_DIR, "storyboards")
-    if not os.path.commonpath([allowed_dir, path]).startswith(os.path.commonpath([allowed_dir])):
+
+    requested_path = os.path.abspath(os.path.normpath(path))
+    output_root = os.path.abspath(OUTPUT_DIR)
+    legacy_storyboard_dir = os.path.join(output_root, "storyboards")
+    session_root = os.path.join(output_root, "sessions")
+
+    def _is_under(child: str, parent: str) -> bool:
+        try:
+            return os.path.commonpath([child, parent]) == parent
+        except ValueError:
+            return False
+
+    # 安全检查：只允许访问 output/storyboards、output/sessions/*/storyboards
+    # 或 output/sessions/*/scene_cards 下的图片。
+    under_legacy_storyboards = _is_under(requested_path, legacy_storyboard_dir)
+    under_session_storyboards = (
+        _is_under(requested_path, session_root)
+        and "storyboards" in set(os.path.normpath(requested_path).split(os.sep))
+    )
+    under_session_scene_cards = (
+        _is_under(requested_path, session_root)
+        and "scene_cards" in set(os.path.normpath(requested_path).split(os.sep))
+    )
+    if not (under_legacy_storyboards or under_session_storyboards or under_session_scene_cards):
         return JSONResponse({"success": False, "error": "非法路径"}, status_code=403)
-    if not os.path.exists(path):
+    if not requested_path.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")):
+        return JSONResponse({"success": False, "error": "只允许访问图片文件"}, status_code=403)
+    if not os.path.exists(requested_path):
         return JSONResponse({"success": False, "error": "文件不存在"}, status_code=404)
-    return FileResponse(path)
+    return FileResponse(requested_path)
 
 
 @app.get("/api/config")
 async def api_get_config():
-    config = load_config()
-    # 脱敏：隐藏所有 API key，但保留 base_url 和 model 供前端展示
-    if "llm" in config and "api_key" in config["llm"]:
-        config["llm"]["api_key"] = "***"
-    if "vectordb" in config and "api_key" in config["vectordb"]:
-        config["vectordb"]["api_key"] = "***"
-    for agent_config in config.get("agent_models", {}).values():
-        if isinstance(agent_config, dict) and "api_key" in agent_config:
-            agent_config["api_key"] = "***"
-    # 标记配置为后端锁定，前端不可覆盖
-    config["_config_locked"] = True
-    config["_config_note"] = "模型配置由 config/settings.yaml 定死，前端不可修改"
+    config = _public_model_config()
     return JSONResponse(config)
+
+
+def _load_raw_settings() -> dict:
+    config_path = get_config_path()
+    try:
+        with open(config_path, "r", encoding="utf-8-sig") as file:
+            data = yaml.safe_load(file) or {}
+    except FileNotFoundError:
+        data = {}
+    except yaml.YAMLError as exc:
+        raise ValueError(f"配置文件 YAML 解析失败：{exc}") from exc
+    return data if isinstance(data, dict) else {}
+
+
+def _config_source_summary() -> dict:
+    active_path = os.path.abspath(get_config_path())
+    public_path = os.path.abspath(get_public_config_path())
+    root_dir = os.path.abspath(ROOT_DIR)
+
+    def _display_path(path: str) -> str:
+        try:
+            return os.path.relpath(path, root_dir)
+        except ValueError:
+            return path
+
+    return {
+        "active_path": active_path,
+        "active_display": _display_path(active_path),
+        "public_display": _display_path(public_path),
+        "is_private": False,
+        "message": "当前实际生效配置只读取前端保存的 config/settings.yaml。",
+    }
+
+
+def _save_raw_settings(config: dict) -> None:
+    config_path = get_config_path()
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    with open(config_path, "w", encoding="utf-8") as file:
+        yaml.safe_dump(config, file, allow_unicode=True, sort_keys=False)
+
+
+def _mask_config_key(section: dict) -> dict:
+    result = dict(section or {})
+    api_key = str(result.get("api_key") or "").strip()
+    result["api_key"] = ""
+    result["has_api_key"] = _is_real_api_key(api_key)
+    return result
+
+
+def _mask_route_secrets(value: object) -> object:
+    if isinstance(value, list):
+        return [_mask_route_secrets(item) for item in value]
+    if isinstance(value, dict):
+        masked = dict(value)
+        if "api_key" in masked:
+            api_key = str(masked.get("api_key") or "").strip()
+            previous_has_api_key = bool(masked.get("has_api_key"))
+            masked["api_key"] = ""
+            masked["has_api_key"] = previous_has_api_key or _is_real_api_key(api_key)
+        for key in ("fallback_routes", "custom_route"):
+            if key in masked:
+                masked[key] = _mask_route_secrets(masked[key])
+        return masked
+    return value
+
+
+def _mask_agent_model_config(section: dict) -> dict:
+    return _mask_route_secrets(_mask_config_key(section))  # type: ignore[return-value]
+
+
+def _looks_like_env_placeholder(value: str) -> bool:
+    text = str(value or "").strip()
+    return bool(re.fullmatch(r"\$\{[A-Za-z_][A-Za-z0-9_]*\}", text) or re.fullmatch(r"%[A-Za-z_][A-Za-z0-9_]*%", text))
+
+
+def _is_masked_api_key(value: object) -> bool:
+    return bool(re.fullmatch(r"\*{3,}", str(value or "").strip()))
+
+
+def _is_real_api_key(value: object) -> bool:
+    text = str(value or "").strip()
+    return bool(text) and not _looks_like_env_placeholder(text) and not _is_masked_api_key(text)
+
+
+AGENT_LABELS: dict[str, str] = {
+    "director_showrunner": "剧情增强",
+    "rhythm_rewrite_director": "节奏拆片摘要",
+    "scene_analyst": "场景预分析",
+    "scene_vision_analyst": "场景视觉分析",
+    "scene_card_designer": "场景俯视/九宫格生图",
+    "story_planner": "节奏拆片导演",
+    "shot_director": "三段镜头导演",
+    "prompt_compiler": "Seedance 编译",
+    "quality_inspector": "质检报告",
+    "storyboard_prompt_designer": "分镜提示词",
+    "storyboard_designer": "分镜图片生成",
+    "video_analyst": "视频/尾帧分析",
+    "script_event_validator": "剧本事件校验",
+    "shot_director_layout": "镜头摆位骨架",
+    "shot_director_blocking": "动作调度导演",
+    "shot_director_guard": "规则守门导演",
+    "shot_director_logic_reviewer": "镜头逻辑审查",
+    "director_showrunner_logic_reviewer": "剧情增强逻辑审查",
+}
+
+AGENT_CATEGORIES: dict[str, str] = {
+    "scene_vision_analyst": "vision",
+    "video_analyst": "vision",
+    "scene_card_designer": "image",
+    "storyboard_designer": "image",
+}
+
+AGENT_MODEL_UI_NAMES: tuple[str, ...] = (
+    "director_showrunner",
+    "scene_analyst",
+    "scene_vision_analyst",
+    "story_planner",
+    "shot_director",
+    "prompt_compiler",
+    "quality_inspector",
+    "storyboard_designer",
+)
+
+MODEL_PROFILE_LABELS: dict[str, str] = {
+    "text": "中转站 1",
+    "image": "中转站 2",
+    "embedding": "向量嵌入",
+}
+
+
+REMOVED_AGENT_MODEL_NAMES: set[str] = {
+    "quality_inspector_llm_a",
+    "quality_inspector_llm_b",
+    "quality_inspector_llm_c",
+    "quality_inspector_merger",
+}
+
+DERIVED_AGENT_MODEL_SOURCES: dict[str, str] = {
+    "scene_vision_analyst": "scene_analyst",
+    "video_analyst": "scene_analyst",
+    "scene_card_designer": "storyboard_designer",
+    "storyboard_prompt_designer": "prompt_compiler",
+    "script_event_validator": "story_planner",
+    "shot_director_layout": "shot_director",
+    "shot_director_blocking": "shot_director",
+    "shot_director_guard": "shot_director",
+}
+
+CONNECTION_TEST_AGENT_PARENTS: dict[str, str] = {
+    **DERIVED_AGENT_MODEL_SOURCES,
+    "shot_director_logic_reviewer": "shot_director",
+    "director_showrunner_logic_reviewer": "director_showrunner",
+}
+
+CONNECTION_TEST_AGENT_EXPANSIONS: dict[str, tuple[str, ...]] = {
+    "shot_director": (
+        "shot_director_layout",
+        "shot_director_blocking",
+        "shot_director_guard",
+        "shot_director_logic_reviewer",
+    ),
+}
+
+CONNECTION_TEST_AGENT_ORDER: tuple[str, ...] = (
+    "director_showrunner",
+    "director_showrunner_logic_reviewer",
+    "scene_analyst",
+    "scene_vision_analyst",
+    "video_analyst",
+    "story_planner",
+    "script_event_validator",
+    "shot_director",
+    "shot_director_layout",
+    "shot_director_blocking",
+    "shot_director_guard",
+    "shot_director_logic_reviewer",
+    "prompt_compiler",
+    "storyboard_prompt_designer",
+    "quality_inspector",
+    "storyboard_designer",
+    "scene_card_designer",
+)
+
+
+def _is_removed_agent_model(agent_name: str) -> bool:
+    return str(agent_name) in REMOVED_AGENT_MODEL_NAMES
+
+
+def _is_configurable_agent_model(agent_name: str) -> bool:
+    name = str(agent_name)
+    return name in AGENT_MODEL_UI_NAMES and not _is_removed_agent_model(name)
+
+
+def _is_connection_test_agent_model(agent_name: str) -> bool:
+    name = str(agent_name)
+    if _is_configurable_agent_model(name):
+        return True
+    parent = CONNECTION_TEST_AGENT_PARENTS.get(name)
+    return bool(parent and _is_configurable_agent_model(parent) and not _is_removed_agent_model(name))
+
+
+def _expand_connection_test_agent_names(agent_names: Iterable[str]) -> list[str]:
+    expanded: list[str] = []
+    seen: set[str] = set()
+
+    def add(name: str) -> None:
+        if not _is_connection_test_agent_model(name) or name in seen:
+            return
+        seen.add(name)
+        expanded.append(name)
+        for child_name in CONNECTION_TEST_AGENT_EXPANSIONS.get(name, ()):
+            add(child_name)
+
+    for agent_name in agent_names:
+        add(str(agent_name))
+    return expanded
+
+
+def _configured_agent_model_names(raw_config: dict) -> list[str]:
+    agent_models = raw_config.get("agent_models") or {}
+    if not isinstance(agent_models, dict):
+        return []
+    configured_names = {str(name) for name in agent_models}
+    return [name for name in AGENT_MODEL_UI_NAMES if name in configured_names and _is_configurable_agent_model(name)]
+
+
+def _agent_category(agent_name: str) -> str:
+    return AGENT_CATEGORIES.get(agent_name, "text")
+
+
+def _first_agent_config(raw_config: dict, category: str) -> dict:
+    agent_models = raw_config.get("agent_models") or {}
+    if not isinstance(agent_models, dict):
+        return {}
+    for agent_name, agent_config in agent_models.items():
+        if _agent_category(str(agent_name)) == category and isinstance(agent_config, dict):
+            return agent_config
+    return {}
+
+
+def _profile_source(raw_config: dict, profile: str) -> dict:
+    if profile == "image":
+        image_config = raw_config.get("image_generation")
+        if isinstance(image_config, dict):
+            return image_config
+        return _first_agent_config(raw_config, "image")
+    if profile == "embedding":
+        vectordb_config = raw_config.get("vectordb")
+        return vectordb_config if isinstance(vectordb_config, dict) else {}
+    llm_config = raw_config.get("llm")
+    return llm_config if isinstance(llm_config, dict) else {}
+
+
+def _public_model_profiles(raw_config: dict) -> dict:
+    profiles: dict[str, dict] = {}
+    for profile, label in MODEL_PROFILE_LABELS.items():
+        source = _profile_source(raw_config, profile)
+        masked = _mask_config_key(source)
+        masked["label"] = label
+        profiles[profile] = masked
+    if not profiles["image"].get("base_url"):
+        profiles["image"]["base_url"] = COMFLY_BASE_URL
+    return profiles
+
+
+def _safe_knowledge_index_status() -> dict:
+    try:
+        return knowledge_index_status()
+    except Exception as exc:
+        return {
+            "status": "error",
+            "needs_rebuild": True,
+            "message": f"知识库状态读取失败: {exc}",
+            "error": str(exc),
+        }
+
+
+def _model_groups(models: list[str]) -> dict[str, list[str]]:
+    def has_any(model: str, markers: tuple[str, ...]) -> bool:
+        lower = model.lower()
+        return any(marker in lower for marker in markers)
+
+    embedding_markers = ("embed", "embedding", "bge", "text-embedding")
+    image_markers = (
+        "image", "gpt-image", "dall-e", "dalle", "flux", "midjourney", "mj-",
+        "stable-diffusion", "sdxl", "seedream", "jimeng", "ideogram",
+    )
+    vision_markers = (
+        "vision", "vl", "qwen-vl", "glm-4v", "gpt-4o", "gpt-5", "claude",
+        "gemini", "moonshot-vision", "omni", "multimodal",
+    )
+    groups = {
+        "text": [],
+        "vision": [],
+        "image": [],
+        "embedding": [],
+    }
+    for model in models:
+        if has_any(model, embedding_markers):
+            groups["embedding"].append(model)
+        elif has_any(model, image_markers):
+            groups["image"].append(model)
+        else:
+            groups["text"].append(model)
+            if has_any(model, vision_markers):
+                groups["vision"].append(model)
+    if not groups["vision"]:
+        groups["vision"] = list(groups["text"])
+    return groups
+
+
+def _public_model_config() -> dict:
+    raw_config = _load_raw_settings()
+    public_config = copy.deepcopy(raw_config)
+    public_config["llm"] = _mask_config_key(public_config.get("llm") or {})
+    public_config["vectordb"] = _mask_config_key(public_config.get("vectordb") or {})
+    public_config["image_generation"] = _mask_config_key(public_config.get("image_generation") or _profile_source(raw_config, "image"))
+    agent_models = public_config.get("agent_models")
+    if isinstance(agent_models, dict):
+        for agent_name in list(agent_models.keys()):
+            if not _is_configurable_agent_model(str(agent_name)):
+                agent_models.pop(agent_name, None)
+                continue
+            agent_config = agent_models[agent_name]
+            if isinstance(agent_config, dict):
+                masked = _mask_agent_model_config(agent_config)
+                agent_config.clear()
+                agent_config.update(masked)
+    else:
+        public_config["agent_models"] = {}
+    public_config["_config_locked"] = False
+    public_config["_config_note"] = "模型配置只以前端保存到 config/settings.yaml 的内容为准。"
+    public_config["_config_source"] = _config_source_summary()
+    public_agent_names = _configured_agent_model_names(public_config)
+    public_config["_agent_order"] = public_agent_names
+    public_config["_agent_labels"] = {name: AGENT_LABELS.get(name, name) for name in public_agent_names}
+    public_config["_agent_categories"] = {name: _agent_category(name) for name in public_agent_names}
+    public_config["_model_profiles"] = _public_model_profiles(raw_config)
+    public_config["_knowledge_index"] = _safe_knowledge_index_status()
+    return public_config
+
+
+def _normalise_config_base_url(value: str) -> str:
+    base_url = str(value or "").strip()
+    if not base_url:
+        raise ValueError("中转站地址不能为空。")
+    if not base_url.startswith(("http://", "https://")):
+        base_url = "https://" + base_url
+    base_url = base_url.rstrip("/")
+    parsed = urlparse(base_url)
+    if parsed.scheme and parsed.netloc and not parsed.path:
+        return base_url + "/v1"
+    return base_url
+
+
+def _model_list_candidate_urls(base_url: str) -> list[str]:
+    base_url = base_url.rstrip("/")
+    urls = [f"{base_url}/models"]
+    if not base_url.lower().endswith("/v1"):
+        urls.append(f"{base_url}/v1/models")
+    return urls
+
+
+def _model_list_client_modes() -> tuple[tuple[bool, str], ...]:
+    return (
+        (False, "直连/绕开环境代理"),
+        (True, "系统环境代理"),
+    )
+
+
+def _model_list_network_hint(base_url: str) -> str:
+    host = urlparse(base_url).hostname
+    if not host:
+        return ""
+    try:
+        resolved_ips = {
+            item[4][0]
+            for item in socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+            if item and item[4]
+        }
+    except OSError:
+        return ""
+    fake_ip_network = ipaddress.ip_network("198.18.0.0/15")
+    fake_ips = []
+    for ip_text in sorted(resolved_ips):
+        try:
+            if ipaddress.ip_address(ip_text) in fake_ip_network:
+                fake_ips.append(ip_text)
+        except ValueError:
+            continue
+    if not fake_ips:
+        return ""
+    return (
+        f"诊断提示：{host} 当前解析到 {', '.join(fake_ips)}，这是 Mihomo/Clash fake-ip 保留网段。"
+        "说明 VPN/TUN 正在接管该域名；如果直连和系统代理都失败，需要在 VPN 里给该域名切换可用节点或直连规则，"
+        "并确认中转站 Base URL 是供应商提供的真实 API 域名。"
+    )
+
+
+def _model_response_preview(response: httpx.Response) -> str:
+    content_type = response.headers.get("content-type", "").split(";", 1)[0] or "unknown"
+    body = response.text.strip().replace("\r", " ").replace("\n", " ")
+    if len(body) > 300:
+        body = body[:300] + "..."
+    return f"Content-Type {content_type}, body: {body or '<empty>'}"
+
+
+def _extract_model_ids(raw_models: object) -> list[str]:
+    models: list[str] = []
+    if isinstance(raw_models, list):
+        for item in raw_models:
+            if isinstance(item, dict):
+                model_id = item.get("id") or item.get("name")
+            else:
+                model_id = item
+            model_id = str(model_id or "").strip()
+            if model_id:
+                models.append(model_id)
+    return sorted(set(models), key=lambda item: item.lower())
+
+
+def _normalise_optional_model(value: object) -> str:
+    if isinstance(value, dict):
+        return _normalise_optional_model(value.get("model"))
+    text = str(value or "").strip()
+    for _ in range(3):
+        if not (text.startswith("{") and "model" in text):
+            break
+        try:
+            parsed = ast.literal_eval(text)
+        except (SyntaxError, ValueError):
+            break
+        if not isinstance(parsed, dict) or "model" not in parsed:
+            break
+        next_text = str(parsed.get("model") or "").strip()
+        if not next_text or next_text == text:
+            break
+        text = next_text
+    return text
+
+
+def _normalise_model_pool_payload(value: object, *, limit: int = 80) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    models: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        model = _normalise_optional_model(item)
+        if not model or model in seen:
+            continue
+        models.append(model)
+        seen.add(model)
+        if len(models) >= limit:
+            break
+    return models
+
+
+def _agent_route_by_base_url(agent_config: dict, base_url: str) -> dict:
+    target = _normalise_config_base_url(base_url) if base_url else ""
+    if not target:
+        return {}
+    candidate_routes: list[dict] = []
+    if isinstance(agent_config, dict):
+        candidate_routes.append(agent_config)
+        fallback_routes = agent_config.get("fallback_routes")
+        if isinstance(fallback_routes, list):
+            candidate_routes.extend(route for route in fallback_routes if isinstance(route, dict))
+        custom_route = agent_config.get("custom_route")
+        if isinstance(custom_route, dict):
+            candidate_routes.append(custom_route)
+    for route in candidate_routes:
+        try:
+            route_url = _normalise_config_base_url(str(route.get("base_url") or ""))
+        except ValueError:
+            continue
+        if route_url == target:
+            return route
+    return {}
+
+
+def _saved_api_key_for_base_url(raw_config: dict, base_url: str, fallback_key: str = "") -> str:
+    try:
+        target = _normalise_config_base_url(base_url)
+    except ValueError:
+        return str(fallback_key or "").strip()
+    candidate_routes: list[dict] = []
+    for profile in ("text", "image", "embedding"):
+        source = _profile_source(raw_config, profile)
+        if isinstance(source, dict):
+            candidate_routes.append(source)
+    agent_models = raw_config.get("agent_models") or {}
+    if isinstance(agent_models, dict):
+        for agent_config in agent_models.values():
+            if not isinstance(agent_config, dict):
+                continue
+            candidate_routes.append(agent_config)
+            fallback_routes = agent_config.get("fallback_routes")
+            if isinstance(fallback_routes, list):
+                candidate_routes.extend(route for route in fallback_routes if isinstance(route, dict))
+            custom_route = agent_config.get("custom_route")
+            if isinstance(custom_route, dict):
+                candidate_routes.append(custom_route)
+    for route in candidate_routes:
+        api_key = str(route.get("api_key") or "").strip()
+        if not api_key or _looks_like_env_placeholder(api_key) or _is_masked_api_key(api_key):
+            continue
+        try:
+            route_url = _normalise_config_base_url(str(route.get("base_url") or ""))
+        except ValueError:
+            continue
+        if route_url == target:
+            return api_key
+    return str(fallback_key or "").strip()
+
+
+def _api_key_for_current_base_url(current_routes: list[dict], base_url: str, fallback_key: str = "") -> str:
+    try:
+        target = _normalise_config_base_url(base_url)
+    except ValueError:
+        return str(fallback_key or "").strip()
+    for route in current_routes:
+        if not isinstance(route, dict):
+            continue
+        api_key = str(route.get("api_key") or "").strip()
+        if not _is_real_api_key(api_key):
+            continue
+        try:
+            route_url = _normalise_config_base_url(str(route.get("base_url") or ""))
+        except ValueError:
+            continue
+        if route_url == target:
+            return api_key
+    return str(fallback_key or "").strip() if _is_real_api_key(fallback_key) else ""
+
+
+@app.post("/api/model_list")
+async def api_model_list(request: Request):
+    if not _is_local_request(request):
+        return JSONResponse({"success": False, "error": "模型列表仅允许本机管理员拉取。"}, status_code=403)
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    raw_config = _load_raw_settings()
+    profile = str(payload.get("profile") or "text").strip() or "text"
+    if profile not in MODEL_PROFILE_LABELS:
+        profile = "text"
+    agent_name = str(payload.get("agent_name") or "").strip()
+    route_preset = str(payload.get("route_preset") or "primary").strip()
+    agent_config = {}
+    if agent_name:
+        raw_agent_models = raw_config.get("agent_models") or {}
+        if isinstance(raw_agent_models, dict) and isinstance(raw_agent_models.get(agent_name), dict):
+            agent_config = raw_agent_models.get(agent_name) or {}
+    fallback_routes = agent_config.get("fallback_routes") if isinstance(agent_config.get("fallback_routes"), list) else []
+    fallback_route = fallback_routes[0] if fallback_routes and isinstance(fallback_routes[0], dict) else {}
+    custom_route = agent_config.get("custom_route") if isinstance(agent_config.get("custom_route"), dict) else {}
+    saved_route = agent_config
+    if route_preset == "fallback":
+        saved_route = fallback_route
+    elif route_preset == "custom":
+        saved_route = custom_route
+    requested_base_url = ""
+    explicit_unmatched_custom_route = False
+    try:
+        requested_base_url = str(payload.get("base_url") or "").strip()
+        base_url = _normalise_config_base_url(
+            requested_base_url or saved_route.get("base_url") or _profile_source(raw_config, profile).get("base_url") or ""
+        )
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    if agent_config and requested_base_url:
+        matching_route = _agent_route_by_base_url(agent_config, base_url)
+        if matching_route:
+            saved_route = matching_route
+        elif route_preset == "custom":
+            saved_route = {}
+            explicit_unmatched_custom_route = True
+    api_key = str(payload.get("api_key") or "").strip()
+    if not api_key or _is_masked_api_key(api_key):
+        api_key = str(saved_route.get("api_key") or "").strip()
+    if not api_key or _is_masked_api_key(api_key):
+        fallback_profile_key = (
+            ""
+            if explicit_unmatched_custom_route
+            else str(_profile_source(raw_config, profile).get("api_key") or "").strip()
+        )
+        api_key = _saved_api_key_for_base_url(
+            raw_config,
+            base_url,
+            fallback_key=fallback_profile_key,
+        )
+    if _looks_like_env_placeholder(api_key):
+        api_key = ""
+    if not api_key:
+        return JSONResponse({"success": False, "error": "请先填写 API Key，再拉取模型列表。"}, status_code=400)
+
+    models: list[str] = []
+    parsed_model_list = False
+    proxy_mode = ""
+    errors: list[str] = []
+    try:
+        candidate_urls = _model_list_candidate_urls(base_url)
+        for trust_env, current_proxy_mode in _model_list_client_modes():
+            with httpx.Client(
+                timeout=httpx.Timeout(30.0, connect=10.0),
+                trust_env=trust_env,
+            ) as client:
+                for url in candidate_urls:
+                    try:
+                        resp = client.get(
+                            url,
+                            headers={"Authorization": f"Bearer {api_key}"},
+                        )
+                    except httpx.HTTPError as exc:
+                        errors.append(f"{url} 请求失败（{current_proxy_mode}）：{type(exc).__name__}: {exc}")
+                        continue
+                    if resp.status_code >= 400:
+                        errors.append(f"{url} 返回 HTTP {resp.status_code}（{current_proxy_mode}）: {resp.text[:500]}")
+                        continue
+                    try:
+                        data = resp.json()
+                    except ValueError:
+                        errors.append(f"{url} 返回的不是合法 JSON（{current_proxy_mode}，{_model_response_preview(resp)}）")
+                        continue
+                    raw_models = data.get("data") if isinstance(data, dict) else data
+                    if not isinstance(raw_models, list):
+                        errors.append(f"{url} JSON 中没有 data 模型数组（{current_proxy_mode}）。")
+                        continue
+                    models = _extract_model_ids(raw_models)
+                    parsed_model_list = True
+                    proxy_mode = current_proxy_mode
+                    break
+            if parsed_model_list:
+                break
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"拉取模型列表失败：{type(exc).__name__}: {exc}"}, status_code=500)
+    if not parsed_model_list:
+        hint = _model_list_network_hint(base_url)
+        if hint:
+            errors.append(hint)
+        return JSONResponse({"success": False, "error": "拉取模型列表失败：" + "；".join(errors)}, status_code=502)
+
+    groups = _model_groups(models)
+    return JSONResponse({
+        "success": True,
+        "profile": profile,
+        "models": models,
+        "groups": groups,
+        "embedding_models": groups["embedding"],
+        "image_models": groups["image"],
+        "vision_models": groups["vision"],
+        "proxy_mode": proxy_mode,
+    })
+
+
+def _resolve_saved_api_key(raw_config: dict, profile: str, submitted_key: str, fallback_key: str = "") -> str:
+    submitted_key = str(submitted_key or "").strip()
+    if _is_real_api_key(submitted_key):
+        return submitted_key
+    existing_key = str(_profile_source(raw_config, profile).get("api_key") or "").strip()
+    if _looks_like_env_placeholder(existing_key):
+        expanded = os.path.expandvars(existing_key).strip()
+        existing_key = "" if expanded == existing_key else expanded
+    if _is_real_api_key(existing_key):
+        return existing_key
+    return str(fallback_key or "").strip() if _is_real_api_key(fallback_key) else ""
+
+
+def _ensure_config_section(raw_config: dict, section_name: str) -> dict:
+    section = raw_config.setdefault(section_name, {})
+    if not isinstance(section, dict):
+        section = {}
+        raw_config[section_name] = section
+    return section
+
+
+def _write_profile_credentials(section: dict, api_key: str, base_url: str) -> None:
+    section["api_key"] = api_key
+    section["base_url"] = base_url
+
+
+def _agent_payload_model(value: object) -> str:
+    if isinstance(value, dict):
+        return _normalise_optional_model(value.get("model"))
+    return _normalise_optional_model(value)
+
+
+def _agent_payload_route(value: object) -> dict:
+    return value if isinstance(value, dict) else {}
+
+
+def _route_api_key_from_submission(
+    *,
+    submitted_key: object,
+    previous_route: dict,
+    profile_key: str,
+) -> str:
+    submitted = str(submitted_key or "").strip()
+    if _is_real_api_key(submitted):
+        return submitted
+    existing_key = str(previous_route.get("api_key") or "").strip()
+    if _is_real_api_key(existing_key):
+        return existing_key
+    return str(profile_key or "").strip() if _is_real_api_key(profile_key) else ""
+
+
+def _agent_connection_preview(response: httpx.Response) -> str:
+    body = response.text.strip().replace("\r", " ").replace("\n", " ")
+    if len(body) > 260:
+        body = body[:260] + "..."
+    return body or response.reason_phrase or "empty response"
+
+
+def _coerce_probe_timeout(value: object, default: float, minimum: float | None = None) -> float:
+    try:
+        resolved = float(value)
+    except (TypeError, ValueError):
+        resolved = default
+    if minimum is not None:
+        resolved = max(minimum, resolved)
+    return resolved
+
+
+def _agent_connection_timeout(timeout_config: dict | None = None) -> httpx.Timeout:
+    config = timeout_config if isinstance(timeout_config, dict) else {}
+    request_timeout = _coerce_probe_timeout(config.get("timeout_seconds"), 20.0, minimum=20.0)
+    connect_timeout = _coerce_probe_timeout(
+        config.get("connect_timeout_seconds"),
+        min(8.0, request_timeout),
+        minimum=5.0,
+    )
+    read_timeout = _coerce_probe_timeout(config.get("read_timeout_seconds"), request_timeout, minimum=20.0)
+    write_timeout = _coerce_probe_timeout(
+        config.get("write_timeout_seconds"),
+        min(10.0, request_timeout),
+        minimum=10.0,
+    )
+    return httpx.Timeout(request_timeout, connect=connect_timeout, read=read_timeout, write=write_timeout)
+
+
+async def _probe_agent_connection(
+    *,
+    agent_name: str,
+    label: str,
+    category: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    timeout_config: dict | None = None,
+) -> dict:
+    started = perf_counter()
+    result = {
+        "agent": agent_name,
+        "label": label,
+        "category": category,
+        "base_url": base_url,
+        "model": model,
+        "success": False,
+        "latency_ms": None,
+        "message": "",
+    }
+    if not base_url:
+        result["message"] = "缺少 Base URL"
+        return result
+    if not api_key:
+        result["message"] = "缺少 API Key"
+        return result
+    if not model:
+        result["message"] = "未选择模型"
+        return result
+
+    payload = {
+        "model": model,
+        "messages": [
+            {"role": "system", "content": "你是连通性测试端点，只需回复 OK。"},
+            {"role": "user", "content": f"测试“{label}”的模型连通性，请只回复 OK。"},
+        ],
+        "temperature": 0,
+        "max_tokens": 8,
+    }
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    timeout = _agent_connection_timeout(timeout_config)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            response = await client.post(f"{base_url.rstrip('/')}/chat/completions", headers=headers, json=payload)
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        if response.status_code >= 400:
+            result["message"] = f"HTTP {response.status_code}: {_agent_connection_preview(response)}"
+            return result
+        try:
+            data = response.json()
+        except ValueError:
+            result["message"] = f"返回非 JSON: {_agent_connection_preview(response)}"
+            return result
+        choices = data.get("choices") if isinstance(data, dict) else None
+        if not isinstance(choices, list) or not choices:
+            result["message"] = "响应缺少 choices 字段"
+            return result
+        result["success"] = True
+        result["message"] = "连接正常"
+        return result
+    except httpx.TimeoutException as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"请求超时: {type(exc).__name__}"
+        return result
+    except httpx.HTTPError as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"请求失败: {type(exc).__name__}: {exc}"
+        return result
+    except Exception as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"测试异常: {type(exc).__name__}: {exc}"
+        return result
+
+
+async def _probe_embedding_connection(*, base_url: str, api_key: str, model: str) -> dict:
+    started = perf_counter()
+    result = {
+        "agent": "embedding",
+        "label": "向量嵌入",
+        "category": "embedding",
+        "base_url": base_url,
+        "model": model,
+        "success": False,
+        "latency_ms": None,
+        "message": "",
+    }
+    if not base_url:
+        result["message"] = "缺少 Base URL"
+        return result
+    if not api_key:
+        result["message"] = "缺少 API Key"
+        return result
+    if not model:
+        result["message"] = "未选择 Embedding 模型"
+        return result
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = {
+        "model": model,
+        "input": "connection probe",
+    }
+    timeout = httpx.Timeout(20.0, connect=8.0, read=20.0, write=10.0)
+    try:
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
+            response = await client.post(f"{base_url.rstrip('/')}/embeddings", headers=headers, json=payload)
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        if response.status_code >= 400:
+            result["message"] = f"HTTP {response.status_code}: {_agent_connection_preview(response)}"
+            return result
+        try:
+            data = response.json()
+        except ValueError:
+            result["message"] = f"返回非 JSON: {_agent_connection_preview(response)}"
+            return result
+        embeddings = data.get("data") if isinstance(data, dict) else None
+        if not isinstance(embeddings, list) or not embeddings:
+            result["message"] = "响应缺少 data 字段"
+            return result
+        result["success"] = True
+        result["message"] = "连接正常"
+        return result
+    except httpx.TimeoutException as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"请求超时: {type(exc).__name__}"
+        return result
+    except httpx.HTTPError as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"请求失败: {type(exc).__name__}: {exc}"
+        return result
+    except Exception as exc:
+        result["latency_ms"] = round((perf_counter() - started) * 1000)
+        result["message"] = f"测试异常: {type(exc).__name__}: {exc}"
+        return result
+
+
+@app.post("/api/config")
+async def api_save_config(request: Request):
+    if not _is_local_request(request):
+        return JSONResponse({"success": False, "error": "系统配置仅允许本机管理员保存。"}, status_code=403)
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"配置请求不是合法 JSON：{exc}"}, status_code=400)
+
+    try:
+        raw_config = _load_raw_settings()
+        text_base_url = _normalise_config_base_url(
+            str(payload.get("text_base_url") or payload.get("base_url") or _profile_source(raw_config, "text").get("base_url") or "")
+        )
+        image_base_url = _normalise_config_base_url(
+            str(payload.get("image_base_url") or _profile_source(raw_config, "image").get("base_url") or text_base_url)
+        )
+        embedding_base_url = _normalise_config_base_url(
+            str(payload.get("embedding_base_url") or _profile_source(raw_config, "embedding").get("base_url") or text_base_url)
+        )
+        text_api_key = str(payload.get("text_api_key") or payload.get("api_key") or "").strip()
+        image_api_key = str(payload.get("image_api_key") or "").strip()
+        embedding_api_key = str(payload.get("embedding_api_key") or "").strip()
+        embedding_model = _normalise_optional_model(payload.get("embedding_model"))
+        agent_models_payload = payload.get("agent_models") or {}
+        if not isinstance(agent_models_payload, dict):
+            raise ValueError("agent_models 必须是对象。")
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+
+    text_key = _resolve_saved_api_key(raw_config, "text", text_api_key)
+    image_key = _resolve_saved_api_key(raw_config, "image", image_api_key, fallback_key=text_key)
+    embedding_key = _resolve_saved_api_key(raw_config, "embedding", embedding_api_key, fallback_key=text_key)
+    current_profile_routes = [
+        {"base_url": text_base_url, "api_key": text_key},
+        {"base_url": image_base_url, "api_key": image_key},
+        {"base_url": embedding_base_url, "api_key": embedding_key},
+    ]
+    missing_profiles = [
+        MODEL_PROFILE_LABELS[profile]
+        for profile, key in (("text", text_key), ("image", image_key), ("embedding", embedding_key))
+        if not key
+    ]
+    if missing_profiles:
+        return JSONResponse({"success": False, "error": "API Key 不能为空：" + "、".join(missing_profiles)}, status_code=400)
+
+    llm_config = _ensure_config_section(raw_config, "llm")
+    _write_profile_credentials(llm_config, text_key, text_base_url)
+
+    image_config = _ensure_config_section(raw_config, "image_generation")
+    _write_profile_credentials(image_config, image_key, image_base_url)
+
+    vectordb_config = _ensure_config_section(raw_config, "vectordb")
+    _write_profile_credentials(vectordb_config, embedding_key, embedding_base_url)
+    if embedding_model:
+        vectordb_config["embedding_model"] = embedding_model
+
+    existing_agent_models = _ensure_config_section(raw_config, "agent_models")
+    previous_agent_models = {
+        str(name): dict(value)
+        for name, value in existing_agent_models.items()
+        if isinstance(value, dict)
+    }
+    agent_models: dict[str, dict] = {}
+    raw_config["agent_models"] = agent_models
+
+    known_agents = {
+        str(name)
+        for name in AGENT_MODEL_UI_NAMES
+        if _is_configurable_agent_model(str(name))
+    }
+    agent_order = {name: index for index, name in enumerate(AGENT_MODEL_UI_NAMES)}
+    selected_models: dict[str, str] = {}
+
+    def write_agent_config(agent_name: str, selected_payload: object, category: str) -> None:
+        agent_config = dict(previous_agent_models.get(agent_name) or {})
+        selected_model = _agent_payload_model(selected_payload)
+        route_payload = _agent_payload_route(selected_payload)
+        previous_custom_route = agent_config.get("custom_route") if isinstance(agent_config.get("custom_route"), dict) else {}
+        payload_custom_route = route_payload.get("custom_route") if isinstance(route_payload.get("custom_route"), dict) else {}
+        previous_fallback_routes = agent_config.get("fallback_routes") if isinstance(agent_config.get("fallback_routes"), list) else []
+        payload_fallback_routes = route_payload.get("fallback_routes") if isinstance(route_payload.get("fallback_routes"), list) else []
+        if not previous_fallback_routes and payload_fallback_routes:
+            previous_fallback_routes = payload_fallback_routes
+        previous_fallback = previous_fallback_routes[0] if previous_fallback_routes and isinstance(previous_fallback_routes[0], dict) else {}
+        default_base_url = image_base_url if category == "image" else text_base_url
+        default_api_key = image_key if category == "image" else text_key
+        route_preset = str(route_payload.get("route_preset") or agent_config.get("route_preset") or "primary").strip()
+        if route_preset not in {"primary", "fallback", "custom"}:
+            route_preset = "primary"
+        custom_base_url = str(
+            route_payload.get("custom_base_url")
+            or payload_custom_route.get("base_url")
+            or previous_custom_route.get("base_url")
+            or ""
+        ).strip()
+        custom_api_key = _route_api_key_from_submission(
+            submitted_key=route_payload.get("custom_api_key"),
+            previous_route=payload_custom_route,
+            profile_key="",
+        )
+        fallback_base_url = str(previous_fallback.get("base_url") or default_base_url).strip()
+        fallback_api_key = _route_api_key_from_submission(
+            submitted_key=None,
+            previous_route=previous_fallback,
+            profile_key=default_api_key,
+        )
+        if route_preset == "fallback":
+            selected_base_url = fallback_base_url
+            selected_api_key = fallback_api_key
+            next_fallback = {
+                "base_url": agent_config.get("base_url") or default_base_url,
+                "api_key": agent_config.get("api_key") or default_api_key,
+            }
+        elif route_preset == "custom":
+            selected_base_url = _normalise_config_base_url(custom_base_url)
+            custom_api_key = (
+                custom_api_key
+                or _api_key_for_current_base_url(current_profile_routes, selected_base_url)
+                or _saved_api_key_for_base_url(raw_config, selected_base_url, fallback_key=default_api_key)
+            )
+            selected_api_key = custom_api_key
+            next_fallback = {"base_url": fallback_base_url, "api_key": fallback_api_key}
+        else:
+            selected_base_url = default_base_url
+            selected_api_key = default_api_key
+            next_fallback = {"base_url": fallback_base_url, "api_key": fallback_api_key}
+        agent_config.pop("model", None)
+        agent_config.pop("default_model", None)
+        _write_profile_credentials(agent_config, selected_api_key, selected_base_url)
+        agent_config["route_preset"] = route_preset
+        agent_config["fallback_routes"] = [next_fallback]
+        available_models = _normalise_model_pool_payload(route_payload.get("available_models"))
+        if available_models:
+            agent_config["available_models"] = available_models
+        else:
+            agent_config.pop("available_models", None)
+        submitted_route_pools = route_payload.get("route_model_pools")
+        route_model_pools: dict[str, list[str]] = {}
+        if isinstance(submitted_route_pools, dict):
+            for route_key in ("primary", "fallback", "custom"):
+                route_models = _normalise_model_pool_payload(submitted_route_pools.get(route_key))
+                if route_models:
+                    route_model_pools[route_key] = route_models
+        if route_model_pools:
+            agent_config["route_model_pools"] = route_model_pools
+        else:
+            agent_config.pop("route_model_pools", None)
+        fallback_api_key = str(next_fallback.get("api_key") or "").strip()
+        if (
+            not fallback_api_key
+            or _normalise_config_base_url(selected_base_url) == _normalise_config_base_url(str(next_fallback.get("base_url") or ""))
+        ):
+            agent_config.pop("fallback_routes", None)
+        else:
+            agent_config["fallback_routes"] = [next_fallback]
+        if custom_base_url:
+            custom_route_api_key = (
+                custom_api_key
+                or _api_key_for_current_base_url(current_profile_routes, custom_base_url)
+                or _saved_api_key_for_base_url(raw_config, custom_base_url, fallback_key="")
+            )
+            try:
+                same_previous_custom_route = (
+                    _normalise_config_base_url(custom_base_url)
+                    == _normalise_config_base_url(str(previous_custom_route.get("base_url") or ""))
+                )
+            except ValueError:
+                same_previous_custom_route = False
+            if not custom_route_api_key and same_previous_custom_route:
+                custom_route_api_key = str(previous_custom_route.get("api_key") or "").strip()
+            agent_config["custom_route"] = {
+                "base_url": _normalise_config_base_url(custom_base_url),
+                "api_key": custom_route_api_key,
+            }
+        if selected_model:
+            agent_config["model"] = selected_model
+        if category == "image" and selected_model:
+            image_config["model"] = selected_model
+        agent_models[agent_name] = agent_config
+
+    for agent_name in sorted(known_agents, key=lambda name: agent_order.get(name, len(agent_order))):
+        submitted_payload = agent_models_payload.get(agent_name)
+        selected_model = _agent_payload_model(submitted_payload or previous_agent_models.get(agent_name, {}).get("model"))
+        selected_models[agent_name] = selected_model
+        write_agent_config(agent_name, submitted_payload or selected_model, _agent_category(agent_name))
+
+    for derived_agent, source_agent in DERIVED_AGENT_MODEL_SOURCES.items():
+        if derived_agent in agent_models_payload:
+            continue
+        if source_agent not in selected_models:
+            continue
+        source_category = _agent_category(source_agent)
+        source_payload = agent_models.get(source_agent) or {"model": selected_models[source_agent]}
+        write_agent_config(derived_agent, source_payload, source_category)
+
+    try:
+        _save_raw_settings(raw_config)
+    except OSError as exc:
+        return JSONResponse({"success": False, "error": f"保存配置失败：{exc}"}, status_code=500)
+
+    return JSONResponse({"success": True, "message": "系统配置已保存。", "config": _public_model_config()})
+
+
+@app.post("/api/test_agent_connections")
+async def api_test_agent_connections(request: Request):
+    if not _is_local_request(request):
+        return JSONResponse({"success": False, "error": "Agent 连通性测试仅允许本机管理员执行。"}, status_code=403)
+    try:
+        payload = await request.json()
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"测试请求不是合法 JSON：{exc}"}, status_code=400)
+    if not isinstance(payload, dict):
+        return JSONResponse({"success": False, "error": "测试请求必须是 JSON 对象。"}, status_code=400)
+
+    try:
+        raw_config = _load_raw_settings()
+        text_base_url = _normalise_config_base_url(
+            payload.get("text_base_url") or payload.get("base_url") or _profile_source(raw_config, "text").get("base_url") or ""
+        )
+        image_base_url = _normalise_config_base_url(
+            payload.get("image_base_url") or _profile_source(raw_config, "image").get("base_url") or text_base_url
+        )
+        embedding_base_url = _normalise_config_base_url(
+            payload.get("embedding_base_url") or _profile_source(raw_config, "embedding").get("base_url") or text_base_url
+        )
+        text_key = _resolve_saved_api_key(raw_config, "text", str(payload.get("text_api_key") or payload.get("api_key") or "").strip())
+        image_key = _resolve_saved_api_key(raw_config, "image", str(payload.get("image_api_key") or "").strip(), fallback_key=text_key)
+        embedding_key = _resolve_saved_api_key(
+            raw_config,
+            "embedding",
+            str(payload.get("embedding_api_key") or "").strip(),
+            fallback_key=text_key,
+        )
+        current_profile_routes = [
+            {"base_url": text_base_url, "api_key": text_key},
+            {"base_url": image_base_url, "api_key": image_key},
+            {"base_url": embedding_base_url, "api_key": embedding_key},
+        ]
+        embedding_model = _normalise_optional_model(
+            payload.get("embedding_model") or _profile_source(raw_config, "embedding").get("embedding_model")
+        )
+        agent_models_payload = payload.get("agent_models") or {}
+        if not isinstance(agent_models_payload, dict):
+            raise ValueError("agent_models 必须是对象。")
+        requested_agents = payload.get("agent_names")
+        if requested_agents is None:
+            selected_agent_names = None
+        elif isinstance(requested_agents, list):
+            selected_agent_names = {str(name).strip() for name in requested_agents if str(name).strip()}
+        else:
+            raise ValueError("agent_names 必须是数组。")
+        include_embedding = bool(payload.get("include_embedding"))
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"读取测试配置失败：{exc}"}, status_code=500)
+
+    raw_agent_models = raw_config.get("agent_models") or {}
+    if not isinstance(raw_agent_models, dict):
+        raw_agent_models = {}
+    all_agent_names = {
+        str(name)
+        for name in set(raw_agent_models.keys()) | set(agent_models_payload.keys())
+        if _is_connection_test_agent_model(str(name))
+    }
+    agent_source_names = selected_agent_names if selected_agent_names is not None else all_agent_names
+    agent_source_names = _expand_connection_test_agent_names(agent_source_names)
+    agent_order = {name: index for index, name in enumerate(CONNECTION_TEST_AGENT_ORDER)}
+    agent_names = sorted(
+        (name for name in agent_source_names if _is_connection_test_agent_model(name)),
+        key=lambda name: agent_order.get(name, len(agent_order)),
+    )
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def _run_probe(agent_name: str) -> dict:
+        category = _agent_category(agent_name)
+        parent_agent = CONNECTION_TEST_AGENT_PARENTS.get(agent_name)
+        stored_agent = raw_agent_models.get(agent_name) if isinstance(raw_agent_models.get(agent_name), dict) else {}
+        if not stored_agent and parent_agent and isinstance(raw_agent_models.get(parent_agent), dict):
+            stored_agent = raw_agent_models.get(parent_agent) or {}
+        has_submitted_payload = agent_name in agent_models_payload or bool(parent_agent and parent_agent in agent_models_payload)
+        submitted_payload = agent_models_payload.get(agent_name)
+        if submitted_payload is None and parent_agent:
+            submitted_payload = agent_models_payload.get(parent_agent)
+        model = _agent_payload_model(submitted_payload or stored_agent.get("model"))
+        route_payload = _agent_payload_route(submitted_payload)
+        profile_base_url = image_base_url if category == "image" else text_base_url
+        profile_api_key = image_key if category == "image" else text_key
+        base_url = str(profile_base_url if has_submitted_payload else (stored_agent.get("base_url") or profile_base_url))
+        api_key = str(profile_api_key if has_submitted_payload else (stored_agent.get("api_key") or profile_api_key))
+        route_preset = str(route_payload.get("route_preset") or stored_agent.get("route_preset") or "primary")
+        if route_preset == "custom":
+            custom_route = stored_agent.get("custom_route") if isinstance(stored_agent.get("custom_route"), dict) else {}
+            base_url = str(route_payload.get("custom_base_url") or custom_route.get("base_url") or base_url)
+            api_key = _route_api_key_from_submission(
+                submitted_key=route_payload.get("custom_api_key"),
+                previous_route={},
+                profile_key="",
+            )
+            api_key = (
+                api_key
+                or _api_key_for_current_base_url(current_profile_routes, base_url)
+                or _saved_api_key_for_base_url(raw_config, base_url, fallback_key=profile_api_key)
+            )
+        elif route_preset == "fallback":
+            fallback_routes = stored_agent.get("fallback_routes") if isinstance(stored_agent.get("fallback_routes"), list) else []
+            fallback_route = fallback_routes[0] if fallback_routes and isinstance(fallback_routes[0], dict) else {}
+            base_url = str(fallback_route.get("base_url") or base_url)
+            api_key = str(fallback_route.get("api_key") or api_key)
+        async with semaphore:
+            return await _probe_agent_connection(
+                agent_name=agent_name,
+                label=AGENT_LABELS.get(agent_name, agent_name),
+                category=category,
+                base_url=base_url,
+                api_key=api_key,
+                model=model,
+                timeout_config=stored_agent,
+            )
+
+    tasks = [_run_probe(agent_name) for agent_name in agent_names]
+    if include_embedding:
+        async def _run_embedding_probe() -> dict:
+            async with semaphore:
+                return await _probe_embedding_connection(
+                    base_url=embedding_base_url,
+                    api_key=embedding_key,
+                    model=embedding_model,
+                )
+
+        tasks.append(_run_embedding_probe())
+
+    results = await asyncio.gather(*tasks) if tasks else []
+    ok_count = sum(1 for item in results if item.get("success"))
+    return JSONResponse({
+        "success": ok_count == len(results),
+        "summary": {
+            "total": len(results),
+            "ok": ok_count,
+            "failed": len(results) - ok_count,
+        },
+        "results": results,
+    })
 
 
 @app.post("/api/build_vectordb")
 async def api_build_vectordb(request: Request):
     if not _is_local_request(request):
         return JSONResponse({"success": False, "error": "知识库重建仅允许本机管理员执行。"})
+    with vectordb_build_lock:
+        if vectordb_build_status.get("status") == "running":
+            return JSONResponse({
+                "success": True,
+                "status": "running",
+                "message": vectordb_build_status.get("message", "向量知识库正在构建中"),
+            })
+
     try:
-        build_vectordb(force_rebuild=True)
-        return JSONResponse({"success": True, "message": "向量知识库已重建"})
-    except Exception as e:
-        return JSONResponse({"success": False, "error": str(e)})
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    if not isinstance(payload, dict):
+        payload = {}
+
+    try:
+        raw_config = _load_raw_settings()
+        vectordb_config = _ensure_config_section(raw_config, "vectordb")
+        embedding_base_url = _normalise_config_base_url(
+            payload.get("embedding_base_url")
+            or payload.get("base_url")
+            or vectordb_config.get("base_url")
+            or ""
+        )
+    except ValueError as exc:
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=400)
+    except Exception as exc:
+        return JSONResponse({"success": False, "error": f"读取向量配置失败：{exc}"}, status_code=500)
+
+    embedding_model = _normalise_optional_model(
+        payload.get("embedding_model") or payload.get("model") or vectordb_config.get("embedding_model")
+    )
+    if not embedding_model:
+        return JSONResponse({"success": False, "error": "请先选择向量嵌入模型。"}, status_code=400)
+    embedding_key = _resolve_saved_api_key(
+        raw_config,
+        "embedding",
+        str(payload.get("embedding_api_key") or payload.get("api_key") or "").strip(),
+    )
+    if _looks_like_env_placeholder(embedding_key):
+        embedding_key = ""
+    if not embedding_key:
+        return JSONResponse({"success": False, "error": "请先填写向量嵌入 API Key。"}, status_code=400)
+
+    _write_profile_credentials(vectordb_config, embedding_key, embedding_base_url)
+    vectordb_config["embedding_model"] = embedding_model
+    try:
+        _save_raw_settings(raw_config)
+    except OSError as exc:
+        return JSONResponse({"success": False, "error": f"保存向量配置失败：{exc}"}, status_code=500)
+
+    with vectordb_build_lock:
+        if vectordb_build_status.get("status") == "running":
+            return JSONResponse({
+                "success": True,
+                "status": "running",
+                "message": vectordb_build_status.get("message", "向量知识库正在构建中"),
+            })
+
+        vectordb_build_status.update({
+            "status": "running",
+            "message": "向量知识库正在后台构建，请稍候...",
+            "error": "",
+            "started_at": datetime.now().isoformat(timespec="seconds"),
+            "finished_at": "",
+        })
+
+    def _build_worker() -> None:
+        try:
+            build_vectordb(force_rebuild=True, embedding_model_override=embedding_model)
+            with vectordb_build_lock:
+                vectordb_build_status.update({
+                    "status": "done",
+                    "message": "向量知识库已重建",
+                    "error": "",
+                    "finished_at": datetime.now().isoformat(timespec="seconds"),
+                })
+        except Exception as e:
+            error_detail = str(e) or type(e).__name__
+            if error_detail == "Connection error.":
+                error_detail = (
+                    "Embedding 中转站连接失败。"
+                    f"当前向量模型：{embedding_model or '未配置'}；Base URL：{embedding_base_url or '未配置'}。"
+                    "请检查该地址是否能访问 /v1/models 和 /v1/embeddings，或在模型配置页把“向量嵌入”切到可用的中转站/API Key。"
+                )
+            with vectordb_build_lock:
+                vectordb_build_status.update({
+                    "status": "error",
+                    "message": "向量知识库构建失败",
+                    "error": error_detail,
+                    "finished_at": datetime.now().isoformat(timespec="seconds"),
+                })
+
+    thread = threading.Thread(target=_build_worker, name="vectordb-build", daemon=True)
+    thread.start()
+    return JSONResponse({
+        "success": True,
+        "status": "running",
+        "knowledge_index": _safe_knowledge_index_status(),
+        "message": "向量知识库已开始后台构建",
+    })
+
+
+@app.get("/api/build_vectordb_status")
+async def api_build_vectordb_status(request: Request):
+    if not _is_local_request(request):
+        return JSONResponse({"success": False, "error": "知识库状态仅允许本机管理员查看。"})
+    with vectordb_build_lock:
+        status = dict(vectordb_build_status)
+    status["success"] = status.get("status") != "error"
+    status["knowledge_index"] = _safe_knowledge_index_status()
+    return JSONResponse(status)
 
 
 def start_ui():

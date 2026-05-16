@@ -3,22 +3,48 @@ rule_id: GLOBAL-ASPECT-001
 title: 画幅 9:16 刚性锁定
 doc_type: rule_card
 rule_type: global_constraint
+owner_agent: story_planner
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+- shared
+priority: P0
 status: active
+pipeline_stage: global_constraint
 runtime_retrieval: true
+retrieval_key:
+- global-aspect-001
+- signals.vertical_framing
+- risks.vertical_closeup_overuse
+applies_when:
+- 画幅
+- aspect_ratio
+- 竖屏
+avoid_when:
+- "用户在输入中显式指定 16:9。"
+failure_mode:
+- "Agent 自行改画幅。"
+- "竖屏片段按横屏构图设计。"
+output_contract: "输出并继承 aspect_ratio，默认锁定 9:16。"
+example_good: "aspect_ratio: 9:16，构图以纵深调度为主。"
+example_bad: "未确认就改成 16:9 横屏。"
+signals:
+- vertical_framing
+risks:
+- vertical_closeup_overuse
+aspect_ratios:
+- '9:16'
+- '16:9'
+applies_to:
+- 画幅
+- aspect_ratio
+- 竖屏
 source_files:
-  - "external:交付物六"
+- external:交付物六
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 画幅
-  - aspect_ratio
-  - 竖屏
 ---
 
 # 画幅 9:16 刚性锁定

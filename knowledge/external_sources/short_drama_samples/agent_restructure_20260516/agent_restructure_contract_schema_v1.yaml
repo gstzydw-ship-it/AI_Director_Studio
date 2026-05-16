@@ -1,0 +1,237 @@
+schema_id: SHORT_DRAMA_SEEDANCE_AGENT_CONTRACT_V1
+title: Seedance 2.0 short-drama cross-agent contract schema
+status: candidate
+runtime_retrieval: false
+created_at: "2026-05-16"
+source_reports:
+  - scene_storyboard_restructure_report.md
+  - showrunner_storyplanner_restructure_report.md
+  - prompt_qc_restructure_report.md
+  - agent_contract_integration_report.md
+
+scene_contract:
+  owner_agent: scene_analyst
+  consumers:
+    - story_planner
+    - shot_director_layout
+    - storyboard_designer
+    - prompt_compiler
+    - quality_inspector
+  required_fields:
+    scene_id: string
+    scene_type: enum
+    seedance_scene_grade: "W1 | W2 | R1 | X"
+    space_anchor:
+      primary_anchor: string
+      secondary_anchors: list[string]
+      camera_safe_viewpoints: list[string]
+      forbidden_viewpoints: list[string]
+    entrance_exit:
+      entrances: list[string]
+      exits: list[string]
+      door_or_vehicle_state: string
+      crossing_risk: "low | medium | high"
+    active_cast:
+      - character_id: string
+        screen_role: "main_actor | pressure_source | listener | witness | background"
+        start_position: string
+        facing: string
+        action_budget: string
+    offscreen_cast:
+      - character_id: string
+        relation_to_visible_action: "speaking_offscreen | waiting_to_enter | implied_witness | none"
+    prop_state:
+      - prop_id: string
+        owner_or_source: string
+        start_state: string
+        allowed_state_change: "none | place | pick_up | reveal | drop | hand_over"
+        end_state_required: string
+    blocking_risk:
+      cast_count_risk: "low | medium | high"
+      contact_risk: "none | hand_contact | body_contact | fight_or_fall"
+      movement_risk: "static | one_direction | cross_space | chase_or_crowd"
+      axis_risk: "low | medium | high"
+      text_dependency_risk: "low | medium | high"
+    reference_needs:
+      identity_reference: "required | optional | forbidden"
+      scene_reference: "required | optional"
+      prop_reference: "required | optional"
+      motion_reference: "none | keyframe_sequence | video_reference_required"
+      camera_reference: "none | optional | required"
+      audio_reference: "none | optional | required"
+    scene_tail_state:
+      character_positions: string
+      prop_positions: string
+      entrance_exit_state: string
+      continuity_warning: string
+
+showrunner_signal_contract:
+  owner_agent: director_showrunner
+  consumers:
+    - rhythm_rewrite_director
+    - story_planner
+    - shot_director
+    - quality_inspector
+  required_fields:
+    signal_sequence: list[string]
+    dramatic_signal: "hook | pressure | misunderstanding | identity_reveal | prop_reveal | reaction_hold | tail_hook | other"
+    conflict_type: string
+    reversal_target: string
+    emotion_landing:
+      subject: string
+      visible_landing: string
+    causal_constraints: list[string]
+  forbidden:
+    - camera_language
+    - coverage_template
+    - new_uncontrolled_events
+
+generation_unit_contract:
+  owner_agent: story_planner
+  consumers:
+    - shot_director
+    - storyboard_designer
+    - prompt_compiler
+    - quality_inspector
+  required_fields:
+    generation_unit_id: string
+    signal_type: "hook | pressure | misunderstanding | identity_reveal | prop_reveal | reaction_hold | tail_hook | other"
+    duration_target: string
+    event_atom: string
+    source_script_events: list[string]
+    exact_dialogue_units: list[string]
+    emotion_delta:
+      from: string
+      to: string
+    reaction_handoff:
+      next_subject: string
+      handoff_state: string
+    model_complexity_score: integer
+    split_required: boolean
+    split_reason: string
+    reference_needs: list[string]
+    tail_state_required:
+      character_positions: string
+      gaze_or_attention: string
+      prop_state: string
+      unresolved_question: string
+  hard_limits:
+    preferred_duration_s: "4-8"
+    max_primary_actors_default: 2
+    max_core_events: 1
+    max_emotion_turns: 1
+
+coverage_contract:
+  owner_agent: shot_director
+  consumers:
+    - storyboard_designer
+    - prompt_compiler
+    - quality_inspector
+  required_fields:
+    coverage_template_id: string
+    template_level: "W1 | W2 | R1 | X | candidate"
+    coverage_role: string
+    main_subject: string
+    supporting_subjects: list[string]
+    duration_s: string
+    camera: string
+    action_budget: string
+    reference_need: list[string]
+    tail_state: string
+    compiler_guard: list[string]
+
+storyboard_frame_lock_contract:
+  owner_agent: storyboard_designer
+  consumers:
+    - prompt_compiler
+    - quality_inspector
+  required_fields:
+    unit_id: string
+    source_scene_id: string
+    coverage_template_id: string
+    seedance_complexity_grade: "W1 | W2 | R1 | X"
+    duration_s: number
+    first_frame_lock:
+      visible_cast:
+        - character_id: string
+          exact_screen_position: "left | center | right | foreground | background"
+          pose: string
+          gaze_target: string
+          hands_state: string
+          expression_start: string
+      space_anchor_visible: list[string]
+      entrance_exit_visible_state: string
+      prop_visible_state:
+        - prop_id: string
+          position: string
+          owner: string
+      camera_lock:
+        shot_size: "LS_MLS_relation | MS_half_body | MCU_chest_up | CU_shoulder_up | ECU_CU_face_dominant | prop_insert"
+        angle: "eye_level | slight_low | slight_high"
+        viewpoint: string
+        motion_policy: "fixed | slow_push | slow_follow | reference_driven"
+      reference_bindings:
+        identity_reference: list[string]
+        scene_reference: list[string]
+        prop_reference: list[string]
+        motion_reference: list[string]
+    keyframe_locks:
+      - keyframe_time_s: number
+        event_state: string
+        changed_state_only: string
+    tail_frame_lock:
+      character_positions: string
+      prop_positions: string
+      gaze_and_emotion: string
+      entrance_exit_state: string
+      next_unit_handoff: string
+
+prompt_compiler_contract:
+  owner_agent: prompt_compiler
+  consumers:
+    - quality_inspector
+    - runtime_video_generation
+  required_fields:
+    compiled_prompt: string
+    reference_role_map:
+      - asset_id: string
+        asset_type: "image | video | audio"
+        reference_role: "identity_reference | scene_reference | prop_reference | motion_reference | camera_reference | audio_reference"
+        target_id: string
+        scope: "global | segment | shot"
+        allowed_use: string
+        forbidden_use: string
+    model_complexity_score_final: integer
+    compiler_guards: list[string]
+  forbidden:
+    - adding_plot_events
+    - adding_characters
+    - changing_dialogue
+    - changing_template_id
+
+quality_gate_contract:
+  owner_agent: quality_inspector
+  consumers:
+    - runners
+    - ui
+    - human_review
+  required_fields:
+    qc_result: "pass | warn | fail"
+    short_drama_quality:
+      attention_signal_clear: boolean
+      reaction_window_present: boolean
+      reveal_or_pressure_readable: boolean
+      tail_hook_or_handoff_clear: boolean
+    seedance_control:
+      template_id_present: boolean
+      template_level_allowed: boolean
+      complexity_within_budget: boolean
+      reference_binding_valid: boolean
+      tail_state_inheritable: boolean
+      no_text_dependency: boolean
+      no_axis_or_multiaction_risk: boolean
+    failed_rule_id: string
+    evidence: string
+    repair_route: "prompt_compiler | shot_director | story_planner | scene_analyst | human_review"
+    required_repair: string
+

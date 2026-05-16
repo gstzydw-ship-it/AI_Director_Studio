@@ -1,20 +1,54 @@
 ---
+case_title: 视频拆片案例：镜头语言_浅焦虚焦与人物幻想表达
+doc_type: case_card
+served_agents:
+- scene_analyst
+- story_planner
+- shot_director
+- shot_director_blocking
+- quality_inspector
+scene_types:
+- 危险逼近/悬念建立
+- 细节展示/性格刻画
+- 心理活动/意外打断
+- 幻想/情绪蒙太奇
+- 氛围营造/心理外化
+- dialogue
+- action
+- suspense
+- psychology_fantasy
+events:
+- reaction
+- cut
+dialogue_types: []
+visual_constraints:
+- wide_shot
+- medium_shot
+- closeup
+- over_shoulder
+- handheld
+- focus_pull
+- shallow_focus
+risks: []
+reusable_pattern: CASE_镜头语言_浅焦虚焦与人物幻想表达
+aspect_ratio: unspecified
+runtime_retrieval: false
+source_files: []
 rule_id: CASE-镜头语言_浅焦虚焦与人物幻想表达
-title: "视频拆片案例：镜头语言_浅焦虚焦与人物幻想表达"
-doc_type: case_library
+title: 视频拆片案例：镜头语言_浅焦虚焦与人物幻想表达
 rule_type: shot_sequence_case
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
+- shot_director
+- shot_director_layout
+- shot_director_blocking
 priority: reference
 status: active
-runtime_retrieval: true
-scene_types:
-  - 危险逼近/悬念建立, 细节展示/性格刻画, 心理活动/意外打断, 幻想/情绪蒙太奇, 氛围营造/心理外化
-source_video: "镜头语言_浅焦虚焦与人物幻想表达.mp4"
-extraction_date: "2026-04-24"
-extraction_model: "gemini-3.1-pro-preview-thinking-high"
+source_video: 镜头语言_浅焦虚焦与人物幻想表达.mp4
+extraction_date: '2026-04-24'
+extraction_model: gemini-3.1-pro-preview-thinking-high
+signals:
+- action_coverage
+- continuity_lock
 ---
 
 # 视频拆片案例：镜头语言_浅焦虚焦与人物幻想表达

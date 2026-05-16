@@ -1,0 +1,166 @@
+cases:
+  - id: shot_director_multicam_group_conflict
+    agent: shot_director
+    query: "三人冲突升级到群戏调度，需要先判断二机位、三机位或四机位覆盖：关系镜头、发言镜头、受击反应和游动补偿各司其职，不能固定同侧中近景拍完整段。"
+    top_k: 12
+    expected_rules:
+      - SHOT-MULTICAM-SYSTEM-029
+      - SHOT-ACTION-GROUP-BUDGET-031
+    must_match_rules:
+      - SHOT-MULTICAM-SYSTEM-029
+      - SHOT-ACTION-GROUP-BUDGET-031
+
+  - id: shot_director_aspect_vertical_mapping
+    agent: shot_director
+    query: "同一场戏要分别适配 9:16 竖屏、16:9 横屏和 1:1 方画幅，抽象的正反切、关系镜头、纵深前后和景别主力必须改写成对应画幅可生成的自然画面语。"
+    top_k: 12
+    expected_rules:
+      - SHOT-ASPECT-VERTICAL-TYPES-030
+    must_match_rules:
+      - SHOT-ASPECT-VERTICAL-TYPES-030
+
+  - id: shot_director_action_coverage_apex
+    agent: shot_director
+    query: "动作戏不要一镜到底塞完整碰撞；先保全貌和空间轴线，再把挥手、接触前顶点、受击反应和结果暗示拆成镜头，切点要在动作顶点前后有明确理由。"
+    top_k: 12
+    expected_rules:
+      - SHOT-ACTION-COVERAGE-001
+      - SHOT-ACTION-APEX-PRECUT-001
+    must_match_rules:
+      - SHOT-ACTION-COVERAGE-001
+      - SHOT-ACTION-APEX-PRECUT-001
+
+  - id: shot_director_scale_and_motion_modality
+    agent: shot_director
+    query: "切镜说明必须写清主体、景别和看点，同时区分推镜、变焦、横移这些运镜模态；不要只写镜头动起来，也不要让同一镜头同时承担过多运动任务。"
+    top_k: 12
+    expected_rules:
+      - FRAME-SUBJECT-SCALE-001
+    must_match_rules:
+      - FRAME-SUBJECT-SCALE-001
+
+  - id: shot_director_complex_contact_degrade
+    agent: shot_director
+    query: "剧本有打脸、推搡、抢夺和多人混乱，镜头导演必须把复杂物理动作蒙太奇降级为动作前摇、接触前切出、受击反应和结果暗示，避免完整展示高风险身体碰撞。"
+    top_k: 12
+    expected_rules:
+      - SHOT-COMPLEX-ACTION-DEGRADE-001
+    must_match_rules:
+      - SHOT-COMPLEX-ACTION-DEGRADE-001
+
+  - id: shot_director_dialogue_pause_reaction
+    agent: shot_director
+    query: "长对白和语言对峙不能整段贴脸念完，需要基础对话覆盖、正反切、反应镜头和气口停顿，让信息炸点后的人物反应有镜头时间。"
+    top_k: 12
+    expected_rules:
+      - SHOT-DIALOGUE-COVERAGE-001
+      - SHOT-DIALOGUE-PAUSE-001
+    must_match_rules:
+      - SHOT-DIALOGUE-COVERAGE-001
+      - SHOT-DIALOGUE-PAUSE-001
+
+  - id: shot_director_source_event_fidelity
+    agent: shot_director
+    query: "镜头设计只能继承 source_script_events，不能为了补动作 invent 新事件；门把手、杯子和衣角等道具状态要从剧本连续性和已有事件里交代，不得自行加戏。"
+    top_k: 12
+    expected_rules:
+      - SHOT-SOURCE-EVENT-FIDELITY-001
+    must_match_rules:
+      - SHOT-SOURCE-EVENT-FIDELITY-001
+
+  - id: shot_director_motivated_cut_density
+    agent: shot_director
+    query: "是否切镜要看动作密度、信息增量和情绪节拍：低密度生活动作可以不切，高密度冲突才用有动机的切镜，避免为了快节奏制造空间跳变和过多碎切。"
+    top_k: 12
+    expected_rules:
+      - SHOT-MOTIVATED-CUT-ACTION-DENSITY-002
+    must_match_rules:
+      - SHOT-MOTIVATED-CUT-ACTION-DENSITY-002
+
+  - id: layout_mainshot_contract_only
+    agent: shot_director_layout
+    query: "主分镜骨架阶段只输出 fragment_id、fragment_intent、continuity_anchor 和 main_shots，先给 coverage_role 覆盖蓝图；不要提前写 reaction_coverage、sub_shots 或自由解释。"
+    top_k: 12
+    expected_rules:
+      - LAYOUT-MAINSHOT-ONLY-001
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+    must_match_rules:
+      - LAYOUT-MAINSHOT-ONLY-001
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+
+  - id: layout_shotid_stability_handoff
+    agent: shot_director_layout
+    query: "每个 main_shot 必须先锁定稳定 shot_id，同一 fragment 内按顺序递增，不能为了局部重音临时改名、跳号或重排，否则 blocking 无法用 parent_shot_id 挂接。"
+    top_k: 12
+    expected_rules:
+      - LAYOUT-SHOTID-STABILITY-001
+    must_match_rules:
+      - LAYOUT-SHOTID-STABILITY-001
+
+  - id: layout_vertical_relation_first
+    agent: shot_director_layout
+    query: "9:16 竖屏摆位要优先人物关系镜头和半身关系，不要连续堆特写；主镜头摆位需要景别递进，避免中景、特写、中景的三明治碎切。"
+    top_k: 12
+    expected_rules:
+      - LAYOUT-VERTICAL-RELATION-FIRST-001
+      - LAYOUT-NO-SANDWICH-CLOSEUP-004
+    must_match_rules:
+      - LAYOUT-VERTICAL-RELATION-FIRST-001
+      - LAYOUT-NO-SANDWICH-CLOSEUP-004
+
+  - id: layout_coverage_blueprint_relation_shot
+    agent: shot_director_layout
+    query: "双人对峙的主分镜先建立 over_the_shoulder、关系镜头和 coverage_role，说明谁在画面里、谁被覆盖、切镜原因是什么，而不是直接进入动作调度细节。"
+    top_k: 12
+    expected_rules:
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+      - LAYOUT-VERTICAL-RELATION-FIRST-001
+    must_match_rules:
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+      - LAYOUT-VERTICAL-RELATION-FIRST-001
+
+  - id: layout_first_frame_spatial_anchor
+    agent: shot_director_layout
+    query: "首帧必须先建立人物、空间轴线和关键道具关系：双人同场时门、杯子、文件等物件要在第一主镜头里可见，不能切入后才补空间和道具锚点。"
+    top_k: 12
+    expected_rules:
+      - LAYOUT-FIRST-FRAME-SPATIAL-ANCHOR-006
+    must_match_rules:
+      - LAYOUT-FIRST-FRAME-SPATIAL-ANCHOR-006
+
+  - id: layout_no_sandwich_closeup_scale_progression
+    agent: shot_director_layout
+    query: "主分镜骨架的景别必须递进：竖屏动作场景不能用中景、特写、中景来偷时间，也不能用连续 close-up 代替空间关系和动作覆盖。"
+    top_k: 12
+    expected_rules:
+      - LAYOUT-NO-SANDWICH-CLOSEUP-004
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+    must_match_rules:
+      - LAYOUT-NO-SANDWICH-CLOSEUP-004
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+
+  - id: layout_multicam_mainshot_blueprint
+    agent: shot_director_layout
+    query: "四人以上群戏的主分镜摆位要先用多机位体系拆出总关系、核心发言、受击反应和游动补偿的 main_shots，再把动作细节留给下游。"
+    top_k: 12
+    expected_rules:
+      - SHOT-MULTICAM-SYSTEM-029
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+      - LAYOUT-MAINSHOT-ONLY-001
+    must_match_rules:
+      - SHOT-MULTICAM-SYSTEM-029
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+      - LAYOUT-MAINSHOT-ONLY-001
+
+  - id: layout_complex_action_mainshot_defer
+    agent: shot_director_layout
+    query: "复杂动作、碰撞和受击反应在 layout 阶段只做主分镜骨架和覆盖合同：标出 collision、reaction、cut 的 main_shots 与 coverage_role，不抢先展开 sub_shots。"
+    top_k: 12
+    expected_rules:
+      - LAYOUT-MAINSHOT-ONLY-001
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+      - LAYOUT-SHOTID-STABILITY-001
+    must_match_rules:
+      - LAYOUT-MAINSHOT-ONLY-001
+      - LAYOUT-COVERAGE-BLUEPRINT-005
+      - LAYOUT-SHOTID-STABILITY-001

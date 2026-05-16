@@ -3,22 +3,64 @@ rule_id: SHOT-SOURCE-EVENT-FIDELITY-001
 title: shot_director 只能继承 source_script_events
 doc_type: rule_card
 rule_type: fidelity
+owner_agent: shot_director
 agent_scope:
-  - shot_director
-  - quality_inspector
-priority: hard
+- shot_director
+- quality_inspector
+- prompt_compiler
+priority: P0
 status: active
+pipeline_stage: source_fidelity_guard
 runtime_retrieval: true
+retrieval_key:
+- shot-source-event-fidelity-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.door_state
+- risks.script_invention_risk
+- risks.blood_avoidance
+- dialogue_types.long_dialogue_compression
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 镜头设计
+- 剧本忠实度
+- 道具连续性
+avoid_when:
+- "no_source_script_events_available"
+- "explicit_user_authorized_adaptation"
+failure_mode:
+- "invented_scene_event_or_prop_state"
+output_contract: "Translate only source_script_events into shots; preserve character names, space, props, and visible states."
+example_good: "乔熙在公寓回神，照片在桌上，小豆丁背书包站门口。"
+example_bad: "Sunny 睡在床上，伴侣在床边叫醒她。"
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+events:
+- collision
+- door_state
+risks:
+- script_invention_risk
+- blood_avoidance
+dialogue_types:
+- long_dialogue_compression
+applies_to:
+- 镜头设计
+- 剧本忠实度
+- 道具连续性
+- 低歧义画面
 source_files:
-  - knowledge/00_知识库优先级与冲突裁决规则.md
-  - knowledge/06_连续性与安全规则.md
+- knowledge/00_知识库优先级与冲突裁决规则.md
+- knowledge/06_连续性与安全规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 镜头设计
-  - 剧本忠实度
-  - 道具连续性
-  - 低歧义画面
 ---
 
 # shot_director 只能继承 source_script_events

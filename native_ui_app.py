@@ -1,11 +1,17 @@
-"""兼容入口：保留旧文件名，但启动原来的 Web UI。"""
+"""Compatibility entrypoint for the Python UI.
 
-from ui.app import start_ui
+The Python UI now hosts the full FastAPI/Web frontend so the desktop entrypoint
+and browser UI share the same screens, actions, and backend API surface.
+"""
 
-
-def main():
-    """Start the legacy FastAPI Web UI."""
-    start_ui()
+from ui.webui_native_app import (
+    CLI_ERROR,
+    UI_MODE,
+    DirectorStudioApp,
+    cli,
+    ctk,
+    main,
+)
 
 
 if __name__ == "__main__":

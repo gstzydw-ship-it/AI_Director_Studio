@@ -1,5 +1,5 @@
 """
-端到端质量对比测试：Full vs Hybrid 模式
+端到端质量对比测试：Full vs Profiled 模式
 不依赖 langgraph，直接调用 LLM 和知识库模块。
 """
 
@@ -214,7 +214,7 @@ def save_results(results, sys_sizes, mode):
 
 def main():
     print("=" * 70)
-    print("  E2E Quality Comparison: Full vs Hybrid")
+    print("  E2E Quality Comparison: Full vs Profiled")
     print("  Script: 02 episode, 9:16, 2 scenes")
     print("=" * 70)
 
@@ -240,13 +240,13 @@ def main():
         print(f"  {agent:20s}: {len(sp):>6,} chars")
     print("  [NOTE] Full mode LLM calls skipped (API disconnects with oversized prompts)")
 
-    # --- Run HYBRID mode ---
-    print("\n[PHASE 2] HYBRID mode (actually calling LLM)")
-    set_retrieval_mode("hybrid")
+    # --- Run PROFILED mode ---
+    print("\n[PHASE 2] PROFILED mode (actually calling LLM)")
+    set_retrieval_mode("profiled")
     knowledge_base._bm25_index_cache.clear()
     knowledge_base._vectordb_cache = None
-    hybrid_r, hybrid_s = run_pipeline("HYBRID")
-    save_results(hybrid_r, hybrid_s, "hybrid")
+    profiled_r, profiled_s = run_pipeline("PROFILED")
+    save_results(profiled_r, profiled_s, "profiled")
 
     # --- Compare ---
     print("\n" + "=" * 70)
@@ -254,12 +254,12 @@ def main():
     print("=" * 70)
     for agent in ["scene_analyst", "story_planner", "shot_director"]:
         fs = full_sizes.get(agent, 0)
-        hs = hybrid_s.get(agent, 0)
-        sv = (1 - hs / max(fs, 1)) * 100
-        print(f"  {agent:20s}: full={fs:>6,} → hybrid={hs:>6,}  saving={sv:.0f}%")
+        ps = profiled_s.get(agent, 0)
+        sv = (1 - ps / max(fs, 1)) * 100
+        print(f"  {agent:20s}: full={fs:>6,} → profiled={ps:>6,}  saving={sv:.0f}%")
 
-    print("\n  Hybrid outputs saved to output/compare_hybrid_*.md")
-    set_retrieval_mode("hybrid")
+    print("\n  Profiled outputs saved to output/compare_profiled_*.md")
+    set_retrieval_mode("profiled")
     print("\n[DONE]")
 
 

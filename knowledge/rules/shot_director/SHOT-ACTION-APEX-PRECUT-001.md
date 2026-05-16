@@ -3,25 +3,52 @@ rule_id: SHOT-ACTION-APEX-PRECUT-001
 title: 动作顶点前切入
 doc_type: rule_card
 rule_type: shot_timing
+owner_agent: shot_director
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: cut_timing
 runtime_retrieval: true
+retrieval_key:
+- shot-action-apex-precut-001
+- signals.action_coverage
+- signals.continuity_lock
+- events.cut
+- scene_types.action
+applies_when:
+- 动作顶点
+- 切镜时机
+- 主分镜
+avoid_when:
+- "no_action_transition"
+- "action_must_be_seen_complete_for_story"
+failure_mode:
+- "late_cut_after_action_completion"
+output_contract: "Place cut half-beat before action apex using visible unfinished state."
+example_good: "照片正在滑落、还未落地时切到地面低机位。"
+example_bad: "照片落地后再切到地面补拍结果。"
+signals:
+- action_coverage
+- continuity_lock
+scene_types:
+- action
+events:
+- cut
+applies_to:
+- 动作顶点
+- 切镜时机
+- 主分镜
+- 子分镜
+- 机位变化
+- 动作省略
 source_files:
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 动作顶点
-  - 切镜时机
-  - 主分镜
-  - 子分镜
-  - 机位变化
-  - 动作省略
 ---
 
 # 动作顶点前切入

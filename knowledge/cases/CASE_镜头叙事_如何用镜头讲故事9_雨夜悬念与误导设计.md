@@ -1,20 +1,40 @@
 ---
+case_title: 视频拆片案例：镜头叙事_如何用镜头讲故事9_雨夜悬念与误导设计
+doc_type: case_card
+served_agents:
+- scene_analyst
+- story_planner
+- shot_director
+- shot_director_blocking
+- quality_inspector
+scene_types:
+- 悬念建立与惊悚
+- suspense
+events:
+- cut
+dialogue_types:
+- argument_escalation
+visual_constraints:
+- wide_shot
+- over_shoulder
+- offscreen_space
+risks: []
+reusable_pattern: CASE_镜头叙事_如何用镜头讲故事9_雨夜悬念与误导设计
+aspect_ratio: unspecified
+runtime_retrieval: false
+source_files: []
 rule_id: CASE-镜头叙事_如何用镜头讲故事9_雨夜悬念与误导设计
-title: "视频拆片案例：镜头叙事_如何用镜头讲故事9_雨夜悬念与误导设计"
-doc_type: case_library
+title: 视频拆片案例：镜头叙事_如何用镜头讲故事9_雨夜悬念与误导设计
 rule_type: shot_sequence_case
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
+- shot_director
+- shot_director_layout
+- shot_director_blocking
 priority: reference
 status: active
-runtime_retrieval: true
-scene_types:
-  - 悬念建立与惊悚
-source_video: "镜头叙事_如何用镜头讲故事9_雨夜悬念与误导设计.mp4"
-extraction_date: "2026-04-24"
-extraction_model: "gemini-3.1-pro-preview-thinking-high"
+source_video: 镜头叙事_如何用镜头讲故事9_雨夜悬念与误导设计.mp4
+extraction_date: '2026-04-24'
+extraction_model: gemini-3.1-pro-preview-thinking-high
 ---
 
 # 视频拆片案例：镜头叙事_如何用镜头讲故事9_雨夜悬念与误导设计

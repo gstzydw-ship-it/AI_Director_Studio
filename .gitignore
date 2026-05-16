@@ -41,6 +41,7 @@ test_output*.txt
 pytest-cache-files-*/
 _session_artifacts/
 vectordb/
+vectordb.legacy_*/
 *.png
 *.exe
 *.nupkg
@@ -52,3 +53,14 @@ tmp_*.py
 *_output*.txt
 debug_state.json
 .git_broken_backup_*/
+.gitnexus
+
+# Local repair/backup artifacts. Keep these out of Git; real migrations belong
+# under tools/ or docs/ with a clear owner and test.
+*.bak
+*.backup
+*.broken
+*.fixed
+agents/*_fix.py
+agents/*_fixed.py
+agents/*_backup/

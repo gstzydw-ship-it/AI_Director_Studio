@@ -1,0 +1,137 @@
+source_id: SHORT-DRAMA-SAMPLES-94-20260516
+template_type: shot_coverage
+status: draft
+derived_from:
+  sample_dir: H:\样片
+  report: output/short_drama_analysis_full_20260516_105744/short_drama_shot_director_report.md
+global_statistics:
+  detected_shots: 3410
+  inferred_scale_distribution:
+    MS_half_body: 1070
+    relation_or_environment_unknown: 920
+    LS_MLS_relation: 756
+    MCU_chest_up: 592
+    CU_shoulder_up: 69
+    ECU_CU_face_dominant: 3
+coverage_principles:
+  - 先判镜头任务，再选景别和视角。
+  - 每个镜头只承载一个主动作或一个主反应。
+  - 关系景用于建立人物距离、方向、道具位置和尾帧承接。
+  - 半身景用于对话压力、动作执行和人物反应。
+  - 局部/特写只用于道具爆点、手部状态变化、受击反应，不连续覆盖整段。
+  - 禁止伪视角：不要写“沙发与地毯之间的关系视角”“空间关系视角”“尾帧承接视角”“覆盖职责视角”。
+viewpoint_language:
+  allowed_patterns:
+    - 客厅侧面平视
+    - 沙发旁固定视角
+    - 地毯旁双人中景
+    - 从乔熙肩后看向商北琛
+    - 电梯内平视反打
+    - 公司门口正面关系景
+    - 车门旁侧前方视角
+  forbidden_patterns:
+    - 沙发与地毯之间的关系视角
+    - 客厅侧面略高视角
+    - 关系视角
+    - 空间关系视角
+    - 职责视角
+    - 承接视角
+    - 复杂坐标式机位
+coverage_roles:
+  establish_relation:
+    purpose: 建立人物、空间、道具位置。
+    normal_scale: 双人中景或半身关系景
+    duration_s: 1.5-3.0
+    cut_after: 位置关系清楚，关键动作开始前或台词压力落点后。
+    prompt_shape: "双人中景，平视，固定视角，A与B在同一空间内，关键道具在画面边缘可见。"
+  dialogue_pressure:
+    purpose: 承载说话者台词和对方压力。
+    normal_scale: 胸部以上中近景或双人半身景
+    duration_s: 2.0-4.0
+    cut_after: 一句完整台词落地后留0.3-0.6秒。
+    prompt_shape: "A胸部以上中近景，平视，从B肩后看向A，A看着B说出台词，B肩线虚在前景。"
+  impact_reaction:
+    purpose: 拍被击中的表情、停顿、视线变化。
+    normal_scale: 胸部以上中近景
+    duration_s: 1.5-3.0
+    cut_after: 反应稳定到可读状态后。
+    prompt_shape: "B胸部以上中近景，平视，B抬眼或停住，表情变化清楚，没有新动作抢反应。"
+  action_apex:
+    purpose: 拍状态改变的动作顶点。
+    normal_scale: 半身景或局部近景
+    duration_s: 0.7-1.5
+    cut_after: 道具或身体状态发生单向变化后。
+    prompt_shape: "局部近景，固定视角，手刚松开/道具刚落下/衣服刚整理到位，动作只发生一次。"
+  information_reveal:
+    purpose: 道具、身份、车辆、照片、文件等信息爆点。
+    normal_scale: 局部近景或主体中景
+    duration_s: 1.0-2.5
+    cut_after: 观众能读懂信息来源和人物反应前一拍。
+    prompt_shape: "道具局部近景，固定视角，道具从明确来源进入画面，停在明确落点。"
+  relation_recover:
+    purpose: 特写或反应后恢复空间关系，防止跳轴和丢人。
+    normal_scale: 双人半身关系景
+    duration_s: 1.5-3.0
+    cut_after: 两人距离、朝向、手部状态重新清楚。
+    prompt_shape: "双人半身关系景，平视，固定视角，两人仍在原空间内，上一镜变化后的状态清楚可见。"
+  tailframe_hold:
+    purpose: 给下一段承接帧。
+    normal_scale: 双人关系景或关键主体半身景
+    duration_s: 0.5-1.0
+    cut_after: 不再新增动作，保留下一段必须继承的姿态和道具。
+    prompt_shape: "最后0.5秒回到关系景，人物位置、手部状态、道具落点和门/车/电梯状态清楚。"
+scene_templates:
+  domestic_morning_pressure:
+    sequence:
+      - establish_relation
+      - dialogue_pressure
+      - action_apex
+      - impact_reaction
+      - relation_recover
+      - tailframe_hold
+    notes:
+      - 地毯、沙发、茶几只能作为空间锚点，不生成抽象视角名。
+      - 穿衣、放手机、拿书包、照片滑落必须按单向状态变化拆清。
+  elevator_close_pressure:
+    sequence:
+      - dialogue_pressure
+      - impact_reaction
+      - relation_recover
+      - action_apex
+      - tailframe_hold
+    notes:
+      - 使用平视、过肩、反打、双人半身关系景即可。
+      - 不写拥抱、怀里、贴身亲密，除非剧本明确。
+  company_arrival_reveal:
+    sequence:
+      - establish_relation
+      - information_reveal
+      - dialogue_pressure
+      - information_reveal
+      - impact_reaction
+      - tailframe_hold
+    notes:
+      - 人群压力先用关系景建立，再用车门/腿部/人物抬头作为揭示链。
+      - 主角受击反应必须留够0.6秒以上。
+  prop_memory_trigger:
+    sequence:
+      - action_apex
+      - information_reveal
+      - impact_reaction
+      - relation_recover
+      - tailframe_hold
+    notes:
+      - 道具从哪里来、落在哪里、谁先看见必须清楚。
+      - 回忆触发前的现实尾帧要保留人物僵住状态。
+output_contract:
+  schema_version: shot_director_coverage_v3
+  required_sections:
+    - coverage_plan
+    - template_plan
+    - guard_result
+  guard_checks:
+    - 每个镜头有明确coverage_role。
+    - 每个镜头只有一个主动作或主反应。
+    - 每个视角都是可拍的自然位置。
+    - 最后0.5秒有可继承尾帧。
+    - 严禁字幕、屏幕文字、英文字幕和文字浮层。

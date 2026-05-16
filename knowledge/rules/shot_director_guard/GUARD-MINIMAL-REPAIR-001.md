@@ -1,15 +1,37 @@
 ---
 rule_id: GUARD-MINIMAL-REPAIR-001
 title: 只修硬伤，不重写方案
+doc_type: rule_card
 rule_type: hard_constraint
+owner_agent: shot_director_guard
 agent_scope:
-  - shot_director_guard
+- shot_director_guard
+- quality_inspector
 priority: P2
 status: active
+pipeline_stage: guard
 runtime_retrieval: true
+retrieval_key:
+- guard-minimal-repair-001
+- risks.script_invention_risk
+applies_when:
+- 最小修复
+- 守门原则
+avoid_when:
+- "前两位导演的方案没有会导致下游报错或质检 fail 的硬伤"
+- "修改目的只是更好看、更有戏或个人偏好"
+failure_mode:
+- "守门导演把审查当成重写机会，新增内容、改创意或另起炉灶。"
+output_contract: "只修复硬伤，不重写镜头创意，不新增非必要内容。"
+example_good: "仅补缺失 parent_shot_id 和 tailframe_role，其余镜头顺序保持不变。"
+example_bad: "为了更有戏，新增两个特写并重排所有 shot_id。"
+risks:
+- script_invention_risk
 applies_to:
-  - 最小修复
-  - 守门原则
+- 最小修复
+- 守门原则
+conflicts_with: []
+supersedes: []
 ---
 
 # GUARD-MINIMAL-REPAIR-001：只修硬伤，不重写方案

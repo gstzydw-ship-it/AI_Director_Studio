@@ -3,21 +3,68 @@ rule_id: QC-DIRECTOR-TASTE-SCORE-002
 title: 质检必须评估镜头是否有导演选择
 doc_type: rule_card
 rule_type: director_taste_quality
+owner_agent: quality_inspector
 agent_scope:
-  - quality_inspector
-priority: hard
+- quality_inspector
+priority: P4
 status: active
+pipeline_stage: quality_review
 runtime_retrieval: true
+retrieval_key:
+- qc-director-taste-score-002
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- events.collision
+- events.reaction
+- events.tailframe
+- risks.axis_confusion
+- risks.reference_misuse
+- risks.privacy_body
+- risks.blood_avoidance
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- quality_review
+- shot_director
+- layout
+avoid_when:
+- "review_scope_excludes_shot_design_quality"
+- "input_is_only_raw_story_without_shot_plan"
+- "safety_or_hard_fail_already_blocks_delivery"
+failure_mode:
+- "directorially_flat_but_schema_valid_output"
+output_contract: "输出 director_taste_score 四项评分；低于 7 分必须给出 shot_id 和可执行修正。"
+example_good: "F03-S02 attention_clarity=8；建议改为门框外窥视机位并补反应停顿。"
+example_bad: "整体合理，更电影化即可。"
+signals:
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- collision
+- reaction
+- tailframe
+risks:
+- axis_confusion
+- reference_misuse
+- privacy_body
+- blood_avoidance
+applies_to:
+- quality_review
+- shot_director
+- layout
+- blocking
 source_files:
-  - knowledge/17_结果质检与回溯修正规则.md
-  - knowledge/28_全场景分镜与转场案例库.md
+- knowledge/17_结果质检与回溯修正规则.md
+- knowledge/28_全场景分镜与转场案例库.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - quality_review
-  - shot_director
-  - layout
-  - blocking
 ---
 
 # 质检必须评估镜头是否有导演选择

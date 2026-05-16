@@ -1,20 +1,57 @@
 ---
+case_title: 视频拆片案例：douyin_video_pending_2026-04-02_26
+doc_type: case_card
+served_agents:
+- scene_analyst
+- story_planner
+- shot_director
+- shot_director_blocking
+- quality_inspector
+scene_types:
+- 象征寓意
+- 悬念建立
+- 时空转换
+- 日常对话压缩
+- 含蓄叙事
+- dialogue
+- action
+- suspense
+- intimacy_privacy
+events:
+- reaction
+- cut
+dialogue_types:
+- reaction_beat
+visual_constraints:
+- wide_shot
+- medium_shot
+- closeup
+- over_shoulder
+- reaction_shot
+- handheld
+- offscreen_space
+risks:
+- romanticize_collision
+reusable_pattern: CASE_douyin_video_pending_2026-04-02_26
+aspect_ratio: unspecified
+runtime_retrieval: false
+source_files: []
 rule_id: CASE-DOUYIN_VIDEO_PENDING_2026-04-0
-title: "视频拆片案例：douyin_video_pending_2026-04-02_26"
-doc_type: case_library
+title: 视频拆片案例：douyin_video_pending_2026-04-02_26
 rule_type: shot_sequence_case
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
+- shot_director
+- shot_director_layout
+- shot_director_blocking
 priority: reference
 status: active
-runtime_retrieval: true
-scene_types:
-  - 象征寓意, 悬念建立, 时空转换, 日常对话压缩, 含蓄叙事
-source_video: "douyin_video_pending_2026-04-02_26.mp4"
-extraction_date: "2026-04-24"
-extraction_model: "gemini-3.1-pro-preview-thinking-high"
+source_video: douyin_video_pending_2026-04-02_26.mp4
+extraction_date: '2026-04-24'
+extraction_model: gemini-3.1-pro-preview-thinking-high
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
 ---
 
 # 视频拆片案例：douyin_video_pending_2026-04-02_26

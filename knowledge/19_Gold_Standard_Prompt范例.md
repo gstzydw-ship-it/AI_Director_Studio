@@ -1,4 +1,4 @@
-﻿---
+---
 rule_id: DOC-GOLD-PROMPT-019
 title: Gold Standard Prompt范例
 doc_type: example

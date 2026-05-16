@@ -3,23 +3,68 @@ rule_id: CONT-CAST-ACTIVE-001
 title: 尾帧可见人物不等于当前戏份人物
 doc_type: rule_card
 rule_type: cast_continuity
+owner_agent: prompt_compiler
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: cast_continuity_filter
 runtime_retrieval: true
+retrieval_key:
+- cont-cast-active-001
+- signals.tailframe_lock
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.reference_binding
+- events.rush_in
+- events.door_state
+- events.tailframe
+- events.reference_binding
+- risks.door_state_jump
+- risks.reference_misuse
+- scene_types.elevator
+- scene_types.dialogue
+- scene_types.action
+applies_when:
+- 尾帧人物
+- 当前戏份
+- offscreen_cast
+avoid_when:
+- "当前片段没有角色过滤或尾帧残留风险。"
+failure_mode:
+- "把上一段尾帧中可见但当前无戏份的人物继续写入 prompt。"
+output_contract: "仅根据当前 source_script_events、main_shots 与 active_cast 写入可见人物；尾帧只作首帧空间事实。"
+example_good: "画面仅保留商北琛与乔熙；严飞不再出现。"
+example_bad: "严飞仍站在电梯门外侧后方。"
+signals:
+- tailframe_lock
+- dialogue_coverage
+- action_coverage
+- reference_binding
+scene_types:
+- elevator
+- dialogue
+- action
+events:
+- rush_in
+- door_state
+- tailframe
+- reference_binding
+risks:
+- door_state_jump
+- reference_misuse
+applies_to:
+- 尾帧人物
+- 当前戏份
+- offscreen_cast
 source_files:
-  - knowledge/06_连续性与安全规则.md
-  - knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/06_连续性与安全规则.md
+- knowledge/07_Seedance输出词典与模型适配.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 尾帧人物
-  - 当前戏份
-  - offscreen_cast
 ---
 
 # 尾帧可见人物不等于当前戏份人物

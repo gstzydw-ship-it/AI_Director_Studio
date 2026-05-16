@@ -1,3 +1,58 @@
+---
+rule_id: PROMPT-VISIBLE-BODY-LANGUAGE-001
+title: PROMPT-VISIBLE-BODY-LANGUAGE-001
+doc_type: rule_card
+rule_type: prompt_compilation
+owner_agent: prompt_compiler
+agent_scope:
+- prompt_compiler
+- quality_inspector
+priority: P3
+status: active
+pipeline_stage: emotion_to_visible_action
+runtime_retrieval: true
+retrieval_key:
+- prompt-visible-body-language-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.reaction
+- events.cut
+- risks.privacy_body
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- "抽象情绪"
+- "身体语言"
+- "反应节拍"
+avoid_when:
+- "上游已完全给出可见身体动作且无抽象情绪词。"
+failure_mode:
+- "保留抽象情绪、导演口语或长期大特写，模型无法执行心理判断。"
+output_contract: "把抽象情绪翻译为可见动作、微表情、停顿、视线与身体状态。"
+example_good: "严飞微微低头，肩膀收紧，视线避开商北琛。"
+example_bad: "压迫感拉满，张力继续升级，留白一下。"
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- reaction
+- cut
+risks:
+- privacy_body
+dialogue_types:
+- reaction_beat
+conflicts_with: []
+supersedes: []
+---
+
 # PROMPT-VISIBLE-BODY-LANGUAGE-001
 
 ## 规则标题

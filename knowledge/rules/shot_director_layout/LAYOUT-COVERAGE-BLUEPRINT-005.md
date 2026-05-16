@@ -3,25 +3,68 @@ rule_id: LAYOUT-COVERAGE-BLUEPRINT-005
 title: 主分镜必须先给镜头覆盖蓝图
 doc_type: rule_card
 rule_type: coverage_blueprint
+owner_agent: shot_director_layout
 agent_scope:
-  - shot_director_layout
-priority: hard
+- shot_director_layout
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: layout
 runtime_retrieval: true
+retrieval_key:
+- layout-coverage-blueprint-005
+- signals.tailframe_lock
+- signals.action_coverage
+- events.collision
+- events.cut
+- events.tailframe
+- risks.reference_misuse
+- risks.privacy_body
+- risks.blood_avoidance
+- scene_types.dialogue
+- scene_types.action
+- scene_types.intimacy_privacy
+applies_when:
+- main_shots
+- coverage_role
+- over_the_shoulder
+avoid_when:
+- "当前阶段只做 blocking 或 guard，不再重搭主分镜骨架"
+- "输入不是 main_shots 生成任务"
+failure_mode:
+- "主镜头只有景别和主体，缺 coverage_role、cut_reason、companion_visibility 或 tailframe_role。"
+output_contract: "每个 main_shot 必须说明 coverage_role、cut_reason、companion_visibility；尾镜头必须说明 tailframe_role。"
+example_good: "S03: 双人半身关系景，coverage_role=关系复位，tailframe_role=锁定下一段可继承站位。"
+example_bad: "S03: 半身中景，平视，固定镜头，表现情绪。"
+signals:
+- tailframe_lock
+- action_coverage
+scene_types:
+- dialogue
+- action
+- intimacy_privacy
+events:
+- collision
+- cut
+- tailframe
+risks:
+- reference_misuse
+- privacy_body
+- blood_avoidance
+applies_to:
+- main_shots
+- coverage_role
+- over_the_shoulder
+- reverse_shot
+- relationship_reset
 source_files:
-  - knowledge/25_镜头摆位主分镜骨架规则.md
-  - knowledge/02_焦段景深与景别画幅策略.md
-  - knowledge/03_镜头切换与推进规则.md
-  - knowledge/20_镜头库与机位库.md
-  - knowledge/19_Gold_Standard_Prompt范例.md
+- knowledge/25_镜头摆位主分镜骨架规则.md
+- knowledge/02_焦段景深与景别画幅策略.md
+- knowledge/03_镜头切换与推进规则.md
+- knowledge/20_镜头库与机位库.md
+- knowledge/19_Gold_Standard_Prompt范例.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - main_shots
-  - coverage_role
-  - over_the_shoulder
-  - reverse_shot
-  - relationship_reset
 ---
 
 # 主分镜必须先给镜头覆盖蓝图

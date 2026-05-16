@@ -3,26 +3,58 @@ rule_id: TIME-SEGMENT-MULTISHOT-001
 title: 15秒片段是导演片段不是单分镜
 doc_type: rule_card
 rule_type: segment_planning
+owner_agent: story_planner
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: segment_planning
 runtime_retrieval: true
+retrieval_key:
+- time-segment-multishot-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- events.reaction
+- events.cut
+- dialogue_types.reaction_beat
+- scene_types.action
+applies_when:
+- 15秒片段
+- 主分镜
+- 子分镜
+avoid_when:
+- "用户明确锁定单镜，或片段短到不支持多镜头。"
+failure_mode:
+- "把 15 秒误当单一长镜头。"
+- "主分镜和子分镜共用同一时间标记。"
+output_contract: "输出单层时间轴，显式区分主分镜、子分镜和独立时段。"
+example_good: "0-3秒主分镜，3-5秒子分镜，5-8秒主分镜。"
+example_bad: "外层动作单元下再嵌套子时间轴。"
+signals:
+- dialogue_coverage
+- action_coverage
+scene_types:
+- action
+events:
+- reaction
+- cut
+dialogue_types:
+- reaction_beat
+applies_to:
+- 15秒片段
+- 主分镜
+- 子分镜
+- 多镜头变化
+- 同一时间窗
 source_files:
-  - knowledge/00_知识库优先级与冲突裁决规则.md
-  - knowledge/05_剧本拆分与15秒片段规划规则.md
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- knowledge/00_知识库优先级与冲突裁决规则.md
+- knowledge/05_剧本拆分与15秒片段规划规则.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 15秒片段
-  - 主分镜
-  - 子分镜
-  - 多镜头变化
-  - 同一时间窗
 ---
 
 # 15秒片段是导演片段不是单分镜

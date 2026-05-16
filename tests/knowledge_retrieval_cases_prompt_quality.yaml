@@ -1,0 +1,291 @@
+cases:
+  - id: prompt_one_shot_one_main_action
+    agent: prompt_compiler
+    query: "编译 Seedance prompt 时，一个镜头句只能承载一个主动作；不要把起身、转身、走到门口、回头说话全部塞进同一镜，关键动作后只补一个表情或视线锚点。"
+    top_k: 12
+    expected_rules:
+      - PROMPT-ACTION-006
+      - PROMPT-TIMELINE-SHOT-BASE-001
+    expected_sources:
+      - 07_Seedance输出词典与模型适配.md
+    must_match_rules:
+      - PROMPT-ACTION-006
+      - PROMPT-TIMELINE-SHOT-BASE-001
+    must_match_sources:
+      - 07_Seedance输出词典与模型适配.md
+
+  - id: prompt_dialogue_no_subtitle_hard_constraint
+    agent: prompt_compiler
+    query: "最终提示词包含对白和口型时，必须在约束区明确禁止字幕、屏幕文字、对白条和标题卡；时间轴里只写声音、口型和听者反应，不要每段重复无字幕。"
+    top_k: 12
+    expected_rules:
+      - PROMPT-NOSUBTITLE-001
+      - PROMPT-CONSTRAINT-POLARITY-001
+    expected_sources:
+      - 07_Seedance输出词典与模型适配.md
+    must_match_rules:
+      - PROMPT-NOSUBTITLE-001
+      - PROMPT-CONSTRAINT-POLARITY-001
+    must_match_sources:
+      - 07_Seedance输出词典与模型适配.md
+
+  - id: prompt_timeline_pure_execution_only
+    agent: prompt_compiler
+    query: "时间轴段落只能写画面内可见动作、运镜、调度、表情变化和对白声音，不能混入规则解释、心理分析、禁止字幕、保持轴线不变这类禁忌复读。"
+    top_k: 12
+    expected_rules:
+      - TIMELINE-EXECUTION-ONLY-001
+      - PROMPT-CONSTRAINT-POLARITY-001
+    expected_sources:
+      - 07_Seedance输出词典与模型适配.md
+    must_match_rules:
+      - TIMELINE-EXECUTION-ONLY-001
+      - PROMPT-CONSTRAINT-POLARITY-001
+    must_match_sources:
+      - 07_Seedance输出词典与模型适配.md
+
+  - id: prompt_hard_constraint_dedup_positive_timeline
+    agent: prompt_compiler
+    query: "硬约束需要去重集中收束到约束区；不要在每个时间点都粘贴无字幕、零亲密接触、严飞不出现、电梯门不打开，时间轴要改成正向可见状态。"
+    top_k: 12
+    expected_rules:
+      - PROMPT-HARD-CONSTRAINT-DEDUP-001
+      - PROMPT-CONSTRAINT-POLARITY-001
+    expected_sources:
+      - 07_Seedance输出词典与模型适配.md
+    must_match_rules:
+      - PROMPT-HARD-CONSTRAINT-DEDUP-001
+      - PROMPT-CONSTRAINT-POLARITY-001
+    must_match_sources:
+      - 07_Seedance输出词典与模型适配.md
+
+  - id: prompt_reference_image_role_binding
+    agent: prompt_compiler
+    query: "有上一段尾帧图、人物参考图和场景参考图时，先绑定每张图的职责；人物图只管身份外貌，尾帧图优先作为首帧空间光线锚点，当前无戏份人物不能因为参考图继续出现。"
+    top_k: 15
+    expected_rules:
+      - PROMPT-REFERENCE-BINDING-001
+      - REFERENCE-ROLE-STRICT-001
+      - REF-TAILFRAME-PRIORITY-001
+      - CONT-CAST-ACTIVE-001
+    expected_sources:
+      - 06_连续性与安全规则.md
+      - 07_Seedance输出词典与模型适配.md
+    must_match_rules:
+      - PROMPT-REFERENCE-BINDING-001
+      - REFERENCE-ROLE-STRICT-001
+      - REF-TAILFRAME-PRIORITY-001
+      - CONT-CAST-ACTIVE-001
+    must_match_sources:
+      - 06_连续性与安全规则.md
+      - 07_Seedance输出词典与模型适配.md
+
+  - id: prompt_complex_camera_downtranslation
+    agent: prompt_compiler
+    query: "上游分镜写了过肩、反打、特写、推轨、荷兰角和快速切手部，但最终 Seedance prompt 必须降级成可执行主体、机位、路径、切入点和尾帧状态，不能逐字保留复杂导演术语。"
+    top_k: 15
+    expected_rules:
+      - PROMPT-CINEMATIC-DOWNTRANSLATION-002
+      - PROMPT-DIRECTOR-JARGON-TRANSLATION-001
+      - PROMPT-CUT-BUDGET-001
+    expected_sources:
+      - PROMPT-CINEMATIC-DOWNTRANSLATION-002.md
+      - PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md
+      - PROMPT-CUT-BUDGET-001.md
+    must_match_rules:
+      - PROMPT-CINEMATIC-DOWNTRANSLATION-002
+      - PROMPT-DIRECTOR-JARGON-TRANSLATION-001
+      - PROMPT-CUT-BUDGET-001
+    must_match_sources:
+      - PROMPT-CINEMATIC-DOWNTRANSLATION-002.md
+      - PROMPT-DIRECTOR-JARGON-TRANSLATION-001.md
+      - PROMPT-CUT-BUDGET-001.md
+
+  - id: prompt_rhythm_density_inherit_safe_cut_budget
+    agent: prompt_compiler
+    query: "编译阶段必须继承上游节奏密度矩阵和 duration_hint，不要为了显得紧张临时加切镜；10 秒高潮里也要保留反应窗口，避免无信息短切挤掉台词、道具和尾帧。"
+    top_k: 15
+    expected_rules:
+      - PROMPT-RHYTHM-DENSITY-INHERIT-002
+      - PROMPT-CUT-BUDGET-001
+    expected_sources:
+      - RHYTHM-SHOT-DENSITY-MATRIX-003.md
+      - PROMPT-CUT-BUDGET-001.md
+    must_match_rules:
+      - PROMPT-RHYTHM-DENSITY-INHERIT-002
+      - PROMPT-CUT-BUDGET-001
+    must_match_sources:
+      - RHYTHM-SHOT-DENSITY-MATRIX-003.md
+      - PROMPT-CUT-BUDGET-001.md
+
+  - id: prompt_intimacy_distance_continuity
+    agent: prompt_compiler
+    query: "私密对峙场景写明零亲密接触和半步距离时，时间轴必须替换扶腰、贴身、怀里、极近脸距等歧义词，用角色名、站位、朝向和可见距离表达关系。"
+    top_k: 15
+    expected_rules:
+      - PROMPT-CONSTRAINT-POLARITY-001
+      - PROMPT-SHOT-EXPRESSION-CORE-001
+      - PROMPT-VISIBLE-BODY-LANGUAGE-001
+    expected_sources:
+      - 07_Seedance输出词典与模型适配.md
+    must_match_rules:
+      - PROMPT-CONSTRAINT-POLARITY-001
+      - PROMPT-SHOT-EXPRESSION-CORE-001
+      - PROMPT-VISIBLE-BODY-LANGUAGE-001
+    must_match_sources:
+      - 07_Seedance输出词典与模型适配.md
+
+  - id: qc_hard_fail_blocks_delivery
+    agent: quality_inspector
+    query: "质检发现 hard 规则违反时必须阻断交付：对白没禁字幕、门状态从 closed 回弹 open、active_cast 缺失、意外碰撞被写成拥抱贴身，都要 status fail 并给 failed_rule_id 和返修方向。"
+    top_k: 12
+    expected_rules:
+      - QC-HARD-FAIL-001
+    expected_sources:
+      - 17_结果质检与回溯修正规则.md
+    must_match_rules:
+      - QC-HARD-FAIL-001
+    must_match_sources:
+      - 17_结果质检与回溯修正规则.md
+
+  - id: qc_pacing_safety_reaction_window
+    agent: quality_inspector
+    query: "质检最终片段时检查节奏安全：首镜超过 4 秒还没释放 hook、前 3 秒空转、高潮 10 秒塞满短台词且没有 1.5 秒受击反应窗口，都必须给可执行返修。"
+    top_k: 12
+    expected_rules:
+      - QC-PACING-SAFETY-CHECKLIST-001
+      - QC-RHYTHM-EMOTION-LEGIBILITY-003
+    expected_sources:
+      - 17_结果质检与回溯修正规则.md
+      - 15_故事节奏控制规则.md
+      - 24_戏剧微粒识别与节奏触发规则.md
+    must_match_rules:
+      - QC-PACING-SAFETY-CHECKLIST-001
+      - QC-RHYTHM-EMOTION-LEGIBILITY-003
+    must_match_sources:
+      - 17_结果质检与回溯修正规则.md
+      - 15_故事节奏控制规则.md
+      - 24_戏剧微粒识别与节奏触发规则.md
+
+  - id: qc_rhythm_emotion_action_coverage
+    agent: quality_inspector
+    query: "不要只看字段格式，质检必须判断节奏密度、情绪可读性和动作覆盖价值；紧凑档每 5 秒镜头过量、情绪转折无停顿、关键动作或道具没看清都要 fail。"
+    top_k: 12
+    expected_rules:
+      - QC-RHYTHM-EMOTION-LEGIBILITY-003
+      - QC-PACING-SAFETY-CHECKLIST-001
+    expected_sources:
+      - QC-RHYTHM-EMOTION-LEGIBILITY-003.md
+    must_match_rules:
+      - QC-RHYTHM-EMOTION-LEGIBILITY-003
+      - QC-PACING-SAFETY-CHECKLIST-001
+    must_match_sources:
+      - QC-RHYTHM-EMOTION-LEGIBILITY-003.md
+
+  - id: qc_director_taste_not_schema_only
+    agent: quality_inspector
+    query: "质量评审不能只写整体合理或格式通过；需要给 director_taste_score，检查注意力清晰、情绪推进、镜头不可替代性和更强视角机会，低于 7 分要指出 shot_id 怎么修。"
+    top_k: 12
+    expected_rules:
+      - QC-DIRECTOR-TASTE-SCORE-002
+    expected_sources:
+      - 17_结果质检与回溯修正规则.md
+    must_match_rules:
+      - QC-DIRECTOR-TASTE-SCORE-002
+    must_match_sources:
+      - 17_结果质检与回溯修正规则.md
+
+  - id: qc_intimacy_safety_no_body_gaze
+    agent: quality_inspector
+    query: "物理距离与亲密接触冲突消解规则：如果约束要求零亲密接触或保持物理距离，质检要检查扶腰、贴身、怀里、极近脸距、亲密对视等歧义词是否被替换为半步距离、可见空隙和视线对峙。"
+    top_k: 30
+    expected_rules:
+      - SAFETY-INTIMACY-001
+      - PHYSICAL-DISTANCE-CONTRACT-001
+      - QC-HARD-FAIL-001
+    expected_sources:
+      - 06_连续性与安全规则.md
+      - 17_结果质检与回溯修正规则.md
+    must_match_rules:
+      - SAFETY-INTIMACY-001
+      - PHYSICAL-DISTANCE-CONTRACT-001
+      - QC-HARD-FAIL-001
+    must_match_sources:
+      - 06_连续性与安全规则.md
+      - 17_结果质检与回溯修正规则.md
+
+  - id: qc_continuity_axis_tailframe_lock
+    agent: quality_inspector
+    query: "质检单片段 prompt 时，如果同一 segment 内写反打至、人物左前方右前方来回换、最后停在手部或眼神局部特写，必须指出轴线混乱和尾帧不可继承。"
+    top_k: 30
+    expected_rules:
+      - PROMPT-AXIS-LOCK-PER-SEGMENT-001
+      - TAILFRAME-RELATIONSHOT-001
+      - QC-HARD-FAIL-001
+    expected_sources:
+      - 06_连续性与安全规则.md
+      - 21_镜头调用规则与多机位模板.md
+    must_match_rules:
+      - PROMPT-AXIS-LOCK-PER-SEGMENT-001
+      - TAILFRAME-RELATIONSHOT-001
+      - QC-HARD-FAIL-001
+    must_match_sources:
+      - 06_连续性与安全规则.md
+      - 21_镜头调用规则与多机位模板.md
+
+  - id: qc_prop_continuity_timeline
+    agent: quality_inspector
+    query: "同一场景内手机、水杯、文件、门把等道具状态不能因切镜重置；单手持物变成双手做事必须写放下或递出的过渡，并在约束段保留道具状态时间线。"
+    top_k: 15
+    expected_rules:
+      - CONT-PROP-005
+      - CONT-PROP-TIMELINE-001
+    expected_sources:
+      - 06_连续性与安全规则.md
+      - 18_情绪锚点与逐段交互与仰拍限制补丁.md
+    must_match_rules:
+      - CONT-PROP-005
+      - CONT-PROP-TIMELINE-001
+    must_match_sources:
+      - 06_连续性与安全规则.md
+      - 18_情绪锚点与逐段交互与仰拍限制补丁.md
+
+  - id: qc_reference_binding_misuse
+    agent: quality_inspector
+    query: "质检参考图使用时，人物参考图不能覆盖场景背景，尾帧图不能被长篇文字复述替代，上一段尾帧里但当前无戏份的人物不能被继续写进本段 prompt。"
+    top_k: 15
+    expected_rules:
+      - REFERENCE-ROLE-STRICT-001
+      - REF-TAILFRAME-PRIORITY-001
+      - CONT-CAST-ACTIVE-001
+    expected_sources:
+      - 06_连续性与安全规则.md
+      - 07_Seedance输出词典与模型适配.md
+    must_match_rules:
+      - REFERENCE-ROLE-STRICT-001
+      - REF-TAILFRAME-PRIORITY-001
+      - CONT-CAST-ACTIVE-001
+    must_match_sources:
+      - 06_连续性与安全规则.md
+      - 07_Seedance输出词典与模型适配.md
+
+  - id: qc_subtitle_and_timeline_pollution_fail
+    agent: quality_inspector
+    query: "最终 prompt 里有对白却没有无字幕无屏幕文字硬约束，且时间轴每段反复粘贴禁止字幕、零亲密接触、严飞不出现等禁忌串，质检必须判为约束污染并要求返修。"
+    top_k: 30
+    expected_rules:
+      - PROMPT-NOSUBTITLE-001
+      - TIMELINE-EXECUTION-ONLY-001
+      - QC-HARD-FAIL-001
+      - QC-PACING-SAFETY-CHECKLIST-001
+    expected_sources:
+      - 07_Seedance输出词典与模型适配.md
+      - 17_结果质检与回溯修正规则.md
+    must_match_rules:
+      - PROMPT-NOSUBTITLE-001
+      - TIMELINE-EXECUTION-ONLY-001
+      - QC-HARD-FAIL-001
+      - QC-PACING-SAFETY-CHECKLIST-001
+    must_match_sources:
+      - 07_Seedance输出词典与模型适配.md
+      - 17_结果质检与回溯修正规则.md

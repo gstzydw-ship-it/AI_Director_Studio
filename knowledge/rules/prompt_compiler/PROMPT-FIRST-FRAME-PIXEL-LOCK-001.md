@@ -3,27 +3,65 @@ rule_id: PROMPT-FIRST-FRAME-PIXEL-LOCK-001
 title: 首帧锁必须含像素锚点（不只人物相对位置）
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
-  - scene_analyst
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- scene_analyst
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: first_frame_lock_translation
 runtime_retrieval: true
+retrieval_key:
+- prompt-first-frame-pixel-lock-001
+- signals.vertical_framing
+- signals.tailframe_lock
+- events.door_state
+- events.tailframe
+- risks.door_state_jump
+- risks.vertical_closeup_overuse
+- risks.reference_misuse
+- scene_types.elevator
+applies_when:
+- 首帧锁定
+- 像素锚点
+- 空间与首帧总控
+avoid_when:
+- "没有首帧、尾帧或空间继承需求。"
+failure_mode:
+- "首帧只写相对位置，缺少像素锚点，导致段间跳位。"
+output_contract: "首帧至少覆盖主体像素位置、背景锚点或构图比例中的两类。"
+example_good: "商北琛半身正面位于画面中央，背景远端正中可见电梯门。"
+example_bad: "商北琛位于中轴入口方向面朝电梯。"
+signals:
+- vertical_framing
+- tailframe_lock
+scene_types:
+- elevator
+events:
+- door_state
+- tailframe
+risks:
+- door_state_jump
+- vertical_closeup_overuse
+- reference_misuse
+aspect_ratios:
+- '9:16'
+- '16:9'
+applies_to:
+- 首帧锁定
+- 像素锚点
+- 空间与首帧总控
+- 段间承接
+- 尾帧像素一致
 source_files:
-  - knowledge/11_场景分析输入卡与导演意图提取.md
-  - knowledge/rules/scene_analyst/SCENE-CONSISTENCY-LOCK-001.md
-  - knowledge/rules/scene_analyst/SCENE-REF-MISSING-FALLBACK-001.md
-  - knowledge/rules/prompt_compiler/REF-TAILFRAME-PRIORITY-001.md
+- knowledge/11_场景分析输入卡与导演意图提取.md
+- knowledge/rules/scene_analyst/SCENE-CONSISTENCY-LOCK-001.md
+- knowledge/rules/scene_analyst/SCENE-REF-MISSING-FALLBACK-001.md
+- knowledge/rules/prompt_compiler/REF-TAILFRAME-PRIORITY-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 首帧锁定
-  - 像素锚点
-  - 空间与首帧总控
-  - 段间承接
-  - 尾帧像素一致
 ---
 
 # 首帧锁必须含像素锚点（不只人物相对位置）

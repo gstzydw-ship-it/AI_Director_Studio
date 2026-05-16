@@ -1,33 +1,75 @@
 ---
 rule_id: SHOT-SIMPLE-SEEDANCE-CAMERA-001
-title: Seedance 镜头必须降级为单任务短句
+title: 编译阶段才使用的 Seedance 单任务短句降级
 doc_type: rule_card
 rule_type: camera_language
+owner_agent: prompt_compiler
 agent_scope:
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: prompt_camera_simplification
 runtime_retrieval: true
+retrieval_key:
+- shot-simple-seedance-camera-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.door_state
+- events.reaction
+- events.cut
+- risks.axis_confusion
+- dialogue_types.reaction_beat
+- scene_types.elevator
+- scene_types.action
+applies_when:
+- Seedance
+- 提示词编译
+- 运镜降级
+avoid_when:
+- "non_seedance_target"
+- "already_single_task_shot"
+failure_mode:
+- "overloaded_live_action_camera_instruction"
+output_contract: "编译阶段把复杂导演镜头翻译成可执行的单任务短句。"
+example_good: "电梯口固定中景。"
+example_bad: "纵深中全景到半身中景再横移到反应。"
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- elevator
+- action
+events:
+- door_state
+- reaction
+- cut
+risks:
+- axis_confusion
+dialogue_types:
+- reaction_beat
+applies_to:
+- Seedance
+- 提示词编译
+- 运镜降级
+- 轴线连续
 source_files:
-  - 电影分镜、镜头语言与剪辑深度学习报告.md
-  - knowledge/21_镜头调用规则与多机位模板.md
-  - knowledge/22_多机位分镜与镜头多样性规则.md
+- 电影分镜、镜头语言与剪辑深度学习报告.md
+- knowledge/21_镜头调用规则与多机位模板.md
+- knowledge/22_多机位分镜与镜头多样性规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - Seedance
-  - 镜头导演
-  - 运镜降级
-  - 轴线连续
 ---
 
-# Seedance 镜头必须降级为单任务短句
+# 编译阶段才使用的 Seedance 单任务短句降级
 
 ## 规则
 
-`shot_director` 不能把实拍导演现场口令直接交给 Seedance。每个 shot 必须降级成：
+这张卡只约束提示词编译阶段。镜头导演不需要提前套用本卡的保守模板。
+
+提示词编译器不能把实拍导演现场口令直接交给 Seedance。每个镜头需要在最终提示词里降级成：
 
 - 一个主体焦点。
 - 一个景别基底。

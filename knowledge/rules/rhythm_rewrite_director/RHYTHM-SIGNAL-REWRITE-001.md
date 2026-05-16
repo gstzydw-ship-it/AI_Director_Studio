@@ -3,25 +3,71 @@ rule_id: RHYTHM-SIGNAL-REWRITE-001
 title: 戏剧微粒驱动的节奏改写
 doc_type: rule_card
 rule_type: rhythm_rewrite
+owner_agent: rhythm_rewrite_director
 agent_scope:
-  - rhythm_rewrite_director
-  - quality_inspector
-priority: hard
+- rhythm_rewrite_director
+- quality_inspector
+- story_planner
+priority: P0
 status: active
+pipeline_stage: rhythm_rewrite
 runtime_retrieval: true
+retrieval_key:
+- rhythm-signal-rewrite-001
+- signals.dialogue_coverage
+- signals.action_coverage
+- signals.continuity_lock
+- events.collision
+- events.reaction
+- risks.script_invention_risk
+- risks.blood_avoidance
+- dialogue_types.long_dialogue_compression
+- dialogue_types.reaction_beat
+- scene_types.dialogue
+- scene_types.action
+- scene_types.suspense
+applies_when:
+- atmosphere_strategy
+- 权力反转
+- 悬念揭晓
+avoid_when:
+- "需要具体镜头命令、改写台词或改变主线事件时。"
+failure_mode:
+- "把 atmosphere_strategy 写成镜头清单。"
+- "用抽象隐喻替代可见反应。"
+output_contract: "输出主戏剧微粒、atmosphere_strategy、可见反应和禁越权说明。"
+example_good: "权力反转后写谁停住、谁失控、谁重新掌场。"
+example_bad: "写特写推进、Crash Zoom 和黑屏。"
+signals:
+- dialogue_coverage
+- action_coverage
+- continuity_lock
+scene_types:
+- dialogue
+- action
+- suspense
+events:
+- collision
+- reaction
+risks:
+- script_invention_risk
+- blood_avoidance
+dialogue_types:
+- long_dialogue_compression
+- reaction_beat
+applies_to:
+- atmosphere_strategy
+- 权力反转
+- 悬念揭晓
+- 误解错位
+- 情绪极点
+- Cliffhanger
 source_files:
-  - knowledge/09_节奏总控与剧本改写规则.md
-  - knowledge/24_戏剧微粒识别与节奏触发规则.md
-  - knowledge/15_故事节奏控制规则.md
+- knowledge/09_节奏总控与剧本改写规则.md
+- knowledge/24_戏剧微粒识别与节奏触发规则.md
+- knowledge/15_故事节奏控制规则.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - atmosphere_strategy
-  - 权力反转
-  - 悬念揭晓
-  - 误解错位
-  - 情绪极点
-  - Cliffhanger
 ---
 
 # 戏剧微粒驱动的节奏改写

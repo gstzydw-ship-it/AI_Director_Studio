@@ -3,27 +3,53 @@ rule_id: PROMPT-CUT-BUDGET-001
 title: 单片段切镜预算（含隐性切镜识别）
 doc_type: rule_card
 rule_type: prompt_compilation
+owner_agent: prompt_compiler
 agent_scope:
-  - story_planner
-  - shot_director
-  - prompt_compiler
-  - quality_inspector
-priority: hard
+- story_planner
+- shot_director
+- prompt_compiler
+- quality_inspector
+priority: P0
 status: active
+pipeline_stage: cut_budget_validation
 runtime_retrieval: true
+retrieval_key:
+- prompt-cut-budget-001
+- signals.action_coverage
+- events.reaction
+- events.cut
+- scene_types.action
+applies_when:
+- 切镜预算
+- 隐性切镜
+- 同一机位继续
+avoid_when:
+- "当前片段没有镜头变化或切镜预算约束。"
+failure_mode:
+- "单段切镜超过时长预算，或用同一机位继续伪装主体变化。"
+output_contract: "按 segment 时长统计显式与隐性切镜；超预算时报硬失败并请求上游拆段。"
+example_good: "8 秒段只保留 2 个镜头变化。"
+example_bad: "13 秒段塞入 5 个切镜，并把主体变化写成同一机位继续。"
+signals:
+- action_coverage
+scene_types:
+- action
+events:
+- reaction
+- cut
+applies_to:
+- 切镜预算
+- 隐性切镜
+- 同一机位继续
+- segment 拆分
+- Seedance 单镜头限制
 source_files:
-  - knowledge/07_Seedance输出词典与模型适配.md
-  - knowledge/19_Gold_Standard_Prompt范例.md
-  - knowledge/rules/prompt_compiler/PROMPT-CINEMATIC-DOWNTRANSLATION-002.md
-  - knowledge/rules/prompt_compiler/PROMPT-MAIN-SUBSHOT-TIMELINE-001.md
+- knowledge/07_Seedance输出词典与模型适配.md
+- knowledge/19_Gold_Standard_Prompt范例.md
+- knowledge/rules/prompt_compiler/PROMPT-CINEMATIC-DOWNTRANSLATION-002.md
+- knowledge/rules/prompt_compiler/PROMPT-MAIN-SUBSHOT-TIMELINE-001.md
 conflicts_with: []
 supersedes: []
-applies_to:
-  - 切镜预算
-  - 隐性切镜
-  - 同一机位继续
-  - segment 拆分
-  - Seedance 单镜头限制
 ---
 
 # 单片段切镜预算（含隐性切镜识别）
@@ -61,8 +87,8 @@ Seedance 2.0 物理上是单镜头连续生成模型——它每次只能渲染�
 ## 识别"同一机位继续"是真延续还是隐性切镜
 
 **真延续（允许）**：
-- "同一机位继续" → 同一主体 + 同一景别 + 仅动作 / 表情变化
-- 例："同一机位继续，商北琛保持站位，眉头微皱，视线下移 15°。"
+- "镜头保持在同一主体身上" → 同一主体 + 同一景别 + 仅动作 / 表情变化
+- 例："镜头保持在商北琛身上，商北琛保持站位，眉头微皱，视线下移。"
 
 **隐性切镜（禁止）**：
 - "同一机位继续" → 不同主体 / 不同景别 / 不同框中心
@@ -89,12 +115,12 @@ Seedance 2.0 物理上是单镜头连续生成模型——它每次只能渲染�
 
 ```text
 [Segment A] 0-8 秒
-0-4秒：摄影机位于商北琛右前方眼平，稳定器同速后退。商北琛沿中轴前进，员工列收拢视线。
-4-8秒：同一机位继续（右前方眼平），前排主管退开让通道。商北琛走到通道中段。
+0-4秒：大堂门框侧固定视角，画面轻微后退跟随。商北琛沿中轴前进，员工列收拢视线。
+4-8秒：门框侧固定视角保持，前排主管退开让通道。商北琛走到通道中段。
 
 [Segment B] 0-5 秒
-0-3秒：摄影机切至商北琛右前方双人关系中景。严飞迈出半步，说出"Welcome, Mr. Pierce."
-3-5秒：同一机位继续，商北琛沉默经过严飞，视线只短暂掠过右侧。
+0-3秒：镜头切至大堂门框侧双人关系中景。严飞迈出半步，说出"Welcome, Mr. Pierce."
+3-5秒：镜头保持在双人关系景，商北琛沉默经过严飞，视线只短暂掠过右侧。
 ```
 
 ## Agent 执行

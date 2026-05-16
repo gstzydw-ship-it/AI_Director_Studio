@@ -1,20 +1,43 @@
 ---
+case_title: 视频拆片案例：拍摄设计_换衣服场景的镜头拆解与省略
+doc_type: case_card
+served_agents:
+- scene_analyst
+- story_planner
+- shot_director
+- shot_director_blocking
+- quality_inspector
+scene_types:
+- 日常压缩/隐私保护
+- action
+- intimacy_privacy
+events:
+- cut
+dialogue_types: []
+visual_constraints:
+- closeup
+- over_shoulder
+- offscreen_space
+risks:
+- privacy_body
+reusable_pattern: CASE_拍摄设计_换衣服场景的镜头拆解与省略
+aspect_ratio: unspecified
+runtime_retrieval: false
+source_files: []
 rule_id: CASE-拍摄设计_换衣服场景的镜头拆解与省略
-title: "视频拆片案例：拍摄设计_换衣服场景的镜头拆解与省略"
-doc_type: case_library
+title: 视频拆片案例：拍摄设计_换衣服场景的镜头拆解与省略
 rule_type: shot_sequence_case
 agent_scope:
-  - shot_director
-  - shot_director_layout
-  - shot_director_blocking
+- shot_director
+- shot_director_layout
+- shot_director_blocking
 priority: reference
 status: active
-runtime_retrieval: true
-scene_types:
-  - 日常压缩/隐私保护
-source_video: "拍摄设计_换衣服场景的镜头拆解与省略.mp4"
-extraction_date: "2026-04-24"
-extraction_model: "gemini-3.1-pro-preview-thinking-high"
+source_video: 拍摄设计_换衣服场景的镜头拆解与省略.mp4
+extraction_date: '2026-04-24'
+extraction_model: gemini-3.1-pro-preview-thinking-high
+signals:
+- action_coverage
 ---
 
 # 视频拆片案例：拍摄设计_换衣服场景的镜头拆解与省略
