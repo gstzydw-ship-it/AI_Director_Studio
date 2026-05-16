@@ -564,12 +564,12 @@ def quality_inspector_node(state: DirectorState) -> DirectorState:
     elif "切镜时机" not in prompt:
         qc_issues.append("- 镜头序列缺少切镜时机：非末尾镜头应写明动作顶点、台词断点、信息看清或反应出现后的切镜触发。")
 
-    # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段反打硬失败 — 检查编译后 prompt ===
+    # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段反打提示（降级为 warn） — 检查编译后 prompt ===
     if _REVERSE_SHOT_INSIDE_SEGMENT_RE.search(prompt):
         qc_issues.append(
-            '- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 出现"反打至"：'
-            "Seedance 是单镜头连续生成模型，单次生成内无法完成跨轴反打，会让人物左右颠倒、背景翻面。"
-            "需要反打的两镜必须拆成相邻两个 segment，并通过转身/越轴中性镜头/场景固定机位过渡。"
+            '- [warn] [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 编译后 prompt 出现"反打"：'
+            "反打可以在同一片段内通过切镜实现，但需确保每个时间段保持同侧轴线，避免人物左右颠倒。"
+            
         )
 
     # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单时间段轴线锁 — 检查编译后 prompt ===

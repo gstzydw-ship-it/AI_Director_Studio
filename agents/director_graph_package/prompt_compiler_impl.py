@@ -183,7 +183,7 @@ _NATURAL_VIEWPOINT_RE = re.compile(
 def _reaction_cut_and_action_path_rules() -> str:
     return (
         "【反应切镜与自然动作句硬规则】\n"
-        "1. 时间轴内可以也必须写清镜头切换。凡出现受击、回神、视线相撞、表情一僵、听完反应、松手等反应落点，必须明确写\"镜头切至/切回\"谁；单段内禁止写反打。\n"
+        "1. 时间轴内可以也必须写清镜头切换。凡出现受击、回神、视线相撞、表情一僵、听完反应、松手等反应落点，必须明确写\"镜头切至/切回\"谁；反打可以在同一片段内通过切镜实现。\n"
         "2. 反应镜头写成自然画面句：镜头切至乔熙中近景，商北琛肩线留在前景，乔熙听完后抬眼停住。\n"
         "3. 如果同一时间段内有\"说话 -> 听者受击 -> 继续说话 -> 回神动作\"，至少拆成说话镜头和听者反应镜头；不要全塞在同一个双人中景里。\n"
         "4. 动作描述遵循 Seedance 自然语言：主体 + 一个主要动作 + 情绪/视线落点。只写观众能看懂的大动作，不把每根手指、厘米距离、起点路径终点写成说明书。\n"
@@ -203,7 +203,7 @@ def _timeline_continuity_contract_rules() -> str:
     return (
         "【时间轴段内连续性交接硬规则】\n"
         "1. 时间轴不是独立小段落拼接。每个时间段都必须包含：承接上一段的入口状态、当前动作推进、结束状态。\n"
-        "2. 除第一个时间段外，每个时间段开头必须明确写\"同一机位继续\"\"延续上一镜\"\"镜头切至/切回\"之一；不能直接重新开一个新主体新机位，单段内禁止反打。\n"
+        "2. 除第一个时间段外，每个时间段开头必须明确写\"同一机位继续\"\"延续上一镜\"\"镜头切至/切回\"之一；不能直接重新开一个新主体新机位，反打通过切镜实现时，需保持空间锚点连续。\n"
         "3. 如果同一机位继续，必须继承上一时间段尾部的人物位置、朝向、景别、空间锚点；只能让动作在这个状态上继续推进。\n"
         "4. 如果镜头切至新机位，必须写清切镜类型和原因：同侧反应、动作承接、插入细节、空间复位、尾帧复位；禁止无理由硬切。\n"
         "5. 每次切镜必须保留至少一个空间锚点：电梯门框、走廊中轴、大堂两侧员工列、商北琛身体方向、严飞所在侧边位置等。没有锚点的切镜会被模型当成换场。\n"
@@ -999,7 +999,7 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
         for index, (_start, _end, body) in enumerate(timeline_blocks[1:], start=2):
             prefix = body[:120]
             if not _TIMELINE_BRIDGE_RE.search(prefix):
-                issues.append(f'- 时间轴第 {index} 个时间段缺少段内交接词：请以"同一机位继续/延续上一镜/镜头切至/切回"承接上一时间段，单段内禁止反打。')
+                issues.append(f'- 时间轴第 {index} 个时间段缺少段内交接词：请以"同一机位继续/延续上一镜/镜头切至/切回"承接上一时间段，反打通过切镜实现时，需保持空间锚点连续。')
                 break
 
     if not uses_shot_sequence:
@@ -1121,11 +1121,11 @@ def _compiler_guard_report(prompt: str, script: str, planner_segment: str, direc
                 "请把超出的镜头并入前后段，或要求 story_planner 重新拆段。"
             )
 
-    # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段反打硬失败 ===
+    # === [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段反打提示（降级为 warn） ===
     if _REVERSE_SHOT_INSIDE_SEGMENT_RE.search(prompt):
         issues.append(
-            '- [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段 prompt 内出现"反打"：Seedance 无法在一次生成里完成跨轴反打，'
-            "会让人物左右颠倒、背景翻面。需要反打的两镜必须拆成相邻两个 segment，并通过转身/越轴中性镜头/场景固定机位过渡。"
+            '- [warn] [PROMPT-AXIS-LOCK-PER-SEGMENT-001] 单段 prompt 内出现"反打"：'
+            "反打可以在同一片段内通过切镜实现，但需确保每个时间段保持同侧轴线，避免人物左右颠倒。"
         )
 
     # === [PROMPT-FIRST-FRAME-PIXEL-LOCK-001] 首帧像素锚点缺失 ===

@@ -158,6 +158,13 @@ _SHOT_CUT_TRIGGER_RE = re.compile(
     r"|action apex|dialogue break|dialogue lands|readable information|information readable|reaction appears|tailframe|tail frame|state is readable|distance relation is readable|cut after reaction",
     re.IGNORECASE,
 )
+_LEGACY_SHOT_OUTPUT_HEADING_RE = re.compile(
+    r"(?m)^\s*[-]?\s*(?:"
+    r"镜头编号|镜头任务|时长|拍摄主体|画面动作|台词|切镜点|连续性|覆盖职责|切镜原因|同场人物位置|状态变化|尾帧职责|Summary|空间连续性总控|类型|声音|综合|结构|选择理由|指示|状态|细节"
+    r"|人物|位置|任务|结尾"
+    r")\s*[:：]?",
+    re.IGNORECASE,
+)
 _SHOT_DENSITY_LIFE_PRESSURE_RE = re.compile(
     r"生活|赶时间|穿衣|上学|孩子|小豆丁|闹钟|电话|手机|草莓|安抚|哄|抗拒|乱蹬|缩手|踢开|书包|紧凑生活",
     re.IGNORECASE,
@@ -1182,6 +1189,86 @@ def _uses_coverage_v3_schema(output: str) -> bool:
     )
 
 
+def _extract_script_dialogue_candidates(script: str) -> list[str]:
+    """Extract likely dialogue-bearing text from source script text."""
+    if not script:
+        return []
+
+    character_names = _script_character_names(script)
+    candidates: list[str] = []
+    for raw_line in script.splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("人物") or line.startswith("场景"):
+            continue
+
+        match = re.match(r"^(.+?)[：:](.+)$", line)
+        if match:
+            left = match.group(1).strip()
+            right = match.group(2).strip().strip("\"'")
+            if not left or not right:
+                continue
+            if character_names and any(name and name in left for name in character_names):
+                candidates.append(right)
+                continue
+            if len(left) <= 12 and len(right) >= 2 and re.search(r"[\u4e00-\u9fffA-Za-z]", right):
+                candidates.append(right)
+            continue
+
+        candidates.extend(
+            [item.strip() for item in _quoted_dialogues(line) if len(item.strip()) >= 2]
+        )
+
+    deduped: list[str] = []
+    for item in candidates:
+        if item not in deduped:
+            deduped.append(item)
+    return deduped
+
+
+def _extract_dialogue_values(output: str) -> list[str]:
+    """Extract dialogue fields from valid YAML v3 shot blocks."""
+    values: list[str] = []
+    for _, shot_block in _main_shot_blocks(output or ""):
+        dialogue_value = _yaml_line_field(shot_block, "dialogue")
+        if dialogue_value:
+            values.append(dialogue_value.strip().strip("\"'"))
+    return values
+
+
+def _legacy_output_detected(output: str) -> list[str]:
+    if not output:
+        return []
+
+    heading_hits = set(_LEGACY_SHOT_OUTPUT_HEADING_RE.findall(output))
+    if len(heading_hits) >= 4:
+        return [
+            f"shot_director legacy output detected: contains deprecated Chinese heading fields "
+            f"({', '.join(sorted(heading_hits))}); only shot_director_coverage_v3 is allowed."
+        ]
+    return []
+
+
+def _check_dialogue_not_dropped(output: str, script: str) -> list[str]:
+    source_dialogues = _extract_script_dialogue_candidates(script)
+    if not source_dialogues:
+        return []
+
+    shot_dialogues = _extract_dialogue_values(output)
+    if not shot_dialogues:
+        return ["shot_director 未输出 shot-level dialogue 字段，可能丢失台词。"]
+
+    retained = [
+        value
+        for value in shot_dialogues
+        if value.strip() and value.strip().lower() not in {"~", "none", "na"}
+    ]
+    if not retained:
+        return [
+            "shot_director 检测到原剧本有台词文本，但当前输出把 dialogue 全部写成 ~/none，不能丢台词。"
+        ]
+    return []
+
+
 def _validate_shot_seedance_template_contract(shot_id: str, shot_block: str) -> list[str]:
     issues: list[str] = []
     for field in _SHOT_SEEDANCE_TEMPLATE_CONTRACT_FIELDS:
@@ -1494,12 +1581,17 @@ def _shot_tailframe_carry_issues(fragment_id: str, shot_blocks: list[tuple[str, 
     return issues
 
 
-def _validate_shot_director_output(director_output: str, expected_segments: list[str]) -> list[str]:
+def _validate_shot_director_output(
+    director_output: str, expected_segments: list[str], script: str = ""
+) -> list[str]:
     """Validate the production shot_director coverage v3 schema."""
-    if _uses_coverage_v3_schema(director_output):
-        return _validate_shot_director_coverage_v3(director_output, expected_segments)
-
     issues: list[str] = []
+    issues.extend(_legacy_output_detected(director_output))
+    if _uses_coverage_v3_schema(director_output):
+        issues.extend(_validate_shot_director_coverage_v3(director_output, expected_segments))
+        issues.extend(_check_dialogue_not_dropped(director_output, script))
+        return issues
+
     for segment_name in expected_segments:
         segment_num = re.sub(r"\D", "", segment_name)
         fragment_id = f"F{int(segment_num):02d}" if segment_num else segment_name
@@ -2732,69 +2824,53 @@ _SHOT_LIBRARY_TASK_RULES = {
 
 _SHOT_LIBRARY_TASK_KNOWLEDGE_HINTS = {
     "long_dialogue_coverage": (
-        "04_对白与表演镜头规则",
-        "21_镜头调用规则与多机位模板 R-012 声画错位剪辑 J-Cut L-Cut R-034 反应切出",
-        "22_多机位分镜与镜头多样性规则 反站桩正反打 过肩 反应特写",
         "SHOT-DIALOGUE-COVERAGE-001",
         "SHOT-DIALOGUE-PAUSE-001",
-        "CASE_拍摄剪辑_切出镜头_访谈对话与情感片段技巧",
-        "CASE_拍摄设计_对话场景的景别变化与情绪放大",
+        "BLOCKING-REACTION-COVERAGE-002",
+        "BLOCKING-DIALOGUE-FIDELITY-003",
     ),
     "impact_reaction": (
-        "26_动作调度与受击覆盖规则",
-        "ACTION-COLLISION-001",
-        "SHOT-COMPLEX-ACTION-DEGRADE-001",
         "SHOT-ACTION-APEX-PRECUT-001",
-        "BLOCKING-REACTION-COVERAGE-002",
-        "CASE_镜头叙事_如何用镜头讲故事16_街边相撞与文件落地",
+        "SHOT-COMPLEX-ACTION-DEGRADE-001",
+        "SHOT-ACTION-COVERAGE-001",
+        "SHOT-CONFLICT-COVERAGE-001",
     ),
     "reveal_insert_reaction": (
-        "03_镜头切换与推进规则 信息看清 切点",
-        "21_镜头调用规则与多机位模板 R-034 反应切出 R-037 特写锚点转场",
-        "23_视频教学提取_全场景分镜与转场库 插入镜头 切出镜头",
-        "CASE_导演叙事技巧_如何讲故事与镜头信息组织",
-        "CASE_拍摄剪辑_用反拍剪辑叙事的镜头拆解",
+        "BLOCKING-CUT-ANCHOR-TIMING-004",
+        "SHOT-ACTION-APEX-PRECUT-001",
+        "SHOT-DRAMATIC-TASK-COVERAGE-COMBO-010",
     ),
     "door_threshold_continuity": (
-        "06_连续性与安全规则",
         "CONT-DOOR-MONOTONIC-001",
-        "22_多机位分镜与镜头多样性规则 电梯 按钮 门口",
-        "CASE_拍摄剪辑_动作匹配与连续动作衔接",
-        "CASE_剪辑转场_动作转场与相似动作匹配",
+        "BLOCKING-STATE-DELTA-005",
+        "GUARD-SPATIAL-RESET-BUDGET-004",
     ),
     "tailframe_handoff": (
-        "18_情绪锚点与逐段交互与仰拍限制补丁",
-        "REF-TAILFRAME-PRIORITY-001",
-        "TAILFRAME-RELATIONSHOT-001",
         "RHYTHM-REACTION-MIN-001",
-        "CASE_镜头叙事_分别场景的七镜头电影感设计",
+        "SHOT-TAILFRAME-ACTION-CARRY-011",
+        "GUARD-COVERAGE-CONTRACT-005",
     ),
     "authority_pressure": (
-        "21_镜头调用规则与多机位模板 权力压迫 景别收缩 反应切出",
-        "22_多机位分镜与镜头多样性规则 反站桩正反打",
         "SHOT-CONFLICT-COVERAGE-001",
-        "CASE_拍摄设计_双人对话到情绪爆发的机位推进",
-        "CASE_镜头叙事_情绪升级时的景别递进与压迫感",
+        "GUARD-EMOTION-STORY-RHYTHM-PRIORITY-007",
+        "SHOT-DRAMATIC-TASK-COVERAGE-COMBO-010",
     ),
     "editing_ellipsis": (
-        "05_剧本拆分与15秒片段规划规则 时间压缩与冗余动作省略",
-        "22_多机位分镜与镜头多样性规则 机位切换即减法 上车 开门 进入新空间",
-        "CASE_剪辑转场_动作转场与相似动作匹配",
+        "SHOT-MOVEMENT-BEAT-001",
+        "SHOT-ACTION-GROUP-BUDGET-031",
     ),
     "shot_language_variety": (
-        "22_多机位分镜与镜头多样性规则 镜头多样性自检 反站桩正反打",
-        "21_镜头调用规则与多机位模板 多机位覆盖 景别递进",
-        "02_焦段景深与景别画幅策略 景别限频 竖屏特写限制",
+        "SHOT-MULTICAM-SYSTEM-029",
+        "FRAME-SUBJECT-SCALE-001",
     ),
     "rhythm_alignment": (
-        "00_知识库优先级与冲突裁决规则 atmosphere_strategy 是建议不是硬指令",
-        "15_故事节奏控制规则 节奏层级合法性",
-        "21_镜头调用规则与多机位模板 把节奏判断翻译成画面执行",
+        "SHOT-RHYTHM-SIGNAL-MAPPING-001",
+        "SHOT-VERTICAL-RHYTHM-001",
+        "RHYTHM-REACTION-MIN-001",
     ),
     "continuity_lock": (
-        "06_连续性与安全规则",
-        "21_镜头调用规则与多机位模板 动作匹配剪辑",
-        "22_多机位分镜与镜头多样性规则",
+        "GUARD-STRUCTURE-PRESERVE-002",
+        "BLOCKING-STATE-DELTA-005",
     ),
 }
 
@@ -2940,22 +3016,21 @@ def _build_shot_director_signal_retrieval_profile(
         "aspect_ratio": aspect_ratio,
         "tags": _unique_preserve_order(
             [
-                "镜头库调用",
-                "多机位模板",
-                "镜头多样性",
-                "机位切换减法",
-                "剪辑省略",
-                "节奏联动",
-                "上游导演约束",
-                "故事节奏控制",
-                "94集样片",
-                "真人短剧样片",
+                "shot_library_routing",
+                "multicam_strategy",
+                "shot_variation",
+                "cut_logic",
+                "editing_ellipsis",
+                "rhythm_alignment",
+                "upstream_director_constraint",
+                "rhythm_control",
+                "short_drama_samples",
                 "coverage_role",
-                "coverage模板",
-                "关系景",
-                "反应镜头",
-                "尾帧承接",
-                "伪视角禁止",
+                "coverage_template",
+                "relation_shot",
+                "reaction_shot",
+                "tailframe_handoff",
+                "no_pseudo_viewpoint",
                 *task_keys,
                 *knowledge_hints,
             ]
@@ -2964,16 +3039,16 @@ def _build_shot_director_signal_retrieval_profile(
         "visual_constraints": _unique_preserve_order(
             [
                 "必须把检索到的剪辑/镜头库规则转成镜头、切镜点、连续性、声音，不得只写原则",
-                "必须优先使用本片段剧情信号匹配到的 CASE 案例和规则卡",
+                "必须优先匹配本片段剧情信号与规则卡，不要只依赖样本拼接",
                 "节奏总控建议只负责镜头层操作约束；镜头导演必须按原剧本事实、拆片边界和连续性规则合法落地",
                 "同一片段不得无理由连续重复同一景别/视角/主体；需要用有动机的镜头语言变化避免一镜到底和站桩正反打",
             ]
         ),
         "served_agents": ["shot_director"],
-        "final_top_k": 10,
-        "bm25_top_k": 14,
-        "vector_top_k": 14,
-        "max_chunks_per_source": 2,
+        "final_top_k": 8,
+        "bm25_top_k": 10,
+        "vector_top_k": 10,
+        "max_chunks_per_source": 1,
     }
 
 
@@ -3099,8 +3174,22 @@ def _run_shot_director_single_pass_impl(
         final_runtime["auto_repair_applied"] = final_output != raw_final_output
         final_runtime["output_chars"] = len(final_output)
         stage_meta.setdefault("final", {"retrieval_mode": "reused_from_pipeline_state"})
-        print("  [shot_director] reuse persisted shot_director final; skip LLM call")
-    else:
+        legacy_issues = _validate_shot_director_output(final_output, expected_segments, script=script)
+        stage_meta["final"]["legacy_reuse_issues"] = legacy_issues
+        if legacy_issues:
+            existing_final = ""
+            stage_meta["final"]["status"] = "legacy_reuse_rejected"
+            print("  [shot_director] cached single-pass final invalid for coverage v3; re-run final stage")
+        else:
+            stage_outputs["final"] = final_output
+            runtimes["final"] = final_runtime
+            runtimes["final_source"] = "final"
+            runtimes["workflow_trace"] = workflow_trace
+            print("  [shot_director] reuse persisted shot_director final; skip LLM call")
+            if stage_callback:
+                stage_callback("final", final_output, final_runtime, dict(stage_meta))
+            return final_output, runtimes, stage_meta, stage_outputs
+    if not existing_final:
         hint = (
             "镜头导演 焦段景深 景别画幅 连续性 情绪锚点 仰拍限制 切镜 受击者 炸点 对白 "
             "信息冲击 动作接续 人物关系 场面总控 节奏 子分镜 戏剧微粒 权力反转 悬念揭示 "
@@ -3280,7 +3369,7 @@ def _run_shot_director_single_pass_impl(
     # the timeout-prone repair pass can strand the pipeline after F05 with no
     # persisted final output. Persist the deterministic merge first and let the
     # later guard/report surface any issues without blocking progress.
-    final_issues = _validate_shot_director_output(final_output, expected_segments)
+    final_issues = _validate_shot_director_output(final_output, expected_segments, script=script)
     split_fragment_ids = [_segment_name_to_fragment_id(name) for name in expected_segments]
     final_fragment_ids = [_extract_fragment_id(section) for section in _extract_yaml_sections(final_output or "")]
     split_output_complete = bool(split_fragment_ids) and all(fragment_id in final_fragment_ids for fragment_id in split_fragment_ids)
@@ -3325,7 +3414,11 @@ def _run_shot_director_single_pass_impl(
         raw_repaired_final = repaired_fragment_output
         repaired_fragment_output = _repair_shot_director_output_contracts(repaired_fragment_output, script)
         repaired_final = _merge_repaired_yaml_sections(final_output, repaired_fragment_output, failed_fragment_ids)
-        repaired_issues = _validate_shot_director_output(repaired_final, expected_segments)
+        repaired_issues = _validate_shot_director_output(
+            repaired_final,
+            expected_segments,
+            script=script,
+        )
         final_runtime["repair_attempted"] = True
         final_runtime["repair_scope"] = "failed_fragments" if failed_fragment_ids else "full_yaml"
         final_runtime["repair_fragment_ids"] = failed_fragment_ids
@@ -3423,13 +3516,20 @@ def _run_shot_director_three_stage_impl(
         final_runtime["auto_repair_applied"] = final_output != raw_final_output
         final_runtime["workflow_trace"] = workflow_trace
         stage_meta.setdefault("final", {"retrieval_mode": "reused_from_pipeline_state"})
-        stage_outputs["final"] = final_output
-        runtimes["final"] = final_runtime
-        runtimes["final_source"] = "final"
-        runtimes["workflow_trace"] = workflow_trace
-        if stage_callback:
-            stage_callback("final", final_output, final_runtime, dict(stage_meta))
-        return final_output, runtimes, stage_meta, stage_outputs
+        legacy_issues = _validate_shot_director_output(final_output, expected_segments, script=script)
+        stage_meta["final"]["legacy_reuse_issues"] = legacy_issues
+        if legacy_issues:
+            existing_final = ""
+            stage_meta["final"]["status"] = "legacy_reuse_rejected"
+            print("  [shot_director] cached final invalid for coverage v3; re-run full pipeline")
+        else:
+            stage_outputs["final"] = final_output
+            runtimes["final"] = final_runtime
+            runtimes["final_source"] = "final"
+            runtimes["workflow_trace"] = workflow_trace
+            if stage_callback:
+                stage_callback("final", final_output, final_runtime, dict(stage_meta))
+            return final_output, runtimes, stage_meta, stage_outputs
 
     def persist(stage_name: str, output: str, runtime: dict[str, Any], retrieval_meta: dict[str, Any]) -> None:
         stage_outputs[stage_name] = output
@@ -3664,7 +3764,7 @@ def _run_shot_director_three_stage_impl(
     final_runtime = dict(runtimes.get("final") or {})
     final_runtime["auto_repair_applied"] = final_output != raw_final_output
 
-    final_issues = _validate_shot_director_output(final_output, expected_segments)
+    final_issues = _validate_shot_director_output(final_output, expected_segments, script=script)
     split_fragment_ids = [_segment_name_to_fragment_id(name) for name in expected_segments]
     final_fragment_ids = [_extract_fragment_id(section) for section in _extract_yaml_sections(final_output or "")]
     split_output_complete = bool(split_fragment_ids) and all(fragment_id in final_fragment_ids for fragment_id in split_fragment_ids)
@@ -3694,7 +3794,11 @@ def _run_shot_director_three_stage_impl(
         raw_repaired_final = repaired_fragment_output
         repaired_fragment_output = _repair_shot_director_output_contracts(repaired_fragment_output, script)
         repaired_final = _merge_repaired_yaml_sections(final_output, repaired_fragment_output, failed_fragment_ids)
-        repaired_issues = _validate_shot_director_output(repaired_final, expected_segments)
+        repaired_issues = _validate_shot_director_output(
+            repaired_final,
+            expected_segments,
+            script=script,
+        )
         final_runtime["repair_attempted"] = True
         final_runtime["repair_scope"] = "failed_fragments" if failed_fragment_ids else "full_yaml"
         final_runtime["repair_fragment_ids"] = failed_fragment_ids
@@ -4161,7 +4265,7 @@ def _collect_shot_director_issues(
 ) -> list[str]:
     """Collect schema, continuity, source-event, anti-hallucination and review-board guard issues."""
     issues: list[str] = []
-    issues.extend(_validate_shot_director_output(director_output, expected_segments))
+    issues.extend(_validate_shot_director_output(director_output, expected_segments, script=script))
     issues.extend(_validate_shot_director_script_fidelity(director_output, script))
     issues.extend(_validate_shot_director_source_event_coverage(director_output, planner_output))
     issues.extend(_validate_shot_director_vertical_discipline(director_output, aspect_ratio))
@@ -4428,7 +4532,6 @@ def _run_shot_director_review_board(
     reviewer_context_hint = (
         "shot_director_logic_reviewer 三段式镜头导演 逻辑审查 "
         "shot_director_layout shot_director_blocking shot_director_guard "
-        "镜头摆位主分镜骨架 动作调度 规则守门 最小修复 "
         "镜头合理性 同镜头同机位 多机位变化 动作连续性 "
         "LAYOUT-COVERAGE-BLUEPRINT BLOCKING-ACTION-FLOW GUARD-COVERAGE-CONTRACT "
         f"{(planner_output or '')[:500]} {(primary_output or '')[:800]}"
@@ -4460,14 +4563,11 @@ def _run_shot_director_review_board(
     reviewer_profile["tags"] = _unique_preserve_order(
         [
             *(reviewer_profile.get("tags") or []),
-            "镜头摆位主分镜骨架",
-            "动作调度与受击覆盖",
-            "规则守门与最小修复",
             "多机位分镜",
             "镜头多样性",
         ]
     )
-    reviewer_profile["final_top_k"] = 12
+    reviewer_profile["final_top_k"] = 8
     system_prompt, retrieval_meta = build_system_prompt(
         _shot_logic_reviewer_system_prompt(),
         "shot_director_logic_reviewer",
@@ -4476,10 +4576,6 @@ def _run_shot_director_review_board(
         include_critical_knowledge=True,
     )
     forced_stage_sources = [
-        "25_镜头摆位主分镜骨架规则.md",
-        "26_动作调度与受击覆盖规则.md",
-        "27_规则守门与最小修复规则.md",
-        "22_多机位分镜与镜头多样性规则.md",
         "rules/shot_director_layout/LAYOUT-COVERAGE-BLUEPRINT-005.md",
         "rules/shot_director_blocking/BLOCKING-ACTION-FLOW-006.md",
         "rules/shot_director_guard/GUARD-COVERAGE-CONTRACT-005.md",

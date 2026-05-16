@@ -1,4 +1,4 @@
-from pathlib import Path
+﻿from pathlib import Path
 import sys
 
 import pytest
@@ -58,17 +58,17 @@ def test_shot_director_explicit_workflow_contract_is_present():
     coverage_contract = _shot_director_coverage_contract_prompt()
 
     for stage_name in (
-        "事实提取",
-        "节奏意图读取",
-        "剪辑策略判断",
-        "戏剧任务判断",
-        "镜头骨架",
-        "镜头语言变化",
-        "动作与子镜头",
-        "切镜时机",
-        "冲突裁决",
-        "最小修复",
-        "最终交付",
+        "浜嬪疄鎻愬彇",
+        "鑺傚鎰忓浘璇诲彇",
+        "鍓緫绛栫暐鍒ゆ柇",
+        "鎴忓墽浠诲姟鍒ゆ柇",
+        "闀滃ご楠ㄦ灦",
+        "闀滃ご璇█鍙樺寲",
+        "鍔ㄤ綔涓庡瓙闀滃ご",
+        "鍒囬暅鏃舵満",
+        "鍐茬獊瑁佸喅",
+        "鏈€灏忎慨澶?,
+        "鏈€缁堜氦浠?,
     ):
         assert stage_name in contract
 
@@ -83,21 +83,21 @@ def test_shot_director_explicit_workflow_contract_is_present():
 
 
 def test_shot_director_rejects_legacy_chinese_output_fields():
-    director_output = """- 片段编号: F01
-  片段任务: 电梯口压迫
-  节奏: 前压后停
-  空间连续性总控: 本片段是一段电梯口压迫；乔熙和商北琛始终在同一电梯口空间内；单人镜只改变拍摄主体，不代表另一人离开；每一镜继承上一镜尾帧的人物位置、道具状态、视线方向和同侧轴线。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-2秒
-      镜头任务: 建立关系
-      拍摄主体: 乔熙和商北琛
-      镜头: 侧面视角双人中景
-      画面动作: 乔熙停在电梯口，商北琛挡住去路
-      台词: ~
-      必须承载: 两人的空间距离和压迫关系
-      切镜点: 电梯门停在半开状态时切出
-      连续性: 乔熙在画面右侧，商北琛在画面左侧，电梯门仍半开
+    director_output = """- 鐗囨缂栧彿: F01
+  鐗囨浠诲姟: 鐢垫鍙ｅ帇杩?
+  鑺傚: 鍓嶅帇鍚庡仠
+  绌洪棿杩炵画鎬ф€绘帶: 鏈墖娈垫槸涓€娈电數姊彛鍘嬭揩锛涗箶鐔欏拰鍟嗗寳鐞涘缁堝湪鍚屼竴鐢垫鍙ｇ┖闂村唴锛涘崟浜洪暅鍙敼鍙樻媿鎽勪富浣擄紝涓嶄唬琛ㄥ彟涓€浜虹寮€锛涙瘡涓€闀滅户鎵夸笂涓€闀滃熬甯х殑浜虹墿浣嶇疆銆侀亾鍏风姸鎬併€佽绾挎柟鍚戝拰鍚屼晶杞寸嚎銆?
+  闀滃ご鍒楄〃:
+    - 闀滃ご缂栧彿: F01-S01
+      鏃堕暱: 0-2绉?
+      闀滃ご浠诲姟: 寤虹珛鍏崇郴
+      鎷嶆憚涓讳綋: 涔旂啓鍜屽晢鍖楃悰
+      闀滃ご: 渚ч潰瑙嗚鍙屼汉涓櫙
+      鐢婚潰鍔ㄤ綔: 涔旂啓鍋滃湪鐢垫鍙ｏ紝鍟嗗寳鐞涙尅浣忓幓璺?
+      鍙拌瘝: ~
+      蹇呴』鎵胯浇: 涓や汉鐨勭┖闂磋窛绂诲拰鍘嬭揩鍏崇郴
+      鍒囬暅鐐? 鐢垫闂ㄥ仠鍦ㄥ崐寮€鐘舵€佹椂鍒囧嚭
+      杩炵画鎬? 涔旂啓鍦ㄧ敾闈㈠彸渚э紝鍟嗗寳鐞涘湪鐢婚潰宸︿晶锛岀數姊棬浠嶅崐寮€
 """
 
     issues = _validate_shot_director_output(director_output, ["F01"])
@@ -175,10 +175,10 @@ def test_shot_director_coverage_v3_requires_coverage_fields():
     director_output = """- fragment_id: F01
   schema_version: shot_director_coverage_v3
   coverage_plan:
-    dramatic_task: 建立关系
-    rhythm_intent: 正常承接
+    dramatic_task: 寤虹珛鍏崇郴
+    rhythm_intent: 姝ｅ父鎵挎帴
     space_contract:
-      location: 电梯内
+      location: 鐢垫鍐?
     shot_budget:
       target_count: 1
     required_beats:
@@ -186,15 +186,15 @@ def test_shot_director_coverage_v3_requires_coverage_fields():
   template_plan:
     shots:
       - shot_id: F01-S01
-        duration: 0-3秒
-        task: 建立关系
-        subject: 乔熙和商北琛
-        shot: 双人半身关系景，平视，固定视角
-        action: 两人面对面站定。
+        duration: 0-3绉?
+        task: 寤虹珛鍏崇郴
+        subject: 涔旂啓鍜屽晢鍖楃悰
+        shot: 鍙屼汉鍗婅韩鍏崇郴鏅紝骞宠锛屽浐瀹氳瑙?
+        action: 涓や汉闈㈠闈㈢珯瀹氥€?
         dialogue: ~
-        must_carry: 两人位置关系
-        cut_point: 位置关系看清后切出
-        continuity: 两人仍在同一电梯内
+        must_carry: 涓や汉浣嶇疆鍏崇郴
+        cut_point: 浣嶇疆鍏崇郴鐪嬫竻鍚庡垏鍑?
+        continuity: 涓や汉浠嶅湪鍚屼竴鐢垫鍐?
   guard_result:
     status: pass
     final_shots: [F01-S01]
@@ -210,37 +210,37 @@ def test_shot_director_coverage_v3_requires_coverage_fields():
 
 def test_shot_director_rejects_overfragmented_life_pressure_segment():
     shot_lines = []
-    durations = ["0-2.2秒", "2.2-2.9秒", "2.9-4.9秒", "4.9-6.7秒", "6.7-9.3秒", "9.3-10.1秒", "10.1-12.1秒"]
+    durations = ["0-2.2绉?, "2.2-2.9绉?, "2.9-4.9绉?, "4.9-6.7绉?, "6.7-9.3绉?, "9.3-10.1绉?, "10.1-12.1绉?]
     for index, duration in enumerate(durations, start=1):
         shot_lines.append(
             f"""      - shot_id: F01-S{index:02d}
         duration: {duration}
-        task: 承载清晨赶时间穿衣动作
-        subject: 乔熙、小豆丁
-        shot: 双人半身关系景，茶几侧面固定视角
-        action: 乔熙在沙发前帮小豆丁穿衣，小豆丁短暂抗拒后停住。
+        task: 鎵胯浇娓呮櫒璧舵椂闂寸┛琛ｅ姩浣?
+        subject: 涔旂啓銆佸皬璞嗕竵
+        shot: 鍙屼汉鍗婅韩鍏崇郴鏅紝鑼跺嚑渚ч潰鍥哄畾瑙嗚
+        action: 涔旂啓鍦ㄦ矙鍙戝墠甯皬璞嗕竵绌胯。锛屽皬璞嗕竵鐭殏鎶楁嫆鍚庡仠浣忋€?
         dialogue: ~
-        must_carry: 乔熙赶时间，小豆丁抗拒穿衣。
-        cut_point: 小豆丁抗拒动作停住后切出
-        continuity: 乔熙和小豆丁仍在沙发与茶几之间，手机仍在茶几上。
-        coverage_role: 承载生活动作压力
-        cut_reason: 小豆丁抗拒动作停住后切出
-        companion_visibility: 乔熙和小豆丁同框
-        state_delta: 抗拒动作短暂停住
-        tailframe_role: 交给下一镜继续穿衣状态
+        must_carry: 涔旂啓璧舵椂闂达紝灏忚眴涓佹姉鎷掔┛琛ｃ€?
+        cut_point: 灏忚眴涓佹姉鎷掑姩浣滃仠浣忓悗鍒囧嚭
+        continuity: 涔旂啓鍜屽皬璞嗕竵浠嶅湪娌欏彂涓庤尪鍑犱箣闂达紝鎵嬫満浠嶅湪鑼跺嚑涓娿€?
+        coverage_role: 鎵胯浇鐢熸椿鍔ㄤ綔鍘嬪姏
+        cut_reason: 灏忚眴涓佹姉鎷掑姩浣滃仠浣忓悗鍒囧嚭
+        companion_visibility: 涔旂啓鍜屽皬璞嗕竵鍚屾
+        state_delta: 鎶楁嫆鍔ㄤ綔鐭殏鍋滀綇
+        tailframe_role: 浜ょ粰涓嬩竴闀滅户缁┛琛ｇ姸鎬?
         template_id: COV-SD20-W1-LIFE-PRESSURE
         template_level: W1
         reference_need: identity_reference scene_reference
         model_complexity_score: 2
-        tail_state: 乔熙和小豆丁仍在沙发与茶几之间
+        tail_state: 涔旂啓鍜屽皬璞嗕竵浠嶅湪娌欏彂涓庤尪鍑犱箣闂?
 """
         )
     director_output = _coverage_v3_output("".join(shot_lines), target_count=7, max_count=7)
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
-    assert any("镜头切分过碎" in issue for issue in issues)
-    assert any("1秒以下碎镜" in issue for issue in issues)
+    assert any("闀滃ご鍒囧垎杩囩" in issue for issue in issues)
+    assert any("1绉掍互涓嬬闀? in issue for issue in issues)
 
 
 def test_shot_director_rules_lock_subject_ownership_and_task_combos():
@@ -254,114 +254,114 @@ def test_shot_director_rules_lock_subject_ownership_and_task_combos():
         ]
     )
 
-    assert "拍摄主体不是人物/道具清单" in combined_rules
-    assert "戏剧任务镜头组合" in combined_rules
-    assert "承接上一镜尾帧" in combined_rules
+    assert "鎷嶆憚涓讳綋涓嶆槸浜虹墿/閬撳叿娓呭崟" in combined_rules
+    assert "鎴忓墽浠诲姟闀滃ご缁勫悎" in combined_rules
+    assert "鎵挎帴涓婁竴闀滃熬甯? in combined_rules
 
 
 def test_shot_director_rejects_overloaded_random_subject_list():
     director_output = _coverage_v3_output("""      - shot_id: F01-S01
-        duration: 0-4秒
-        task: 建立赶时间生活压力
-        subject: 乔熙、小豆丁、闹钟、手机、外套、草莓蛋糕、书包
-        shot: 双人半身关系景，沙发侧面固定视角
-        action: 乔熙坐在沙发边给小豆丁套衣服，小豆丁缩脚抗拒，镜尾两人仍在沙发边。
+        duration: 0-4绉?
+        task: 寤虹珛璧舵椂闂寸敓娲诲帇鍔?
+        subject: 涔旂啓銆佸皬璞嗕竵銆侀椆閽熴€佹墜鏈恒€佸濂椼€佽崏鑾撹泲绯曘€佷功鍖?
+        shot: 鍙屼汉鍗婅韩鍏崇郴鏅紝娌欏彂渚ч潰鍥哄畾瑙嗚
+        action: 涔旂啓鍧愬湪娌欏彂杈圭粰灏忚眴涓佸琛ｆ湇锛屽皬璞嗕竵缂╄剼鎶楁嫆锛岄暅灏句袱浜轰粛鍦ㄦ矙鍙戣竟銆?
         dialogue: "Kiki, cover for me. I'll be right there!"
-        must_carry: 乔熙赶时间，小豆丁抗拒穿衣。
-        cut_point: 小豆丁缩脚动作停住后切出
-        continuity: 手机仍在乔熙耳边，小豆丁仍在沙发边。
-        coverage_role: 建立生活压力
-        cut_reason: 小豆丁缩脚动作停住后切出
-        companion_visibility: 乔熙和小豆丁同框
-        state_delta: 小豆丁抗拒动作出现
-        tailframe_role: 交给下一镜继续穿衣状态
+        must_carry: 涔旂啓璧舵椂闂达紝灏忚眴涓佹姉鎷掔┛琛ｃ€?
+        cut_point: 灏忚眴涓佺缉鑴氬姩浣滃仠浣忓悗鍒囧嚭
+        continuity: 鎵嬫満浠嶅湪涔旂啓鑰宠竟锛屽皬璞嗕竵浠嶅湪娌欏彂杈广€?
+        coverage_role: 寤虹珛鐢熸椿鍘嬪姏
+        cut_reason: 灏忚眴涓佺缉鑴氬姩浣滃仠浣忓悗鍒囧嚭
+        companion_visibility: 涔旂啓鍜屽皬璞嗕竵鍚屾
+        state_delta: 灏忚眴涓佹姉鎷掑姩浣滃嚭鐜?
+        tailframe_role: 浜ょ粰涓嬩竴闀滅户缁┛琛ｇ姸鎬?
         template_id: COV-SD20-W1-LIFE-PRESSURE
         template_level: W1
         reference_need: identity_reference scene_reference
         model_complexity_score: 2
-        tail_state: 乔熙和小豆丁仍在沙发边
+        tail_state: 涔旂啓鍜屽皬璞嗕竵浠嶅湪娌欏彂杈?
 """)
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
-    assert any("拍摄主体过载" in issue for issue in issues)
-    assert any("随机道具集合" in issue or "道具混进主拍摄主体" in issue for issue in issues)
+    assert any("鎷嶆憚涓讳綋杩囪浇" in issue for issue in issues)
+    assert any("闅忔満閬撳叿闆嗗悎" in issue or "閬撳叿娣疯繘涓绘媿鎽勪富浣? in issue for issue in issues)
 
 
 def test_shot_director_rejects_teleport_without_tailframe_carry():
     director_output = _coverage_v3_output("""      - shot_id: F01-S01
-        duration: 0-4秒
-        task: 建立母女穿衣阻力
-        subject: 乔熙和小豆丁
-        shot: 双人半身关系景，沙发侧面固定视角
-        action: 乔熙坐在沙发边给小豆丁套衣服，小豆丁缩脚抗拒，镜尾两人仍坐在沙发边。
+        duration: 0-4绉?
+        task: 寤虹珛姣嶅コ绌胯。闃诲姏
+        subject: 涔旂啓鍜屽皬璞嗕竵
+        shot: 鍙屼汉鍗婅韩鍏崇郴鏅紝娌欏彂渚ч潰鍥哄畾瑙嗚
+        action: 涔旂啓鍧愬湪娌欏彂杈圭粰灏忚眴涓佸琛ｆ湇锛屽皬璞嗕竵缂╄剼鎶楁嫆锛岄暅灏句袱浜轰粛鍧愬湪娌欏彂杈广€?
         dialogue: "Kiki, cover for me. I'll be right there!"
-        must_carry: 乔熙赶时间，小豆丁抗拒穿衣。
-        cut_point: 小豆丁缩脚动作停住后切出
-        continuity: 乔熙和小豆丁仍坐在沙发边，手机仍在乔熙耳边。
-        coverage_role: 建立母女穿衣阻力
-        cut_reason: 小豆丁缩脚动作停住后切出
-        companion_visibility: 乔熙和小豆丁同框
-        state_delta: 小豆丁抗拒动作出现
-        tailframe_role: 交给下一镜继续穿衣状态
+        must_carry: 涔旂啓璧舵椂闂达紝灏忚眴涓佹姉鎷掔┛琛ｃ€?
+        cut_point: 灏忚眴涓佺缉鑴氬姩浣滃仠浣忓悗鍒囧嚭
+        continuity: 涔旂啓鍜屽皬璞嗕竵浠嶅潗鍦ㄦ矙鍙戣竟锛屾墜鏈轰粛鍦ㄤ箶鐔欒€宠竟銆?
+        coverage_role: 寤虹珛姣嶅コ绌胯。闃诲姏
+        cut_reason: 灏忚眴涓佺缉鑴氬姩浣滃仠浣忓悗鍒囧嚭
+        companion_visibility: 涔旂啓鍜屽皬璞嗕竵鍚屾
+        state_delta: 灏忚眴涓佹姉鎷掑姩浣滃嚭鐜?
+        tailframe_role: 浜ょ粰涓嬩竴闀滅户缁┛琛ｇ姸鎬?
         template_id: COV-SD20-W1-LIFE-PRESSURE
         template_level: W1
         reference_need: identity_reference scene_reference
         model_complexity_score: 2
-        tail_state: 乔熙和小豆丁仍坐在沙发边
+        tail_state: 涔旂啓鍜屽皬璞嗕竵浠嶅潗鍦ㄦ矙鍙戣竟
       - shot_id: F01-S02
-        duration: 4-8秒
-        task: 承载穿衣完成和拿书包
-        subject: 乔熙和小豆丁
-        shot: 双人中景，茶几侧面固定视角
-        action: 小豆丁突然站在茶几旁，衣服已经穿好。乔熙拿起书包。
+        duration: 4-8绉?
+        task: 鎵胯浇绌胯。瀹屾垚鍜屾嬁涔﹀寘
+        subject: 涔旂啓鍜屽皬璞嗕竵
+        shot: 鍙屼汉涓櫙锛岃尪鍑犱晶闈㈠浐瀹氳瑙?
+        action: 灏忚眴涓佺獊鐒剁珯鍦ㄨ尪鍑犳梺锛岃。鏈嶅凡缁忕┛濂姐€備箶鐔欐嬁璧蜂功鍖呫€?
         dialogue: ~
-        must_carry: 小豆丁已经配合穿衣，乔熙准备出门。
-        cut_point: 乔熙拿起书包后切出
-        continuity: 手机在茶几上。
-        coverage_role: 承载穿衣完成和拿书包
-        cut_reason: 乔熙拿起书包后切出
-        companion_visibility: 乔熙和小豆丁同框
-        state_delta: 小豆丁已站起且衣服穿好
-        tailframe_role: 交给出门动作
+        must_carry: 灏忚眴涓佸凡缁忛厤鍚堢┛琛ｏ紝涔旂啓鍑嗗鍑洪棬銆?
+        cut_point: 涔旂啓鎷胯捣涔﹀寘鍚庡垏鍑?
+        continuity: 鎵嬫満鍦ㄨ尪鍑犱笂銆?
+        coverage_role: 鎵胯浇绌胯。瀹屾垚鍜屾嬁涔﹀寘
+        cut_reason: 涔旂啓鎷胯捣涔﹀寘鍚庡垏鍑?
+        companion_visibility: 涔旂啓鍜屽皬璞嗕竵鍚屾
+        state_delta: 灏忚眴涓佸凡绔欒捣涓旇。鏈嶇┛濂?
+        tailframe_role: 浜ょ粰鍑洪棬鍔ㄤ綔
         template_id: COV-SD20-W1-LIFE-PRESSURE
         template_level: W1
         reference_need: identity_reference scene_reference
         model_complexity_score: 2
-        tail_state: 乔熙拿起书包，小豆丁站在茶几旁
+        tail_state: 涔旂啓鎷胯捣涔﹀寘锛屽皬璞嗕竵绔欏湪鑼跺嚑鏃?
 """, target_count=2, max_count=2)
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
-    assert any("缺少承接上一镜尾帧" in issue for issue in issues)
+    assert any("缂哄皯鎵挎帴涓婁竴闀滃熬甯? in issue for issue in issues)
 
 
 def test_shot_director_repair_adds_fragment_continuity_context():
-    director_output = """- 片段编号: F01
-  片段任务: 车内命令戴项链
-  节奏: 命令压迫后给乔熙反应
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-3秒
-      镜头任务: 建立车内双人关系
-      拍摄主体: 乔熙、商北琛
-      镜头: 竖屏双人中景
-      画面动作: 商北琛拿着项链看向乔熙，乔熙坐在旁边承接压力
-      台词: ~
-      必须承载: 两人同处车内和项链压迫关系
-      切镜点: 项链被拿起后切出
-      连续性: 乔熙和商北琛仍在同一车内空间，项链仍在商北琛手中
+    director_output = """- 鐗囨缂栧彿: F01
+  鐗囨浠诲姟: 杞﹀唴鍛戒护鎴撮」閾?
+  鑺傚: 鍛戒护鍘嬭揩鍚庣粰涔旂啓鍙嶅簲
+  闀滃ご鍒楄〃:
+    - 闀滃ご缂栧彿: F01-S01
+      鏃堕暱: 0-3绉?
+      闀滃ご浠诲姟: 寤虹珛杞﹀唴鍙屼汉鍏崇郴
+      鎷嶆憚涓讳綋: 涔旂啓銆佸晢鍖楃悰
+      闀滃ご: 绔栧睆鍙屼汉涓櫙
+      鐢婚潰鍔ㄤ綔: 鍟嗗寳鐞涙嬁鐫€椤归摼鐪嬪悜涔旂啓锛屼箶鐔欏潗鍦ㄦ梺杈规壙鎺ュ帇鍔?
+      鍙拌瘝: ~
+      蹇呴』鎵胯浇: 涓や汉鍚屽杞﹀唴鍜岄」閾惧帇杩叧绯?
+      鍒囬暅鐐? 椤归摼琚嬁璧峰悗鍒囧嚭
+      杩炵画鎬? 涔旂啓鍜屽晢鍖楃悰浠嶅湪鍚屼竴杞﹀唴绌洪棿锛岄」閾句粛鍦ㄥ晢鍖楃悰鎵嬩腑
 """
-    script = """9-1 夜/内/劳斯莱斯车内
-人物：乔熙、商北琛
-商北琛：Put the necklace on. And don't embarrass me.
+    script = """9-1 澶?鍐?鍔虫柉鑾辨柉杞﹀唴
+浜虹墿锛氫箶鐔欍€佸晢鍖楃悰
+鍟嗗寳鐞涳細Put the necklace on. And don't embarrass me.
 """
 
     repaired = _repair_shot_director_output_contracts(director_output, script)
 
-    assert "空间连续性总控:" in repaired
-    assert "乔熙、商北琛在9-1 夜/内/劳斯莱斯车内的同一空间内" in repaired
-    assert "单人镜只改变拍摄主体" in repaired
+    assert "绌洪棿杩炵画鎬ф€绘帶:" in repaired
+    assert "涔旂啓銆佸晢鍖楃悰鍦?-1 澶?鍐?鍔虫柉鑾辨柉杞﹀唴鐨勫悓涓€绌洪棿鍐? in repaired
+    assert "鍗曚汉闀滃彧鏀瑰彉鎷嶆憚涓讳綋" in repaired
     assert any(
         "only schema_version: shot_director_coverage_v3 is supported." in issue
         for issue in _validate_shot_director_output(repaired, ["F01"])
@@ -374,8 +374,8 @@ def test_shot_director_rules_keep_camera_and_performance_fields_separate():
     guard_rules = _shot_director_guard_stage_rule_block("9:16")
 
     for text in (rule_block, blocking_rules, guard_rules):
-        assert "template_plan" in text or "shot 字段" in text or "shot_id" in text
-        assert "action" in text or "画面动作" in text
+        assert "template_plan" in text or "shot 瀛楁" in text or "shot_id" in text
+        assert "action" in text or "鐢婚潰鍔ㄤ綔" in text
 
     assert "template_plan.shots" in blocking_rules
     assert "guard_result" in guard_rules
@@ -384,110 +384,110 @@ def test_shot_director_rules_keep_camera_and_performance_fields_separate():
 
 def test_shot_director_rejects_untranslated_camera_jargon_in_final_shot_field():
     director_output = _coverage_v3_output("""      - shot_id: F01-S01
-        duration: 0-4秒
-        task: 建立赶时间生活压力
-        subject: 乔熙和小豆丁
-        shot: 双人半身关系景，沙发侧面固定机位
-        action: 乔熙坐在沙发边给小豆丁套衣服，视线看向门口；小豆丁缩脚抗拒，镜尾两人仍在沙发边。
+        duration: 0-4绉?
+        task: 寤虹珛璧舵椂闂寸敓娲诲帇鍔?
+        subject: 涔旂啓鍜屽皬璞嗕竵
+        shot: 鍙屼汉鍗婅韩鍏崇郴鏅紝娌欏彂渚ч潰鍥哄畾鏈轰綅
+        action: 涔旂啓鍧愬湪娌欏彂杈圭粰灏忚眴涓佸琛ｆ湇锛岃绾跨湅鍚戦棬鍙ｏ紱灏忚眴涓佺缉鑴氭姉鎷掞紝闀滃熬涓や汉浠嶅湪娌欏彂杈广€?
         dialogue: "Kiki, cover for me. I'll be right there!"
-        must_carry: 乔熙赶时间，小豆丁抗拒穿衣。
-        cut_point: 台词落下后小豆丁抗拒反应出现时切出
-        continuity: 手机仍在乔熙耳边，小豆丁仍在沙发边。
-        coverage_role: 建立生活压力
-        cut_reason: 小豆丁抗拒反应出现时切出
-        companion_visibility: 乔熙和小豆丁同框
-        state_delta: 小豆丁抗拒动作出现
-        tailframe_role: 交给下一镜继续穿衣状态
+        must_carry: 涔旂啓璧舵椂闂达紝灏忚眴涓佹姉鎷掔┛琛ｃ€?
+        cut_point: 鍙拌瘝钀戒笅鍚庡皬璞嗕竵鎶楁嫆鍙嶅簲鍑虹幇鏃跺垏鍑?
+        continuity: 鎵嬫満浠嶅湪涔旂啓鑰宠竟锛屽皬璞嗕竵浠嶅湪娌欏彂杈广€?
+        coverage_role: 寤虹珛鐢熸椿鍘嬪姏
+        cut_reason: 灏忚眴涓佹姉鎷掑弽搴斿嚭鐜版椂鍒囧嚭
+        companion_visibility: 涔旂啓鍜屽皬璞嗕竵鍚屾
+        state_delta: 灏忚眴涓佹姉鎷掑姩浣滃嚭鐜?
+        tailframe_role: 浜ょ粰涓嬩竴闀滅户缁┛琛ｇ姸鎬?
         template_id: COV-SD20-W1-LIFE-PRESSURE
         template_level: W1
         reference_need: identity_reference scene_reference
         model_complexity_score: 2
-        tail_state: 乔熙和小豆丁仍在沙发边
+        tail_state: 涔旂啓鍜屽皬璞嗕竵浠嶅湪娌欏彂杈?
 """)
 
     issues = _validate_shot_director_output(director_output, ["F01"])
 
     assert any("untranslated camera jargon" in issue for issue in issues)
-    assert any("侧面视角" in issue and "固定视角" in issue for issue in issues)
+    assert any("渚ч潰瑙嗚" in issue and "鍥哄畾瑙嗚" in issue for issue in issues)
 
 
 def test_shot_logic_reviewer_local_issues_flag_camera_action_leak():
-    director_output = """- 片段编号: F01
-  片段任务: 车内命令戴项链
-  节奏: 项链识别反应必须停住
-  空间连续性总控: 本片段是一段车内项链压迫；乔熙和商北琛始终在同一车后排空间内；单人镜只改变拍摄主体，不代表另一人离开。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-2秒
-      镜头任务: 承载乔熙识别项链
-      拍摄主体: 乔熙
-      镜头: 乔熙中近景，她低头看清项链
-      画面动作: 乔熙看项链
-      台词: ~
-      必须承载: 乔熙认出项链
-      切镜点: 乔熙看清后切出
-      连续性: 项链在画面里
+    director_output = """- 鐗囨缂栧彿: F01
+  鐗囨浠诲姟: 杞﹀唴鍛戒护鎴撮」閾?
+  鑺傚: 椤归摼璇嗗埆鍙嶅簲蹇呴』鍋滀綇
+  绌洪棿杩炵画鎬ф€绘帶: 鏈墖娈垫槸涓€娈佃溅鍐呴」閾惧帇杩紱涔旂啓鍜屽晢鍖楃悰濮嬬粓鍦ㄥ悓涓€杞﹀悗鎺掔┖闂村唴锛涘崟浜洪暅鍙敼鍙樻媿鎽勪富浣擄紝涓嶄唬琛ㄥ彟涓€浜虹寮€銆?
+  闀滃ご鍒楄〃:
+    - 闀滃ご缂栧彿: F01-S01
+      鏃堕暱: 0-2绉?
+      闀滃ご浠诲姟: 鎵胯浇涔旂啓璇嗗埆椤归摼
+      鎷嶆憚涓讳綋: 涔旂啓
+      闀滃ご: 涔旂啓涓繎鏅紝濂逛綆澶寸湅娓呴」閾?
+      鐢婚潰鍔ㄤ綔: 涔旂啓鐪嬮」閾?
+      鍙拌瘝: ~
+      蹇呴』鎵胯浇: 涔旂啓璁ゅ嚭椤归摼
+      鍒囬暅鐐? 涔旂啓鐪嬫竻鍚庡垏鍑?
+      杩炵画鎬? 椤归摼鍦ㄧ敾闈㈤噷
 """
-    script = """9-1 夜/内/劳斯莱斯车内
-人物：乔熙、商北琛
+    script = """9-1 澶?鍐?鍔虫柉鑾辨柉杞﹀唴
+浜虹墿锛氫箶鐔欍€佸晢鍖楃悰
 """
 
     issues = sdi._shot_logic_local_issues(director_output, script)
 
-    assert any("镜头字段混入人物动作" in issue for issue in issues)
-    assert any("画面动作缺少动作表情链" in issue for issue in issues)
-    assert any("单人镜缺少同场人物保留" in issue for issue in issues)
+    assert any("闀滃ご瀛楁娣峰叆浜虹墿鍔ㄤ綔" in issue for issue in issues)
+    assert any("鐢婚潰鍔ㄤ綔缂哄皯鍔ㄤ綔琛ㄦ儏閾? in issue for issue in issues)
+    assert any("鍗曚汉闀滅己灏戝悓鍦轰汉鐗╀繚鐣? in issue for issue in issues)
 
 
 def test_shot_logic_reviewer_local_issues_flag_action_overload_for_prompt_compiler():
-    director_output = """- 片段编号: F01
-  片段任务: 沙发边安抚孩子
-  节奏: 先压迫再安抚
-  空间连续性总控: 乔熙和小豆丁始终在沙发边，手机仍在乔熙耳边。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-4秒
-      镜头任务: 承载乔熙靠近并试图控制局面
-      拍摄主体: 乔熙与小豆丁
-      镜头: 中近景，沙发边同侧机位
-      画面动作: 乔熙仍用右手拿着手机贴在耳边说话，同时顺着沙发边伸手牵住小豆丁，身体压近沙发边想把外套套到孩子身上；小豆丁先缩脚躲开，又配合穿衣完成。
-      台词: ~
-      必须承载: 手机仍在乔熙手里，小豆丁还在抗拒。
-      切镜点: 小豆丁缩脚后切出
-      连续性: 两人仍在沙发边，衣服尚未穿好。
+    director_output = """- 鐗囨缂栧彿: F01
+  鐗囨浠诲姟: 娌欏彂杈瑰畨鎶氬瀛?
+  鑺傚: 鍏堝帇杩啀瀹夋姎
+  绌洪棿杩炵画鎬ф€绘帶: 涔旂啓鍜屽皬璞嗕竵濮嬬粓鍦ㄦ矙鍙戣竟锛屾墜鏈轰粛鍦ㄤ箶鐔欒€宠竟銆?
+  闀滃ご鍒楄〃:
+    - 闀滃ご缂栧彿: F01-S01
+      鏃堕暱: 0-4绉?
+      闀滃ご浠诲姟: 鎵胯浇涔旂啓闈犺繎骞惰瘯鍥炬帶鍒跺眬闈?
+      鎷嶆憚涓讳綋: 涔旂啓涓庡皬璞嗕竵
+      闀滃ご: 涓繎鏅紝娌欏彂杈瑰悓渚ф満浣?
+      鐢婚潰鍔ㄤ綔: 涔旂啓浠嶇敤鍙虫墜鎷跨潃鎵嬫満璐村湪鑰宠竟璇磋瘽锛屽悓鏃堕『鐫€娌欏彂杈逛几鎵嬬壍浣忓皬璞嗕竵锛岃韩浣撳帇杩戞矙鍙戣竟鎯虫妸澶栧濂楀埌瀛╁瓙韬笂锛涘皬璞嗕竵鍏堢缉鑴氳翰寮€锛屽張閰嶅悎绌胯。瀹屾垚銆?
+      鍙拌瘝: ~
+      蹇呴』鎵胯浇: 鎵嬫満浠嶅湪涔旂啓鎵嬮噷锛屽皬璞嗕竵杩樺湪鎶楁嫆銆?
+      鍒囬暅鐐? 灏忚眴涓佺缉鑴氬悗鍒囧嚭
+      杩炵画鎬? 涓や汉浠嶅湪娌欏彂杈癸紝琛ｆ湇灏氭湭绌垮ソ銆?
 """
 
-    issues = sdi._shot_logic_local_issues(director_output, "乔熙：Kiki, cover for me.\n小豆丁：不要。")
+    issues = sdi._shot_logic_local_issues(director_output, "涔旂啓锛欿iki, cover for me.\n灏忚眴涓侊細涓嶈銆?)
 
-    assert any("画面动作过载或肢体占用不清" in issue for issue in issues)
-    assert any("人物从抗拒到配合缺少过渡" in issue for issue in issues)
-    assert any("1-2 句自然短动作" in issue for issue in issues)
+    assert any("鐢婚潰鍔ㄤ綔杩囪浇鎴栬偄浣撳崰鐢ㄤ笉娓? in issue for issue in issues)
+    assert any("浜虹墿浠庢姉鎷掑埌閰嶅悎缂哄皯杩囨浮" in issue for issue in issues)
+    assert any("1-2 鍙ヨ嚜鐒剁煭鍔ㄤ綔" in issue for issue in issues)
 
 
 def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
-    primary_output = """- 片段编号: F01
-  片段任务: 车内命令戴项链
-  节奏: 项链靠近后乔熙识别
-  空间连续性总控: 本片段是一段车内项链压迫；乔熙和商北琛始终在同一车后排空间内；单人镜只改变拍摄主体，不代表另一人离开。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-2秒
-      镜头任务: 承载乔熙识别项链
-      拍摄主体: 乔熙
-      镜头: 乔熙中近景，她低头看清项链
-      画面动作: 乔熙看项链
-      台词: ~
-      必须承载: 乔熙认出项链
-      切镜点: 乔熙看清后切出
-      连续性: 项链在画面里
+    primary_output = """- 鐗囨缂栧彿: F01
+  鐗囨浠诲姟: 杞﹀唴鍛戒护鎴撮」閾?
+  鑺傚: 椤归摼闈犺繎鍚庝箶鐔欒瘑鍒?
+  绌洪棿杩炵画鎬ф€绘帶: 鏈墖娈垫槸涓€娈佃溅鍐呴」閾惧帇杩紱涔旂啓鍜屽晢鍖楃悰濮嬬粓鍦ㄥ悓涓€杞﹀悗鎺掔┖闂村唴锛涘崟浜洪暅鍙敼鍙樻媿鎽勪富浣擄紝涓嶄唬琛ㄥ彟涓€浜虹寮€銆?
+  闀滃ご鍒楄〃:
+    - 闀滃ご缂栧彿: F01-S01
+      鏃堕暱: 0-2绉?
+      闀滃ご浠诲姟: 鎵胯浇涔旂啓璇嗗埆椤归摼
+      鎷嶆憚涓讳綋: 涔旂啓
+      闀滃ご: 涔旂啓涓繎鏅紝濂逛綆澶寸湅娓呴」閾?
+      鐢婚潰鍔ㄤ綔: 涔旂啓鐪嬮」閾?
+      鍙拌瘝: ~
+      蹇呴』鎵胯浇: 涔旂啓璁ゅ嚭椤归摼
+      鍒囬暅鐐? 涔旂啓鐪嬫竻鍚庡垏鍑?
+      杩炵画鎬? 椤归摼鍦ㄧ敾闈㈤噷
 """
     repaired_output = """- fragment_id: F01
   schema_version: shot_director_coverage_v3
   coverage_plan:
-    dramatic_task: 车内命令戴项链
-    rhythm_intent: 项链靠近后乔熙识别
+    dramatic_task: 杞﹀唴鍛戒护鎴撮」閾?
+    rhythm_intent: 椤归摼闈犺繎鍚庝箶鐔欒瘑鍒?
     space_contract:
-      location: 劳斯莱斯车内
+      location: 鍔虫柉鑾辨柉杞﹀唴
     shot_budget:
       target_count: 1
       max_count: 1
@@ -496,25 +496,25 @@ def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
   template_plan:
     shots:
       - shot_id: F01-S01
-        duration: 0-2秒
-        task: 承载乔熙识别项链
-        subject: 乔熙
-        shot: 乔熙中近景，车内同侧微侧视角
-        action: 乔熙肩颈绷紧，视线从商北琛手中的项链落到吊坠。看清后她眼神停住，身体仍坐在原位。
+        duration: 0-2绉?
+        task: 鎵胯浇涔旂啓璇嗗埆椤归摼
+        subject: 涔旂啓
+        shot: 涔旂啓涓繎鏅紝杞﹀唴鍚屼晶寰晶瑙嗚
+        action: 涔旂啓鑲╅缁风揣锛岃绾夸粠鍟嗗寳鐞涙墜涓殑椤归摼钀藉埌鍚婂潬銆傜湅娓呭悗濂圭溂绁炲仠浣忥紝韬綋浠嶅潗鍦ㄥ師浣嶃€?
         dialogue: ~
-        must_carry: 乔熙认出项链，商北琛仍在近侧形成压力，项链仍未戴上。
-        cut_point: 乔熙看清项链后眼神停住时切出
-        continuity: 商北琛仍在乔熙近侧，项链仍在商北琛手中，乔熙坐在原位没有离开。
-        coverage_role: 承载乔熙识别项链
-        cut_reason: 乔熙看清项链后眼神停住时切出
-        companion_visibility: 商北琛仍在乔熙近侧画外或边缘
-        state_delta: 乔熙从紧绷转为认出项链后的停住
-        tailframe_role: 保留乔熙认出项链后的停顿
+        must_carry: 涔旂啓璁ゅ嚭椤归摼锛屽晢鍖楃悰浠嶅湪杩戜晶褰㈡垚鍘嬪姏锛岄」閾句粛鏈埓涓娿€?
+        cut_point: 涔旂啓鐪嬫竻椤归摼鍚庣溂绁炲仠浣忔椂鍒囧嚭
+        continuity: 鍟嗗寳鐞涗粛鍦ㄤ箶鐔欒繎渚э紝椤归摼浠嶅湪鍟嗗寳鐞涙墜涓紝涔旂啓鍧愬湪鍘熶綅娌℃湁绂诲紑銆?
+        coverage_role: 鎵胯浇涔旂啓璇嗗埆椤归摼
+        cut_reason: 涔旂啓鐪嬫竻椤归摼鍚庣溂绁炲仠浣忔椂鍒囧嚭
+        companion_visibility: 鍟嗗寳鐞涗粛鍦ㄤ箶鐔欒繎渚х敾澶栨垨杈圭紭
+        state_delta: 涔旂啓浠庣揣缁疯浆涓鸿鍑洪」閾惧悗鐨勫仠浣?
+        tailframe_role: 淇濈暀涔旂啓璁ゅ嚭椤归摼鍚庣殑鍋滈】
         template_id: COV-SD20-W1-REACTION-HOLD
         template_level: W1
         reference_need: identity_reference scene_reference
         model_complexity_score: 2
-        tail_state: 乔熙坐在原位，商北琛近侧施压，项链仍未戴上。
+        tail_state: 涔旂啓鍧愬湪鍘熶綅锛屽晢鍖楃悰杩戜晶鏂藉帇锛岄」閾句粛鏈埓涓娿€?
   guard_result:
     status: pass
     final_shots: [F01-S01]
@@ -522,25 +522,25 @@ def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
 """
 
     def fake_call_llm(system_prompt, user_prompt, **kwargs):
-        assert "镜头逻辑裁判" in system_prompt
-        assert "单片段内部逻辑" in user_prompt
+        assert "闀滃ご閫昏緫瑁佸垽" in system_prompt
+        assert "鍗曠墖娈靛唴閮ㄩ€昏緫" in user_prompt
         assert kwargs["agent_name"] == "shot_director_logic_reviewer"
-        return f"""审查结论: 需要返修
-裁判摘要: 镜头字段混入人物动作，已做最小修复。
-单片段审查:
-  - 片段编号: F01
-    通过: false
-    问题:
-      - 镜头字段混入动作。
-硬错误: []
-修复后镜头方案:
+        return f"""瀹℃煡缁撹: 闇€瑕佽繑淇?
+瑁佸垽鎽樿: 闀滃ご瀛楁娣峰叆浜虹墿鍔ㄤ綔锛屽凡鍋氭渶灏忎慨澶嶃€?
+鍗曠墖娈靛鏌?
+  - 鐗囨缂栧彿: F01
+    閫氳繃: false
+    闂:
+      - 闀滃ご瀛楁娣峰叆鍔ㄤ綔銆?
+纭敊璇? []
+淇鍚庨暅澶存柟妗?
 {repaired_output}
 """
 
     monkeypatch.setattr(sdi, "call_llm", fake_call_llm)
 
     output, runtime, report = sdi._run_shot_director_review_board(
-        script="9-1 夜/内/劳斯莱斯车内\n人物：乔熙、商北琛",
+        script="9-1 澶?鍐?鍔虫柉鑾辨柉杞﹀唴\n浜虹墿锛氫箶鐔欍€佸晢鍖楃悰",
         planner_output="",
         director_brief="",
         primary_output=primary_output,
@@ -548,37 +548,37 @@ def test_shot_logic_reviewer_accepts_safe_repair(monkeypatch):
 
     assert runtime["agent_name"] == "shot_director_logic_reviewer"
     assert runtime["status"] == "repaired_by_logic_reviewer"
-    assert "乔熙中近景，车内同侧微侧视角" in output
-    assert "她低头看清项链" not in sdi._yaml_line_field(output, "shot")
-    assert "裁判修复采纳: 是" in report
+    assert "涔旂啓涓繎鏅紝杞﹀唴鍚屼晶寰晶瑙嗚" in output
+    assert "濂逛綆澶寸湅娓呴」閾? not in sdi._yaml_line_field(output, "shot")
+    assert "瑁佸垽淇閲囩撼: 鏄? in report
 
 
 def test_shot_logic_reviewer_reports_connection_failure(monkeypatch):
-    primary_output = """- 片段编号: F01
-  片段任务: 车内命令戴项链
-  节奏: 项链靠近后乔熙识别
-  空间连续性总控: 本片段是一段车内项链压迫；乔熙和商北琛始终在同一车后排空间内；单人镜只改变拍摄主体，不代表另一人离开。
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-2秒
-      镜头任务: 承载乔熙识别项链
-      拍摄主体: 乔熙
-      镜头: 乔熙中近景，她低头看清项链
-      画面动作: 乔熙看项链
-      台词: ~
-      必须承载: 乔熙认出项链
-      切镜点: 乔熙看清后切出
-      连续性: 项链在画面里
+    primary_output = """- 鐗囨缂栧彿: F01
+  鐗囨浠诲姟: 杞﹀唴鍛戒护鎴撮」閾?
+  鑺傚: 椤归摼闈犺繎鍚庝箶鐔欒瘑鍒?
+  绌洪棿杩炵画鎬ф€绘帶: 鏈墖娈垫槸涓€娈佃溅鍐呴」閾惧帇杩紱涔旂啓鍜屽晢鍖楃悰濮嬬粓鍦ㄥ悓涓€杞﹀悗鎺掔┖闂村唴锛涘崟浜洪暅鍙敼鍙樻媿鎽勪富浣擄紝涓嶄唬琛ㄥ彟涓€浜虹寮€銆?
+  闀滃ご鍒楄〃:
+    - 闀滃ご缂栧彿: F01-S01
+      鏃堕暱: 0-2绉?
+      闀滃ご浠诲姟: 鎵胯浇涔旂啓璇嗗埆椤归摼
+      鎷嶆憚涓讳綋: 涔旂啓
+      闀滃ご: 涔旂啓涓繎鏅紝濂逛綆澶寸湅娓呴」閾?
+      鐢婚潰鍔ㄤ綔: 涔旂啓鐪嬮」閾?
+      鍙拌瘝: ~
+      蹇呴』鎵胯浇: 涔旂啓璁ゅ嚭椤归摼
+      鍒囬暅鐐? 涔旂啓鐪嬫竻鍚庡垏鍑?
+      杩炵画鎬? 椤归摼鍦ㄧ敾闈㈤噷
 """
 
     def fake_call_llm(*args, **kwargs):
-        raise RuntimeError("离线")
+        raise RuntimeError("绂荤嚎")
 
     monkeypatch.setattr(sdi, "call_llm", fake_call_llm)
 
-    with pytest.raises(RuntimeError, match="镜头逻辑审查大模型连接不成功"):
+    with pytest.raises(RuntimeError, match="闀滃ご閫昏緫瀹℃煡澶фā鍨嬭繛鎺ヤ笉鎴愬姛"):
         sdi._run_shot_director_review_board(
-            script="9-1 夜/内/劳斯莱斯车内\n人物：乔熙、商北琛",
+            script="9-1 澶?鍐?鍔虫柉鑾辨柉杞﹀唴\n浜虹墿锛氫箶鐔欍€佸晢鍖楃悰",
             planner_output="",
             director_brief="",
             primary_output=primary_output,
@@ -614,7 +614,7 @@ def test_shot_director_workflow_trace_summarises_planner_fragments():
         "blocking_language_action",
         "guard_final_handoff",
     ]
-    assert trace["stage_contracts"]["layout_task_space"].startswith("摆位导演")
+    assert trace["stage_contracts"]["layout_task_space"].startswith("鎽嗕綅瀵兼紨")
     assert trace["coverage_contract_fields"] == [
         "coverage_role",
         "cut_reason",
@@ -631,23 +631,23 @@ def test_shot_director_workflow_trace_summarises_planner_fragments():
 
 
 def test_shot_director_reads_chinese_story_planner_handoff():
-    planner_output = """- 片段编号: F01
-  目标时长: "8-10秒"
-  施工剧本原文事件:
-    - "乔熙拿起书包。"
-    - "照片从书包里滑落。"
-  出现人物:
-    - "乔熙"
-  入场状态: "乔熙手边有书包，照片仍在书包内。"
-  出场状态: "照片滑落到地面，乔熙看到照片。"
-  承接要求: "反应留在本段尾部。"
-  片段内节奏分配: "0-3秒：照片滑落；3-8秒：乔熙看清照片并完成反应。"
-  镜头导演交接: "照片滑落必须拍完整，反应留在本段尾部，结尾停在乔熙看到照片。"
+    planner_output = """- 鐗囨缂栧彿: F01
+  鐩爣鏃堕暱: "8-10绉?
+  鏂藉伐鍓ф湰鍘熸枃浜嬩欢:
+    - "涔旂啓鎷胯捣涔﹀寘銆?
+    - "鐓х墖浠庝功鍖呴噷婊戣惤銆?
+  鍑虹幇浜虹墿:
+    - "涔旂啓"
+  鍏ュ満鐘舵€? "涔旂啓鎵嬭竟鏈変功鍖咃紝鐓х墖浠嶅湪涔﹀寘鍐呫€?
+  鍑哄満鐘舵€? "鐓х墖婊戣惤鍒板湴闈紝涔旂啓鐪嬪埌鐓х墖銆?
+  鎵挎帴瑕佹眰: "鍙嶅簲鐣欏湪鏈灏鹃儴銆?
+  鐗囨鍐呰妭濂忓垎閰? "0-3绉掞細鐓х墖婊戣惤锛?-8绉掞細涔旂啓鐪嬫竻鐓х墖骞跺畬鎴愬弽搴斻€?
+  闀滃ご瀵兼紨浜ゆ帴: "鐓х墖婊戣惤蹇呴』鎷嶅畬鏁达紝鍙嶅簲鐣欏湪鏈灏鹃儴锛岀粨灏惧仠鍦ㄤ箶鐔欑湅鍒扮収鐗囥€?
 """
 
     trace = _build_shot_director_workflow_trace(
         planner_output=planner_output,
-        expected_segments=["片段01"],
+        expected_segments=["鐗囨01"],
         atmosphere_strategy="",
         director_brief="",
         aspect_ratio="9:16",
@@ -655,36 +655,36 @@ def test_shot_director_reads_chinese_story_planner_handoff():
     context = _shot_director_downstream_context(planner_output, "", "9:16")
 
     assert trace["fragments"][0]["fragment_id"] == "F01"
-    assert trace["fragments"][0]["duration_target"] == "8-10秒"
-    assert "反应留在本段尾部" in trace["fragments"][0]["reaction_plan"]
-    assert "照片滑落" in trace["fragments"][0]["intra_fragment_rhythm"]
-    assert "照片滑落必须拍完整" in trace["fragments"][0]["shot_director_handoff"]
+    assert trace["fragments"][0]["duration_target"] == "8-10绉?
+    assert "鍙嶅簲鐣欏湪鏈灏鹃儴" in trace["fragments"][0]["reaction_plan"]
+    assert "鐓х墖婊戣惤" in trace["fragments"][0]["intra_fragment_rhythm"]
+    assert "鐓х墖婊戣惤蹇呴』鎷嶅畬鏁? in trace["fragments"][0]["shot_director_handoff"]
     assert trace["fragments"][0]["source_event_count"] == 2
-    assert "目标时长: 8-10秒" in context
-    assert "片段内节奏分配: 0-3秒" in context
-    assert "承接要求: 反应留在本段尾部" in context
-    assert "镜头导演交接: 照片滑落必须拍完整" in context
-    assert "乔熙拿起书包" in context
-    assert "出场人物: 乔熙" in context
-    assert "出场连续性: 照片滑落到地面" in context
+    assert "鐩爣鏃堕暱: 8-10绉? in context
+    assert "鐗囨鍐呰妭濂忓垎閰? 0-3绉? in context
+    assert "鎵挎帴瑕佹眰: 鍙嶅簲鐣欏湪鏈灏鹃儴" in context
+    assert "闀滃ご瀵兼紨浜ゆ帴: 鐓х墖婊戣惤蹇呴』鎷嶅畬鏁? in context
+    assert "涔旂啓鎷胯捣涔﹀寘" in context
+    assert "鍑哄満浜虹墿: 涔旂啓" in context
+    assert "鍑哄満杩炵画鎬? 鐓х墖婊戣惤鍒板湴闈? in context
 
 
 def test_rhythm_shot_director_notes_are_extracted_for_handoff():
-    atmosphere_strategy = """节奏总合同: 照片揭示要降速。
-结构规划施工指令: 照片揭示留在同一片段内。
-镜头导演节奏执行约束: 乔熙进入闪回前必须先完成受击反应。
-  - 切点落在照片内容被读清之后，不落在随机动作上。
-  - 尾帧必须用照片承接到闪回。
-风险提醒: 不要新增解释台词。
+    atmosphere_strategy = """鑺傚鎬诲悎鍚? 鐓х墖鎻ず瑕侀檷閫熴€?
+缁撴瀯瑙勫垝鏂藉伐鎸囦护: 鐓х墖鎻ず鐣欏湪鍚屼竴鐗囨鍐呫€?
+闀滃ご瀵兼紨鑺傚鎵ц绾︽潫: 涔旂啓杩涘叆闂洖鍓嶅繀椤诲厛瀹屾垚鍙楀嚮鍙嶅簲銆?
+  - 鍒囩偣钀藉湪鐓х墖鍐呭琚娓呬箣鍚庯紝涓嶈惤鍦ㄩ殢鏈哄姩浣滀笂銆?
+  - 灏惧抚蹇呴』鐢ㄧ収鐗囨壙鎺ュ埌闂洖銆?
+椋庨櫓鎻愰啋: 涓嶈鏂板瑙ｉ噴鍙拌瘝銆?
 """
 
     notes = _extract_rhythm_shot_director_notes(atmosphere_strategy)
     prompt = _rhythm_shot_director_notes_prompt(atmosphere_strategy)
 
-    assert "乔熙进入闪回前必须先完成受击反应" in notes
-    assert "切点落在照片内容被读清之后" in notes
-    assert "节奏总控给镜头导演的执行约束" in prompt
-    assert "尾帧" in prompt
+    assert "涔旂啓杩涘叆闂洖鍓嶅繀椤诲厛瀹屾垚鍙楀嚮鍙嶅簲" in notes
+    assert "鍒囩偣钀藉湪鐓х墖鍐呭琚娓呬箣鍚? in notes
+    assert "鑺傚鎬绘帶缁欓暅澶村婕旂殑鎵ц绾︽潫" in prompt
+    assert "灏惧抚" in prompt
 
 
 def test_shot_director_downstream_context_includes_rhythm_shot_notes():
@@ -692,66 +692,66 @@ def test_shot_director_downstream_context_includes_rhythm_shot_notes():
   source_script_events:
     - "Qiao Xi sees the photo."
 """
-    atmosphere_strategy = """节奏总合同: 照片揭示要降速。
-镜头导演节奏执行约束: 反应归乔熙；照片读清后再切。
-结构规划施工指令: 闪回前不拆。
+    atmosphere_strategy = """鑺傚鎬诲悎鍚? 鐓х墖鎻ず瑕侀檷閫熴€?
+闀滃ご瀵兼紨鑺傚鎵ц绾︽潫: 鍙嶅簲褰掍箶鐔欙紱鐓х墖璇绘竻鍚庡啀鍒囥€?
+缁撴瀯瑙勫垝鏂藉伐鎸囦护: 闂洖鍓嶄笉鎷嗐€?
 """
 
     context = _shot_director_downstream_context(planner_output, atmosphere_strategy, "9:16")
 
-    assert "[节奏总控给镜头导演的执行约束]" in context
-    assert "反应归乔熙" in context
+    assert "[鑺傚鎬绘帶缁欓暅澶村婕旂殑鎵ц绾︽潫]" in context
+    assert "鍙嶅簲褰掍箶鐔? in context
     assert "[Atmosphere Excerpt]" not in context
-    assert "结构规划施工指令" not in context
+    assert "缁撴瀯瑙勫垝鏂藉伐鎸囦护" not in context
 
 
 def test_shot_director_builds_signal_based_shot_library_tasks():
-    planner_output = """- 片段编号: F01
-  施工剧本原文事件:
-    - "乔熙冲进电梯，撞到商北琛。"
-    - "商北琛命令她停下，乔熙不敢立刻回答。"
-    - "照片从书包里滑落，乔熙看清照片内容。"
-  出场状态: "电梯门继续合拢，乔熙盯着照片停住。"
+    planner_output = """- 鐗囨缂栧彿: F01
+  鏂藉伐鍓ф湰鍘熸枃浜嬩欢:
+    - "涔旂啓鍐茶繘鐢垫锛屾挒鍒板晢鍖楃悰銆?
+    - "鍟嗗寳鐞涘懡浠ゅス鍋滀笅锛屼箶鐔欎笉鏁㈢珛鍒诲洖绛斻€?
+    - "鐓х墖浠庝功鍖呴噷婊戣惤锛屼箶鐔欑湅娓呯収鐗囧唴瀹广€?
+  鍑哄満鐘舵€? "鐢垫闂ㄧ户缁悎鎷紝涔旂啓鐩潃鐓х墖鍋滀綇銆?
 """
-    atmosphere_strategy = "镜头导演节奏执行约束: 命令句后给听者反应；碰撞后先给乔熙受击反应，照片看清后再切，尾帧用照片承接。"
+    atmosphere_strategy = "闀滃ご瀵兼紨鑺傚鎵ц绾︽潫: 鍛戒护鍙ュ悗缁欏惉鑰呭弽搴旓紱纰版挒鍚庡厛缁欎箶鐔欏彈鍑诲弽搴旓紝鐓х墖鐪嬫竻鍚庡啀鍒囷紝灏惧抚鐢ㄧ収鐗囨壙鎺ャ€?
 
     card = _shot_library_signal_task_card(
         planner_output=planner_output,
         atmosphere_strategy=atmosphere_strategy,
-        director_brief="保护照片揭示，不要把碰撞拍成暧昧。",
+        director_brief="淇濇姢鐓х墖鎻ず锛屼笉瑕佹妸纰版挒鎷嶆垚鏆ф槯銆?,
         aspect_ratio="9:16",
     )
 
-    assert "[镜头库调用任务单]" in card
+    assert "[闀滃ご搴撹皟鐢ㄤ换鍔″崟]" in card
     assert "impact_reaction" in card
     assert "long_dialogue_coverage" in card
     assert "reveal_insert_reaction" in card
     assert "door_threshold_continuity" in card
     assert "tailframe_handoff" in card
-    assert "调用受击/碰撞镜头库" in card
-    assert "调用对白覆盖镜头库" in card
-    assert "不得一个固定机位吃完整长台词" in card
-    assert "必须至少安排一次说话者外的画面承载台词后半句" in card
-    assert "调用信息揭示镜头库" in card
-    assert "必须检索的知识" in card
-    assert "ACTION-COLLISION-001" in card
+    assert "璋冪敤鍙楀嚮/纰版挒闀滃ご搴? in card
+    assert "璋冪敤瀵圭櫧瑕嗙洊闀滃ご搴? in card
+    assert "涓嶅緱涓€涓浐瀹氭満浣嶅悆瀹屾暣闀垮彴璇? in card
+    assert "蹇呴』鑷冲皯瀹夋帓涓€娆¤璇濊€呭鐨勭敾闈㈡壙杞藉彴璇嶅悗鍗婂彞" in card
+    assert "璋冪敤淇℃伅鎻ず闀滃ご搴? in card
+    assert "蹇呴』妫€绱㈢殑鐭ヨ瘑" in card
+    assert "SHOT-DIALOGUE-PAUSE-001" in card
+    assert "BLOCKING-REACTION-COVERAGE-002" in card
+    assert "BLOCKING-DIALOGUE-FIDELITY-003" in card
     assert "SHOT-DIALOGUE-COVERAGE-001" in card
-    assert "22_多机位分镜与镜头多样性规则 反站桩正反打 过肩 反应特写" in card
-    assert "CASE_拍摄剪辑_用反拍剪辑叙事的镜头拆解" in card
-    assert "强制落地" in card
+    assert "寮哄埗钀藉湴" in card
 
 
 def test_shot_director_signal_profile_routes_knowledge_retrieval():
     planner_output = """- fragment_id: F01
   source_script_events:
-    - "乔熙冲进电梯，撞到商北琛。"
-    - "商北琛命令她停下，乔熙看清照片。"
+    - "涔旂啓鍐茶繘鐢垫锛屾挒鍒板晢鍖楃悰銆?
+    - "鍟嗗寳鐞涘懡浠ゅス鍋滀笅锛屼箶鐔欑湅娓呯収鐗囥€?
 """
 
     profile = _build_shot_director_signal_retrieval_profile(
         planner_output=planner_output,
-        atmosphere_strategy="镜头导演节奏执行约束: 长对白需要听者反应，尾帧停在照片。",
-        director_brief="压住碰撞浪漫化风险，保持电梯空间连续。",
+        atmosphere_strategy="闀滃ご瀵兼紨鑺傚鎵ц绾︽潫: 闀垮鐧介渶瑕佸惉鑰呭弽搴旓紝灏惧抚鍋滃湪鐓х墖銆?,
+        director_brief="鍘嬩綇纰版挒娴极鍖栭闄╋紝淇濇寔鐢垫绌洪棿杩炵画銆?,
         aspect_ratio="9:16",
     )
 
@@ -766,121 +766,122 @@ def test_shot_director_signal_profile_routes_knowledge_retrieval():
     assert "rhythm_alignment" in profile["signals"]
     assert "long_dialogue_coverage" in profile["reusable_pattern"]
     assert "SHOT-DIALOGUE-COVERAGE-001" in profile["reusable_pattern"]
-    assert "22_多机位分镜与镜头多样性规则 反站桩正反打 过肩 反应特写" in profile["reusable_pattern"]
-    assert "多机位模板" in profile["tags"]
-    assert "镜头多样性" in profile["tags"]
-    assert "机位切换减法" in profile["tags"]
-    assert "剪辑省略" in profile["tags"]
-    assert "节奏联动" in profile["tags"]
-    assert "故事节奏控制" in profile["tags"]
-    assert "上游导演约束" in profile["tags"]
-    assert "CASE_拍摄剪辑_切出镜头_访谈对话与情感片段技巧" in profile["tags"]
-    assert "必须把检索到的剪辑/镜头库规则转成镜头、切镜点、连续性、声音，不得只写原则" in profile["visual_constraints"]
-    assert "必须优先使用本片段剧情信号匹配到的 CASE 案例和规则卡" in profile["visual_constraints"]
-    assert profile["max_chunks_per_source"] == 2
+    assert "SHOT-DIALOGUE-PAUSE-001" in profile["reusable_pattern"]
+    assert "shot_library_routing" in profile["tags"]
+    assert "multicam_strategy" in profile["tags"]
+    assert "shot_variation" in profile["tags"]
+    assert "upstream_director_constraint" in profile["tags"]
+    assert "coverage_role" in profile["tags"]
+    assert "relation_shot" in profile["tags"]
+    assert "reaction_shot" in profile["tags"]
+    assert "tailframe_handoff" in profile["tags"]
+    assert "no_pseudo_viewpoint" in profile["tags"]
+    assert "蹇呴』鎶婃绱㈠埌鐨勫壀杈?闀滃ご搴撹鍒欒浆鎴愰暅澶淬€佸垏闀滅偣銆佽繛缁€с€佸０闊筹紝涓嶅緱鍙啓鍘熷垯" in profile["visual_constraints"]
+    assert "蹇呴』浼樺厛浣跨敤鏈墖娈靛墽鎯呬俊鍙峰尮閰嶅埌鐨?CASE 妗堜緥鍜岃鍒欏崱" in profile["visual_constraints"]
+    assert profile["max_chunks_per_source"] == 1
 
 
 def test_shot_director_variety_guard_flags_repeated_shot_language():
-    output = """- 片段编号: F01
-  片段任务: 长对白压迫
-  节奏: 压迫递进
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-2秒
-      镜头: 正面中景
-      台词: "你解释。"
-    - 镜头编号: F01-S02
-      时长: 2-4秒
-      镜头: 正面中景
-      台词: ~
-    - 镜头编号: F01-S03
-      时长: 4-6秒
-      镜头: 正面中景
-      台词: ~
+    output = """- 鐗囨缂栧彿: F01
+  鐗囨浠诲姟: 闀垮鐧藉帇杩?
+  鑺傚: 鍘嬭揩閫掕繘
+  闀滃ご鍒楄〃:
+    - 闀滃ご缂栧彿: F01-S01
+      鏃堕暱: 0-2绉?
+      闀滃ご: 姝ｉ潰涓櫙
+      鍙拌瘝: "浣犺В閲娿€?
+    - 闀滃ご缂栧彿: F01-S02
+      鏃堕暱: 2-4绉?
+      闀滃ご: 姝ｉ潰涓櫙
+      鍙拌瘝: ~
+    - 闀滃ご缂栧彿: F01-S03
+      鏃堕暱: 4-6绉?
+      闀滃ご: 姝ｉ潰涓櫙
+      鍙拌瘝: ~
 """
 
     issues = _validate_shot_director_variety(output)
 
     assert issues
-    assert "连续使用同一种镜头语言" in issues[0] or "连续三个镜头重复" in issues[0]
+    assert "杩炵画浣跨敤鍚屼竴绉嶉暅澶磋瑷€" in issues[0] or "杩炵画涓変釜闀滃ご閲嶅" in issues[0]
 
 
 def test_shot_director_variety_guard_allows_explicit_rhythm_exception():
-    output = """- 片段编号: F01
-  片段任务: 压住沉默
-  节奏: 节奏总控要求固定机位压住不切
-  镜头列表:
-    - 镜头编号: F01-S01
-      时长: 0-2秒
-      镜头: 正面中景
-    - 镜头编号: F01-S02
-      时长: 2-4秒
-      镜头: 正面中景
-    - 镜头编号: F01-S03
-      时长: 4-6秒
-      镜头: 正面中景
+    output = """- 鐗囨缂栧彿: F01
+  鐗囨浠诲姟: 鍘嬩綇娌夐粯
+  鑺傚: 鑺傚鎬绘帶瑕佹眰鍥哄畾鏈轰綅鍘嬩綇涓嶅垏
+  闀滃ご鍒楄〃:
+    - 闀滃ご缂栧彿: F01-S01
+      鏃堕暱: 0-2绉?
+      闀滃ご: 姝ｉ潰涓櫙
+    - 闀滃ご缂栧彿: F01-S02
+      鏃堕暱: 2-4绉?
+      闀滃ご: 姝ｉ潰涓櫙
+    - 闀滃ご缂栧彿: F01-S03
+      鏃堕暱: 4-6绉?
+      闀滃ご: 姝ｉ潰涓櫙
 """
 
     assert _validate_shot_director_variety(output) == []
 
 
 def test_shot_library_signal_task_card_keeps_rhythm_as_constraints_without_overriding_boundaries():
-    planner_output = """- 片段编号: F01
-  施工剧本原文事件:
-    - "乔熙冲进电梯，撞到商北琛。"
-  出场状态: "乔熙站在电梯门内侧，商北琛挡住门口。"
-- 片段编号: F02
-  施工剧本原文事件:
-    - "乔熙看清照片内容，愣在原地。"
-  出场状态: "照片留在乔熙手里，视线承接到下一段。"
+    planner_output = """- 鐗囨缂栧彿: F01
+  鏂藉伐鍓ф湰鍘熸枃浜嬩欢:
+    - "涔旂啓鍐茶繘鐢垫锛屾挒鍒板晢鍖楃悰銆?
+  鍑哄満鐘舵€? "涔旂啓绔欏湪鐢垫闂ㄥ唴渚э紝鍟嗗寳鐞涙尅浣忛棬鍙ｃ€?
+- 鐗囨缂栧彿: F02
+  鏂藉伐鍓ф湰鍘熸枃浜嬩欢:
+    - "涔旂啓鐪嬫竻鐓х墖鍐呭锛屾劊鍦ㄥ師鍦般€?
+  鍑哄満鐘舵€? "鐓х墖鐣欏湪涔旂啓鎵嬮噷锛岃绾挎壙鎺ュ埌涓嬩竴娈点€?
 """
-    atmosphere_strategy = """节奏总合同: F01 碰撞后短暂停顿，F02 照片揭示降速。
-镜头导演节奏执行约束: F01 只压住受击反应；F02 必须照片读清后再切，不能把照片提前塞回 F01。
-拆片边界建议: 保持 F01/F02 边界，镜头只做节奏施工。
+    atmosphere_strategy = """鑺傚鎬诲悎鍚? F01 纰版挒鍚庣煭鏆傚仠椤匡紝F02 鐓х墖鎻ず闄嶉€熴€?
+闀滃ご瀵兼紨鑺傚鎵ц绾︽潫: F01 鍙帇浣忓彈鍑诲弽搴旓紱F02 蹇呴』鐓х墖璇绘竻鍚庡啀鍒囷紝涓嶈兘鎶婄収鐗囨彁鍓嶅鍥?F01銆?
+鎷嗙墖杈圭晫寤鸿: 淇濇寔 F01/F02 杈圭晫锛岄暅澶村彧鍋氳妭濂忔柦宸ャ€?
 """
 
     card = _shot_library_signal_task_card(
         planner_output=planner_output,
         atmosphere_strategy=atmosphere_strategy,
-        director_brief="严格按拆片边界执行，不新增剧本外动作。",
+        director_brief="涓ユ牸鎸夋媶鐗囪竟鐣屾墽琛岋紝涓嶆柊澧炲墽鏈鍔ㄤ綔銆?,
         aspect_ratio="9:16",
     )
 
-    assert "节奏总控约束:" in card
-    assert "先读上游导演资产" in card
-    assert "不能扩写新剧情" in card
-    assert "- 片段编号: F01" in card
-    assert "- 片段编号: F02" in card
-    assert "乔熙冲进电梯，撞到商北琛" in card
-    assert "乔熙看清照片内容，愣在原地" in card
-    assert card.index("- 片段编号: F01") < card.index("- 片段编号: F02")
-    assert "F02 必须照片读清后再切" in card
-    assert card.count("- 片段编号:") == 2
+    assert "鑺傚鎬绘帶绾︽潫:" in card
+    assert "鍏堣涓婃父瀵兼紨璧勪骇" in card
+    assert "涓嶈兘鎵╁啓鏂板墽鎯? in card
+    assert "- 鐗囨缂栧彿: F01" in card
+    assert "- 鐗囨缂栧彿: F02" in card
+    assert "涔旂啓鍐茶繘鐢垫锛屾挒鍒板晢鍖楃悰" in card
+    assert "涔旂啓鐪嬫竻鐓х墖鍐呭锛屾劊鍦ㄥ師鍦? in card
+    assert card.index("- 鐗囨缂栧彿: F01") < card.index("- 鐗囨缂栧彿: F02")
+    assert "F02 蹇呴』鐓х墖璇绘竻鍚庡啀鍒? in card
+    assert card.count("- 鐗囨缂栧彿:") == 2
 
 
 def test_shot_library_signal_task_card_asserts_long_dialogue_and_repeated_camera_rules():
     planner_output = """- fragment_id: F01
   source_script_events:
-    - "商北琛用一整段高压命令质问乔熙。"
-    - "乔熙沉默回避，电梯门继续合拢。"
+    - "鍟嗗寳鐞涚敤涓€鏁存楂樺帇鍛戒护璐ㄩ棶涔旂啓銆?
+    - "涔旂啓娌夐粯鍥為伩锛岀數姊棬缁х画鍚堟嫝銆?
 """
-    atmosphere_strategy = "镜头导演节奏执行约束: 长对白内部必须切给听者反应，避免同一正反打机位重复吃完整句。"
+    atmosphere_strategy = "闀滃ご瀵兼紨鑺傚鎵ц绾︽潫: 闀垮鐧藉唴閮ㄥ繀椤诲垏缁欏惉鑰呭弽搴旓紝閬垮厤鍚屼竴姝ｅ弽鎵撴満浣嶉噸澶嶅悆瀹屾暣鍙ャ€?
 
     card = _shot_library_signal_task_card(
         planner_output=planner_output,
         atmosphere_strategy=atmosphere_strategy,
-        director_brief="对白压迫感递进，但不要机械重复固定机位。",
+        director_brief="瀵圭櫧鍘嬭揩鎰熼€掕繘锛屼絾涓嶈鏈烘閲嶅鍥哄畾鏈轰綅銆?,
         aspect_ratio="9:16",
     )
 
     assert "long_dialogue_coverage" in card
     assert "authority_pressure" in card
-    assert "调用对白覆盖镜头库" in card
-    assert "同侧听者反应/过肩" in card
-    assert "不得一个固定机位吃完整长台词" in card
-    assert "cut_point 写明台词断点或压迫落点" in card
-    assert "调用权力压迫镜头库" in card
-    assert "不得全程均速正反打" in card
+    assert "璋冪敤瀵圭櫧瑕嗙洊闀滃ご搴? in card
+    assert "鍚屼晶鍚€呭弽搴?杩囪偐" in card
+    assert "涓嶅緱涓€涓浐瀹氭満浣嶅悆瀹屾暣闀垮彴璇? in card
+    assert "cut_point 鍐欐槑鍙拌瘝鏂偣鎴栧帇杩惤鐐? in card
+    assert "璋冪敤鏉冨姏鍘嬭揩闀滃ご搴? in card
+    assert "涓嶅緱鍏ㄧ▼鍧囬€熸鍙嶆墦" in card
 
 
 def test_legacy_rhythm_shot_director_notes_are_still_extracted():
@@ -921,27 +922,27 @@ def test_shot_director_uploads_only_scene_layout_references():
     state = {
         "reference_image_b64s": ["person-a", "layout-a", "grid-a", "annotated-a", "raw-scene-a"],
         "reference_image_manifest": [
-            {"label": "@图片1", "role": "character", "purpose": "主角人物"},
-            {"label": "@图片2", "role": "scene_layout", "purpose": "电梯口场景俯视布局图，含人物位置和移动轨迹"},
-            {"label": "@图片3", "type": "scene_card", "purpose": "场景九宫格机位图"},
-            {"label": "@图片4", "role": "annotated_scene_layout", "purpose": "用户标注后的俯视图"},
-            {"label": "@图片5", "asset_type": "scene", "purpose": "原始场景参考图"},
+            {"label": "@鍥剧墖1", "role": "character", "purpose": "涓昏浜虹墿"},
+            {"label": "@鍥剧墖2", "role": "scene_layout", "purpose": "鐢垫鍙ｅ満鏅刊瑙嗗竷灞€鍥撅紝鍚汉鐗╀綅缃拰绉诲姩杞ㄨ抗"},
+            {"label": "@鍥剧墖3", "type": "scene_card", "purpose": "鍦烘櫙涔濆鏍兼満浣嶅浘"},
+            {"label": "@鍥剧墖4", "role": "annotated_scene_layout", "purpose": "鐢ㄦ埛鏍囨敞鍚庣殑淇鍥?},
+            {"label": "@鍥剧墖5", "asset_type": "scene", "purpose": "鍘熷鍦烘櫙鍙傝€冨浘"},
         ],
-        "scene_layout_annotations": [{"scene_number": "1", "summary": "人物标点: 乔熙(0.30,0.50)"}],
+        "scene_layout_annotations": [{"scene_number": "1", "summary": "浜虹墿鏍囩偣: 涔旂啓(0.30,0.50)"}],
     }
 
     assert _reference_images(state) == ["layout-a", "grid-a", "annotated-a"]
-    assert [item["label"] for _image, item in _scene_reference_items(state)] == ["@图片2", "@图片3", "@图片4"]
+    assert [item["label"] for _image, item in _scene_reference_items(state)] == ["@鍥剧墖2", "@鍥剧墖3", "@鍥剧墖4"]
 
     prompt = _reference_image_manifest_prompt(state)
     assert "[Scene Layout Reference Images]" in prompt
-    assert "@图片2" in prompt
-    assert "移动轨迹" in prompt
-    assert "@图片3" in prompt
-    assert "@图片4" in prompt
-    assert "乔熙(0.30,0.50)" in prompt
-    assert "主角人物" not in prompt
-    assert "原始场景参考图" not in prompt
+    assert "@鍥剧墖2" in prompt
+    assert "绉诲姩杞ㄨ抗" in prompt
+    assert "@鍥剧墖3" in prompt
+    assert "@鍥剧墖4" in prompt
+    assert "涔旂啓(0.30,0.50)" in prompt
+    assert "涓昏浜虹墿" not in prompt
+    assert "鍘熷鍦烘櫙鍙傝€冨浘" not in prompt
 
 
 def test_shot_director_merges_completed_background_scene_cards(monkeypatch):
@@ -977,7 +978,7 @@ def test_split_fragment_mode_can_pass_scene_reference_images_when_explicit(monke
 
     def fake_call_llm(**kwargs):
         captured_images.append(kwargs.get("images_base64"))
-        return "- 片段编号: F01\n  片段任务: 建立空间\n  镜头列表: []\n"
+        return "- 鐗囨缂栧彿: F01\n  鐗囨浠诲姟: 寤虹珛绌洪棿\n  闀滃ご鍒楄〃: []\n"
 
     monkeypatch.setattr(sdi, "call_llm", fake_call_llm)
 
@@ -992,7 +993,7 @@ def test_split_fragment_mode_can_pass_scene_reference_images_when_explicit(monke
         images_base64=["layout-a"],
     )
 
-    assert "片段编号: F01" in output
+    assert "鐗囨缂栧彿: F01" in output
     assert runtime["mode"] == "split_by_fragment"
     assert captured_images == [["layout-a"]]
 
@@ -1010,10 +1011,10 @@ def test_segment_shot_director_uses_text_scene_references_without_uploading_imag
         captured["images_base64"] = kwargs.get("images_base64")
         captured["scene_reference_context"] = kwargs.get("scene_reference_context")
         return (
-            "- 片段编号: F01\n  片段任务: 建立空间\n  镜头列表: []\n",
+            "- 鐗囨缂栧彿: F01\n  鐗囨浠诲姟: 寤虹珛绌洪棿\n  闀滃ご鍒楄〃: []\n",
             {"elapsed_seconds": 0.1},
             {"final": {"retrieval_mode": "stub"}},
-            {"final": "- 片段编号: F01\n  片段任务: 建立空间\n  镜头列表: []\n"},
+            {"final": "- 鐗囨缂栧彿: F01\n  鐗囨浠诲姟: 寤虹珛绌洪棿\n  闀滃ご鍒楄〃: []\n"},
         )
 
     monkeypatch.setattr(sdi, "_run_shot_director_three_stage", fake_three_stage)
@@ -1032,18 +1033,18 @@ def test_segment_shot_director_uses_text_scene_references_without_uploading_imag
 
     result = sdi.run_shot_director_for_segment(
         {
-            "script": "乔熙走到电梯门口。",
+            "script": "涔旂啓璧板埌鐢垫闂ㄥ彛銆?,
             "aspect_ratio": "9:16",
-            "scene_context_brief": "空间约束：电梯门在画面右侧，走廊不能新增前台。",
-            "agent_outputs": {"story_planner": "- fragment_id: F01\n  source_script_events:\n    - 乔熙走到电梯门口。\n"},
+            "scene_context_brief": "绌洪棿绾︽潫锛氱數姊棬鍦ㄧ敾闈㈠彸渚э紝璧板粖涓嶈兘鏂板鍓嶅彴銆?,
+            "agent_outputs": {"story_planner": "- fragment_id: F01\n  source_script_events:\n    - 涔旂啓璧板埌鐢垫闂ㄥ彛銆俓n"},
             "reference_image_b64s": ["person-a", "layout-a", "annotated-a", "prop-a"],
             "reference_image_manifest": [
-                {"role": "character", "purpose": "主角人物"},
-                {"role": "scene_layout", "purpose": "电梯口俯视布局图"},
-                {"role": "annotated_scene_layout", "purpose": "用户标注后的俯视图"},
-                {"role": "prop", "purpose": "道具"},
+                {"role": "character", "purpose": "涓昏浜虹墿"},
+                {"role": "scene_layout", "purpose": "鐢垫鍙ｄ刊瑙嗗竷灞€鍥?},
+                {"role": "annotated_scene_layout", "purpose": "鐢ㄦ埛鏍囨敞鍚庣殑淇鍥?},
+                {"role": "prop", "purpose": "閬撳叿"},
             ],
-            "scene_layout_annotations": [{"scene_number": "1", "summary": "人物标点: 乔熙(0.30,0.50)"}],
+            "scene_layout_annotations": [{"scene_number": "1", "summary": "浜虹墿鏍囩偣: 涔旂啓(0.30,0.50)"}],
             "knowledge_metadata": {},
             "segment_names": ["F01"],
             "total_segments": 1,
@@ -1055,8 +1056,8 @@ def test_segment_shot_director_uses_text_scene_references_without_uploading_imag
     assert "shot_director_review_fragment_F01" in result["agent_outputs"]
     assert "shot_director_guard_fragment_F01" in result["agent_outputs"]
     assert captured["images_base64"] is None
-    assert "场景分析师给镜头导演的空间约束" in str(captured["scene_reference_context"])
-    assert "走廊不能新增前台" in str(captured["scene_reference_context"])
-    assert "用户标注后的俯视图" in str(captured["scene_reference_context"])
-    assert "乔熙(0.30,0.50)" in str(captured["scene_reference_context"])
-    assert result["agent_outputs"]["shot_director"].startswith("- 片段编号: F01")
+    assert "鍦烘櫙鍒嗘瀽甯堢粰闀滃ご瀵兼紨鐨勭┖闂寸害鏉? in str(captured["scene_reference_context"])
+    assert "璧板粖涓嶈兘鏂板鍓嶅彴" in str(captured["scene_reference_context"])
+    assert "鐢ㄦ埛鏍囨敞鍚庣殑淇鍥? in str(captured["scene_reference_context"])
+    assert "涔旂啓(0.30,0.50)" in str(captured["scene_reference_context"])
+    assert result["agent_outputs"]["shot_director"].startswith("- 鐗囨缂栧彿: F01")
